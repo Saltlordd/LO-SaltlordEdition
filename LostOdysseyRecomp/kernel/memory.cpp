@@ -118,8 +118,17 @@ uint32_t PageAllocator::Alloc(Region& region, uint32_t size, uint32_t alignment,
     if (size == 0)
         size = PAGE_SIZE;
 
-    size = RoundUp(size, PAGE_SIZE);
-    alignment = std::max<uint32_t>(RoundUp(alignment, PAGE_SIZE), PAGE_SIZE);
+    // Round in a wider type: a guest request near 4 GiB must fail instead of
+    // wrapping to zero pages and returning an address already in use.
+    const uint64_t roundedSize = RoundUp<uint64_t>(size, PAGE_SIZE);
+    const uint64_t roundedAlignment = std::max<uint64_t>(RoundUp<uint64_t>(alignment, PAGE_SIZE), PAGE_SIZE);
+    if (roundedSize > UINT32_MAX || roundedAlignment > UINT32_MAX ||
+        region.end <= region.begin || roundedSize > uint64_t(region.end) - region.begin ||
+        roundedSize / PAGE_SIZE > region.used.size())
+        return 0;
+
+    size = static_cast<uint32_t>(roundedSize);
+    alignment = static_cast<uint32_t>(roundedAlignment);
 
     const uint32_t pageCount = size / PAGE_SIZE;
     const uint32_t alignPages = alignment / PAGE_SIZE;

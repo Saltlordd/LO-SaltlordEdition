@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <fstream>
+#include <sstream>
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
@@ -69,13 +70,14 @@ static void TestDistribution(const char* name, const std::vector<Key>& keys, siz
 static void TestAllFields()
 {
     const Key original{ 0x82000000u, 18, 128, 128, 20515 };
-    std::array<Key, 6> keys;
+    std::array<Key, 7> keys;
     keys.fill(original);
     keys[1].address += 4096;
     keys[2].format += 1;
     keys[3].width += 1;
     keys[4].height += 1;
     keys[5].flags ^= 1;
+    keys[6].mipAddress = 0x83000000u;
     TestMap({keys.begin(), keys.end()});
 
     struct CollidingHash { size_t operator()(const Key&) const { return 0; } };
@@ -88,6 +90,45 @@ static void TestAllFields()
         Check(cache.at(copy) == i, "full-hash collision lookup");
         Check(KeyHash{}(copy) == KeyHash{}(keys[i]), "equal keys hash equally");
     }
+}
+
+static std::vector<Key> ReadCapturedKeys(std::istream& input)
+{
+    std::vector<Key> keys;
+    std::string line;
+    while (std::getline(input, line))
+    {
+        std::istringstream tuple(line);
+        tuple >> std::ws;
+        if (tuple.eof()) continue;
+        Key key{};
+        Check(bool(tuple >> key.address >> key.format >> key.width >> key.height >> key.flags), "complete captured key");
+        tuple >> std::ws;
+        if (!tuple.eof())
+        {
+            Check(bool(tuple >> key.mipAddress), "valid captured mip address");
+            tuple >> std::ws;
+            Check(tuple.eof(), "no extra captured key fields");
+        }
+        keys.push_back(key);
+    }
+    Check(input.eof(), "valid captured keys");
+    return keys;
+}
+
+static void TestCapturedKeys()
+{
+    // Preserve old five-field recordings, and permit a sixth field for mips.
+    std::istringstream input("2181038080 18 128 128 20515\n"
+        "2181038080 18 128 128 20515 2197815296\n"
+        "2181038080 18 128 128 20515 2197819392\n");
+    const auto keys = ReadCapturedKeys(input);
+    Check(keys.size() == 3, "read legacy and extended captured fixtures");
+    Check(keys[0] == Key{0x82000000u, 18, 128, 128, 20515}, "legacy fixture defaults mip source to zero");
+    Check(keys[1].mipAddress == 0x83000000u && keys[2].mipAddress == 0x83001000u, "captured mip source addresses");
+    Check(!(keys[1] == keys[2]), "same base and layout distinguish separate mip sources");
+    Check(KeyHash{}(keys[1]) != KeyHash{}(keys[2]), "mip source participates in hash");
+    TestMap(keys);
 }
 
 static std::vector<Key> AlignedKeys(size_t count, uint32_t base, uint32_t stride)
@@ -105,6 +146,7 @@ int main(int argc, char** argv)
     {
         Check(argc <= 2, "usage: texture_key_test [captured-keys.txt]");
         TestAllFields();
+        TestCapturedKeys();
         TestDistribution("4KiB-low", AlignedKeys(512, 0, 4096), 512);
         TestDistribution("4KiB-high", AlignedKeys(512, 0x82000000u, 4096), 512);
         TestDistribution("4KiB-large", AlignedKeys(4096, 0x80000000u, 4096), 4096);
@@ -112,17 +154,10 @@ int main(int argc, char** argv)
         if (argc == 2)
         {
             // Optional read-only replay: one decimal address/format/width/
-            // height/flags tuple per line; no dependency on a live game.
+            // height/flags[/mipAddress] tuple per line; no live-game dependency.
             std::ifstream input(argv[1]);
             Check(bool(input), "open captured keys");
-            std::vector<Key> keys;
-            Key key{};
-            while (input >> key.address)
-            {
-                Check(bool(input >> key.format >> key.width >> key.height >> key.flags), "complete captured key");
-                keys.push_back(key);
-            }
-            Check(input.eof(), "valid captured keys");
+            const auto keys = ReadCapturedKeys(input);
             TestDistribution("captured", keys, 512);
         }
         std::printf("texture key: %zu checks passed\n", checks);

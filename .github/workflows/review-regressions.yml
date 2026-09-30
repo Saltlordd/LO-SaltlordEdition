@@ -1,0 +1,54 @@
+name: Runtime review regressions
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/review-regressions.yml'
+      - 'LostOdysseyRecomp/apu/audio*'
+      - 'LostOdysseyRecomp/gpu/command_processor.*'
+      - 'LostOdysseyRecomp/gpu/indirect_buffer_guard.h'
+      - 'LostOdysseyRecomp/gpu/renderer.cpp'
+      - 'LostOdysseyRecomp/gpu/texture*.h'
+      - 'LostOdysseyRecomp/kernel/imports.cpp'
+      - 'LostOdysseyRecomp/kernel/memory.*'
+      - 'LostOdysseyRecomp/kernel/io/file_system.cpp'
+      - 'LostOdysseyRecomp/main.cpp'
+      - 'LostOdysseyRecomp/os/user_paths.h'
+      - 'LostOdysseyRecomp/settings/config.cpp'
+      - 'LostOdysseyRecomp/updater/**'
+      - 'tools/tests/**'
+
+permissions:
+  contents: read
+
+jobs:
+  regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Initialize fixture dependencies
+        run: |
+          git submodule update --init --depth 1 tools/XenonRecomp
+          git -C tools/XenonRecomp submodule update --init --depth 1 thirdparty/xxHash thirdparty/tomlplusplus
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev
+      - name: Configure
+        run: cmake -S tools/tests/review_regressions -B build/review-regressions -DCMAKE_BUILD_TYPE=Debug -DLO_REVIEW_SANITIZE=ON
+      - name: Build
+        run: cmake --build build/review-regressions --parallel 2
+      - name: Test
+        run: ctest --test-dir build/review-regressions --output-on-failure --parallel 2
+      - name: Preserve regression logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-regression-logs
+          path: |
+            build/review-regressions/Testing/Temporary/LastTest.log
+            build/review-regressions/fixtures/**/*.log
+          if-no-files-found: ignore
+          retention-days: 7

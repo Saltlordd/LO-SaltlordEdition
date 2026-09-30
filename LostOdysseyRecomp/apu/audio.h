@@ -14,6 +14,8 @@ namespace apu
 {
     void Init();
     void RegisterClient(uint32_t callback, uint32_t param);
+    // Disables future calls and drains a call already acquired by the driver.
+    // When called from that callback itself, it disables subsequent calls.
     void UnregisterClient();
     void SubmitFrame(const void* samples);
     void SetPaused(bool paused);

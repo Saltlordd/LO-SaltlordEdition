@@ -75,6 +75,14 @@ namespace os::user_paths
     }
     inline bool UsePortableLayout() { return g_usePortableLayout; }
 
+    // Portable launches deliberately retain the working-directory settings
+    // contract, including isolated --game launches. Read-only installations
+    // use the same XDG path for startup detection, preferences, and persistence.
+    inline std::filesystem::path SettingsPath()
+    {
+        return UsePortableLayout() ? std::filesystem::path("settings.ini") : ConfigDir() / "settings.ini";
+    }
+
     inline std::filesystem::path ProfileDir()
     {
         return detail::EnvironmentPath("LO_PROFILE_DIR",

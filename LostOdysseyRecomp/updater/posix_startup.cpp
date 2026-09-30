@@ -2,6 +2,7 @@
 #include "http.h"
 #include "progress.h"
 #include "posix_ui.h"
+#include "external_update_notice.h"
 #include "../os/user_paths.h"
 
 #include <cstdlib>
@@ -45,7 +46,10 @@ StartupResult PrepareAtStartup(const StartupOptions &options)
     {
         ShowExternalUpdateNoticeSdl(release->tag, options.uiLanguage);
         result.status = StartupStatus::ExternalUpdateAvailable;
-        result.detail = "Flatpak update available: " + release->tag + "; run flatpak update io.github.freefrank.LostOdysseyRecomp";
+        result.detail = "Flatpak update available: " + release->tag +
+            "; download the latest .flatpak bundle from " + std::string(FlatpakReleaseUrl) +
+            " and install it with " + std::string(FlatpakBundleInstallCommand) +
+            " (use --system instead of --user for a system installation)";
         return result;
     }
 

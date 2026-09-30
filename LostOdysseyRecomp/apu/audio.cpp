@@ -1,5 +1,6 @@
 #include <stdafx.h>
 #include "audio.h"
+#include "audio_callback.h"
 #include <cpu/guest_thread.h>
 #include <kernel/memory.h>
 #include <os/logger.h>
@@ -11,8 +12,7 @@ namespace apu
 {
     namespace
     {
-        std::atomic<uint32_t> g_callback{ 0 };
-        std::atomic<uint32_t> g_param{ 0 };
+        detail::AudioCallback g_client;
         std::atomic<uint32_t> g_framesSubmitted{ 0 };
         std::thread g_thread;
         std::atomic<bool> g_running{ false };
@@ -81,12 +81,11 @@ namespace apu
                 while (g_device && SDL_GetQueuedAudioSize(g_device) >= kStereoFrameBytes * 4)
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
-                uint32_t callback = g_callback.load();
-                if (!callback)
-                    continue;
-
-                ctx.ppcContext.r3.u64 = g_param.load();
-                g_memory.FindFunction(callback)(ctx.ppcContext, g_memory.base);
+                g_client.Dispatch([&](uint32_t callback, uint32_t param)
+                {
+                    ctx.ppcContext.r3.u64 = param;
+                    g_memory.FindFunction(callback)(ctx.ppcContext, g_memory.base);
+                });
             }
         }
     }
@@ -113,13 +112,12 @@ namespace apu
     void RegisterClient(uint32_t callback, uint32_t param)
     {
         LOG_INFO("audio client callback {:#x} param {:#x}", callback, param);
-        g_param = param;
-        g_callback = callback;
+        g_client.Register(callback, param);
     }
 
     void UnregisterClient()
     {
-        g_callback = 0;
+        g_client.Unregister();
         if (g_device) SDL_ClearQueuedAudio(g_device);
     }
 

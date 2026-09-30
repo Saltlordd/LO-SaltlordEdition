@@ -678,15 +678,20 @@ constexpr uint32_t X_MEM_LARGE_PAGES = 0x20000000;
 
 static uint32_t NtAllocateVirtualMemory(be<uint32_t>* baseAddressPtr, be<uint32_t>* regionSizePtr, uint32_t allocationType, uint32_t protect, uint32_t unknown)
 {
-    uint32_t baseAddress = baseAddressPtr ? uint32_t(*baseAddressPtr) : 0;
-    uint32_t regionSize = regionSizePtr ? uint32_t(*regionSizePtr) : 0;
+    if (!baseAddressPtr || !regionSizePtr)
+        return STATUS_INVALID_PARAMETER;
+
+    uint32_t baseAddress = uint32_t(*baseAddressPtr);
+    uint32_t regionSize = uint32_t(*regionSizePtr);
 
     const uint32_t pageSize = (allocationType & X_MEM_LARGE_PAGES) ? 0x10000 : 0x1000;
     uint32_t alignedBase = baseAddress & ~(pageSize - 1);
-    uint32_t alignedSize = RoundUp(regionSize + (baseAddress - alignedBase), pageSize);
+    const uint64_t roundedSize = RoundUp<uint64_t>(uint64_t(regionSize) + (baseAddress - alignedBase), pageSize);
 
-    if (alignedSize == 0)
+    if (roundedSize == 0 || roundedSize > UINT32_MAX)
         return STATUS_INVALID_PARAMETER;
+
+    const uint32_t alignedSize = static_cast<uint32_t>(roundedSize);
 
     // Commit inside an existing reservation: nothing to do, memory is always
     // backed. Keep the caller's address so pointers into the reserved range

@@ -33,6 +33,17 @@ lo_add_header_test(LoParticleMaterialCompatTest ${CMAKE_SOURCE_DIR}/tools/tests/
 lo_add_header_test(LoRenderBatchPolicyTest ${CMAKE_SOURCE_DIR}/tools/tests/render_batch_policy_test.cpp)
 lo_add_header_test(LoTextureDescriptorCacheTest ${CMAKE_SOURCE_DIR}/tools/tests/texture_descriptor_cache_test.cpp)
 lo_add_header_test(LoTextureKeyTest ${CMAKE_SOURCE_DIR}/tools/tests/texture_key_test.cpp)
+lo_add_header_test(LoTextureContentTest ${CMAKE_SOURCE_DIR}/tools/tests/texture_content_test.cpp)
+target_link_libraries(LoTextureContentTest PRIVATE xxHash::xxhash)
+find_package(Threads REQUIRED)
+lo_add_header_test(LoAudioCallbackTest ${CMAKE_SOURCE_DIR}/tools/tests/audio_callback_test.cpp)
+target_link_libraries(LoAudioCallbackTest PRIVATE Threads::Threads)
+lo_add_header_test(LoSettingsPathTest ${CMAKE_SOURCE_DIR}/tools/tests/settings_path_test.cpp)
+target_sources(LoSettingsPathTest PRIVATE ${LO_RUNTIME_ROOT}/updater/update.cpp)
+lo_add_header_test(LoExternalUpdateNoticeTest ${CMAKE_SOURCE_DIR}/tools/tests/external_update_notice_test.cpp)
+if(MSVC)
+    target_compile_options(LoExternalUpdateNoticeTest PRIVATE /utf-8)
+endif()
 lo_add_header_test(LoImportGameTest ${CMAKE_SOURCE_DIR}/tools/tests/import_game_test.cpp)
 lo_add_header_test(LoImportIsoLocatorTest ${CMAKE_SOURCE_DIR}/tools/tests/import_iso_locator_test.cpp)
 target_sources(LoImportIsoLocatorTest PRIVATE ${LO_RUNTIME_ROOT}/install/import_image.cpp)
@@ -72,6 +83,22 @@ add_executable(LoUpdaterSdlUiTest EXCLUDE_FROM_ALL
 target_include_directories(LoUpdaterSdlUiTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoUpdaterSdlUiTest PRIVATE cxx_std_20)
 target_link_libraries(LoUpdaterSdlUiTest PRIVATE SDL2::SDL2-static)
+if(MSVC)
+    target_compile_options(LoUpdaterSdlUiTest PRIVATE /utf-8 /UNDEBUG)
+else()
+    target_compile_options(LoUpdaterSdlUiTest PRIVATE -UNDEBUG)
+endif()
+if(NOT WIN32)
+    add_executable(LoUpdaterSdlProductionTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/updater_sdl_ui_test.cpp
+        ${LO_RUNTIME_ROOT}/install/installer_font.cpp
+        ${LO_RUNTIME_ROOT}/updater/progress.cpp
+        ${LO_RUNTIME_ROOT}/updater/update.cpp)
+    target_include_directories(LoUpdaterSdlProductionTest PRIVATE ${LO_RUNTIME_ROOT})
+    target_compile_features(LoUpdaterSdlProductionTest PRIVATE cxx_std_20)
+    target_compile_options(LoUpdaterSdlProductionTest PRIVATE -UNDEBUG)
+    target_link_libraries(LoUpdaterSdlProductionTest PRIVATE SDL2::SDL2-static)
+endif()
 add_executable(LoUpdaterGamePromptTest EXCLUDE_FROM_ALL
     ${CMAKE_SOURCE_DIR}/tools/tests/updater_game_prompt_test.cpp
     ${LO_RUNTIME_ROOT}/updater/game_prompt.cpp)

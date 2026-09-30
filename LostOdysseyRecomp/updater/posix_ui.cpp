@@ -1,4 +1,5 @@
 #include "posix_ui.h"
+#include "external_update_notice.h"
 #include "../install/installer_colors.h"
 #include "../install/installer_font.h"
 #include "../install/installer_navigation.h"
@@ -313,7 +314,7 @@ bool ConfirmUpdateSdl(std::string_view version, std::string_view changelog, uint
 
 void ShowExternalUpdateNoticeSdl(std::string_view version, uint32_t uiLanguage)
 {
-    (void)uiLanguage;
+    const auto& text = FlatpakUpdateNoticeText(uiLanguage);
     const char* envDriver = std::getenv("SDL_VIDEODRIVER");
     const bool dummyEnv = envDriver && std::string_view(envDriver) == "dummy";
 
@@ -337,11 +338,13 @@ void ShowExternalUpdateNoticeSdl(std::string_view version, uint32_t uiLanguage)
                 controllers.push_back(pad);
     }
 
-    constexpr int WIN_WIDTH = 580;
-    constexpr int WIN_HEIGHT = 260;
+    constexpr int WIN_WIDTH = 700;
+    constexpr int WIN_HEIGHT = 340;
+
+    const auto title = std::string(text.title) + ": " + std::string(version);
 
     SDL_Window* window = SDL_CreateWindow(
-        "Lost Odyssey Recomp - Update Available",
+        title.c_str(),
         SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
         WIN_WIDTH, WIN_HEIGHT,
         SDL_WINDOW_SHOWN
@@ -381,17 +384,18 @@ void ShowExternalUpdateNoticeSdl(std::string_view version, uint32_t uiLanguage)
         FillRect(renderer, 0, 0, WIN_WIDTH, WIN_HEIGHT, COLOR_STEEL);
         DrawBevelPanel(renderer, 10, 10, WIN_WIDTH - 20, WIN_HEIGHT - 20, COLOR_STEEL_PANEL);
 
-        std::string title = "Flatpak Update Available: " + std::string(version);
-        DrawString(renderer, 24, 24, title, COLOR_ACCENT_GOLD.r, COLOR_ACCENT_GOLD.g, COLOR_ACCENT_GOLD.b, 255, 1.2f);
+        DrawString(renderer, 24, 24, TruncateTextWidth(title, WIN_WIDTH - 48, 1.1f), COLOR_ACCENT_GOLD.r, COLOR_ACCENT_GOLD.g, COLOR_ACCENT_GOLD.b, 255, 1.1f);
 
-        DrawString(renderer, 24, 70, "A newer release of Lost Odyssey Recomp is available.", COLOR_INK.r, COLOR_INK.g, COLOR_INK.b, 255, 1.0f);
-        DrawString(renderer, 24, 100, "To update, please run:", COLOR_MUTED.r, COLOR_MUTED.g, COLOR_MUTED.b, 255, 1.0f);
-        DrawString(renderer, 24, 130, "flatpak update io.github.freefrank.LostOdysseyRecomp", COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b, 255, 1.0f);
+        DrawString(renderer, 24, 70, text.download, COLOR_INK.r, COLOR_INK.g, COLOR_INK.b, 255, 0.9f);
+        DrawString(renderer, 24, 100, FlatpakReleaseUrl, COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b, 255, 0.9f);
+        DrawString(renderer, 24, 145, text.install, COLOR_INK.r, COLOR_INK.g, COLOR_INK.b, 255, 0.9f);
+        DrawString(renderer, 24, 175, FlatpakBundleInstallCommand, COLOR_CYAN.r, COLOR_CYAN.g, COLOR_CYAN.b, 255, 0.9f);
+        DrawString(renderer, 24, 215, text.systemScope, COLOR_MUTED.r, COLOR_MUTED.g, COLOR_MUTED.b, 255, 0.9f);
 
         int btnX = (WIN_WIDTH - 120) / 2;
         int btnY = WIN_HEIGHT - 65;
         DrawSelectionBar(renderer, btnX, btnY, 120, 38);
-        DrawString(renderer, btnX + 36, btnY + 10, "OK (A)", COLOR_SEL_INK.r, COLOR_SEL_INK.g, COLOR_SEL_INK.b, 255, 1.0f);
+        DrawString(renderer, btnX + (120 - MeasureTextWidth(text.close)) / 2, btnY + 10, text.close, COLOR_SEL_INK.r, COLOR_SEL_INK.g, COLOR_SEL_INK.b, 255, 1.0f);
 
         SDL_RenderPresent(renderer);
         SDL_Delay(16);

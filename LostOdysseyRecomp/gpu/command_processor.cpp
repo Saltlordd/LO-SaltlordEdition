@@ -183,6 +183,31 @@ namespace gpu
 
         constexpr uint32_t kSwapSignature = 0x53574150; // 'SWAP'
 
+        uint32_t Type3MinimumOperands(uint32_t opcode)
+        {
+            switch (opcode)
+            {
+            case PM4_INDIRECT_BUFFER:
+            case PM4_INDIRECT_BUFFER_PFD:
+            case PM4_REG_TO_MEM:
+            case PM4_EVENT_WRITE_EXT:
+            case PM4_SET_BIN_MASK:
+            case PM4_SET_BIN_SELECT:
+            case PM4_IM_LOAD:
+            case PM4_IM_LOAD_IMMEDIATE:
+            case PM4_DRAW_INDX:
+                return 2;
+            case PM4_REG_RMW:
+            case PM4_EVENT_WRITE_SHD:
+            case PM4_LOAD_ALU_CONSTANT:
+                return 3;
+            case PM4_XE_SWAP: return 4;
+            case PM4_WAIT_REG_MEM: return 5;
+            case PM4_COND_WRITE: return 6;
+            default: return 1;
+            }
+        }
+
         uint32_t GpuSwap(uint32_t value, uint32_t endian)
         {
             switch (endian & 3)
@@ -214,6 +239,14 @@ namespace gpu
         if (ring)
             while (readOffset >= size)
                 readOffset -= size;
+    }
+
+    uint32_t CommandProcessor::Reader::PeekAndSwap(uint32_t dwordOffset) const
+    {
+        if (uint64_t(dwordOffset) * 4 + 4 > ReadCount()) return 0;
+        const uint32_t offset = ring ? (readOffset + dwordOffset * 4) % size
+            : readOffset + dwordOffset * 4;
+        return ByteSwap(*reinterpret_cast<const uint32_t*>(base + offset));
     }
 
     uint8_t* CommandProcessor::TranslatePhysical(uint32_t physicalAddress)
@@ -304,6 +337,12 @@ namespace gpu
 
     void CommandProcessor::InitializeRingBuffer(uint32_t physicalAddress, uint32_t sizeLog2)
     {
+        if (sizeLog2 > 26 || !IndirectBufferGuard::ValidRange(physicalAddress, (1u << (sizeLog2 + 3)) / 4))
+        {
+            LOG_ERROR("invalid primary ring buffer: physical {:#x}, sizeLog2 {}", physicalAddress, sizeLog2);
+            m_primaryBufferSize = 0;
+            return;
+        }
         m_primaryBufferPhysical = physicalAddress;
         // size_log2 counts 8-byte units (Xenia: 1 << (size_log2 + 3)); D3D's
         // 4 KiB "log2 = 12" ring is really 32 KiB and WPTR runs to 0x2000.
@@ -319,8 +358,14 @@ namespace gpu
 
     void CommandProcessor::SetInterruptCallback(uint32_t callback, uint32_t userData)
     {
-        m_interruptCallback = callback;
-        m_interruptUserData = userData;
+        std::lock_guard lock(m_interruptMutex);
+        m_interruptRegistration = {callback, userData};
+    }
+
+    CommandProcessor::InterruptRegistration CommandProcessor::GetInterruptCallbackSnapshot()
+    {
+        std::lock_guard lock(m_interruptMutex);
+        return m_interruptRegistration;
     }
 
     void CommandProcessor::UpdateWritePointer(uint32_t dwordIndex)
@@ -619,13 +664,14 @@ namespace gpu
                     dumps = 0;
                 }
             }
-            if (!m_interruptCallback)
+            const auto registration = GetInterruptCallbackSnapshot();
+            if (!registration.callback)
                 continue;
             auto* blk = reinterpret_cast<be<uint32_t>*>(TranslatePhysical(0xB000));
             uint32_t b0 = blk[0], b1 = blk[1];
             ctx.ppcContext.r3.u64 = 0;
-            ctx.ppcContext.r4.u64 = m_interruptUserData;
-            g_memory.FindFunction(m_interruptCallback)(ctx.ppcContext, g_memory.base);
+            ctx.ppcContext.r4.u64 = registration.userData;
+            g_memory.FindFunction(registration.callback)(ctx.ppcContext, g_memory.base);
             if (g_swapCount >= 110 && (uint32_t(blk[0]) != b0 || uint32_t(blk[1]) != b1))
                 LOG_VERBOSE("vblank isr changed block [{:#x} {:#x}] -> [{:#x} {:#x}] (swap #{})", b0, b1, uint32_t(blk[0]), uint32_t(blk[1]), g_swapCount.load());
         }
@@ -651,20 +697,21 @@ namespace gpu
                 m_pendingInterrupts.erase(m_pendingInterrupts.begin());
             }
 
-            if (!m_interruptCallback)
+            const auto registration = GetInterruptCallbackSnapshot();
+            if (!registration.callback)
                 continue;
 
             // The handler clears "its" CPU bit in the D3D interrupt block, so
             // the PCR must report the CPU the interrupt was aimed at.
             ctx.SetCpuNumber(item.second);
             ctx.ppcContext.r3.u64 = item.first;
-            ctx.ppcContext.r4.u64 = m_interruptUserData;
+            ctx.ppcContext.r4.u64 = registration.userData;
             auto* blk = reinterpret_cast<be<uint32_t>*>(TranslatePhysical(0xB000));
             bool trace = g_swapCount >= 110;
             if (trace)
                 LOG_VERBOSE("isr source={} cpu={} block=[{:#x} {:#x} {:#x} {:#x} {:#x} {:#x}]", item.first, item.second,
                     uint32_t(blk[0]), uint32_t(blk[1]), uint32_t(blk[2]), uint32_t(blk[3]), uint32_t(blk[4]), uint32_t(blk[5]));
-            g_memory.FindFunction(m_interruptCallback)(ctx.ppcContext, g_memory.base);
+            g_memory.FindFunction(registration.callback)(ctx.ppcContext, g_memory.base);
             {
                 std::lock_guard lock(m_waitProgressMutex);
                 m_interruptsCompleted.fetch_add(1, std::memory_order_release);
@@ -687,6 +734,13 @@ namespace gpu
 
     uint32_t CommandProcessor::ExecutePrimaryBuffer(uint32_t readIndex, uint32_t writeIndex)
     {
+        m_indirectGuard.Reset();
+        if (!m_primaryBufferSize || (m_primaryBufferSize & 3) ||
+            !IndirectBufferGuard::ValidRange(m_primaryBufferPhysical, m_primaryBufferSize / 4))
+        {
+            LOG_ERROR("primary ring buffer: invalid physical extent");
+            return writeIndex;
+        }
         Reader reader{ TranslatePhysical(m_primaryBufferPhysical), m_primaryBufferSize,
             (readIndex * 4) % m_primaryBufferSize, (writeIndex * 4) % m_primaryBufferSize, true };
         while (reader.ReadCount() && m_running)
@@ -700,33 +754,65 @@ namespace gpu
         return writeIndex;
     }
 
-    void CommandProcessor::ExecuteIndirectBuffer(uint32_t physicalAddress, uint32_t dwordCount)
+    bool CommandProcessor::ExecuteIndirectBuffer(uint32_t physicalAddress, uint32_t dwordCount)
     {
+        const auto result = m_indirectGuard.Enter(physicalAddress, dwordCount);
+        if (result != IndirectBufferGuard::Result::Accepted)
+        {
+            const char* reason = result == IndirectBufferGuard::Result::InvalidRange ? "invalid physical extent" :
+                result == IndirectBufferGuard::Result::Cycle ? "active-path cycle" : "nesting limit exceeded";
+            LOG_ERROR("indirect buffer {:#x} ({} dwords): {}", physicalAddress, dwordCount, reason);
+            DumpHistory(reason);
+            return false;
+        }
+        struct LeavePath
+        {
+            IndirectBufferGuard& guard;
+            ~LeavePath() { guard.Leave(); }
+        } leave{m_indirectGuard};
         Reader reader{ TranslatePhysical(physicalAddress), dwordCount * 4, 0, dwordCount * 4, false };
         while (reader.ReadCount() && m_running)
         {
             if (!ExecutePacket(reader))
             {
                 LOG_ERROR("indirect buffer {:#x}: bad packet at dword {}", physicalAddress, reader.readOffset / 4);
-                break;
+                return false;
             }
         }
+        return true;
     }
 
     bool CommandProcessor::ExecutePacket(Reader& reader)
     {
+        if (!m_indirectGuard.ConsumePacket())
+        {
+            LOG_ERROR("GPU command batch: packet budget exceeded");
+            DumpHistory("packet budget exceeded");
+            return false;
+        }
+        if (reader.ReadCount() < 4) return false;
         const uint32_t offset = reader.readOffset;
         const uint32_t packet = reader.ReadAndSwap();
         if (packet == 0)
             return true;
 
+        const uint32_t type = packet >> 30;
+        const uint32_t payloadCount = type == 2 ? 0 : type == 1 ? 2 : ((packet >> 16) & 0x3FFF) + 1;
+        if (uint64_t(payloadCount) * 4 > reader.ReadCount())
+        {
+            LOG_ERROR("GPU packet {:#x} at dword {}: truncated payload ({} dwords required, {} bytes remain)",
+                packet, offset / 4, payloadCount, reader.ReadCount());
+            DumpHistory("truncated payload");
+            return false;
+        }
+
         if (g_capturePacketHistory)
         {
             auto& r = g_history[g_historyPos++ % 64];
             r.header = packet; r.offset = offset; r.ring = reader.ring;
-            r.d0 = ByteSwap(*reinterpret_cast<uint32_t*>(reader.base + reader.readOffset % reader.size));
-            r.d1 = ByteSwap(*reinterpret_cast<uint32_t*>(reader.base + (reader.readOffset + 4) % reader.size));
-            r.d2 = ByteSwap(*reinterpret_cast<uint32_t*>(reader.base + (reader.readOffset + 8) % reader.size));
+            r.d0 = reader.PeekAndSwap(0);
+            r.d1 = reader.PeekAndSwap(1);
+            r.d2 = reader.PeekAndSwap(2);
         }
 
         switch (packet >> 30)
@@ -734,7 +820,15 @@ namespace gpu
         case 0: return ExecutePacketType0(reader, packet);
         case 1: return ExecutePacketType1(reader, packet);
         case 2: return true;
-        case 3: return ExecutePacketType3(reader, packet);
+        case 3:
+        {
+            const uint64_t payloadEnd = uint64_t(reader.readOffset) + uint64_t(payloadCount) * 4;
+            if (!ExecutePacketType3(reader, packet)) return false;
+            // Fixed-operand handlers may ignore reserved/trailing words. They
+            // still belong to this packet and must never become new headers.
+            reader.readOffset = reader.ring ? uint32_t(payloadEnd % reader.size) : uint32_t(payloadEnd);
+            return true;
+        }
         }
         return false;
     }
@@ -778,9 +872,9 @@ namespace gpu
         if (g_traceBudget > 0)
         {
             --g_traceBudget;
-            uint32_t peek0 = ByteSwap(*reinterpret_cast<uint32_t*>(reader.base + reader.readOffset % reader.size));
-            uint32_t peek1 = ByteSwap(*reinterpret_cast<uint32_t*>(reader.base + (reader.readOffset + 4) % reader.size));
-            uint32_t peek2 = ByteSwap(*reinterpret_cast<uint32_t*>(reader.base + (reader.readOffset + 8) % reader.size));
+            uint32_t peek0 = reader.PeekAndSwap(0);
+            uint32_t peek1 = reader.PeekAndSwap(1);
+            uint32_t peek2 = reader.PeekAndSwap(2);
             LOG_INFO("pm4 {} op={:#x} count={} [{:#x} {:#x} {:#x}]", reader.ring ? "ring" : "ib", opcode, count, peek0, peek1, peek2);
         }
 
@@ -792,6 +886,14 @@ namespace gpu
                 reader.Advance(count);
                 return true;
             }
+        }
+
+        const uint32_t minimum = Type3MinimumOperands(opcode);
+        if (count < minimum)
+        {
+            LOG_ERROR("GPU opcode {:#x}: expected at least {} operands, got {}", opcode, minimum, count);
+            DumpHistory("short opcode payload");
+            return false;
         }
 
         switch (opcode)
@@ -978,8 +1080,8 @@ namespace gpu
             static const bool traceIb = getenv("LO_TRACE_IB") != nullptr;
             if (traceIb && reader.ring)
                 LOG_INFO("swap#{} ring rd={:#x} wr={:#x} IB [{:#x} {:#x}]", g_swapCount.load(), reader.readOffset, reader.writeOffset, listPtr, listLength);
-            ExecuteIndirectBuffer(listPtr, listLength);
-            return true;
+            reader.Advance(count - 2);
+            return ExecuteIndirectBuffer(listPtr, listLength);
         }
 
         case PM4_WAIT_REG_MEM:
@@ -1020,7 +1122,9 @@ namespace gpu
                     {
                         auto* p = reinterpret_cast<be<uint32_t>*>(g_memory.Translate(alias + ibPhys));
                         std::string words;
-                        for (int i = 0; i < 11; i++) words += fmt::format(" {:#x}", uint32_t(p[i]));
+                        const uint32_t wordCount = std::min(11u, std::min(reader.size / 4,
+                            (IndirectBufferGuard::PhysicalSize - ibPhys) / 4));
+                        for (uint32_t i = 0; i < wordCount; i++) words += fmt::format(" {:#x}", uint32_t(p[i]));
                         LOG_WARNING("  alias {:#x}+{:#x}:{}", alias, ibPhys, words);
                     }
                 }
@@ -1115,6 +1219,11 @@ namespace gpu
         case PM4_MEM_WRITE:
         {
             uint32_t writeAddr = reader.ReadAndSwap();
+            if (!IndirectBufferGuard::ValidRange(writeAddr & ~3u, count - 1))
+            {
+                LOG_ERROR("MEM_WRITE: invalid physical destination extent");
+                return false;
+            }
             for (uint32_t i = 0; i < count - 1; i++)
             {
                 uint32_t data = GpuSwap(reader.ReadAndSwap(), writeAddr & 3);
@@ -1179,6 +1288,11 @@ namespace gpu
         {
             uint32_t initiator = reader.ReadAndSwap();
             uint32_t address = reader.ReadAndSwap();
+            if (!IndirectBufferGuard::ValidRange(address & ~3u, 3))
+            {
+                LOG_ERROR("EVENT_WRITE_EXT: invalid physical destination extent");
+                return false;
+            }
             WriteRegister(REG_VGT_EVENT_INITIATOR, initiator & 0x3F);
             // Screen extents: whole 8192x8192 surface, z 0..1 (8in16 swapped).
             uint16_t extents[] = { 0, 8192 >> 3, 0, 8192 >> 3, 0, 1 };
@@ -1298,6 +1412,11 @@ namespace gpu
             if (opcode == PM4_LOAD_ALU_CONSTANT)
             {
                 n = reader.ReadAndSwap() & 0xFFF;
+                if (!IndirectBufferGuard::ValidRange(address, n))
+                {
+                    LOG_ERROR("LOAD_ALU_CONSTANT: invalid physical source extent");
+                    return false;
+                }
             }
             static const uint32_t bases[] = { 0x4000, 0x4800, 0x4900, 0x4908, 0x2000 };
             if (type < 5)
@@ -1321,6 +1440,8 @@ namespace gpu
             }
             else if (opcode == PM4_SET_CONSTANT)
                 reader.Advance(count - 1);
+            if (opcode == PM4_LOAD_ALU_CONSTANT)
+                reader.Advance(count - 3);
             return true;
         }
 
@@ -1344,6 +1465,11 @@ namespace gpu
             uint32_t addrType = reader.ReadAndSwap();
             uint32_t startSize = reader.ReadAndSwap();
             uint32_t sizeDwords = startSize & 0xFFFF;
+            if (!IndirectBufferGuard::ValidRange(addrType & ~3u, sizeDwords))
+            {
+                LOG_ERROR("IM_LOAD: invalid physical shader extent");
+                return false;
+            }
             CaptureShader(addrType & 3, reinterpret_cast<uint32_t*>(TranslatePhysical(addrType & ~3u)), sizeDwords);
             reader.Advance(count - 2);
             return true;
@@ -1354,8 +1480,25 @@ namespace gpu
             uint32_t type = reader.ReadAndSwap();
             uint32_t startSize = reader.ReadAndSwap();
             uint32_t sizeDwords = startSize & 0xFFFF;
-            CaptureShader(type & 3, reinterpret_cast<uint32_t*>(reader.base + reader.readOffset % reader.size), sizeDwords);
-            reader.Advance(count - 2);
+            if (sizeDwords > count - 2)
+            {
+                LOG_ERROR("IM_LOAD_IMMEDIATE: shader size {} exceeds {} inline words", sizeDwords, count - 2);
+                return false;
+            }
+            if (const auto* words = reader.Contiguous(sizeDwords))
+            {
+                CaptureShader(type & 3, words, sizeDwords);
+                reader.Advance(count - 2);
+            }
+            else
+            {
+                // Ring payloads may wrap. Capture an owned, guest-endian image
+                // instead of passing a span that runs beyond the ring storage.
+                std::vector<uint32_t> snapshotWords(sizeDwords);
+                for (auto& word : snapshotWords) word = ByteSwap(reader.ReadAndSwap());
+                CaptureShader(type & 3, snapshotWords.data(), sizeDwords);
+                reader.Advance(count - 2 - sizeDwords);
+            }
             return true;
         }
 
@@ -1374,19 +1517,24 @@ namespace gpu
             }
             uint32_t initiator = reader.ReadAndSwap();
             consumed++;
-            WriteRegister(0x21FC, initiator);
             uint32_t primType = initiator & 0x3F;
             uint32_t sourceSelect = (initiator >> 6) & 3;
             uint32_t numIndices = initiator >> 16;
             uint32_t dmaBase = 0, dmaSize = 0;
-            if (sourceSelect == 0 && consumed + 2 <= count)
+            if (sourceSelect == 0)
             {
+                if (consumed + 2 > count)
+                {
+                    LOG_ERROR("DRAW_INDX: missing indexed draw operands");
+                    return false;
+                }
                 dmaBase = reader.ReadAndSwap();
                 dmaSize = reader.ReadAndSwap();
                 consumed += 2;
                 WriteRegister(0x21FA, dmaBase);
                 WriteRegister(0x21FB, dmaSize);
             }
+            WriteRegister(0x21FC, initiator);
             reader.Advance(count - consumed);
 
             {

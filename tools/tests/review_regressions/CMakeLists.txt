@@ -1,0 +1,87 @@
+cmake_minimum_required(VERSION 3.20)
+project(LoReviewRegressions LANGUAGES C CXX)
+
+enable_testing()
+find_package(Threads REQUIRED)
+find_package(Python3 3.11 REQUIRED COMPONENTS Interpreter)
+get_filename_component(LO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+set(LO_RUNTIME "${LO_ROOT}/LostOdysseyRecomp")
+set(LO_TESTS "${LO_ROOT}/tools/tests")
+option(LO_REVIEW_SANITIZE "Enable AddressSanitizer and UndefinedBehaviorSanitizer" ON)
+option(LO_REVIEW_SDL_TESTS "Build both SDL updater implementations" ON)
+set(LO_REVIEW_SDL_LIBRARY "" CACHE FILEPATH "Optional existing SDL2 library (uses pinned headers)")
+
+function(lo_review_test name source)
+    add_executable(${name} "${LO_TESTS}/${source}" ${ARGN})
+    target_include_directories(${name} PRIVATE "${LO_RUNTIME}")
+    target_compile_features(${name} PRIVATE cxx_std_20)
+    target_link_libraries(${name} PRIVATE Threads::Threads)
+    if(MSVC)
+        target_compile_options(${name} PRIVATE /utf-8 /UNDEBUG)
+    else()
+        target_compile_options(${name} PRIVATE -UNDEBUG)
+        if(LO_REVIEW_SANITIZE)
+            target_compile_options(${name} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
+            target_link_options(${name} PRIVATE -fsanitize=address,undefined)
+        endif()
+    endif()
+    add_test(NAME ${name} COMMAND ${name})
+    set_tests_properties(${name} PROPERTIES TIMEOUT 30)
+endfunction()
+
+lo_review_test(LoTextureKeyTest texture_key_test.cpp)
+lo_review_test(LoTextureContentTest texture_content_test.cpp)
+target_compile_definitions(LoTextureContentTest PRIVATE XXH_INLINE_ALL)
+target_include_directories(LoTextureContentTest PRIVATE "${LO_ROOT}/tools/XenonRecomp/thirdparty/xxHash")
+lo_review_test(LoTextureLayoutTest texture_layout_test.cpp)
+lo_review_test(LoAudioCallbackTest audio_callback_test.cpp)
+lo_review_test(LoSettingsPathTest settings_path_test.cpp "${LO_RUNTIME}/updater/update.cpp")
+lo_review_test(LoUserPathsTest user_paths_test.cpp)
+lo_review_test(LoExternalUpdateNoticeTest external_update_notice_test.cpp)
+
+if(LO_REVIEW_SDL_TESTS)
+    if(LO_REVIEW_SDL_LIBRARY)
+        add_library(lo_review_sdl UNKNOWN IMPORTED)
+        set_target_properties(lo_review_sdl PROPERTIES
+            IMPORTED_LOCATION "${LO_REVIEW_SDL_LIBRARY}"
+            INTERFACE_INCLUDE_DIRECTORIES "${LO_ROOT}/thirdparty/SDL/include")
+    else()
+        find_package(SDL2 REQUIRED CONFIG)
+        add_library(lo_review_sdl ALIAS SDL2::SDL2)
+    endif()
+    lo_review_test(LoUpdaterSdlUiTest updater_sdl_ui_test.cpp
+        "${LO_RUNTIME}/install/installer_font.cpp"
+        "${LO_RUNTIME}/updater/posix_ui.cpp"
+        "${LO_RUNTIME}/updater/update.cpp")
+    target_link_libraries(LoUpdaterSdlUiTest PRIVATE lo_review_sdl)
+    if(NOT WIN32)
+        lo_review_test(LoUpdaterSdlProductionTest updater_sdl_ui_test.cpp
+            "${LO_RUNTIME}/install/installer_font.cpp"
+            "${LO_RUNTIME}/updater/progress.cpp"
+            "${LO_RUNTIME}/updater/update.cpp")
+        target_link_libraries(LoUpdaterSdlProductionTest PRIVATE lo_review_sdl)
+    endif()
+endif()
+
+# These fixtures compile extracted production bodies with host/guest stubs.
+# Their POSIX error injection and compiler flags require a Unix GCC/Clang host.
+if(UNIX)
+    function(lo_review_python name script output_flag compiler_flag)
+        add_test(NAME ${name} COMMAND "${Python3_EXECUTABLE}" -B
+            "${CMAKE_CURRENT_SOURCE_DIR}/run_fixture.py"
+            --work-dir "${CMAKE_CURRENT_BINARY_DIR}/fixtures"
+            "${LO_TESTS}/${script}" ${output_flag} "{out}"
+            ${compiler_flag} "${CMAKE_CXX_COMPILER}" ${ARGN})
+        set_tests_properties(${name} PROPERTIES TIMEOUT 150)
+    endfunction()
+    set(sanitizer_flags)
+    if(LO_REVIEW_SANITIZE)
+        set(sanitizer_flags --sanitize)
+    endif()
+    lo_review_python(file_io file_io_regression.py --out --cxx ${sanitizer_flags})
+    # The allocator fixture always uses ASan/UBSan.
+    lo_review_python(page_allocator page_allocator_test.py --output --compiler)
+    lo_review_python(gpu_commands gpu_command_safety_regression.py --out --cxx ${sanitizer_flags})
+    lo_review_python(guest_main_exit guest_main_exit_regression.py --out --cxx)
+    lo_review_python(kernel_lifetime kernel_lifetime_regression.py --out --cxx ${sanitizer_flags})
+endif()

@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 #include "gpu/frame_plan.h"
+#include "gpu/indirect_buffer_guard.h"
 
 // Minimal Xenos command processor: consumes the primary ring buffer, executes
 // the PM4 packets the CPU synchronises against (memory writes, fences, waits,
@@ -79,6 +80,7 @@ namespace gpu
             }
             uint32_t ReadAndSwap();
             void Advance(uint32_t dwords);
+            uint32_t PeekAndSwap(uint32_t dwordOffset) const;
             // The next `count` guest-endian words when they neither wrap the ring
             // nor pass the end of an indirect buffer; otherwise nullptr.
             const uint32_t* Contiguous(uint32_t count) const
@@ -96,9 +98,15 @@ namespace gpu
         void VsyncMain();
         void InterruptMain();
         void DispatchInterrupt(uint32_t source, uint32_t cpu);
+        struct InterruptRegistration
+        {
+            uint32_t callback = 0;
+            uint32_t userData = 0;
+        };
+        InterruptRegistration GetInterruptCallbackSnapshot();
 
         uint32_t ExecutePrimaryBuffer(uint32_t readIndex, uint32_t writeIndex);
-        void ExecuteIndirectBuffer(uint32_t physicalAddress, uint32_t dwordCount);
+        bool ExecuteIndirectBuffer(uint32_t physicalAddress, uint32_t dwordCount);
         bool ExecutePacket(Reader& reader);
         bool ExecutePacketType0(Reader& reader, uint32_t packet);
         bool ExecutePacketType1(Reader& reader, uint32_t packet);
@@ -125,8 +133,8 @@ namespace gpu
         std::atomic<uint32_t> m_counter{ 0 };
         std::atomic<bool> m_running{ false };
 
-        uint32_t m_interruptCallback = 0;
-        uint32_t m_interruptUserData = 0;
+        IndirectBufferGuard m_indirectGuard;
+        InterruptRegistration m_interruptRegistration;
         std::mutex m_interruptMutex;
         std::condition_variable m_interruptCv;
         // Completed guest interrupt callbacks. A WAIT_REG_MEM released by a
