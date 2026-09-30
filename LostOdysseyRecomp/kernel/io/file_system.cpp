@@ -1134,8 +1134,10 @@ uint32_t NtReadFileScatter(uint32_t handleValue, uint32_t Event, uint32_t ApcRou
                 for (uint32_t remaining = Length, i = 0; remaining > 0; i++)
                 {
                     const uint32_t chunk = std::min<uint32_t>(remaining, 0x1000);
-                    const uint64_t guestPtr = SegmentArray[i];
-                    if (!guestPtr || guestPtr >= PPC_MEMORY_SIZE || chunk > PPC_MEMORY_SIZE - guestPtr)
+                    // PVOID64 segments carry a 32-bit guest pointer; titles may
+                    // sign-extend physical addresses (0xA0000000+) into the high word.
+                    const uint64_t guestPtr = uint32_t(uint64_t(SegmentArray[i]));
+                    if (!guestPtr || chunk > PPC_MEMORY_SIZE - guestPtr)
                     {
                         status = STATUS_INVALID_PARAMETER;
                         break;

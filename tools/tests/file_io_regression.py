@@ -265,6 +265,11 @@ static void ReadCases(bool scatter) {
             segments[0] = badPointer; offset = 0; oldEvents = events;
             Complete(read(2, &offset), iosb, STATUS_INVALID_PARAMETER, 0, oldEvents);
         }
+        // PVOID64 carries a 32-bit guest pointer; a sign-extended high word is not an error.
+        segments[0] = 0xFFFFFFFF00001000ull; offset = 0; oldEvents = events;
+        memset(g_memory.bytes.data() + 0x1000, 0, 2);
+        Complete(read(2, &offset), iosb, STATUS_SUCCESS, 2, oldEvents);
+        Check(memcmp(g_memory.bytes.data() + 0x1000, "AB", 2) == 0, "sign-extended segment pointer not truncated");
         segments[0] = 0x1000;
     }
     // A real stream opened write-only makes fread set ferror, not feof.
