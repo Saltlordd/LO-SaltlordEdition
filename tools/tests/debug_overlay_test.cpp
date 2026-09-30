@@ -170,7 +170,8 @@ int main(int argc, char** argv)
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Down);
-    debug_menu::HandleInput(debug_menu::InputAction::Confirm); // Memory edits confirmation
+    debug_menu::HandleInput(debug_menu::InputAction::Down);
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm); // Row 4: memory edits confirmation
     g_playStation = false;
     const auto confirmReference = renderFrame();
     g_playStation = true;
@@ -179,6 +180,7 @@ int main(int argc, char** argv)
     Require(RegionDiffers(confirmReference, confirmPlayStation, 300, 480, 680, 22),
             "cheat confirmation did not update for PlayStation prompts");
     debug_menu::HandleInput(debug_menu::InputAction::Cancel); // Dismiss confirmation
+    Require(debug_menu::IsOverlayVisible(), "cancel closed overlay instead of the cheat confirmation");
     g_playStation = false;
 
     std::thread updates([] {
