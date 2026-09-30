@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- The F1 debug menu now warns while Save Anywhere is on (#74). Saving where the game normally forbids it, such as during a split-party section, loses RB character switching after loading, because the game keeps that permission only in memory and never writes it to the save. Leaving the map and returning does not bring it back. Load an earlier save made at a regular save point instead.
+
+### 简体中文
+
+- 开启随时存档时，F1 调试菜单会显示警告（#74）。在原作不允许存档的时刻保存，例如分队探索期间，读档后将无法用 RB 换人：游戏只在内存里保留这项权限，从不写入存档，离开地图再回来也不会恢复。遇到这种情况请读取更早的普通存档点存档。
+
 ## [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) — 2026-09-30
 
 ### English

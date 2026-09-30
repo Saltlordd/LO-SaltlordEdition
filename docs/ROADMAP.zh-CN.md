@@ -28,7 +28,7 @@ Issue、Project 字段和已合并提交于 2026-09-28 核对，发布记录于 
 
 ## 当前工作
 
-- [~] **未关闭报告：**[#49](https://github.com/freefrank/LostOdysseyRecomp/issues/49) 物理像素窗口坐标和 [#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74) 多队伍迷宫中的 Debug Save Anywhere 行为仍开放。Issue [#64](https://github.com/freefrank/LostOdysseyRecomp/issues/64)、[#67](https://github.com/freefrank/LostOdysseyRecomp/issues/67) 和 [#77](https://github.com/freefrank/LostOdysseyRecomp/issues/77) 已在 GitHub 关闭（2026-09-29 核对）；关闭和 v0.7.15 功能验收不等于完整通关或更广硬件、场景覆盖。
+- [~] **未关闭报告：**[#49](https://github.com/freefrank/LostOdysseyRecomp/issues/49) 物理像素窗口坐标和 [#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74) 多队伍迷宫中的 Debug Save Anywhere 行为仍开放。#74 已查明原因：换人权限只存在于运行时，从不写入存档（见[调查笔记](notes/issue-74-save-anywhere-party-split.md)）；F1 菜单在随时存档开启时会显示警告。要在分队期间阻止存档，还需要一份分队开始前的存档。Issue [#64](https://github.com/freefrank/LostOdysseyRecomp/issues/64)、[#67](https://github.com/freefrank/LostOdysseyRecomp/issues/67) 和 [#77](https://github.com/freefrank/LostOdysseyRecomp/issues/77) 已在 GitHub 关闭（2026-09-29 核对）；关闭和 v0.7.15 功能验收不等于完整通关或更广硬件、场景覆盖。
 - [~] **Issue #40 剩余 Mod 范围：**PS 提示、v1 框架与 Wiki 已交付；更广游戏纹理／模型接入、真实外部管理器集成仍待完成，Issue 保持开放。
 - [ ] **功能请求：**景深控制（#30）和晕动症选项（#48）。
 - [~] **原生运动与时序颜色：**几何／刚体／骨骼 replay 基础和已确认的 SDR 输入已实现，并有有界战斗与 Hybrid SR 证据。余项为未映射 draw、更广骨骼／场景覆盖、HDR／曝光和 D3D12 replay PSO 错误 `0x80070057`。

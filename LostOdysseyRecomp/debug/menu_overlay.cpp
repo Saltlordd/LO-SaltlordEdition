@@ -494,6 +494,21 @@ namespace debug_menu
                 int bStatW = r.MeasureWString(bStat);
                 r.DrawWString(panelX + (panelW - bStatW) / 2, contentY + 5 * rowH + 18, bStat, host_ui::MakeColor(255, 220, 180, 120));
             }
+
+            // Issue #74: party-switch permission is runtime-only and is not restored by a load.
+            if (saveOn)
+            {
+                const wchar_t* warning[] = {
+                    zh ? L"随时存档可在原作不允许存档的时刻保存。" : L"Save Anywhere also saves where the game normally forbids it.",
+                    zh ? L"分队探索期间存档，读档后将无法用 RB 换人。" : L"Saving during a split-party section loses RB character switching.",
+                };
+                for (int line = 0; line < 2; ++line)
+                {
+                    const int warningW = r.MeasureWString(warning[line]);
+                    r.DrawWString(panelX + (panelW - warningW) / 2, contentY + 6 * rowH + 30 + line * 22, warning[line],
+                        host_ui::MakeColor(255, 240, 190, 90));
+                }
+            }
         }
         else if (state.activeTab == 1)
         {

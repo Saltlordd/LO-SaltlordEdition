@@ -59,6 +59,7 @@
 | [渲染验证（2026-09-04）](rendering-validation.md) |
 | [手动存档失败（2026-09-04）](save-storage.md) |
 | [随时存档开关与后台回归（2026-09-05）](save-anywhere.md) |
+| [Issue #74：分队期间随时存档后无法换人（2026-09-29）](issue-74-save-anywhere-party-split.md) |
 | [第三地图卡住调查（2026-09-04）](third-map-hang.md) |
 | [标题动态背景恢复（2026-09-04）](title-packed-mips.md) |
 | [攻略路线与后台推进测试（2026-09-04）](walkthrough-testing.md) |
