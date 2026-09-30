@@ -1,5 +1,7 @@
 # Settings menu interaction and redraw — 2026-09-24
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Source repair, not a published-release or full-game acceptance claim.
 
 ## Interaction

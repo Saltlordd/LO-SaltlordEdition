@@ -1,5 +1,7 @@
 # Reusable FG game integration
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Development branch: `feature/reusable-fg-fsr-d3d12-mfg`.
 
 ## Code scope

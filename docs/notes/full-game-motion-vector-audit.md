@@ -1,5 +1,7 @@
 # Full-Game Motion Vector Audit (Phase 0)
 
+> **Investigation record.** Findings and open items are bounded to the recorded captures and dates. For current issue, delivery and acceptance status, see [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 **Date:** 2026-09-18  
 **Scope:** Investigation of Native Velocity Pipeline & Build-Inputs VP/VS Evidence  
 **Reference Task:** `Lost Odyssey Recomp — Full-Game Motion Vector Development Handoff.md`  

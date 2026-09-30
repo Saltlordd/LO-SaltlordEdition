@@ -1,5 +1,7 @@
 # Issue #74：分队期间随时存档后无法换人（2026-09-29 调查）
 
+> **调查记录。** 结论与待办只对应文中日期、版本和捕获；现行问题、交付与验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 [issue #74](https://github.com/freefrank/LostOdysseyRecomp/issues/74) 报告在 The Great Ancient Ruins（Astral Square，地图 244）分队期间用随时存档保存，读档后右下角的 "RB Change Character" 提示消失，RB 无反应。本轮用报告附带的 `user01` 存档和 USA/Europe 数据在隔离目录复现并做了逆向。随时存档的行为没有改动，只在 F1 菜单开关下方加了两行常驻警告；中英文布局用 `LoDebugOverlayTest` 离线渲染截图检查过。该测试在 main 上本来就会在后续步骤报 `concurrent menu actions closed overlay`，撤下本次改动后结果相同，与警告文字无关。
 
 ## 结论

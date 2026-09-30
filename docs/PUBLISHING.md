@@ -1,22 +1,32 @@
 # Repository synchronization
 
-Develop in the main checkout. `origin` is Gitea; `github` is GitHub. Both publish
-the same sanitized `main` history. The earlier `out/github-release` export is a
-historical preparation artifact, not a second development checkout.
+Develop in the main checkout. Remote names are local configuration: run `git remote -v`
+before a push. In the current checkout, `origin` points to the GitHub repository and
+`zkx` points to the Gitea mirror. Do not assume a remote named `github` exists. The
+earlier `out/github-release` export is a historical preparation artifact, not a second
+development checkout.
 
-After reviewing, testing and committing a change:
+After an authorized push has been requested, review and commit the intended changes,
+then publish the same explicit revision to the verified remotes. Reuse the relevant
+passing checks; a push alone does not require another build or game run.
 
 ```powershell
-.\tools\push_all.ps1 -CheckOnly
-.\tools\push_all.ps1
+$publishRevision = git rev-parse refs/heads/main
+git -c push.followTags=false push origin "${publishRevision}:refs/heads/main"
+git -c push.followTags=false push zkx "${publishRevision}:refs/heads/main"
+git ls-remote origin refs/heads/main
+git ls-remote zkx refs/heads/main
 ```
 
-The script checks the public baseline, new commit attribution after the reviewed
-v0.5.0 public baseline, and tracked artifact
-paths. It then pushes the exact same commit to both remotes and verifies both remote
-heads. It publishes committed changes only. It does not commit local edits or
-replace code review and secret scanning. If the second push fails, fix the
-connection or authentication and rerun; the first push is safe to repeat.
+Both readback hashes must equal `$publishRevision`. Stop if a push fails; resolve
+connection, authentication or divergent-history errors without force-pushing.
+Review the unpublished diff for private/generated content before publication.
+
+The legacy `tools/push_all.ps1` helper still hardcodes `origin` and `github`.
+With this checkout's `origin`/`zkx` configuration, even `-CheckOnly` cannot complete.
+Its public-baseline, attribution and tracked-path checks remain useful historical
+implementation detail, but the helper needs a separate remote-selection update
+before it is usable here. Do not rename remotes merely to follow an old example.
 
 The pre-cleanup history is retained only on Gitea in
 `archive/pre-public-cleanup-2026-09-05`. Never merge this branch into `main` or

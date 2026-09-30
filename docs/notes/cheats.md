@@ -1,5 +1,7 @@
 # Built-in cheats and LT speed control
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This note began with the source implementation for issue #25 on 2026-09-24 and
 now covers the later Hold/Toggle speed mode. It does not claim whole-game
 acceptance. Enter **F1 / LB+RB → Cheats**; LB/RB switches the three main tabs.

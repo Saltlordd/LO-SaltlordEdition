@@ -1,5 +1,7 @@
 # Switch 移植评估与 PC Vulkan 后端交接（2026-09-07）
 
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 ## 2026-09-07 补充：v0.5.0 PC Vulkan 与 DX11 目标
 
 用户确定下一主版本 **v0.5.0** 的目标为 Windows PC Vulkan 与 Direct3D 11（DX11）支持。实施与验收见[中文 TODO](../ROADMAP.zh-CN.md#v050-pc-graphics)／[English TODO](../ROADMAP.md#v050-pc-graphics)，目前全部待完成。本次仅补充规划，不代表新后端已实现、构建通过或可玩；保留可用 D3D12 基线，Switch 和 Linux／Steam Deck 分别另做平台适配与验收。

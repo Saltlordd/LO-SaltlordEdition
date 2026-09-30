@@ -2,19 +2,22 @@
 
 保留原始地址、实验顺序和被推翻的假设。归档不是当前待办或支持承诺，先读[当前状态](../STATUS.md)。仍有效的专项修复证据继续保留在活动笔记中。
 
+归档按内容是否仍承担当前指南职责判断，不按年龄自动删除。原文件名和历史标题保持稳定，旧入口继续跳转到这里；本地 `out/` 证据不随仓库分发。2026-09-30 检查中缺失的产物保留为明确标注的代码路径，不能用来证明本次已经复验。
+
 | 快照 | 归档原因 | 当前入口 |
 |---|---|---|
 | [GPU 调查](2026-09-04/gpu.md) | 旧缓存版本、后端未开始等阶段描述，以及已被推翻的根因假设 | [GPU](../notes/gpu.md) |
 | [内核调查](2026-09-04/kernel.md) | XMA 未实现、静音占位和旧存档状态 | [内核](../notes/kernel.md) |
 | [旧交接](2026-09-04/handoff.md) | 旧攻略范围、音频状态及已撤销的前台操作限制 | [接手入口](../notes/handoff.md) |
 | [STATUS-2026-09-10](STATUS-2026-09-10.md) | 详细状态账本已由当前精简状态取代 | [当前状态](../STATUS.md) |
+| [STATUS-2026-09-29](STATUS-2026-09-29.md) | 保留整理前逾 1,100 行发布、实验和验收账本；旧“未发布”和失败门禁只对应当时 checkpoint | [当前状态](../STATUS.md) |
 | [RELEASE-v0.5.0-preparation](RELEASE-v0.5.0-preparation.md) | 旧版本发布准备记录，保留历史 receipt | [更新日志](../../CHANGELOG.md) |
 | [RELEASE-v0.2-historical](RELEASE-v0.2-historical.md) | 已发布的早期版本说明，保留历史兼容性边界 | [更新日志](../../CHANGELOG.md) |
 | [RELEASE-v0.1-historical](RELEASE-v0.1-historical.md) | 首个 Windows 版本说明，保留历史兼容性边界 | [更新日志](../../CHANGELOG.md) |
 | [WORK_REPORT_2026-09-05](WORK_REPORT_2026-09-05.md) | 日期工作报告，已由当前状态和专项笔记取代 | [当前状态](../STATUS.md) |
 | [ROADMAP-2026-09-10](ROADMAP-2026-09-10.md) / [中文](ROADMAP.zh-CN-2026-09-10.md) | 旧路线图快照，保留当时需求和锚点 | [当前路线图](../ROADMAP.md) / [中文](../ROADMAP.zh-CN.md) |
 | [Issue #12 Claude 交接](issue12-claude-handoff-2026-09-09.md) | 临时调查交接已由 Issue #12 调查记录和根因记录取代，保留原始复现边界与探针证据 | [Issue #12 调查记录](../notes/issue12-funeral-crash.md) / [根因记录](../notes/issue12-root-cause.md) |
-| [Clang/PGO 与线程优化研究](clang-pgo-benchmark-2026-09-17.md) | 2026-09-16—17 的构建矩阵与基准准备记录；城市实景基准未完成，不能作为性能收益或用户验收依据 | 当前无已验收性能收益 |
+| [Clang/PGO 与线程优化研究](clang-pgo-benchmark-2026-09-17.md) | 2026-09-16—17 的构建矩阵与基准准备记录；该次城市实景基准未完成，不能作为性能收益或用户验收依据 | [后续 CPU 实测](../notes/PERF_CITY_UHRA_RESULTS.zh-CN.md) / [当前状态](../STATUS.md) |
 | [Clang 优化与测试基准交接](clang-optimization-and-benchmark-handoff-2026-09-17.md) | 2026-09-17 的 Strix Halo 设备基准与 PR 05—09 推进临时交接记录 | [乌斯拉城 CPU 优化实测报告](../notes/PERF_CITY_UHRA_RESULTS.zh-CN.md) |
 | [Clang 优化、线程拆分与测试指南](clang-optimization-and-threading-plan-2026-09-16.md) | 2026-09-16 的 Clang 优化与线程拆分对照测试提案（未实施） | [乌斯拉城 CPU 优化实测报告](../notes/PERF_CITY_UHRA_RESULTS.zh-CN.md) |
 

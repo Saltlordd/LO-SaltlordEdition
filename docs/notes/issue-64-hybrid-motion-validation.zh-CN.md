@@ -1,5 +1,7 @@
 # Issue #64：Hybrid MV修复与验证
 
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 日期：2026-09-25。分支：`fix/issue-64-hybrid-motion`。基线：`2c427b9447f41cc070ed917dfe0bb1a7700557cb`；运行时集成：`d5865773aae2568eab40f51b49a4215dc24d4a1a`。
 
 ## 1. 修复范围
@@ -58,7 +60,7 @@ cmake --build out/hybrid-cpu --config Release --parallel 2
 ctest --test-dir out/hybrid-cpu -C Release -V
 ```
 
-完整的Vulkan/原生头文件复验依赖和命令见[保留的CI工作流](../../.github/workflows/sr-hybrid-regression.yml)。
+完整的Vulkan/原生头文件复验依赖和命令见[当时保留的 CI 工作流](https://github.com/freefrank/LostOdysseyRecomp/blob/e01a61953d2f7e792852900f697a5df2e92d6429/.github/workflows/sr-hybrid-regression.yml)；该工作流已从当前工作树移除，链接固定到历史提交。
 
 A/B对照将`LO_SR_HYBRID_MV`改为`0`后重启程序；这是进程启动开关，不是运行中热切换。必须使用同一EXE、存档、分辨率与相近镜头路线。诊断完成后关闭`LO_MV_LOG`，性能比较不得包含F1捕获/readback过程。
 

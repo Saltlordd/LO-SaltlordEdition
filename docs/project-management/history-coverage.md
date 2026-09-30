@@ -2,6 +2,8 @@
 
 Snapshot: 2026-09-08. Canonical branch: `taa-fix`; HEAD: `147bffb214cd3650f3eadb810e86f7237511ac23`.
 
+Lifecycle: this file records the historical 2026-09-08 inventory. Counts, Issue states and execution descriptions below belong to that checkpoint. See the [2026-09-30 reconciliation](reconciliation-2026-09-30.md) and [synchronization guide](README.md) for later Project changes. Current delivery and Issue state belong to [STATUS](../STATUS.md) and the bilingual roadmaps.
+
 ## Deliverable and scope
 
 The initial history inventory contributes 77 records to the consolidated [manifest](items.json): 29 Bug, 25 Feature, 12 Infrastructure, 3 Research and 8 Release. The 69 non-release records describe distinct delivered behavior or bounded investigations; the eight release records describe publication milestones. Pending roadmap requirements belong to the separate pending inventory.

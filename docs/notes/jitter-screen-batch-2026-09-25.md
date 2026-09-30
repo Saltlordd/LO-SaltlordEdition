@@ -1,10 +1,12 @@
 # Screen-sampling candidate batch — 2026-09-25
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This note records the separately authorized manual trial for the remaining screen-sampling candidates. It does not change the accepted e810+fe31 guarded trial or the accepted 2078 slot-8 scene result.
 
 ## Implemented scope
 
-The runtime adds exactly 40 VS entries to `PositionVPSlot`: 35 slot-7 mappings and 5 slot-8 mappings, covering 101 observed PS pairings. The source and decision record is [`screen_mapping_batch_20260925.json`](../../../tools/shader_analysis/reviews/screen_mapping_batch_20260925.json), based on the historical `feedback_mapping` review. Mixed-camera cases `bda41a11626a545c` and `eb5f611c4321708e` remain excluded and separately held. The baseline `main` reference is `1fd4b4b`.
+The runtime adds exactly 40 VS entries to `PositionVPSlot`: 35 slot-7 mappings and 5 slot-8 mappings, covering 101 observed PS pairings. The source and decision record is [`screen_mapping_batch_20260925.json`](../../tools/shader_analysis/reviews/screen_mapping_batch_20260925.json), based on the historical `feedback_mapping` review. Mixed-camera cases `bda41a11626a545c` and `eb5f611c4321708e` remain excluded and separately held. The baseline `main` reference is `1fd4b4b`.
 
 The accepted e810+fe31 conditional slot-7 gate and accepted 2078 slot-8 mapping remain separate. This batch does not broaden either accepted scope.
 

@@ -1,5 +1,7 @@
 # 启动着色器准备（2026-09-05）
 
+> **专题参考。** 下文实现和测量只适用于各自注明的版本与范围；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。 下文 `out/...` 为历史本地证据路径；这些文件当前不在工作树，也不随仓库分发。
+
 ## 2026-09-07：v0.4.0 发布状态澄清
 
 [v0.4.0](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.4.0) 已于 2026-09-07 21:56:34 UTC 从 `40362d78` 发布，包含下方 CPX 直接提取与亚洲／美欧联合元数据实现。CI `34163445379`、正式包 45 项 manifest 及安装器自测通过。两个已核对版本均通过正式包的隔离 Map2 启动检查，Auto 1080p／TAA 及包内编译器依赖已核实。此为限定静态场景检查，不代表全游戏或新增玩家画质验收。 正式包的空发现缓存各命中 52 文件、零扫描／CPX 回退，20,686 来源哈希与各版完整扫描基准一致；读取量仍为亚洲 142,093,208／美欧 142,289,816 字节。编译缓存为此前任务副本，不作全冷性能对照。完整正式包身份与运行边界见 [STATUS](../STATUS.md)。
@@ -12,7 +14,7 @@
 
 两版各 52／52 个布局匹配、52 个裸资源文件索引命中且零扫描；CPX 亚洲 10,060／美欧 10,198 个索引命中，均零回退。每版 20,686 个来源的名称／逐 SHA256 全等于此前保留的 strict 完整扫描基准，集合摘要为 `57cb834795fd99419f0a1980f86e38c7123317eed3d627576269f61fd03055fc`。从 Disc 2 入口自动发现同组兄弟盘，复用同一资源清单。两版读取分别为 142,093,208／142,289,816 字节，美欧版原为 20,770,329,949 字节；观测 12.537／12.631 秒可能与构建重叠，不作受控提速比例、完整启动或 FPS 结论。
 
-元数据审计确认旧 10,060 个 CPX profile 和旧裸资源内容全部保留；裸 FPD 联合表有 48 个完整资源身份 profile、40 个不同的有界查找 key，不能把 profile 数当作每版文件数。`shader-index` fixture 和主构建通过，证据为 `out/v0.4.0-followup/cpx-both-editions/{comparison.json,layout-audit.json,metadata-audit.json,fixtures.log}`。新 ZIP `ed8e0627…`／EXE `c75946a3…` 的 45 项 manifest 及安装器 self-test 已通过。两版均已实际运行包内 EXE，live 模块核实包内 DXC／DXIL；Map2 Auto 1080p／AA3 有效尺寸和已审阅静止截图均为 1920×1080，无分配回退。亚洲／美欧实际发现记录 13.482／13.367 秒，各 52 个文件索引命中、零裸扫描及 CPX 回退；每版实际 20,686 个期望来源哈希与完整扫描基准一致。7 项用户文件、任务 seed 和 EXE 保持，两个任务进程均已结束。完整身份和 `runtime-summary.json` 见[联合索引交付记录](../../out/v0.4.0-followup/cpx-both-editions/DELIVERY.md)。本次不扩大原报告战斗、全游戏画质或玩家验收范围。未知布局／内容与提取失败回退、未读内容边界及显式 strict 完整扫描合同保持。生成入口见[测试说明](../../tools/tests/README.md#regenerating-resource-metadata)。
+元数据审计确认旧 10,060 个 CPX profile 和旧裸资源内容全部保留；裸 FPD 联合表有 48 个完整资源身份 profile、40 个不同的有界查找 key，不能把 profile 数当作每版文件数。`shader-index` fixture 和主构建通过，证据为 `out/v0.4.0-followup/cpx-both-editions/{comparison.json,layout-audit.json,metadata-audit.json,fixtures.log}`。新 ZIP `ed8e0627…`／EXE `c75946a3…` 的 45 项 manifest 及安装器 self-test 已通过。两版均已实际运行包内 EXE，live 模块核实包内 DXC／DXIL；Map2 Auto 1080p／AA3 有效尺寸和已审阅静止截图均为 1920×1080，无分配回退。亚洲／美欧实际发现记录 13.482／13.367 秒，各 52 个文件索引命中、零裸扫描及 CPX 回退；每版实际 20,686 个期望来源哈希与完整扫描基准一致。7 项用户文件、任务 seed 和 EXE 保持，两个任务进程均已结束。完整身份和 `runtime-summary.json` 见联合索引交付记录（历史本地路径：`out/v0.4.0-followup/cpx-both-editions/DELIVERY.md`）。本次不扩大原报告战斗、全游戏画质或玩家验收范围。未知布局／内容与提取失败回退、未读内容边界及显式 strict 完整扫描合同保持。生成入口见[测试说明](../../tools/tests/README.md#regenerating-resource-metadata)。
 
 ## 2026-09-07 续：按已知布局直接提取（本地未发布）
 
@@ -39,7 +41,7 @@
 
 本组发现耗时减少 55.75%，应用读取减少 98.55%；解码量未变，收益来自不再遍历整包。候选暖发现为 1.654 秒，读取来源校验 10,616,568 字节、资源读取为零。这是应用读取计数，不是物理磁盘 I/O；不包含 DXIL 编译、PSO、完整启动或 FPS。此前 49.578 秒基线和与构建并行的 13.264 秒初测只作诊断，不纳入正式对照。
 
-`shader-index` fixture 已通过直接布局／所需块、strict 清单隔离、未知布局、提取失败、跨块来源、末项失败不部分发布及未读修改边界等检查；主程序构建通过。证据为 `out/v0.4.0-followup/cpx-direct/{baseline-final-cold.log,candidate-final-cold.log,candidate-final-warm.log,source-comparison-final.json,fixtures.log}`。实际新 EXE（SHA256 `3aae46b8…`）在亚洲版空发现缓存、复用任务自有 DXIL 缓存下记录 13.335 秒／142,093,208 字节／20,686 来源，52 个索引文件、零扫描／CPX 回退；Map2 Auto 1080p 静止检查通过，有效尺寸 1920×1080，无分配回退。运行缓存内全部 20,686 个清单来源逐哈希相同，额外运行来源不计入该集合；7 项用户文件保持。新开发 ZIP（SHA256 `79308a15…`）的 45 项 manifest、受测 EXE／DXC／DXIL 及安装器 self-test 通过，完整身份见[交付记录](../../out/v0.4.0-followup/cpx-direct/DELIVERY.md)。本次没有扩大既有画质或玩家验收范围。
+`shader-index` fixture 已通过直接布局／所需块、strict 清单隔离、未知布局、提取失败、跨块来源、末项失败不部分发布及未读修改边界等检查；主程序构建通过。证据为 `out/v0.4.0-followup/cpx-direct/{baseline-final-cold.log,candidate-final-cold.log,candidate-final-warm.log,source-comparison-final.json,fixtures.log}`。实际新 EXE（SHA256 `3aae46b8…`）在亚洲版空发现缓存、复用任务自有 DXIL 缓存下记录 13.335 秒／142,093,208 字节／20,686 来源，52 个索引文件、零扫描／CPX 回退；Map2 Auto 1080p 静止检查通过，有效尺寸 1920×1080，无分配回退。运行缓存内全部 20,686 个清单来源逐哈希相同，额外运行来源不计入该集合；7 项用户文件保持。新开发 ZIP（SHA256 `79308a15…`）的 45 项 manifest、受测 EXE／DXC／DXIL 及安装器 self-test 通过，完整身份见交付记录（历史本地路径：`out/v0.4.0-followup/cpx-direct/DELIVERY.md`）。本次没有扩大既有画质或玩家验收范围。
 
 下方 74.457 → 35.484 秒是此前整包 SHA256 方案的历史对照，不代表新直接提取路径。
 

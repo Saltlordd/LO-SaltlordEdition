@@ -1,5 +1,7 @@
 # Issues #54 / #55: audio follow-up and validation
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Date: 2026-09-25. Source baseline: `346cdd513b1ad6c2672618ada257cc3519a02ce3`.
 
 ## Scope and status

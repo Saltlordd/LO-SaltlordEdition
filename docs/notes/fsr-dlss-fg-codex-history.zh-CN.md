@@ -1,6 +1,8 @@
 # FSR / DLSS FG Codex 历史交接记录
 
-> 历史记录。文中的暂停状态、验证待办和恢复边界均为当时快照，不代表当前状态。当前交接见 [FSR / DLSS FG 当前交接](fsr-dlss-fg-codex-handoff.zh-CN.md)。
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。 Gate 1 后于 2026-09-27 获维护者验收，已知 SDK 同步报告保留为待办；下文 NOT PASSED 仅为当时结论。见[Gate 1 记录](gate1-host-repair-20260927.md)。
+
+> 历史记录。文中的暂停状态、验证待办和恢复边界均为当时快照，不代表当前状态。[2026-09-24 交接](fsr-dlss-fg-codex-handoff.zh-CN.md)也是历史检查点；现行进度见[路线图](../ROADMAP.md)。
 
 日期：2026-09-23。用户已明确停止开发并要求形成 checkpoint；当前 native goal 为 paused。本文记录可复用证据、状态和恢复边界，不表示发布或验收完成。
 

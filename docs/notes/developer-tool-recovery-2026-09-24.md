@@ -1,5 +1,7 @@
 # Developer-tool recovery record — 2026-09-24
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This note records the bounded recovery inventory and cleanup outcome for reusable Codex and developer-tool material. The tracked migration and registered old worktree cleanup are complete; two empty scratch roots remain as documented residue.
 
 ## Recovered candidates

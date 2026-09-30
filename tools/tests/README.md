@@ -1,5 +1,7 @@
 # Test suites
 
+This is a target catalog and a record of earlier focused results. Versioned check counts, local `out/` paths and pending coverage belong to the builds named in each section; they do not describe a fresh run on HEAD. Use [project status](../../docs/STATUS.md) for current acceptance and [the roadmap](../../docs/ROADMAP.md) for outstanding work.
+
 ## Test targets and harness catalog
 
 Automated and standalone tests are organized by execution requirements and subsystem boundaries. Select targets appropriate to the changed area; `tools/test.bat` (forwarding to `run.py`) is an older convenience runner, not an exhaustive registry of all test suites. Do not rerun previously passed tests without invalidated code or flags.

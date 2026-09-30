@@ -1,5 +1,7 @@
 # Installer and Windows release pipeline
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 The native SDL installer and its `ScanContent`/`InstallContent` flow run from
 `LostOdysseyRecomp.exe`. The Python `tools/installer` sources and frozen
 `InstallGame.exe` helper have been removed. Release packaging does not ship a

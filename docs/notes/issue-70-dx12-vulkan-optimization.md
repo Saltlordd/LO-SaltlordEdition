@@ -1,5 +1,7 @@
 # Issue #70 DX12/Vulkan optimization
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 状态：v0.7.3 已发布；首轮实现与限定验证完成，尚无用户验收，Issue #70 仍开放。
 
 v0.7.3 已于 2026-09-27T18:01:05Z 发布到 [GitHub Release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.3)，来源为 tag commit `fd139e3c0407309de0cd3d4e5724c59d4363e4ab`。Release CI [36335854660](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36335854660) 全部通过；公开 Release 恰好包含 Windows ZIP、Linux AppImage 和 stable Linux Flatpak，三个链接均返回 HTTP 200。runtime archive、独立 checksum 和 `release-source.json` 未作为公开附件；大小、摘要、Windows 版本/53 项来源清单及 Flatpak stable 重导出记录保留在 `out/releases/v0.7.3/` 内部证据中。

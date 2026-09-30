@@ -1,5 +1,7 @@
 # 原生 Vulkan DLSS Super Resolution 开发与交接指南 (Native DLSS Handoff & Guide)
 
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 日期：2026-09-21
 特性分支：`dlss`
 基线提交：`main@5b765f617ec511a2f76aa9da7923a8c122679d2c`

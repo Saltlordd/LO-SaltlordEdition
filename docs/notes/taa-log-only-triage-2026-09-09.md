@@ -1,5 +1,7 @@
 # 从日志与 render state 定位 TAA 顶点路径遗漏
 
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。 下文 `out/...` 为历史本地证据路径；这些文件当前不在工作树，也不随仓库分发。
+
 2026-09-09：用户接受本次 Ghost Town 二号档同场景修复。候选仍为 **0.5.0**，EXE SHA256 为 `1c9911a3ad6dc91acc5ac1a2cffd7503031b12a81b82b19dd526ce28345ca87a`。Sol 在实际场景取得六张间隔的 presented-frame 截图，覆盖约 11.37 秒，样本内未见闪烁；这不是连续录像。其他场景仍属回归覆盖。以下先保留实现前的修复复盘；本轮新增日志功能及其验证边界见文末。
 
 ## 本次修复如何得到证据
@@ -88,10 +90,10 @@ AND candidates != 0
 
 ## 可复核的本地证据
 
-- [第一次日志定位及 microcode 证据](../../out/v0.5.0/temporal-diagnosis/REPORT.md)
-- [capture 2813–2815 复核](../../out/v0.5.0/taa-capture-followup/REPORT.md)；逐 draw 数据：`out/v0.5.0/taa-capture-followup/frame-01-f2813.json` 至 `frame-03-f2815.json`
-- [精确 c7 补丁与上传优先级产物](../../out/v0.5.0/performance-fix/shader-priority-0.5.0/REPORT.md)
-- [二号档实景观察](../../out/v0.5.0/slot2-sol-check/REPORT.md)
+- 第一次日志定位及 microcode 证据（历史本地路径：`out/v0.5.0/temporal-diagnosis/REPORT.md`）
+- capture 2813–2815 复核（历史本地路径：`out/v0.5.0/taa-capture-followup/REPORT.md`）；逐 draw 数据：`out/v0.5.0/taa-capture-followup/frame-01-f2813.json` 至 `frame-03-f2815.json`
+- 精确 c7 补丁与上传优先级产物（历史本地路径：`out/v0.5.0/performance-fix/shader-priority-0.5.0/REPORT.md`）
+- 二号档实景观察（历史本地路径：`out/v0.5.0/slot2-sol-check/REPORT.md`）
 - [采集协议与边界](../../tools/taa-collector/README.md)、[已支持位置分类](../../LostOdysseyRecomp/gpu/temporal_scene.h)
 
 `out/` 中的原始诊断产物只在维护者工作区保留，不随仓库公开。文末列出本轮已部署的字段及验证边界。
@@ -100,4 +102,4 @@ AND candidates != 0
 
 本轮已实现保守的位置证据：native renderer 对每个 VS 至多分析一次直线 HLSL 符号依赖，记录真实位置矩阵、直传或未证实结果，并保留 issues、可能关联的 interpolator mask 和每个未知 VS 最多 8 种 flag/guard 状态的 coverage-candidate 事件；`UnknownShader` 返回前仍独立记录 anchor、matrix、viewport、depth 和 finite guards。客户端实际序列化 schema 2 的嵌套 `position` 与 guards，不放宽 jitter 分类。Worker 当前部署同时接受 schema 1 和 schema 2，schema 1 canonical/hash 保持不变。
 
-定向验证包括 27 条 C++ rule/guard 检查、保留 capture corpus 的分类结果、Worker 协议检查、343B native JSON 接收和 source-0.5.0 增量编译；完整证据见 [position-evidence report](../../out/v0.5.0/performance-fix/position-evidence-0.5.0/REPORT.md)。本轮没有运行游戏，因此不能把旧 Ghost Town 候选的实景验收迁移到当前二进制；全游戏覆盖和用户验收仍待后续实测。
+定向验证包括 27 条 C++ rule/guard 检查、保留 capture corpus 的分类结果、Worker 协议检查、343B native JSON 接收和 source-0.5.0 增量编译；完整证据见 position-evidence report（历史本地路径：`out/v0.5.0/performance-fix/position-evidence-0.5.0/REPORT.md`）。本轮没有运行游戏，因此不能把旧 Ghost Town 候选的实景验收迁移到当前二进制；全游戏覆盖和用户验收仍待后续实测。

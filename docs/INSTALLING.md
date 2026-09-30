@@ -1,171 +1,148 @@
 # Installing Lost Odyssey Recomp
 
-This guide describes the current development branch and the next package transition, with Direct3D 12 and Vulkan graphics backends. The importer and updater are built into **LostOdysseyRecomp.exe**; there is no separate `InstallGame.exe` or `LostOdysseyUpdater.exe`.
+[简体中文](INSTALLING.zh-CN.md)
 
-1. Extract the entire package to a writable folder, outside Program Files. Keep the main executable, validated DXC v1.8.2407 DLL pair and license files together.
-2. Run **LostOdysseyRecomp.exe** directly. If game files are missing, the built-in importer opens; select your source and review its recognition result before importing.
-3. On first launch, choose interface/game language and graphics settings. The game continues after setup and the separate shader preparation stages.
+This guide covers the published v0.7.20 packages and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
 
-The built-in importer can also be opened from the game to import additional discs or DLC. Disc 1 is required to start.
+## Windows quick start
 
-The package includes the game executable and built-in importer/updater, the DXC v1.8.2407 DLL pair and dependency licenses. Python and Visual Studio are not required. Windows x64 and an AVX-capable CPU are required. D3D12 is the default graphics path; the development Vulkan path requires a compatible Windows driver and uses the driver-provided Vulkan loader rather than a bundled SDK.
-Game files are supplied by the user and are not included in the download.
+Windows x64 and an AVX-capable CPU are required. Direct3D 12 is the default graphics backend. The release package already contains the importer, updater, DXC v1.8.2407 DLL pair and dependency licenses; Python and Visual Studio are not required to play.
+
+1. Download `LostOdysseyRecomp-windows-x64-v0.7.20.zip` from the [v0.7.20 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20).
+2. Extract the complete ZIP to a writable folder outside `Program Files`.
+3. Run `LostOdysseyRecomp.exe`. If no usable game installation is found, the built-in importer opens.
+4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation.
+
+The download does not include game files. Disc 1 is required to start.
 
 <a id="automatic-content-import"></a>
 
-## Automatic content import
+## Importing game data
 
-On first launch of **LostOdysseyRecomp.exe**, choose **Files** to select one or more files, or **Folder** to scan a directory. The same content importer can be reopened from the game when assets are missing. It recognizes supported game discs and Lost Odyssey DLC from their headers and structure; you do not need to choose a disc or DLC mode. Mixed selections are reviewed together before import.
+On the importer’s source page, choose **Files** for selected files or **Folder** for a directory. The importer recognizes the source from its disc metadata; you do not need to choose a separate disc or DLC mode. Review the detected content before confirming the import.
 
-The import order is game-disc transaction, shared game-path save, then DLC transaction. If DLC import fails or is cancelled after discs succeed, the completed discs remain installed and the retry contains only the remaining DLC. A game-path save failure is warned about without rolling back completed imports. DLC-only imports do not change `game-path.txt`.
+<a id="supported-sources"></a>
 
-Disc resource copies and `import-info.json` are published only after their writes,
-flushes and closes succeed. A final write error aborts the staged import before
-publication; the importer does not reread the complete resource to perform this
-check. XDVDFS discovery advances on 2048-byte boundaries and the install phase
-reuses the identity-verified reader while retaining a final identity check.
+Supported sources are:
 
-On the destination page, use **New folder**, `F2`, or controller `Y` to create a
-folder. A unique default name is supplied and can be edited with the keyboard.
-After creation the browser enters and selects the folder, without starting an
-import. Name collisions, permission failures and read-only destinations are
-reported clearly. The source browser keeps its existing `Y` behavior.
+- an extracted game folder or its `default.xex`;
+- an XDVDFS ISO, including a padded image with its descriptor within the first 512 MiB;
+- a GOD/SVOD header, its `.data` folder, or a folder containing multiple GOD discs.
 
-## Supported sources
+The audited sets use Title ID `4D5307FA`:
 
-- An extracted game folder, or its `default.xex`. Selecting the XEX imports the complete parent folder.
-- An XDVDFS ISO, including a padded disc image with its descriptor within the first 512 MiB.
-- A GOD/SVOD header, its `.data` folder, or an outer folder containing multiple GOD discs.
-
-The importer searches up to eight directory levels and reads the XEX disc numbers, so directory names
-and container ordering do not matter within that bounded search. It scans the selected source, shows one review step, and imports only after confirmation. `$SystemUpdate` is not imported. Title updates and other content types are not accepted as game discs.
-
-The importer accepts these audited sets, both with Title ID `4D5307FA`:
-
-| Edition | Version | Media IDs, discs 1–4 |
-|---|---|---|
+| Edition | Version | Media IDs for discs 1–4 |
+|---|---:|---|
 | Asian multilingual | 4 | `39F7D748`, `0EF8CEA8`, `309E3386`, `7B21A91D` |
 | USA/Europe | 3 | `368DE6DD`, `1888BE4E`, `6DD59D08`, `0C0E80B5` |
 
-Each XEX must carry the metadata of one audited supported build. Discs from different editions cannot be mixed,
-either in a single import or when adding to an existing installation. Other builds, title updates
-and modified XEX files need separate compatibility work.
+Do not mix discs from the two editions. Other regional builds, title updates and modified XEX files are outside the audited set.
 
-Game-language choices follow the installed edition: English, Japanese, German, French, Spanish
-and Italian for USA/Europe; English, Japanese, Korean, Traditional Chinese and Simplified Chinese
-for the audited Asian set. The settings interface retains its existing five translations.
-A saved game-language choice unavailable in the current edition falls back to English.
-The embedded installer UI font is a packed Unifont subset from the pinned SDL source; it is not an
-original Lost Odyssey font and does not claim full Unicode coverage or game-style visual fidelity.
+After importing all four discs, the game selects the requested disc automatically. You do not need to swap discs manually. Later-disc progression is not fully verified.
 
-Discs are copied to `game/disc1` through `game/disc4` by default. You can select an external
-game destination. In portable mode, the executable reads `game-path.txt` beside itself; an empty
-or missing file prefers `game` beside the executable and retains a parent `../game` location as a
-compatibility fallback. In non-portable Linux mode, the path file is under
-`XDG_CONFIG_HOME/lost-odyssey-recomp` (normally `~/.config/lost-odyssey-recomp`), and the default
-game data is under `XDG_DATA_HOME/lost-odyssey-recomp/game` (normally
-`~/.local/share/lost-odyssey-recomp/game`). Flatpak defaults to `/var/data/game`. For direct startup, an
-explicit `--game` directory has priority. An invalid non-empty configuration or explicit path is
-reported and does not silently select an older installation.
-The original game's disc request automatically selects the
-corresponding imported `discN` directory. No manual disc-selection button is required. Keep all
-four discs from the same edition under the same parent directory. The original game reloads
-the target disc's own index and archives; the importer does not merge them into one rewritten index.
-If the target is missing, from another edition or incomplete, the request fails and the current
-mount remains selected. Import the required disc with the built-in importer.
-Controlled switching tests do not establish chapter-boundary progression or full-game compatibility.
+## Adding or replacing discs and DLC
 
-## DLC recognition
+Open the importer again from **Settings → Gameplay → Import discs & DLC** when you need another disc or DLC package. Select the content you want to add or replace, review the combined result, and confirm the import. Unrelated installed discs, saves, profiles and settings stay available.
 
-Select DLC files directly or include them in a scanned folder. Filenames and extensions do not matter. The importer accepts `CON`, `LIVE` and `PIRS` packages with Lost Odyssey Title ID `4D5307FA`, Marketplace content type `2` and an STFS volume. Nested files with unknown extensions receive a bounded ISO descriptor probe; manually selected files and `.iso` inputs retain the bounded padded-image search.
+DLC can be selected directly or included in a scanned folder. Supported packages have Lost Odyssey Title ID `4D5307FA`, Marketplace content type `2`, and an STFS volume. DLC files are not included in the program download.
 
-Review the detected package names, content IDs and game discs together, then confirm the single import. Restart **LostOdysseyRecomp.exe** after importing.
+The importer stages the selected content before it becomes part of the installation. If an import is cancelled or fails, retry the remaining content from the importer. Keep the original source files until you have confirmed that the imported installation works; the importer copies source data and does not move your dump.
 
-All discs share `game/dlc/<content-id>/`. Selecting an existing `game/disc1` through `game/disc4` directory also uses this shared location. Keep the extracted files and their hidden metadata together. DLC import leaves `game-path.txt`, source packages, saves, profiles and settings unchanged.
+On the destination page, choose **New folder**, press **F2**, or use controller **Y** to create a folder. You can edit its name before continuing.
 
-An existing installation with the same content ID and expected size is recognized without copying it again. A conflicting package is reported and left unchanged. Importing stages the selected packages before publication; cancellation removes this operation's temporary data. The importer checks structure, path and I/O results, without verifying Microsoft signatures or doing a full source hash scan. Other games, title updates, SVOD DLC and arbitrary loose DLC folders are unsupported.
+Game data normally goes under `game/disc1` through `game/disc4`, with DLC under `game/dlc/<content-id>`. You can choose another destination. In portable mode, `game-path.txt` beside the executable selects the location; an empty or missing file falls back to `game` beside the executable, then the older `../game` location. An explicit `--game` path takes priority for direct startup. See [file locations](#file-locations) for AppImage and Flatpak defaults.
 
-Three real DLC packages have been imported and read at runtime through their headers, complete indexes and payloads in 24 total reads without a crash; imported files and isolated user data remained unchanged. Rewards, dungeon gameplay and broader edition compatibility still need verification. DLC files are not included in the program download.
+<a id="running-on-linux"></a>
 
-## Existing data and cancellation
+## Linux packages
 
-Original game sources are copied, never moved. Existing installed discs are not overwritten.
-To add another disc, select that disc specifically. An import is staged in the destination
-and published only after all selected discs finish. Cancellation removes this operation's
-temporary files. An abrupt power loss may leave a `.import-*` directory; it is not a completed
-installation and can be removed once no importer is running.
-The same applies to a stale `.import.lock` left by a crash; never remove it while importing.
+Linux runs through Vulkan. The [v0.7.20 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated.
 
-Saves, profile, logs and shader caches are kept beside the executable. Keep those folders when
-updating the program. Shader preparation reports resource discovery, cache validation, compilation
-and pipeline preparation as separate stages. Initial scanning and compilation may take several
-minutes; later starts reuse valid shader caches and prepare previously recorded graphics pipelines.
-Shader coverage remains incomplete, and a cold shader cache is intentionally not distributed.
+### AppImage
 
-The first-run settings page saves before game initialization, so the selected language works
-on that launch. Existing settings skip this page. Use `--setup` to open it again; closing it
-without saving exits before the game starts. The in-game Settings entry offers a controlled Restart
-choice for settings that need a new process. No PowerShell or CMD launcher is needed.
+Download `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage`, then run:
 
-Formal packages built from the current branch can check GitHub for a newer matching release at
-startup; automatic updates can be disabled and failed or offline checks must not block launching.
-Development packages skip automatic update checks and preserve user data, saves, settings and caches.
-The historical v0.4.2 package predates this updater flow. Do not copy a development package over a
-published installation without retaining those folders.
+```bash
+chmod +x LostOdysseyRecomp-linux-x64-v0.7.20.AppImage
+./LostOdysseyRecomp-linux-x64-v0.7.20.AppImage
+```
 
-## Running on Linux (first-playable)
+You can import game data from the graphical importer. For a direct launch, pass the game directory, `disc1`, or `default.xex`:
 
-This section describes running the native Linux unbundled executable.
+```bash
+./LostOdysseyRecomp-linux-x64-v0.7.20.AppImage --game /path/to/game
+```
 
-The v0.6.1 release includes native Linux x64 packaging. Download the AppImage from the [v0.6.1 GitHub Release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.6.1), or build the native ELF locally following [BUILDING.md](BUILDING.md). The AppImage update path, native Linux GPU coverage and Steam Deck experience still require the validation described below.
+A normally mounted AppImage stores saves and settings in your Linux user directories; see [file locations](#file-locations). `--game` chooses the game data and does not switch to portable storage. Putting `game-path.txt` beside the outer `.AppImage` file does not configure this mode.
 
-### Flatpak source manifest
+### Flatpak
 
-`packaging/linux/io.github.freefrank.LostOdysseyRecomp.json` is a source-build Flatpak manifest; it is not a published Flatpak package. The Flatpak importer defaults to `/var/data` for game files. Its SDL built-in file browser deliberately receives the required real host-path permissions (`host`, `/media`, `/run/media`, and `/mnt`) rather than using a document portal, so select a different writable destination when `/var/data` is unsuitable.
+The bundle uses application ID `io.github.freefrank.LostOdysseyRecomp` and Freedesktop Platform 26.08. With Flatpak installed, add Flathub for the current user and install the runtime. These commands use a consistent per-user installation, following the [Flatpak setup guide](https://docs.flatpak.org/en/latest/first-build.html):
 
-The verified first-playable path is WSL2 Manjaro using Mesa Dozen's Vulkan-on-D3D12 layer. Native Linux NVIDIA/Mesa ICD paths have not been tested; this result does not establish general Linux GPU compatibility.
+```bash
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.freedesktop.Platform//26.08
+```
 
-### Linux requirements
+Then install and run the downloaded bundle:
 
-- The compiled `LostOdysseyRecomp` executable
-- `libdxcompiler.so` located beside the executable (copied automatically by the CMake build)
-- Extracted game disc files (Disc 1 required to boot)
-- Host Vulkan drivers and Mesa (or another compatible Vulkan ICD)
-- Static-linked SDL2 (already built into the binary)
+```bash
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.20.flatpak
+flatpak run io.github.freefrank.LostOdysseyRecomp
+```
 
-### Graphics backend
+The default Flatpak game directory is `/var/data/game`. The manifest grants access to the host, `/media`, `/run/media` and `/mnt` so the importer can reach a dump stored outside the sandbox. Standalone bundles do not configure an OSTree remote; install a newly downloaded bundle when upgrading.
 
-Linux runs through Vulkan only. Direct3D 12 is Windows-only and is unavailable on Linux.
+## Running on Linux from source
 
-### First-run configuration
-
-The embedded Files/Folder importer has native source handling and cross-platform POSIX lock compatibility, but the interactive graphical window remains Windows-only in current builds. On Linux, tell the game where your files are located using the `--game` command-line argument. For a portable ELF, you can instead create `game-path.txt` beside the executable; non-portable mode reads its path file from `XDG_CONFIG_HOME/lost-odyssey-recomp` and defaults to `XDG_DATA_HOME/lost-odyssey-recomp/game`.
-
-### Launching the game
-
-Run the executable directly from your terminal. `--game` accepts the install root (a folder containing `disc1`), `disc1` itself, or `default.xex`:
+See [BUILDING.md](BUILDING.md) for native build prerequisites and packaging commands. The runtime needs a Vulkan driver, `libdxcompiler.so` beside the executable, and an extracted Disc 1. A direct launch looks like this:
 
 ```bash
 ./LostOdysseyRecomp --game /path/to/game
 ```
 
-Run this command with the ELF directory as the current working directory. When `--game` is
-explicit, the executable does not change to its own directory, so relative `save/`, `profile/`,
-`cache/` and `logs/` paths use the launch CWD.
+Keep the ELF directory as the working directory when you want portable `save/`, `profile/`, `cache/` and `logs/` folders.
 
-If you are running in WSL and accessing your existing Windows game dump:
+## First launch and settings
 
-```bash
-./LostOdysseyRecomp --game /mnt/d/Mihoyo/LostOdysseyRecomp-windows-x64/game
-```
+The first-launch page sets the interface language, game language and graphics options before game initialization. Existing settings skip that page. Run `LostOdysseyRecomp.exe --setup` or `LostOdysseyRecomp --setup` to open it again. The in-game Settings page offers a controlled restart for options that need a new process.
 
-In portable mode, you can also place a `game-path.txt` file next to the binary with your game path, or place an extracted disc folder at `game` adjacent to the executable, then launch:
+The interface language and game language are separate. USA/Europe data provides English, Japanese, German, French, Spanish and Italian; the audited Asian set provides English, Japanese, Korean, Traditional Chinese and Simplified Chinese. A game-language choice unavailable in the installed edition falls back to English.
 
-```bash
-./LostOdysseyRecomp
-```
+Press **F1** or **LB+RB** to open the Debug Menu; opening it pauses the game. It is separate from ordinary Settings. See the [README's Debug Menu guide](../README.md#debug-menu) for captures, teleport, fast-forward, memory edits and Save Anywhere restrictions.
 
-## From source / CI
+## File locations
 
-See [BUILDING.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/BUILDING.md)
-and [release packaging](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/release-packaging.md).
+| Layout | Default locations |
+|---|---|
+| Windows portable package; writable native Linux ELF directory | `save/`, `profile/`, `cache/`, `logs/`, `settings.ini` and `game-path.txt` beside the executable when launched normally. Imported data defaults to `game/`. |
+| AppImage; native Linux ELF in a read-only directory | Saves, profiles, cache and game data: `~/.local/share/lost-odyssey-recomp/`. Settings and game path: `~/.config/lost-odyssey-recomp/`. Logs: `~/.local/state/lost-odyssey-recomp/logs/`. |
+| Flatpak | Under `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`: saves, profiles, cache and game files use `data/`; settings and game path use `config/lost-odyssey-recomp/`; logs use `.local/state/lost-odyssey-recomp/logs/`. |
+
+In Flatpak, the host's `data/` folder appears as `/var/data` inside the sandbox; the default game directory is `/var/data/game`. This program's shader cache uses `data/cache/`. The host paths follow [Flatpak's XDG directory conventions](https://docs.flatpak.org/en/latest/conventions.html#xdg-base-directories).
+
+Linux uses portable storage when the actual ELF directory is writable. Otherwise it uses the XDG directories above; custom `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` values change their roots. For portable Windows or native ELF launches with explicit `--game`, relative user-data paths follow the calling working directory, so launch from the same directory to keep using the same saves. `--game` selects the game source and does not change a non-portable installation's data layout.
+
+## Updating and keeping user data
+
+Formal release packages can check GitHub for a newer release at startup. Disable automatic checks if you prefer manual updates; an offline or failed check does not block launching. Standalone Flatpak bundles are installed manually because they do not use an OSTree remote.
+
+Keep these when updating:
+
+- saves, profiles and `settings.ini`;
+- `logs/` and shader caches;
+- `game-path.txt` and imported game data when stored beside the package.
+
+For a manual update, close the game before replacing program files. Keep a copy of your saves and settings, and retain the previous package until the new one works.
+
+## Reporting a startup or rendering failure
+
+Attach the complete current runtime log from `logs/runtime-<timestamp>.log` and include the executable or source version, backend, GPU and driver details shown near startup. Set `LO_LOG_FILE=<path>` to choose another log path, or `LO_LOG_FILE=0` to disable the duplicate file sink.
+
+For a visible rendering issue, open **F1 → Overview → Capture Render State**, confirm, then **close F1** so rendering resumes. The next three frames are captured and archived in the background. Reopen the menu to read the result, then attach the archive at the displayed path. Windows produces a `.zip`; Linux produces a `.tar.gz`. If archiving fails, the raw capture directory remains. Capture archives include screenshots and rendering/shader data; review their contents before sharing.
+
+Include the scene, edition, disc, settings and exact package version in a report so the result can be reproduced.
+
+## From source and CI
+
+See [BUILDING.md](BUILDING.md) for source builds and [PUBLISHING.md](PUBLISHING.md) for repository synchronization. Release packaging is a separate step from local installation.

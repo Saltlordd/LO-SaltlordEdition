@@ -1,5 +1,7 @@
 # Issue #7: cutscene closure and missing crash diagnostics
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 > **Current tracker clarification (2026-09-18T07:33:59Z).** [Issue #7](https://github.com/freefrank/LostOdysseyRecomp/issues/7) is **CLOSED / Done** in the live tracker. The historical candidate, reporter retest and whole-game limits below remain evidence boundaries; closure does not add player acceptance.
 
 ## v0.4.2 published — 2026-09-08

@@ -1,5 +1,7 @@
 # Guest critical-section byte order
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 ## Observed deadlock (2026-09-05)
 
 An independent first-battle run stopped submitting frames at swap 6279 while

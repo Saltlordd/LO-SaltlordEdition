@@ -1,5 +1,7 @@
 # Native DLSS P2 follow-up — 2026-09-21
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 ## Earlier follow-up and evidence checker
 
 The [earlier next-run handoff](native-dlss-p2-next-run.zh-CN.md) preserves the software-Vulkan and SDK-build checkpoint and instructions for the read-only three-frame evidence checker. The current status below includes the later qualified SDR implementation and live-game NGX execution. Visual acceptance remains outstanding.

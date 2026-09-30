@@ -1,5 +1,7 @@
 # Issue #40 UI 资源定位与资产映射归档
 
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 本文档归档 Issue #40（手柄按键提示与 PlayStation 形状映射）排查过程中定位到的游戏 UI 包、纹理、字体和配置文件字节偏移。所有内容严格基于当前已有实测证据，区分确证、候选与已排除项。
 
 相关英文简要入口见 [issue-40-ui-resource-map.md](issue-40-ui-resource-map.md)。

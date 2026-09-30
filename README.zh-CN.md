@@ -1,70 +1,134 @@
 <div align="center">
 
+<img src="assets/lost-odyssey-recomp.png" alt="Lost Odyssey Recomp 标志" width="112">
+
 # Lost Odyssey Recomp
 
 **《失落的奥德赛》Xbox 360 版的实验性原生 PC 移植。**
 
-Windows x64 · Direct3D 12 · Vulkan · PowerPC 静态重编译
+Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
-<img src="docs/images/title-screen.png" alt="失落的奥德赛标题画面 — Press START" width="960">
+### [下载](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [安装指南](docs/INSTALLING.zh-CN.md) · [English](README.md)
 
-可选诊断默认关闭，也可在设置中关闭。详见[隐私说明](PRIVACY.zh-CN.md)。
+[功能](#当前功能) · [操作按键](#操作按键) · [调试菜单](#调试菜单)
 
-### [下载最新版本](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [安装指南](docs/INSTALLING.md) · [反馈问题](https://github.com/freefrank/LostOdysseyRecomp/issues)
-
-[English](README.md) · [更新日志](CHANGELOG.md) · [开发工具](tools/README.md) · [Projects](https://github.com/users/freefrank/projects/3) · [从源码构建](docs/BUILDING.md)
+[更新日志](CHANGELOG.md) · [反馈问题](https://github.com/freefrank/LostOdysseyRecomp/issues) · [项目看板](https://github.com/users/freefrank/projects/3) · [从源码构建](docs/BUILDING.md)
 
 </div>
 
 > [!IMPORTANT]
-> **本项目仍处于早期测试阶段。** 已测试开场区域和部分场景，尚未通关。渲染和稳定性仍有问题。请自行提供受支持版本的游戏文件。
-
-## 近期版本
-
-| 版本 | 主要更新 |
-| :--- | :--- |
-| [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) | 加载纹理 mip 链以配合各向异性过滤（#87）、插帧倍率上限 6×、修复 D3D12 退出死锁（#82），并降低命令处理器和 D3D12 状态开销。 |
-| [v0.7.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15) | 原生 90／120 FPS 目标与 VRR 节奏控制、RGB Range 与 F1 变速控制、Hungry Man 计时修复、便携式游戏路径后备，以及限定范围的天空闪烁 TAA 映射。 |
-| [v0.7.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) | 更新内置 Vulkan shader（增加 19 条捕获记录），并提供放在 `shaders/` 下的独立 DX12 shader pack。 |
-| [v0.7.9](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.9) | Windows D3D12 帧生成（关／DLSS／FSR），保存后无需重启；修复 Ubuntu 22.04 AppImage 兼容性和更新器问题。 |
-| [v0.7.3](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.3) | 减少 D3D12 重复绑定，新增可选渲染诊断。 |
-| [v0.7.2](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.2) | D3D12 DLSS／FSR 超分路径和 DLAA 尺寸修正。 |
-| [v0.7.1](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.1) | 独立 Flatpak，以及游戏内光盘／DLC 选择和重新导入。 |
-
-当前计划见[路线图](docs/ROADMAP.zh-CN.md)，详细版本记录见[更新日志](CHANGELOG.md)。
+> **本项目仍处于早期测试阶段。** 已测试开场区域和部分场景，尚未完整通关。渲染和稳定性仍有问题。请自行提供受支持版本的游戏文件。
 
 ## 开始游戏
 
-### Windows
-1. 从[最新 Release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) **下载并完整解压** v0.7.20 Windows 发布包（`LostOdysseyRecomp-windows-x64-v0.7.20.zip`），放在可写入的文件夹中。
-2. **运行 `LostOdysseyRecomp.exe` 并按提示导入游戏文件**。支持已提取文件夹、`default.xex`、XDVDFS ISO 或 GOD 容器。
-3. **选择语言和图形设置**，设置与着色器预编译完成后继续进入游戏。
+从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.7.20**。
 
-### Linux (Flatpak 或 AppImage)
-- **Flatpak bundle**：先确认安装 Freedesktop 26.08 平台运行时：
-  ```bash
-  flatpak --system install flathub org.freedesktop.Platform//26.08
-  ```
-  从[最新 Release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) 下载 v0.7.20 独立 `.flatpak` bundle（`LostOdysseyRecomp-linux-x64-v0.7.20.flatpak`）并执行安装：
-  ```bash
-  flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.20.flatpak
-  flatpak run io.github.freefrank.LostOdysseyRecomp
-  ```
-- **AppImage**：下载 `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage`，赋予执行权限（`chmod +x`）后直接运行。
+| 平台 | 安装包 | 首次启动 |
+| :--- | :--- | :--- |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.20.zip` | 将完整 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU；默认使用 Direct3D 12，也可选择 Vulkan。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
 
-发布包不需要安装 Python 或 Visual Studio。后续启动会复用着色器缓存；更新程序时请保留存档和档案文件夹。
+1. **导入游戏数据。** 未找到可用的游戏安装时会打开内置导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、XDVDFS ISO 或 GOD 数据。
+2. **选择界面语言、游戏语言和图形设置。** 完成设置和着色器预编译后进入游戏，后续启动会复用着色器缓存。
+3. **按需追加其他光盘和 DLC。** 在普通设置中打开 **Gameplay → Import discs & DLC（导入光盘与 DLC）**。四张同版本光盘全部导入后，游戏会自动读取所需光盘。
 
-当前分支的更新器会检查 GitHub 最新 Release：数字版本更高时更新，数字版本相同但 `-后缀` 不同时也会触发更新。更新器另外支持从只有 updater 的空目录以及过期或损坏的本地 metadata 恢复。更新成功后，helper 会询问是否启动游戏，默认选择**否**；silent 运行会完成更新但不启动游戏。下载完成后只进行普通 HTTP/I/O 处理、ZIP CRC 解析、路径保护与回滚，不增加 SHA-256 或大小认证。v0.7.9 Windows 过渡包一次性携带旧 SHA map，使已发布的 v0.7.3 更新器能够自动升级；v0.7.10 忽略这些值。
+启动需要 Disc 1。请使用已核对的亚洲多语言版或 USA/Europe 四盘套装，不要混装不同版本。[安装指南](docs/INSTALLING.zh-CN.md)介绍光盘识别、Linux 安装、文件位置和更新方法。发布包不需要 Python 或 Visual Studio；更新时请保留存档和个人配置。
 
-| 要求 | 支持范围 |
+### 最新更新
+
+[v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) 加载纹理 mip 链以配合各向异性过滤，将插帧请求上限设为 6×，修复 D3D12 退出死锁，并降低命令处理器和 D3D12 状态开销。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。
+
+## 当前功能
+
+| 功能 | 可用选项与行为 |
 | :--- | :--- |
-| 系统 | Windows x64、支持 AVX 的 CPU、Direct3D 12 或 Vulkan 图形驱动 |
-| 游戏数据 | 已核对的 Europe, Asia 或 USA, Europe 版；启动需要 Disc 1 |
-| 其他光盘 | 通过 `LostOdysseyRecomp.exe` 内置导入器追加光盘或 DLC；后续光盘流程尚未完整验证 |
+| 导入与首次设置 | 支持文件夹、XEX、ISO、GOD 和受支持的 DLC，可替换所选光盘；首次启动前设置语言和图形选项。原始来源文件保持不变。 |
+| 语言 | 界面提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于安装的版本。 |
+| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。 |
+| 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
+| 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。 |
+| 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |
+| 着色器预编译 | 内置便携式 Vulkan 着色器、多线程编译、跳过和缓存复用。[v0.7.10 的可选 DX12 包](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10)应放在 `shaders/portable_dx12.lospd`；v0.7.20 未单独提供该资产。 |
+| Mod | Mod API v1、LOTEX1／PNG 工具、原生菜单图集和字体纹理页替换，以及 PlayStation 按键提示。支持范围和安装方法见 [Mod 指南](docs/wiki/Modding.md)。 |
+| 输入与工具 | SDL 已映射手柄、键盘输入和震动；英文／简体中文[调试菜单](#调试菜单)，提供画面捕获、同地图传送、快进和游戏数据修改。 |
 
-支持的光盘版本、文件位置和更新方式见[安装指南](docs/INSTALLING.md)。
+全屏、混合 DPI 显示器、更广的超分场景、Linux 硬件和后续光盘流程仍需更多测试。当前工作见[路线图](docs/ROADMAP.zh-CN.md)和[项目看板](https://github.com/users/freefrank/projects/3)。
+
+## 操作按键
+
+SDL 已映射手柄和键盘可以同时用于玩家 1。未映射的摇杆需要 SDL 手柄映射，详见[输入说明](docs/notes/controller-input.md)。
+
+| 游戏操作 | 键盘 |
+| :--- | :--- |
+| Start／Back | Enter／Backspace |
+| A／B／X／Y | Z／X／A／S |
+| 十字键／左摇杆 | 方向键／I、J、K、L |
+| 左／右肩键 | Q／W |
+| 左／右扳机 | E／R |
+| 调试菜单 | F1 |
+
+Ring 操作用手柄**右扳机**或键盘 **R**。震动默认开启，设置 `LO_CONTROLLER_RUMBLE=0` 可关闭。
+
+## 调试菜单
+
+按 **F1**，或手柄 **LB+RB**（PlayStation 布局为 **L1+R1**）打开或关闭调试菜单。**菜单打开时游戏会暂停。** 菜单分为 **Overview（概览）**、**Teleport（传送）** 和 **Cheats（修改）** 三页，与普通 Settings 分开，使用键盘或手柄操作，不支持鼠标。
+
+| 操作 | 键盘 | 手柄 |
+| :--- | :--- | :--- |
+| 选择项目 | ↑／↓ | 十字键上／下 |
+| 修改数值 | ←／→ | 十字键左／右 |
+| 确认 | Enter | A |
+| 返回或关闭 | Esc | B |
+| 上一页／下一页 | Q 或 Tab／E | LB／RB |
+| 切换 Cheats 类别 | 选中类别行后按 ←／→ | LT／RT |
+| 打开或关闭菜单 | F1 | LB+RB |
+
+### Overview：捕获与游戏操作
+
+**Overview** 显示当前地图名称和 ID，也提供菜单语言、**Capture render state（捕获渲染状态）**、**Save Anywhere（随时存档）**。还可以请求将当前战斗判为胜利，或撤销尚未执行的判胜请求。
+
+遇到画面问题时，选择 **Capture render state** 并确认，然后**关闭菜单，让渲染继续**。程序会捕获三帧，在后台将结果归档到 `captures/`。状态消息会显示绝对路径：Windows 为 `.zip`，Linux 为 `.tar.gz`。归档失败时会保留原始捕获目录。捕获内容包括截图、渲染数据、着色器和日志，分享前请检查内容。
+
+**Save Anywhere** 会开放原作 **System → Save（系统 → 存档）** 操作。关闭调试菜单后，重新打开游戏的 System 菜单再存档。它不会另建一套快速存档。
+
+> [!WARNING]
+> **随时存档存在已知的队伍状态问题。** 分队探索后存档再读档，可能丢失 RB 切换角色的功能（[#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)）。请另外保留一份正常存档。屏幕警告是在 v0.7.20 之后加入的，该发布包可能不会显示提示。
+
+### Teleport：当前地图内移动
+
+**Teleport** 提供位置书签、X／Y／Z 坐标和步长编辑，以及当前地图可用的兴趣点（POI）。在坐标行按 **Enter** 选择 X、Y 或 Z，再按 **←／→** 按所选步长调整该轴。确认传送操作或某个兴趣点后，关闭菜单即可移动。场景变化会清除书签，并取消尚未执行的传送。
+
+### Cheats：快进与游戏数据工具
+
+**Cheats** 按用途分为六组：
+
+| 类别 | 功能 |
+| :--- | :--- |
+| **Quick tools** | 快进模式和倍率、**Allow memory edits（允许内存修改）**、金币和 HP／MP 操作。 |
+| **Characters** | 角色 HP／MP、0–99 的 EXP 数值和技能。EXP 输入框不是等级选择器。 |
+| **Inventory** | 将物品和素材数量设为 1、10、50 或 99，或填充已知类别。显示未刷新时，可在游戏背包里执行整理。 |
+| **Equipment** | 实验性的武器、指环和已有饰品槽修改。 |
+| **Party** | 实验性的五槽队伍编成、前后排和场景角色控制。部分修改可能需要重新读档才会显示。 |
+| **Developer** | 实验性的原版 **EDIT MENU** 入口。开启后关闭 F1，再按 **LT+RT**；退出编辑器后应关闭此选项。 |
+
+快进不需要开启内存修改，目前需要使用手柄。**Hold（按住）** 模式下按住 **LT** 加速；**Toggle（切换）** 模式下，每按一次 LT 就切换加速开关。选择 **2×、3×、4×、6× 或 8×** 后，关闭调试菜单即可使用。菜单打开、窗口失焦或场景编辑器运行时会停止加速；**LT+RT** 不会触发加速。音频不做时间拉伸。
+
+内存修改默认关闭。修改游戏数据前，先备份存档，并进入战斗外可控制角色的场景。开启 **Allow memory edits**，选择操作并确认 **Yes**。状态提示待执行时关闭 F1，让操作执行，再重新打开菜单查看结果。场景变化会取消尚未执行的修改。
+
+菜单语言和 Save Anywhere 选项写入 `settings.ini`；快进设置和内存修改许可在程序重启后重置。对游戏数值的修改可能随正常存档保存。
+
+## 反馈问题
+
+请提供确切的安装包或源码版本、操作系统、图形后端、GPU／驱动、游戏版本和光盘，以及复现步骤或场景。附上本次 `logs/runtime-<timestamp>.log` 的完整日志，其中包含启动和图形信息。`LO_LOG_FILE=<path>` 可指定其他日志路径，`LO_LOG_FILE=0` 可关闭重复文件输出。
+
+画面问题请在问题出现时按[捕获步骤](#overview捕获与游戏操作)保存现场，检查内容后再分享归档。不要附上游戏程序、资源包、存档或个人数据。
+
+可选诊断默认关闭，也可在设置中关闭。采集内容和分享控制见[隐私说明](PRIVACY.zh-CN.md)。
 
 ## 实机画面
+
+<img src="docs/images/title-screen.png" alt="失落的奥德赛标题画面 — Press START" width="960">
 
 | Ring 战斗 | 城市探索 |
 | :---: | :---: |
@@ -72,72 +136,9 @@ Windows x64 · Direct3D 12 · Vulkan · PowerPC 静态重编译
 
 *截图来自 v0.1 发布前的开发构建，未经修图。*
 
-## 当前功能
+## 开发导航
 
-| 功能 | 说明 |
-| :--- | :--- |
-| 游戏导入器 | 支持文件夹、XEX、ISO 和 GOD；原始资源不改动，暂存复制会在发布前检查最终写入结果 |
-| 首次启动设置 | 游戏初始化前选择语言和图形选项 |
-| 语言设置 | 英语、日语、韩语、繁体中文、简体中文界面，以及游戏语言选择 |
-| 图形设置 | Auto／手动内部分辨率（配置文件／兼容回退）、含宽屏开关的 16:9 / 21:9 分辨率预设、Off／FXAA／SMAA／实验性 TAA、缩放技术选项（关／DLSS／FSR 3.1，含画质档位）、标准／高质量滤波、可选 RGB Range 扩展（关／扩展）、30／60／90／120 FPS、FreeSync／G-SYNC Compatible VRR 及输出／显示控制；全屏、跨 DPI 和更广超分场景仍需更多测试 |
-| 帧生成设置 | 图像页内提供关／DLSS／FSR、DLSS 倍数、固定 2× FSR、会话状态及保存后即时生效；DLSS FG 切换到 FSR FG 需要重启；已限定验证 D3D12 Uhra 场景 |
-| 设置菜单 | 原版字体、支持长列表滚动的菜单风格；图形设置单击保存并应用，支持按 Start/Enter 聚焦“保存”且不立即保存，需要重启时选择 Now/Later |
-| 着色器预编译 | 内置便携式 Vulkan 着色器包（.lospv）、多线程自适应编译、即时跳过与缓存复用；独立 DX12 .lospd 资产放入 `shaders/` |
-| CPU 使用率 | 减少不必要的轮询，复用渲染计算 |
-| 输入与调试 | 手柄和键盘输入；英文／简体中文游戏内浮层调试菜单（F1 或手柄 LB+RB）提供捕获、地图信息与同地图 POI 传送 |
-
-发布包通过 `LostOdysseyRecomp.exe` 的 **Files** 或 **Folder** 导入游戏光盘和受支持的 DLC。自 v0.7.1 起新增 **Gameplay → 导入光盘与 DLC** 入口，可重新打开导入器并替换所选光盘与 DLC。v0.7.20 提供 Windows ZIP、Linux AppImage 与 Linux Flatpak 独立安装包，并提供放在 `shaders/` 下的独立 DX12 shader 资产。验证边界见[安装说明](docs/INSTALLING.md#automatic-content-import)、[构建说明](docs/BUILDING.md#packaging-flatpak)和[开发状态](docs/STATUS.md)。
-
-验证进展和剩余工作见[公开维护者 Project](https://github.com/users/freefrank/projects/3)。
-
-<details>
-<summary><strong>游戏版本与兼容性详情</strong></summary>
-
-支持的两个版本对应 [Lost Odyssey (Europe, Asia) (En,Ja,Zh,Ko) (Disc 1)，Redump 39111](https://redump.info/disc/39111) 与 [Lost Odyssey (USA, Europe) (En,Ja,Fr,De,Es,It) (Disc 1)，Redump 11817](https://redump.info/disc/11817)。本文将前者简称亚洲版：Disc 1 的 Title ID 为 `4D5307FA`、Media ID 为 `39F7D748`、标题／基础版本为 `0.0.0.4`、XeMID 为 `MS204204H0X14`。USA, Europe 版 Disc 1 的 Media ID 为 `368DE6DD`、版本为 `0.0.0.3`、XeMID 为 `MS204203W0X14`。导入器按 title、media、version、base 和 disc 元数据识别受支持数据，不做整张 ISO 或逐文件 SHA-256 审计。
-
-支持 **USA, Europe 0.0.0.3 四盘版本**，按元数据识别并阻止不同版本混装。游戏语言按安装版本提供：USA, Europe 版为英／日／德／法／西／意，已核对的 Europe, Asia 资源保留英／日／韩／繁中／简中选项。详见[版本说明](docs/notes/europe-support.md)。
-
-四盘全部导入后，游戏会自动读取所需光盘，无需手动换盘。详见[光盘处理说明](docs/notes/disc-selection.md)。
-
-提供语言选项不代表每种语言都已通关验证。已核对集合之外的区域版本、Title Update 和修改后的 XEX 尚未验证，详见[版本证据](docs/notes/xex.md)。
-
-</details>
-
-<details>
-<summary><strong>构建命令与仓库目录</strong></summary>
-
-### 构建与运行
-
-请按[构建指南](docs/BUILDING.md)准备自己的游戏数据、依赖及生成代码。辅助脚本自动查找工具，自定义安装位置可通过环境变量指定。
-
-```powershell
-.\tools\build_runtime.bat
-$gameData = (Resolve-Path .\LostOdysseyRecompLib\private\disc1).Path
-Push-Location .\out\build\windows-clang\LostOdysseyRecomp
-.\LostOdysseyRecomp.exe --game $gameData --quiet-kernel
-Pop-Location
-```
-
-保持启动工作目录一致，避免读到另一套存档或档案。
-
-**启动与失败日志。** 正常启动会在工作目录写入 `logs/runtime-<timestamp>.log`，并同时输出到 `stderr`；设置 `LO_LOG_FILE=<path>` 可指定其他文件，设置 `LO_LOG_FILE=0` 可关闭重复文件输出。v0.5.11 还会记录 Windows build、进程／原生架构、source/build revision、PE 映像元数据、compiler、启动 memory baseline、GPU、原始 driver version、vendor/type 和 `reported_device_memory_bytes`。报告启动或渲染失败时，请附上当前 runtime log，并保留启动日志附近记录的 executable/source version、backend、GPU 和 driver 信息。诊断记录会保留原始 API code 及失败的资源或分配上下文，但这些记录本身不能确定根因。路径和保留规则见[构建与日志说明](docs/BUILDING.md)。
-
-遇到画面问题时，请在问题出现时按 **F1**，选择**捕获渲染状态**。等待后台归档完成，并附上状态消息所示路径下的归档文件：Windows 生成 `.zip` 归档，Linux 生成 `.tar.gz` 归档。如果归档失败，原始捕获目录会保留，以便恢复。
-
-| 动作 | 键盘 |
-| :--- | :--- |
-| Start / Back | Enter / Backspace |
-| A / B / X / Y | Z / X / A / S |
-| 十字键 / 左摇杆 | 方向键 / I、J、K、L |
-| 左 / 右肩键 | Q / W |
-| 左 / 右扳机 | E / R |
-| 调试菜单 | F1 / 手柄 LB+RB |
-
-SDL 已映射手柄与键盘可同时用于玩家 1。未映射摇杆需要 SDL 手柄映射。见[输入说明](docs/notes/controller-input.md)。
-
-默认关闭震动，`LO_CONTROLLER_RUMBLE=1` 可开启。Ring 操作使用手柄右扳机或 R 键。
-
-### 开发导航
+[构建指南](docs/BUILDING.md)介绍依赖和构建命令，[开发工具](tools/README.md)列出可用工具，[文档索引](docs/README.md)汇总当前参考文档和历史记录。
 
 | 目录 | 内容 |
 | :--- | :--- |
@@ -145,11 +146,7 @@ SDL 已映射手柄与键盘可同时用于玩家 1。未映射摇杆需要 SDL 
 | `LostOdysseyRecompLib/` | 配置；Git 忽略的 `private/` 游戏数据和 `ppc/` 生成代码 |
 | `tools/` | 重编译工具、依赖补丁、Ghidra 脚本，以及可选的[汇编采样分析器](tools/asm-profiler/README.zh-CN.md) |
 | `thirdparty/` | 渲染、音频及其他依赖 |
-| `docs/` | 当前状态、指南、逆向记录与历史归档 |
-
-[路线图](docs/ROADMAP.zh-CN.md) · [接手入口](docs/notes/handoff.md) · [渲染测试](docs/notes/rendering-validation.md) · [TAA 实时调试](docs/TAA_LIVE_DEBUG.md) · [音频](docs/notes/audio-output.md) · [归档](docs/archive/README.md)
-
-</details>
+| `docs/` | 当前状态、指南、研究记录与历史归档 |
 
 ## 赞助者
 
@@ -159,4 +156,4 @@ SDL 已映射手柄与键盘可同时用于玩家 1。未映射摇杆需要 SDL 
 
 本项目参考 [UnleashedRecomp](https://github.com/hedge-dev/UnleashedRecomp)、[re:Blue](https://github.com/zolaware/reblue)、[XenonRecomp](https://github.com/hedge-dev/XenonRecomp)、[XenosRecomp](https://github.com/hedge-dev/XenosRecomp)、[plume](https://github.com/renderbag/plume) 和 [Xenia](https://github.com/xenia-project/xenia)。音频采用固定版本的 [Xenia FFmpeg 分支](https://github.com/xenia-project/FFmpeg)，已附[许可证](thirdparty/ffmpeg-LICENSE.txt)。
 
-《失落的奥德赛》及其资产归各自权利人所有，本项目为非官方移植。请从自己拥有的光盘提取数据，不提交游戏程序、资源包、纹理、音视频、生成的游戏代码或捕获数据。依赖保留各自许可证。
+《失落的奥德赛》及其资产归各自权利人所有，本项目为非官方移植。请从自己拥有的光盘提取数据，不要向仓库提交游戏程序、资源包、纹理、音视频、生成的游戏代码或捕获数据。依赖保留各自许可证。

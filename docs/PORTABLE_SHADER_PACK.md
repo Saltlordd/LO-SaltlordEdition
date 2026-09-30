@@ -1,8 +1,15 @@
-# Portable Vulkan shader pack
+# Portable shader packs
 
-Base: `menu@257f3866e9f9f5d3e65550c86dce453290cf7ee4`.
-This change follows reblue's build/distribution separation; it does not copy its
-renderer or change Lost Odyssey's shader translation semantics.
+This is the distribution and tool reference for Vulkan `.lospv` and D3D12
+`.lospd` packs. Vulkan packs are bundled in application packages. The DX12 pack
+is an optional standalone asset; a release need not include a newly uploaded
+copy. Installation uses `shaders/portable_vk.lospv` or
+`shaders/portable_dx12.lospd` beside the executable. See [installation](INSTALLING.md)
+and [current release status](STATUS.md) for the player-facing path.
+
+Release measurements below are dated evidence. The initial implementation was
+based on `menu@257f3866e9f9f5d3e65550c86dce453290cf7ee4`; its delivery archive and
+unverified boundaries are retained in the final historical sections.
 
 ## v0.7.10 shader-pack release
 
@@ -80,31 +87,19 @@ Deck, AppImage update transactions and full-game shader coverage remain unverifi
   decompression boundaries. It loads records on demand and does not scan every
   SPIR-V payload at startup. A malformed record disables the pack and leaves
   the local fallback retryable, without inserting an invalid shader entry.
-- Windows ZIP and Linux AppImage staging currently copy only `shaders/portable_vk.lospv`,
-  validate it with the native tool, and retain the Zstandard license. They do not
+- Windows ZIP and Linux AppImage staging copy only `shaders/portable_vk.lospv`,
+  check that it is a nonempty file, and retain the Zstandard license. The current
+  Python staging helper does not run the native verifier. They do not
   scoop up `cache/shaders`, debug output, HLSL, both backends, or old cache versions.
   The DX12 `.lospd` asset is packaged and published separately, with the dimensions
   and bounded runtime-hit evidence recorded above; it is not copied into these
   application payloads.
 
-## Applying
+## Building from the repository
 
-The delivery archive contains an application script plus source payload. It does
-not contain game shaders, a game executable, game data, or a real exported pack.
-Use Python 3.10+:
-
-```sh
-python apply_portable_shader_pack.py --repo /path/to/LostOdysseyRecomp --check
-python apply_portable_shader_pack.py --repo /path/to/LostOdysseyRecomp --apply
-```
-
-The script checks Git blob identities for the reviewed files (normalizing CRLF),
-checks every replacement anchor, and makes backups in `.lo-portable-backup`.
-It never resets, commits or pushes the working tree. A modified/different base
-is rejected by default. After inspecting a local diff, `--allow-compatible-edits`
-can be used to retain unrelated edits while still requiring every exact anchor.
-`--diff candidate.patch` creates a normal patch against the actual local checkout.
-Keep the backup directory out of commits and release payloads.
+The implementation is integrated into the repository. Follow the [build guide](BUILDING.md);
+the original `apply_portable_shader_pack.py` delivery script is not a current
+checkout prerequisite. Focused pack tools can be built independently as below.
 
 ## Build and CPU tests
 
@@ -130,7 +125,7 @@ are not deleted or rewritten to assert away a regression.
 
 ## Export without recompiling already-valid shaders
 
-Rebuild the runtime with the patch, keep the same game root / local cache / DXC
+Use a runtime containing the pack implementation, keep the same game root / local cache / DXC
 pair, select Vulkan, and enable normal shader preparation. In PowerShell:
 
 ```powershell
@@ -184,11 +179,12 @@ existing build configuration:
 -DLO_PORTABLE_SHADER_PACK=/absolute/path/to/portable_vk.lospv
 ```
 
-It copies the file to `<executable-directory>/shaders/portable_vk.lospv` and builds
-`LoShaderPackTool` for packaging verification. Linux install uses `bin/shaders`.
-The modified ZIP/AppImage packagers copy and validate this optional file. After
-manual export/copy without that CMake option, build `LoShaderPackTool` in the
-runtime build tree before running the package script.
+This opt-in CMake path builds `LoShaderPackTool`, runs `verify-runtime` against
+the configured private image, and copies the file to
+`<executable-directory>/shaders/portable_vk.lospv`. Linux install uses `bin/shaders`.
+The separate Python ZIP/AppImage staging helper checks presence and size and
+copies the optional file; it does not require a native verification pass.
+Use the explicit tool commands above when changed pack inputs require inspection.
 
 For a standalone downloaded pack, put it under `shaders` beside the final game
 executable, or set `LO_SHADER_PACK_PATH` to an absolute file path. Lookup is based
@@ -222,7 +218,12 @@ LoShaderPackTool merge <baseline.lospv> <decrypted-image.bin> <manifest.tsv> <ou
 
 A local test merge produced `out/merged-shaders/portable_vk.lospv` (178,332,830 bytes, SHA-256 `b486c87d121968bcec67fae6bc1aa7926378455281bc8b2a221409b8c06c6e2b`). Starting from the 28,482 baseline shaders, 45 raw microcodes gathered from recent gameplay testing were recompiled and merged, reaching 28,527 total shaders (0 skipped, 1 excluded: `vs_8f6ce5a4f714294a` due to missing supplementary source metadata; original cache entry retained). Verification via `LoShaderPackTool verify-runtime` confirmed `all_payloads_verified: true` and `runtime_compatibility_verified: true`. Detailed logs are recorded in `out/merged-shaders/merge-execution.log`, `verification.log`, and `merge-report.json`. On 2026-09-24, this merged 28,527-shader pack was packaged directly into the official v0.6.15 Windows and Linux application archives via Release CI [36044604844](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36044604844); standalone bundles were omitted from publication.
 
-## Size claim and acceptance limits
+## Initial implementation evidence and limits (historical)
+
+The following paragraphs record the original source-only delivery before the
+v0.6.1, v0.6.15 and v0.7.10 measurements above. Their absence-of-evidence claims
+and proposed checks do not override those later results or require retesting an
+unchanged release.
 
 No complete real startup bundle or SPIR-V corpus was provided in this session.
 Therefore **no real final pack size or game-data compression ratio is measured**.
@@ -254,3 +255,20 @@ is not added here.
 Before release, verify one exported pack on Windows Vulkan and Linux/Deck under
 different paths, check that covered shaders do not invoke guest DXC, test an
 uncovered shader's fallback, and compare real scene images and frame-time traces.
+
+### Original patch-delivery procedure
+
+The original delivery archive contained an application script and source payload,
+without game shaders, an executable, game data or an exported pack. Its Python
+3.10+ commands were:
+
+```sh
+python apply_portable_shader_pack.py --repo /path/to/LostOdysseyRecomp --check
+python apply_portable_shader_pack.py --repo /path/to/LostOdysseyRecomp --apply
+```
+
+That historical script checked Git blob identities after CRLF normalization and
+replacement anchors, and made `.lo-portable-backup` backups. It did not reset,
+commit or push. `--allow-compatible-edits` permitted reviewed compatible edits;
+`--diff candidate.patch` generated a patch against the local checkout. These are
+archive instructions, not commands supplied by the current repository.

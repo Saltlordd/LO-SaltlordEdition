@@ -1,70 +1,134 @@
 <div align="center">
 
+<img src="assets/lost-odyssey-recomp.png" alt="Lost Odyssey Recomp logo" width="112">
+
 # Lost Odyssey Recomp
 
 **An experimental native PC port of Lost Odyssey for Xbox 360.**
 
-Windows x64 · Direct3D 12 · Vulkan · PowerPC static recompilation
+Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
-<img src="docs/images/title-screen.png" alt="Lost Odyssey title screen — Press START" width="960">
+### [Download](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [Installation guide](docs/INSTALLING.md) · [简体中文](README.zh-CN.md)
 
-Optional diagnostics are off by default and can be disabled in Settings. See [Privacy](PRIVACY.md).
+[Features](#current-features) · [Controls](#controls) · [Debug Menu](#debug-menu)
 
-### [Latest download](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [Installation guide](docs/INSTALLING.md) · [Report an issue](https://github.com/freefrank/LostOdysseyRecomp/issues)
-
-[简体中文](README.zh-CN.md) · [Changelog](CHANGELOG.md) · [Developer tools](tools/README.md) · [Projects](https://github.com/users/freefrank/projects/3) · [Build from source](docs/BUILDING.md)
+[Changelog](CHANGELOG.md) · [Report an issue](https://github.com/freefrank/LostOdysseyRecomp/issues) · [Project board](https://github.com/users/freefrank/projects/3) · [Build from source](docs/BUILDING.md)
 
 </div>
 
 > [!IMPORTANT]
-> **This project is still in early testing.** Opening areas and selected scenes have been tested; a complete playthrough has not. Rendering and stability issues remain. You must supply your own supported game files.
-
-## Recent releases
-
-| Version | Highlights |
-| :--- | :--- |
-| [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) | Guest texture mip chains for anisotropic filtering (#87), 6× frame generation cap, a D3D12 quit deadlock fix (#82), and lower command-processor and D3D12 state overhead. |
-| [v0.7.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15) | Native 90/120 FPS targets and VRR pacing, RGB Range and F1 speed controls, the Hungry Man timer fix, portable game-path fallback, and a targeted sky-flicker TAA mapping. |
-| [v0.7.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) | Refreshed bundled Vulkan shaders (+19 captured records) and a separate DX12 shader pack under `shaders/`. |
-| [v0.7.9](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.9) | Windows D3D12 frame generation (Off/DLSS/FSR), applied on Save without restarting; Ubuntu 22.04 AppImage compatibility and updater improvements. |
-| [v0.7.3](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.3) | D3D12 binding de-duplication and opt-in rendering diagnostics. |
-| [v0.7.2](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.2) | D3D12 DLSS/FSR super-resolution routes and DLAA sizing correction. |
-| [v0.7.1](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.1) | Standalone Flatpak and in-game disc/DLC selection and re-import. |
-
-See the [roadmap](docs/ROADMAP.md) for current plans and the [changelog](CHANGELOG.md) for detailed release history.
+> **The port is still in early testing.** Opening areas and selected scenes have been tested; a complete playthrough has not. Rendering and stability issues remain. Supply your own supported game files.
 
 ## Start playing
 
-### Windows
-1. **Download and extract** the v0.7.20 Windows release ZIP (`LostOdysseyRecomp-windows-x64-v0.7.20.zip`) from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) to a writable folder.
-2. **Run `LostOdysseyRecomp.exe`** and import your game files when prompted. The importer accepts an extracted folder, `default.xex`, an XDVDFS ISO or a GOD container.
-3. **Choose your language and graphics settings.** The game continues after setup and shader preparation.
+Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.7.20**.
 
-### Linux (Flatpak or AppImage)
-- **Flatpak bundle**: Ensure the Freedesktop 26.08 platform is installed:
-  ```bash
-  flatpak --system install flathub org.freedesktop.Platform//26.08
-  ```
-  Download the v0.7.20 standalone `.flatpak` bundle (`LostOdysseyRecomp-linux-x64-v0.7.20.flatpak`) and install:
-  ```bash
-  flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.20.flatpak
-  flatpak run io.github.freefrank.LostOdysseyRecomp
-  ```
-- **AppImage**: Download `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage`, make it executable (`chmod +x`), and run directly.
+| Platform | Package | First launch |
+| :--- | :--- | :--- |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.20.zip` | Extract the complete ZIP to a writable folder, then run `LostOdysseyRecomp.exe`. Requires an AVX-capable CPU; Direct3D 12 is the default backend, with Vulkan available. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage` | Make the file executable with `chmod +x`, then run it. Uses Vulkan. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.flatpak` | Install the Freedesktop 26.08 runtime, then the downloaded bundle. See the [Flatpak commands](docs/INSTALLING.md#flatpak). Uses Vulkan. |
 
-No Python or Visual Studio installation is needed for the release package. Later launches reuse the shader cache. Keep your save and profile folders when updating.
+1. **Import your game data.** The built-in importer opens when no usable game installation is found. Use **Files** or **Folder** to select an extracted game folder, `default.xex`, an XDVDFS ISO or GOD data.
+2. **Choose the interface language, game language and graphics options.** The game starts after setup and shader preparation. Later launches reuse the shader cache.
+3. **Add the remaining discs and DLC when needed.** Open **Gameplay → Import discs & DLC** in Settings. With all four matching discs imported, the game selects the requested disc automatically.
 
-The current branch updater checks GitHub's latest Release: a higher numeric version updates, and an equal numeric version with a different `-suffix` also triggers an update. The updater additionally permits recovery from an empty updater-only folder and stale or malformed local metadata. After a successful update, the helper asks whether to launch the game and defaults to **No**; silent runs complete without launching. After the download completes, the updater installs through ordinary HTTP/I/O handling, ZIP CRC parsing, path protection and rollback; it does not add SHA-256 or size authentication. The v0.7.9 Windows transition package carries the legacy SHA map once so an already published v0.7.3 updater can upgrade automatically; v0.7.10 ignores those values.
+Disc 1 is required to start. Use one of the audited Asian multilingual or USA/Europe four-disc sets; do not mix editions. The [installation guide](docs/INSTALLING.md) covers disc identification, Linux setup, file locations and updates. Release packages need neither Python nor Visual Studio. Keep your saves and profiles when updating.
 
-| Requirement | Supported configuration |
+### Latest changes
+
+[v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) adds guest texture mip chains for anisotropic filtering, caps frame-generation requests at 6×, fixes a D3D12 quit deadlock, and reduces command-processor and D3D12 state overhead. See the [changelog](CHANGELOG.md) for earlier releases and the [development status](docs/STATUS.md) for validation coverage.
+
+## Current features
+
+| Feature | Available controls and behavior |
 | :--- | :--- |
-| System | Windows x64, AVX-capable CPU, Direct3D 12 or Vulkan graphics driver |
-| Game data | Audited Europe, Asia or USA, Europe edition; Disc 1 is required to start |
-| Additional discs | Import additional discs or DLC from the built-in importer in `LostOdysseyRecomp.exe`; later-disc progression is not fully verified |
+| Import and setup | Folder, XEX, ISO and GOD sources; supported DLC; selective disc replacement; language and graphics setup before the first game launch. Original source files remain untouched. |
+| Languages | English, Japanese, Korean, Traditional Chinese and Simplified Chinese interface options. Game languages depend on the installed edition. |
+| Display and image quality | 16:9 and 21:9 resolution presets, a Widescreen toggle, Off/FXAA/SMAA/experimental TAA, DLSS or FSR 3.1 upscaling, filtering and RGB Range options. |
+| Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR controls. Actual performance depends on the scene and hardware. |
+| Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. |
+| Settings | Original game fonts, scrollable lists, and Save/apply controls. On the Graphics page, **Start/Enter** moves focus to **Save**; confirm that item to save. Options that require a restart offer **Now/Later**. |
+| Shader preparation | Bundled portable Vulkan shaders, parallel compilation, a skip option and cache reuse. The optional [v0.7.10 DX12 pack](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) belongs at `shaders/portable_dx12.lospd`; it is not a separate v0.7.20 asset. |
+| Mods | Mod API v1, LOTEX1/PNG tools, native-menu atlas and font-page replacements, and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md) for supported replacements and installation. |
+| Input and tools | SDL-mapped controllers, keyboard input and rumble; an English/Simplified Chinese [Debug Menu](#debug-menu) for captures, same-map teleport, speed controls and game-data editing. |
 
-See the [installation guide](docs/INSTALLING.md) for accepted disc versions, file locations and updating.
+Fullscreen, mixed-DPI displays, broader upscaler coverage, Linux hardware and later-disc progression still need more testing. Current work is tracked in the [roadmap](docs/ROADMAP.md) and [Project board](https://github.com/users/freefrank/projects/3).
+
+## Controls
+
+SDL-mapped controllers and the keyboard can be used together for player 1. Unmapped joysticks need an SDL controller mapping; see the [input reference](docs/notes/controller-input.md).
+
+| Game action | Keyboard |
+| :--- | :--- |
+| Start / Back | Enter / Backspace |
+| A / B / X / Y | Z / X / A / S |
+| D-pad / left stick | Arrow keys / I, J, K, L |
+| Left / right shoulder | Q / W |
+| Left / right trigger | E / R |
+| Debug Menu | F1 |
+
+For Ring actions, use the controller's **right trigger** or **R**. Rumble is enabled by default; set `LO_CONTROLLER_RUMBLE=0` to disable it.
+
+## Debug menu
+
+Press **F1**, or **LB+RB** on a controller (**L1+R1** on PlayStation layouts), to open or close the Debug Menu. **The game pauses while it is open.** It has three pages: **Overview**, **Teleport** and **Cheats**. This overlay is separate from the normal Settings menu and uses keyboard or controller input, not the mouse.
+
+| Action | Keyboard | Controller |
+| :--- | :--- | :--- |
+| Select a row | ↑ / ↓ | D-pad up / down |
+| Change a value | ← / → | D-pad left / right |
+| Confirm | Enter | A |
+| Return or close | Esc | B |
+| Previous / next page | Q or Tab / E | LB / RB |
+| Change Cheats category | Select the category row, then ← / → | LT / RT |
+| Open or close the overlay | F1 | LB+RB |
+
+### Overview: captures and game actions
+
+**Overview** shows the current map name and ID. It also contains the menu language, **Capture render state**, **Save Anywhere**, and actions to request a win for the current battle or cancel a pending win request.
+
+To record a rendering problem, select **Capture render state**, confirm, then **close the menu so rendering can continue**. The capture collects three frames and creates an archive in `captures/` in the background. The status message gives its absolute path: `.zip` on Windows or `.tar.gz` on Linux. If archiving fails, the original capture directory remains available. Captures include screenshots, rendering data, shaders and logs; review the contents before sharing.
+
+**Save Anywhere** enables the original game's **System → Save** action. Close the Debug Menu and reopen the game's System menu to use it. It does not create a separate quicksave.
+
+> [!WARNING]
+> **Save Anywhere has a known party-state limitation.** Loading a save made after the party splits can lose RB character switching ([#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)). Keep a separate normal save. The on-screen warning was added after v0.7.20, so that package may not display it.
+
+### Teleport: positions within the current map
+
+The **Teleport** page provides a position bookmark, editable X/Y/Z coordinates and step size, and the current map's available points of interest. On the coordinate row, press **Enter** to select X, Y or Z, then use **←/→** to adjust that axis by the selected step. Confirm the teleport action or a point of interest, then close the menu to move. A scene change clears the bookmark and cancels a pending teleport.
+
+### Cheats: speed and game-data tools
+
+The **Cheats** page groups its tools into six categories:
+
+| Category | What it does |
+| :--- | :--- |
+| **Quick tools** | Fast-forward mode and multiplier, **Allow memory edits**, gold and HP/MP actions. |
+| **Characters** | Character HP/MP, EXP values from 0–99, and skills. The EXP field is not a level selector. |
+| **Inventory** | Item and material quantities of 1, 10, 50 or 99, plus fill actions for known categories. Use the game's inventory sort to refresh the display when needed. |
+| **Equipment** | Experimental weapon, ring and existing accessory-slot changes. |
+| **Party** | Experimental five-slot party composition, front/back row and field-character controls. Some changes may need a reload to appear. |
+| **Developer** | Experimental access to the original **EDIT MENU**. Enable it, close F1, then press **LT+RT**. Turn the option off after leaving the editor. |
+
+Fast-forward works independently of memory editing and currently requires a controller. Choose **Hold** to accelerate while holding **LT**, or **Toggle** to switch acceleration on and off with each LT press. Select a multiplier of **2×, 3×, 4×, 6× or 8×**, then close the overlay to use it. Acceleration stops while a menu is open, the window is unfocused or the scene editor is active; **LT+RT** does not accelerate. Audio is not time-stretched.
+
+Memory editing is off by default. To change game data, first back up your save and enter a controllable scene outside battle. Enable **Allow memory edits**, choose an action, then confirm **Yes**. When the status shows a pending change, close F1 to let the action run. Reopen the menu to check the result. A scene change cancels a pending edit.
+
+The menu language and Save Anywhere option are written to `settings.ini`. Fast-forward settings and memory-edit permission reset when the program restarts. Changes to game values can become part of a normal game save.
+
+## Reporting a problem
+
+Include the exact package or source version, operating system, graphics backend, GPU/driver, game edition and disc, and the steps or scene that reproduce the problem. Attach the complete current `logs/runtime-<timestamp>.log`; it records startup and graphics details. `LO_LOG_FILE=<path>` selects another log path, and `LO_LOG_FILE=0` disables the duplicate file sink.
+
+For a visual defect, use the [capture procedure](#overview-captures-and-game-actions) while the problem is visible. Share the resulting archive only after reviewing it. Do not attach game executables, resource archives, saves or personal data.
+
+Optional diagnostics are off by default and can be disabled in Settings. See [Privacy](PRIVACY.md) for the data collected and sharing controls.
 
 ## In-game screenshots
+
+<img src="docs/images/title-screen.png" alt="Lost Odyssey title screen — Press START" width="960">
 
 | Ring combat | City exploration |
 | :---: | :---: |
@@ -72,72 +136,9 @@ See the [installation guide](docs/INSTALLING.md) for accepted disc versions, fil
 
 *Unmodified screenshots from development builds leading up to v0.1.*
 
-## Current features
+## Development
 
-| Feature | What to expect |
-| :--- | :--- |
-| Game importer | Folder, XEX, ISO and GOD input; originals stay untouched, and staged copies check final writes before publication |
-| First-launch setup | Language and graphics settings before game initialization |
-| Language settings | English, Japanese, Korean, Traditional and Simplified Chinese interface options; game language selection |
-| Graphics settings | Auto/manual internal resolution (config/legacy fallback), 16:9 / 21:9 resolution presets with Widescreen toggle, Off/FXAA/SMAA/experimental TAA, upscaler options (Off/DLSS/FSR 3.1 with quality controls), Standard/High filtering, optional RGB Range expansion (Off/Expanded), 30/60/90/120 FPS, FreeSync / G-SYNC Compatible VRR and output/display controls; fullscreen, mixed DPI and broader upscaler scene coverage need more testing |
-| Frame Generation settings | Graphics-page Off/DLSS/FSR controls, DLSS multipliers, fixed 2× FSR, session status and live application after saving; switching from DLSS FG to FSR FG requires a restart; bounded D3D12 Uhra validation |
-| Settings menu | Original game fonts, scrollable overflowing lists and menu styling; one-click Graphics save/apply, Start/Enter focus-jump to Save without saving, and Now/Later restart choices |
-| Shader preparation | Bundled portable Vulkan shader pack (.lospv), memory-adaptive parallel compilation, interactive skip, and cache reuse; the separate DX12 .lospd asset belongs under `shaders/` |
-| CPU use | Reduced unnecessary polling and reuse of rendering work |
-| Input and debug | Controller and keyboard input; English/Simplified Chinese in-game overlay debug menu (F1 or LB+RB) with capture, map information and same-map POI teleport |
-
-Release packages import game discs and supported DLC with **Files** or **Folder** in `LostOdysseyRecomp.exe`. In v0.7.1, **Gameplay → Import discs & DLC** allows reopening the importer to replace selected discs and DLC. The v0.7.20 release provides Windows ZIP, Linux AppImage, and standalone Linux Flatpak packages, with a separate DX12 shader asset under `shaders/`. See the [installation guide](docs/INSTALLING.md#automatic-content-import), [build instructions](docs/BUILDING.md#packaging-flatpak), and [development status](docs/STATUS.md) for validation limits.
-
-Validation progress and remaining work are tracked in the [Maintainer Project](https://github.com/users/freefrank/projects/3).
-
-<details>
-<summary><strong>Game edition and compatibility details</strong></summary>
-
-The two supported editions correspond to [Lost Odyssey (Europe, Asia) (En,Ja,Zh,Ko) (Disc 1), Redump 39111](https://redump.info/disc/39111) and [Lost Odyssey (USA, Europe) (En,Ja,Fr,De,Es,It) (Disc 1), Redump 11817](https://redump.info/disc/11817). The former is called the Asian edition here: Disc 1 has title ID `4D5307FA`, media ID `39F7D748`, title/base version `0.0.0.4` and XeMID `MS204204H0X14`. The USA, Europe Disc 1 has media ID `368DE6DD`, version `0.0.0.3` and XeMID `MS204203W0X14`. The importer identifies supported data from title, media, version, base and disc metadata; it does not perform a complete ISO or per-file SHA-256 audit.
-
-The **USA, Europe version 0.0.0.3** four-disc set is supported, with metadata checks and protection against mixing editions. Game-language choices follow the installed edition: English/Japanese/German/French/Spanish/Italian for USA, Europe; the audited Europe, Asia resources retain English/Japanese/Korean/Traditional Chinese/Simplified Chinese choices. See [edition details](docs/notes/europe-support.md).
-
-With all four discs imported, the game selects them automatically; no manual disc swap is needed. See [disc handling](docs/notes/disc-selection.md).
-
-Language options do not imply a complete playthrough in every language. Regional builds outside the audited sets, title updates and modified XEX files are not validated. See [edition evidence](docs/notes/xex.md).
-
-</details>
-
-<details>
-<summary><strong>Build commands and repository layout</strong></summary>
-
-### Build and run
-
-Prepare your own extracted data, dependencies and generated sources using the [build guide](docs/BUILDING.md). Helper scripts discover installed tools; custom paths can be supplied through environment variables.
-
-```powershell
-.\tools\build_runtime.bat
-$gameData = (Resolve-Path .\LostOdysseyRecompLib\private\disc1).Path
-Push-Location .\out\build\windows-clang\LostOdysseyRecomp
-.\LostOdysseyRecomp.exe --game $gameData --quiet-kernel
-Pop-Location
-```
-
-Keep the working directory consistent so the intended save/profile folders are used.
-
-**Startup and failure logs.** Each normal launch writes `logs/runtime-<timestamp>.log` in the working directory and mirrors output to `stderr`; set `LO_LOG_FILE=<path>` to choose another file, or `LO_LOG_FILE=0` to disable the duplicate file sink. v0.5.11 additionally records the Windows build, process/native architecture, source/build revision, PE image metadata, compiler, startup memory baseline, GPU, raw driver version, vendor/type and `reported_device_memory_bytes`. When reporting a startup or renderer failure, attach the complete current runtime log and include the executable/source version, backend, GPU and driver details recorded near startup. The diagnostic records preserve raw API codes and the failed resource or allocation context, but they are investigation evidence and do not by themselves identify a root cause. See the [build and logging guide](docs/BUILDING.md) for the path and retention rules.
-
-For a visual issue, press **F1** while it is visible and choose **Capture render state**. Wait for the background archive to finish, then attach the archive at the path shown by the status message: Windows produces a `.zip` archive and Linux produces a `.tar.gz` archive. If archiving fails, the raw capture folder is retained for recovery.
-
-| Action | Keyboard |
-| :--- | :--- |
-| Start / Back | Enter / Backspace |
-| A / B / X / Y | Z / X / A / S |
-| D-pad / left stick | Arrow keys / I, J, K, L |
-| Left / right shoulder | Q / W |
-| Left / right trigger | E / R |
-| Debug menu | F1 / Gamepad LB+RB |
-
-SDL-mapped controllers and the keyboard can be used together for player 1. Unmapped joysticks need an SDL controller mapping. See [input details](docs/notes/controller-input.md).
-
-Rumble is disabled by default; `LO_CONTROLLER_RUMBLE=1` enables it. For Ring actions, use the controller's right trigger or the R key.
-
-### Development
+See [Building](docs/BUILDING.md) for dependencies and build commands, [Developer tools](tools/README.md) for the available utilities, and the [documentation index](docs/README.md) for current references and historical notes.
 
 | Directory | Contents |
 | :--- | :--- |
@@ -147,10 +148,6 @@ Rumble is disabled by default; `LO_CONTROLLER_RUMBLE=1` enables it. For Ring act
 | `thirdparty/` | Rendering, audio and other dependencies |
 | `docs/` | Current status, guides, research and historical archives |
 
-[Roadmap](docs/ROADMAP.md) · [Handoff](docs/notes/handoff.md) · [Rendering tests](docs/notes/rendering-validation.md) · [TAA live debug](docs/TAA_LIVE_DEBUG.md) · [Audio](docs/notes/audio-output.md) · [Archive](docs/archive/README.md)
-
-</details>
-
 ## Sponsors
 
 Thank you to **Cristian** and **Whitesun** for supporting the project on Ko-fi.
@@ -159,4 +156,4 @@ Thank you to **Cristian** and **Whitesun** for supporting the project on Ko-fi.
 
 With research and tools from [UnleashedRecomp](https://github.com/hedge-dev/UnleashedRecomp), [re:Blue](https://github.com/zolaware/reblue), [XenonRecomp](https://github.com/hedge-dev/XenonRecomp), [XenosRecomp](https://github.com/hedge-dev/XenosRecomp), [plume](https://github.com/renderbag/plume) and [Xenia](https://github.com/xenia-project/xenia). Audio uses the pinned [Xenia FFmpeg fork](https://github.com/xenia-project/FFmpeg), with its [license](thirdparty/ffmpeg-LICENSE.txt).
 
-Lost Odyssey and its assets belong to their respective owners. This is an unofficial project. Supply data extracted from your own discs; do not submit game executables, resource archives, textures, audio, video, generated game code or captures. Dependencies retain their respective licenses.
+Lost Odyssey and its assets belong to their respective owners. This is an unofficial project. Supply data extracted from your own discs; do not commit game executables, resource archives, textures, audio, video, generated game code or captures to this repository. Dependencies retain their respective licenses.

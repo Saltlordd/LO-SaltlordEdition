@@ -46,9 +46,12 @@ production CMake patch. Synthetic tables reproduce two baseline failures and
 verify their repair without creating a Vulkan device. `LoFsrVulkanMemoryPolicyTest`
 adds mask, required-property, preference, disabled-feature and type-31 cases.
 
-The `FSR native compile contracts` workflow compiles both FSR-enabled and disabled
-adapter objects plus the temporal provider wrapper against pinned public headers.
-It compiles and validates the two existing conversion shaders, not SDK shader
-permutations. This is not a full SDK link, game build, GPU execution, performance,
-or image-quality test. CPU ownership tests require the project's patched Plume
-headers; use `tools/patches/README.md` for dependency preparation.
+The historical `FSR native compile contracts` workflow compiled both FSR-enabled
+and disabled adapter objects plus the temporal provider wrapper against pinned
+public headers. It compiled and validated the two conversion shaders, not SDK
+shader permutations. That separate workflow is no longer present in the current
+checkout; use the [build guide](../../docs/BUILDING.md) and
+[test catalog](../tests/README.md) for maintained entry points. Those historical
+checks were not a full SDK link, game build, GPU execution, performance or
+image-quality test. CPU ownership tests require the project's patched Plume
+headers; use the [patch guide](../patches/README.md) for dependency preparation.

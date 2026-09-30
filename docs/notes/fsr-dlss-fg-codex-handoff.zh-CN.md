@@ -1,6 +1,8 @@
-# FSR / DLSS FG 当前交接
+# FSR / DLSS FG 历史交接（2026-09-24）
 
-更新时间：2026-09-24。本文是当前 FSR P2 状态与接续入口。详细历史测试过程见[历史交接记录](fsr-dlss-fg-codex-history.zh-CN.md)和[进度证据日志](fsr-dlss-fg-codex-progress.zh-CN.md)；已提交源码不等于公开发布或 P2 全面验收。
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
+更新时间：2026-09-24。本文是当时的 FSR P2 状态与接续入口；2026-09-30 的现行进度以[路线图](../ROADMAP.md)和[项目状态](../STATUS.md)为准。详细历史测试过程见[历史交接记录](fsr-dlss-fg-codex-history.zh-CN.md)和[进度证据日志](fsr-dlss-fg-codex-progress.zh-CN.md)；已提交源码不等于当时公开发布或 P2 全面验收。
 
 ## 当前状态
 

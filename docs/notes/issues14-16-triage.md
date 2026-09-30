@@ -1,5 +1,7 @@
 # Issue #14–#16 triage — 2026-09-12
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md). `out/...` paths below are historical local evidence; those files are absent from this checkout and are not distributed with the repository.
+
 > **日期化分流快照。** 下文记录 2026-09-12 读取到的 Issue 状态和当时证据；当前 Issue 状态以 live tracker 和最新项目同步记录为准。
 
 当前 tracker 核验时间为 2026-09-18T07:33:59Z：Issues #14, #15 and #16 are **CLOSED / Done**. Vulkan、其他地区覆盖和玩家验收仍是独立回归边界。
@@ -49,9 +51,9 @@ The main-binary replay passed on D3D12/local Asia Disc 3 using the new 0.5.6 exe
 
 ## Evidence
 
-- [`out/bug-fix-evidence/issue14-analysis.md`](../../out/bug-fix-evidence/issue14-analysis.md)
-- [`out/bug-fix-evidence/issue15-analysis.md`](../../out/bug-fix-evidence/issue15-analysis.md)
-- [`out/issue16-investigation/analysis.md`](../../out/issue16-investigation/analysis.md)
-- [`out/issue16-investigation/runtime-verification.md`](../../out/issue16-investigation/runtime-verification.md)
-- [`out/bug-fix-evidence/updater-manifest-build/REPORT.md`](../../out/bug-fix-evidence/updater-manifest-build/REPORT.md)
-- [`out/issue16-investigation/capture-baseline-06/findings.md`](../../out/issue16-investigation/capture-baseline-06/findings.md)
+- `out/bug-fix-evidence/issue14-analysis.md` (historical local path: `out/bug-fix-evidence/issue14-analysis.md`)
+- `out/bug-fix-evidence/issue15-analysis.md` (historical local path: `out/bug-fix-evidence/issue15-analysis.md`)
+- `out/issue16-investigation/analysis.md` (historical local path: `out/issue16-investigation/analysis.md`)
+- `out/issue16-investigation/runtime-verification.md` (historical local path: `out/issue16-investigation/runtime-verification.md`)
+- `out/bug-fix-evidence/updater-manifest-build/REPORT.md` (historical local path: `out/bug-fix-evidence/updater-manifest-build/REPORT.md`)
+- `out/issue16-investigation/capture-baseline-06/findings.md` (historical local path: `out/issue16-investigation/capture-baseline-06/findings.md`)

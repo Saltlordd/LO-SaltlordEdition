@@ -1,5 +1,7 @@
 # TAA Bell-Stand Flicker Investigation (Issue #46 adjacent)
 
+> **Investigation record.** Findings and open items are bounded to the recorded captures and dates. For current issue, delivery and acceptance status, see [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Status: investigation open. The exact-stationary MV plus stationary color-clip
 candidate received user confirmation of a clear stability improvement, but
 residual shimmer remains and the Bell Vulkan 4K issue is not resolved.

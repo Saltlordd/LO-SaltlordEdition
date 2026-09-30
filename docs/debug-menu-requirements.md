@@ -1,6 +1,6 @@
 # Debug menu 需求
 
-> 历史需求与实现边界记录。当前工作项与验收进展见 [Maintainer Project](https://github.com/users/freefrank/projects/3)，专项证据见下方 notes 链接；旧状态账本已归档至 [STATUS 快照](archive/STATUS-2026-09-10.md)。
+> 历史需求与实现边界记录。下文“当前”“待实现”和“菜单不暂停游戏”保留 2026-09-04 的语境；现行操作见[设置菜单](notes/settings-menu.md)，工作项与验收见[当前状态](STATUS.md)和[路线图](ROADMAP.zh-CN.md)。随时存档的分队限制见 [Issue #74 记录](notes/issue-74-save-anywhere-party-split.md)。
 
 ## 地图信息与待实现需求
 

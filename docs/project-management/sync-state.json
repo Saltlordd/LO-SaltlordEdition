@@ -1403,7 +1403,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Performance",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "In progress",
         "Source key": "attack-animation-stutter"
       },
@@ -1415,7 +1415,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Text and UI",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "In progress",
         "Source key": "text-clarity-and-garbled-glyphs"
       },
@@ -1427,7 +1427,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shadows",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "fire-breath-shadow-regression"
       },
@@ -1451,7 +1451,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shaders",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
         "Source key": "shader-translation-failures"
       },
@@ -1463,7 +1463,7 @@
       "fields": {
         "Kind": "Research",
         "Area": "Shader preparation",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
         "Source key": "resource-only-pso-preparation"
       },
@@ -1489,7 +1489,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Battle animation",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "In progress",
         "Source key": "enemy-encounter-poses"
       },
@@ -1501,7 +1501,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Effects",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
         "Source key": "fire-hit-checker-effects"
       },
@@ -1513,7 +1513,7 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Debug menu",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
         "Source key": "debug-protagonist-damage"
       },
@@ -1525,7 +1525,7 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Save and content",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "save-content-compatibility"
       },
@@ -1537,10 +1537,11 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Game progression",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "In progress",
         "Source key": "chapter-disc-save-regression",
-        "Evidence": "The completed 2026-09-10 four-save survey loaded and moved in four 3D scenes. user17 naturally entered Ipsilon Valley Road and the runtime opened sibling disc4, establishing bounded cross-disc save loading/resource availability. Follow-up product F1 capture ZIPs are complete for all four slots; each has three consecutive frames, screenshot, temporal JSON, runtime/shader logs and source manifest, with CRC and included-source hashes matching. A story-driven disc-change boundary, further save/restart behavior, player acceptance and publication remain untested. Evidence: out/save-temporal-survey-20260910/REPORT.md; F1-REPORT.md; f1-zip-audit.json."
+        "Evidence": "The completed 2026-09-10 four-save survey loaded and moved in four 3D scenes. user17 naturally entered Ipsilon Valley Road and the runtime opened sibling disc4, establishing bounded cross-disc save loading/resource availability. Follow-up product F1 capture ZIPs are complete for all four slots; each has three consecutive frames, screenshot, temporal JSON, runtime/shader logs and source manifest, with CRC and included-source hashes matching. A story-driven disc-change boundary, further save/restart behavior, player acceptance and publication remain untested. Evidence: out/save-temporal-survey-20260910/REPORT.md; F1-REPORT.md; f1-zip-audit.json.",
+        "Start date": "2026-09-10"
       },
       "title": "Validate chapter and disc transitions on both editions",
       "body_sha256": "8d475698ffdea8dcac36c388be7a07968aae2138ae78ac8b846739a9d6198a9a"
@@ -1562,7 +1563,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shadows",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "map13-shadow-regression"
       },
@@ -1574,7 +1575,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Effects",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
         "Source key": "crate-destruction-black-effects"
       },
@@ -1586,7 +1587,7 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Debug menu",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "save-anywhere-acceptance"
       },
@@ -1610,7 +1611,7 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Desktop windowing",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "desktop-display-acceptance"
       },
@@ -1636,11 +1637,11 @@
       "fields": {
         "Kind": "Research",
         "Area": "Temporal rendering",
-        "Status": "Todo",
+        "Status": "Paused",
         "Delivery": "Deferred",
         "Source key": "frame-generation-research",
         "Release": "v0.8.0",
-        "Evidence": "FSR Frame Generation, D3D12 DLSS FG, and dynamic MFG are promoted to milestone v0.8.0 targets per user planning decision. Active FG production work is phased through P0 architecture evaluation, P3 infrastructure and P4 Windows Vulkan DLSS FG."
+        "Evidence": "Historical broad frame-generation research is deferred. Active delivered work is tracked by the D3D12 FSR/DLSS FG records; active Vulkan work remains in P0/P3/P4. This item stays as deferred backlog rather than an active Todo."
       },
       "title": "Evaluate frame generation integration",
       "body_sha256": "5e1c896d79232b40cd971c043120d9a2215c3727e9fc5abc19bc385039f888fc"
@@ -1650,12 +1651,13 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Source key": "hdr-output-tonemapping"
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Source key": "hdr-output-tonemapping",
+        "Evidence": "Open Issue #90 requests HDR and save states. The maintainer said HDR is for a future release, without a version, implementation or validation evidence. HDR remains deferred backlog; save states are separately unplanned."
       },
       "title": "Add HDR output and tone mapping",
-      "body_sha256": "3ddc0cd7a4eed13b558992ccbb06428e31c00ddd9972dfc7af3e8db8c1988a36"
+      "body_sha256": "4b3e92b7a29ef6a8843dfcb7fcaa89c607759debea448999875de4e31605919c"
     },
     "higher-resolution-shadows": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56e7o",
@@ -1686,7 +1688,7 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Released",
         "Source key": "linux-steamdeck-platform",
         "Start date": "2026-09-14",
@@ -1807,9 +1809,10 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "TAA",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Source key": "taa-motion-quality"
+        "Source key": "taa-motion-quality",
+        "Evidence": "Archived private-feedback aggregate checkpoint 1789199762 adds 15,557 observations for diagnosis only; it does not establish a visual repair, root cause, cross-version result, or player acceptance."
       },
       "title": "Validate TAA motion and history quality across scenes",
       "body_sha256": "348673e43a84dcc2040f0d3e37039239a64a56a4f400e5255d29cf44132f2eef"
@@ -1819,7 +1822,7 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Graphics presentation",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "internal-resolution-acceptance"
       },
@@ -1831,7 +1834,7 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Frame pacing",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "60fps-gameplay-regression"
       },
@@ -1843,21 +1846,21 @@
       "fields": {
         "Kind": "Research",
         "Area": "Frame pacing",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Done",
+        "Delivery": "Released",
         "Source key": "optional-120fps",
-        "Release": "v0.8.0",
-        "Evidence": "Promoted to milestone v0.8.0 planning target per user decision. Evaluates native independent 120 FPS presentation (not FG-generated display frames). Implementation and validation not started."
+        "Release": "v0.7.15",
+        "Evidence": "User accepted all v0.7.15 feature functionality. PR #80 merged (e79a793, 2026-09-28); v0.7.15 published; Release CI 36500844014 succeeded. Native 90/120 FPS settings are released; default remains 30 FPS and high-rate options are experimental. Independent physical 120 FPS display frames, Aim Ring/object pacing, audio/video synchronization, full-playthrough, and cross-GPU/backend coverage remain unquantified regression coverage."
       },
       "title": "Evaluate the optional 120 FPS candidate",
-      "body_sha256": "5ad0261598c3eb1c136a1a27c10bc67355dec8d7c6fdf20dacedf86729dab60d"
+      "body_sha256": "c73eb66a2a40db9cb298d257d7c789178201b1fd8dbc6fa951891cdaacc1b307"
     },
     "audio-and-language-regression": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56fKw",
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Audio and language",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "audio-and-language-regression"
       },
@@ -1881,7 +1884,7 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Debug menu",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
         "Source key": "debug-victory-special-battles"
       },
@@ -2290,14 +2293,14 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Paused",
+        "Delivery": "Deferred",
         "Source key": "native-macos-platform",
         "Release": "v0.8.0",
-        "Evidence": "Roadmap target for v0.8.0 (execution step 10); graphics backend and dependency feasibility investigation starts early in parallel. No macOS build, backend, package, or validation artifact exists."
+        "Evidence": "Open Issue #96 discusses an external Apple Silicon/Metal fork and focused upstream PRs. Maintainer plans review after renderer work and may merge selected PRs, but the main repository has no accepted macOS platform implementation, package, validation or release. Keep the platform target deferred."
       },
       "title": "Establish a native macOS (AArch64 / Apple Silicon) port",
-      "body_sha256": "ae0ca84faeed79cc6b9f4b17c3320699fa8cd7d91fab7fa922b643f91ed8ce35"
+      "body_sha256": "26353e7e690216c54a84701bd3b77318537dcd7aa8de26b9a5401389204da1d8"
     },
     "intermittent-fullscreen-underscan": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6Ku0U",
@@ -2684,14 +2687,14 @@
         "Kind": "Infrastructure",
         "Area": "Temporal rendering",
         "Status": "In Progress",
-        "Delivery": "In progress",
+        "Delivery": "Validated",
         "Release": "v0.8.0",
         "Start date": "2026-09-22",
-        "Evidence": "P0 common temporal-upscaler contracts are implemented; recorded targeted checks passed (CPU 8/8 and affected frame-plan 1/1). P0 Gate 1 remains NOT PASSED (attempt 1/3; two material reviews remain). The experimental standalone Streamline/NGX probe has source and a recorded foreground diagnostic run: binary `f47431b7746cdf54d847d7008547c0d7af0bce8a579f7596cccd5d95334c9efa` reported generated-present intervals but exited 1 with Vulkan validation errors. This is failed-run diagnostic evidence, not a validation-clean generated frame, physical-display proof, production FG delivery or Gate 1 acceptance. Preserving the native Vulkan DLSS/DLAA baseline remains required. This P0 gate is separate from the exhausted P2 Gate B review budget.",
+        "Evidence": "P0 Gate 1 PASSED by maintainer acceptance on 2026-09-27. The known Streamline Vulkan PRESENT-AFTER-WRITE exception is separately deferred under streamline-vulkan-present-after-write. The foreground run recorded 1,980 generated intervals, zero SDK errors and normal cleanup. Physical-display classification, failure injection and settings-restart coverage remain separate follow-up validation.",
         "Source key": "temporal-phased-p0-common-contracts-probe"
       },
       "title": "P0: Implement common upscaler/FG contracts and evaluate coexistence architecture",
-      "body_sha256": "ac42bd019dee1a77a810b31ba5f538ba5755afc64b19897c80dc29d205931279"
+      "body_sha256": "cc53d15f80a19c12f2001c48333f6866093758aee005402b03a13f09f98dd40e"
     },
     "temporal-phased-p1-runnable-fsr": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8QYpk",
@@ -2727,42 +2730,42 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "In Progress",
+        "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "Planned production phase; not started. Unvalidated Streamline/NGX probe source exists in the working tree, but it does not establish production hooks, HUDless/UI separation, leases, Reflex integration or active FG.",
+        "Evidence": "Provider-neutral present/input lifetime tracking and the final composited-backbuffer FG path are merged at 81fe304 (PR #72). The authorized 70-second Uhra run recorded generated-frame evidence; P3 remains In Progress for synchronization resolution and resize, mode-switch and exit-lifecycle validation. HUDless/UI separation is deferred to the separate v1.0.0 item.",
         "Source key": "temporal-phased-p3-fg-infrastructure"
       },
       "title": "P3: Implement frame generation presentation infrastructure and leases",
-      "body_sha256": "dcaef0925d4336d96da35922fbab0d0f6236edab35887a5f83c144f909997056"
+      "body_sha256": "df7a03493870f4ee7300949e7f171f4b7fdc220b1946fd0757e87b37fbc8befa"
     },
     "temporal-phased-p4-dlss-fg-2x": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8QYr4",
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "In Progress",
+        "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "Retained as P4 milestone v0.8.0 target per user decision. Production implementation has not started. Requires verified generated frame presentation and decoupled game pacing.",
+        "Evidence": "Windows Vulkan fixed 2× DLSS Frame Generation is integrated at 81fe304 (PR #72). The authorized 70-second Uhra run recorded 48 enabled periods, 2,830 generated intervals and zero SDK errors. P4 remains In Progress for provider combinations, lifecycle recovery, pacing, visual quality and external-display validation; the known SDK exception is separately deferred.",
         "Source key": "temporal-phased-p4-dlss-fg-2x"
       },
       "title": "P4: Deliver fixed 2× DLSS Frame Generation on Windows Vulkan",
-      "body_sha256": "b44135271776d65b351c84520744bd2f0c881ce498094dff946d7e9f38037c8a"
+      "body_sha256": "af17ba0354d7d19ed9f581edb94279ca30bf39ed4d01da996f286a46e99123a2"
     },
     "d3d12-bundled-shader-pack": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8n2NU",
       "fields": {
         "Kind": "Feature",
         "Area": "Shaders",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "Next release",
-        "Evidence": "Planned for next release after v0.6.15 (version unspecified); implementation and verification not started. Reuses existing portable pack reader/writer, deduplication, and LoShaderPackTool to support D3D12/DXIL backend contracts, container validation, generation/merge, renderer runtime loading, and Windows packaging. Requires new runtime support as current renderer hard-restricts Vulkan/CheckSpirv; excludes driver PSO caching to target HLSL->DXIL compile latency reduction. Expected verification includes DXIL runtime hit, backend isolation, and invalid contract rejection on Windows hardware; none executed yet.",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.10",
+        "Evidence": "D3D12 shader pack delivered in v0.7.10 as shaders/portable_dx12.lospd. The release published the separate DX12 pack; Vulkan packs remain bundled. This record covers the released pack, not driver-private PSO caching or generalized startup-performance claims.",
         "Source key": "d3d12-bundled-shader-pack"
       },
-      "title": "D3D12 bundled portable shader pack (.lospv)",
-      "body_sha256": "7af3e7013850c46d555f7d588c0580c3ea2586c644923eb61f65379d7e0c9c97"
+      "title": "D3D12 portable shader pack (.lospd)",
+      "body_sha256": "867f5a00569efde93f1b9e3d02601d081d2c364f22f9ebf3f31eaedf39309551"
     },
     "issue-35-graphic-improvements-quit-to-desktop": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8re9E",
@@ -3004,14 +3007,14 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Promoted from backlog to an independent milestone v0.8.0 target per user planning decision. Target platform, graphics API, and frame multiplier are not predetermined. Implementation and validation not started.",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.9",
+        "Evidence": "Windows D3D12 FSR Frame Generation is delivered in v0.7.9 with in-game same-process switching. The v0.7.15 maintainer acceptance covers the released feature set. Broader hardware, scene, pacing, image-quality, physical-display and failure-injection coverage remains follow-up work.",
         "Source key": "fsr-frame-generation"
       },
       "title": "Deliver FSR Frame Generation",
-      "body_sha256": "89327f55b8254c9acef542fc1b76829f50844ab18448d91cc7e35bb8fa6e141e"
+      "body_sha256": "7c33026a342adcc3fc4e6bc03cebbaece6d8c38beaff0943680ec33585dabeac"
     },
     "playstation-controller-glyphs": {
       "id": "PVTI_lAHOAAsUY84Biy1azg84rkg",
@@ -3034,28 +3037,28 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Promoted to a milestone v0.8.0 planning target per user decision. Focuses on DLSS Frame Generation on the Direct3D 12 backend, independent of the Windows Vulkan P4 milestone. Implementation and validation not started.",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.9",
+        "Evidence": "Windows D3D12 DLSS Frame Generation is delivered in v0.7.9 with in-game same-process switching. The v0.7.15 maintainer acceptance covers the released feature set. Broader hardware, scene, pacing, image-quality, physical-display and failure-injection coverage remains follow-up work.",
         "Source key": "d3d12-dlss-frame-generation"
       },
       "title": "Deliver D3D12 DLSS Frame Generation",
-      "body_sha256": "639282cba20d4a17692ccff7d5eae3de0142b7b1581f82d9840b5f4db832047d"
+      "body_sha256": "aac74671a03fe9d13e8fbe0b3c1afaa09d9866e9d2a68319182ec0d339835363"
     },
     "dynamic-mfg": {
       "id": "PVTI_lAHOAAsUY84Biy1azg88w8Q",
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Promoted to an independent milestone v0.8.0 target per user planning decision. Target platform and frame multiplier are not predetermined. Implementation and validation not started.",
+        "Status": "In Progress",
+        "Delivery": "Implemented",
+        "Release": "v0.7.20",
+        "Evidence": "The D3D12 adapter includes a capability-gated diagnostic DLSS dynamic-MFG path; the in-game menu exposes fixed modes. v0.7.20 caps FG requests at 6×. Broader API/platform/multiplier/hardware validation remains open.",
         "Source key": "dynamic-mfg"
       },
       "title": "Deliver Dynamic Multi-Frame Generation (MFG)",
-      "body_sha256": "5c367f084835a2bd1f200be8c804e9cd9edb9f374750ba49ccea46ed979a1c30"
+      "body_sha256": "8739f61fff1be10687bd9788447d7209b934f2b288fa5fa94794e39bd2a6f5cd"
     },
     "flatpak-release": {
       "id": "PVTI_lAHOAAsUY84Biy1azg88zAQ",
@@ -3070,6 +3073,209 @@
       },
       "title": "Deliver Flatpak package release",
       "body_sha256": "53635c6715f52c505d97ad38da9d27c3e5745fbda9f08e3325e522d72f7850af"
+    },
+    "reduce-f1-render-capture-export-size": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6QH7Q",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Diagnostics",
+        "Status": "Done",
+        "Delivery": "Not started",
+        "Release": "v0.5.0",
+        "Evidence": "Existing maintainer Project Status Done retained. Its archived experiment evidence records a successful size-preservation experiment and a later timed-out capture; the record does not by itself establish current exporter implementation, release, or acceptance. No current contrary code or runtime evidence was identified in this reconciliation.",
+        "Source key": "reduce-f1-render-capture-export-size"
+      },
+      "title": "Reduce F1 render capture export size",
+      "body_sha256": "9856928e689e476ea3ef634b6bcc4f30e248d3b692d1381db932981dcec23432"
+    },
+    "v100-ui-separation-production-handoff": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg9ExFM",
+      "fields": {
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Kind": "Infrastructure",
+        "Release": "v1.0.0",
+        "Area": "Temporal rendering",
+        "Source key": "v100-ui-separation-production-handoff"
+      },
+      "title": "v1.0.0: Deliver production HUDless/UI separation handoff",
+      "body_sha256": "75c280240a0ad6630e6d2067edce17edb91e6d88f9a20f9721035100a859c25b"
+    },
+    "streamline-vulkan-present-after-write": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg9F10Q",
+      "fields": {
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Source key": "streamline-vulkan-present-after-write",
+        "Evidence": "Accepted exception for P0 Gate 1 on 2026-09-27. Validation reports repeat PRESENT-AFTER-WRITE messages until its 10-message duplicate cap; total occurrences are unknown. Follow upstream SDK synchronization fixes and re-evaluate display classification, failure injection, and settings restart coverage."
+      },
+      "title": "Backlog: Streamline Vulkan PRESENT-AFTER-WRITE synchronization exception",
+      "body_sha256": "6cdf8122e7716d874bbd9cb1e92d51bddf97a6aff70e5a1af6fdf1ee65efbb1d"
+    },
+    "native-migration-architecture-boundaries": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6fI",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration",
+        "Status": "In Progress",
+        "Delivery": "In progress",
+        "Evidence": "Architecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
+        "Source key": "native-migration-architecture-boundaries"
+      }
+    },
+    "native-renderer-pm4-bypass-prototype": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6gU",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / renderer",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "The bounded PM4-bypass prototype is implemented at ce45afe (draft PR #84). Same-EXE D3D12 title comparison exited 0 on both paths, but CmdProc CPU/logged-frame rose 1.172737 to 1.450276 ms (+23.7%). The performance go gate failed; default PM4 remains active and expansion is not accepted.",
+        "Source key": "native-renderer-pm4-bypass-prototype"
+      }
+    },
+    "native-renderer-conditional-coverage-expansion": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6gs",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / renderer",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Conditional work is paused because the bounded PM4-bypass prototype did not demonstrate a benefit; its performance go gate failed. Preserve the PM4 fallback and do not expand coverage.",
+        "Source key": "native-renderer-conditional-coverage-expansion"
+      }
+    },
+    "xex-metadata-extraction-boundary": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6hY",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / XEX",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Planning is paused pending maintainer acceptance of the architecture map. It may later proceed independently of renderer expansion, but no extraction implementation is scheduled.",
+        "Source key": "xex-metadata-extraction-boundary"
+      }
+    },
+    "runtime-interface-native-replacement": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6iE",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / runtime",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Planning is paused pending a demonstrated interface contract and measurable benefit after architecture mapping. No native replacement implementation is scheduled.",
+        "Source key": "runtime-interface-native-replacement"
+      }
+    },
+    "guest-abi-removal-conditional-research": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6i4",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / ABI",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Long-term conditional research is paused: no implementation is scheduled, and entry requires positive bounded renderer, XEX-consumer and runtime-interface evidence.",
+        "Source key": "guest-abi-removal-conditional-research"
+      }
+    },
+    "xenia-component-provenance-audit": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6R6jk",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Provenance and maintenance",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Planning only; independent from native-migration performance decisions.",
+        "Source key": "xenia-component-provenance-audit"
+      }
+    },
+    "issue-25-debug-menu": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6zL7s",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Debug menu",
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state.",
+        "Source key": "issue-25-debug-menu",
+        "Status": "Done"
+      }
+    },
+    "issue-24-vibration-support": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg6zMeg",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state.",
+        "Source key": "issue-24-vibration-support",
+        "Status": "Done"
+      }
+    },
+    "issue-46-flickering-workaround": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg7iyI8",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Rendering",
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state.",
+        "Source key": "issue-46-flickering-workaround",
+        "Status": "Done"
+      }
+    },
+    "issue-50-hide-mouse-cursor": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg7o3GQ",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state.",
+        "Source key": "issue-50-hide-mouse-cursor",
+        "Status": "Done"
+      }
+    },
+    "issue-74-save-anywhere-party-switch": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg9nIcA",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Save & Storage",
+        "Status": "In Progress",
+        "Delivery": "Implemented",
+        "Evidence": "Maintainer reproduced the Astral Square (244) failure with the supplied save. Commit 2e1c547 adds an F1 Save Anywhere warning after v0.7.20; it does not repair affected saves or automatically block split-party saves. Maintainer requested a pre-split save to locate the live switch-permission state.",
+        "Source key": "issue-74-save-anywhere-party-switch"
+      }
+    },
+    "issue-85-minimap-toggle": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg9nIeE",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "User interface",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Maintainer called the request doable but not yet planned, suggesting a future modder path. The open Issue requests minimap visibility toggle scope; no implementation or release is recorded.",
+        "Source key": "issue-85-minimap-toggle"
+      }
+    },
+    "issue-88-xbox360-save-conversion": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg9nIfw",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Save & Storage",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Reporter supplied an RGH Xbox save and requested bidirectional PC/Xbox use. The maintainer stated an intent to address it before v0.8.0, but no implementation, compatibility contract, validation or release evidence is recorded; retain as deferred open backlog.",
+        "Source key": "issue-88-xbox360-save-conversion"
+      }
+    },
+    "save-state-support": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg9nIhQ",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Save & Storage",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog.",
+        "Source key": "save-state-support"
+      },
+      "title": "Evaluate save-state support",
+      "body_sha256": "a51bd9b31f8d901e75308a1b698705916e436179be609d0657f29e27c26713d2"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"

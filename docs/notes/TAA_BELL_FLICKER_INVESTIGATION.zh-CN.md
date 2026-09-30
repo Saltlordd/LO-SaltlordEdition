@@ -1,5 +1,7 @@
 # TAA 铃铛架闪烁排查（Issue #46 相关）
 
+> **调查记录。** 结论与待办只对应文中日期、版本和捕获；现行问题、交付与验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 状态：排查中。用户已确认 exact-stationary MV 加 stationary color-clip 候选
 明显更稳定，但仍有残余闪烁；Vulkan 4K 铃铛问题尚未解决。
 已验证的基线已提交并推送到 `origin/mv`，commit 为

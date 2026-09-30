@@ -1,5 +1,7 @@
 # Debug Menu render-state capture
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Reviewed **2026-09-08**. Published v0.4.2 includes background ZIP compression, cleanup after success and default three-log retention. The actual export and retention results below belong to the identified capture candidate; v0.4.2 CI, package and anonymous-download checks pass as recorded in [STATUS.md](../STATUS.md), reusing the existing functional evidence. Published v0.4.1 introduced three-frame captures with a shared runtime log and smaller contents; the original single-frame capture shipped in v0.2.1. Capture remains diagnostic and does not repair rendering or establish compatibility.
 
 ## 2026-09-22 candidate evidence: final swapchain presentation screenshot and DLSS coordination

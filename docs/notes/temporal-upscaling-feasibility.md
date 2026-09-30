@@ -1,5 +1,7 @@
 # Temporal upscaling feasibility: DLSS, FSR and shared inputs
 
+> **Historical proposal or draft.** Targets and commands below record the planning checkpoint, not a current execution request. Check [ROADMAP](../ROADMAP.md) and [STATUS](../STATUS.md) for delivered scope and remaining work.
+
 ## Follow-up plan — 2026-09-13
 
 The separate [v0.7.0 DLSS-G and FSR FG development plan](v0.7.0-frame-generation-plan.md)

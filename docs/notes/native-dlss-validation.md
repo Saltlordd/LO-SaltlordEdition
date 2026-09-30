@@ -1,5 +1,7 @@
 # Native DLSS Validation (P0 Foundation, P1 Temporal Inputs & P2 Checkpoint)
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Date: 2026-09-21
 Baseline: `main@5b765f617ec511a2f76aa9da7923a8c122679d2c`
 Feature branch: `dlss` (prior pushed baseline: `91bf37e`; current HEAD: `c2f0602`)

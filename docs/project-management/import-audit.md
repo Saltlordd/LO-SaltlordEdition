@@ -2,7 +2,9 @@
 
 Snapshot: 2026-09-08T07:16:56.575193+00:00. Repository source: `147bffb214cd3650f3eadb810e86f7237511ac23`.
 
-[Roadmap](https://github.com/users/freefrank/projects/3/views/1) · [Backlog](https://github.com/users/freefrank/projects/3/views/2) · [History](https://github.com/users/freefrank/projects/3/views/3). The Project retains its existing private visibility.
+Lifecycle: this is a frozen initial-import audit. The 145-item result below is historical evidence from the 2026-09-08 import. Later Project changes are recorded in the [2026-09-30 reconciliation](reconciliation-2026-09-30.md). Use [docs/STATUS.md](../STATUS.md), [docs/ROADMAP.md](../ROADMAP.md) and [docs/ROADMAP.zh-CN.md](../ROADMAP.zh-CN.md) for current public status.
+
+[Roadmap](https://github.com/users/freefrank/projects/3/views/1) · [Backlog](https://github.com/users/freefrank/projects/3/views/2) · [History](https://github.com/users/freefrank/projects/3/views/3). The import record originally described private visibility; the Project is public in the 2026-09-30 readback. This does not alter the historical import receipt below.
 
 ## Reviewed source coverage
 

@@ -1,5 +1,7 @@
 # Automatic selection of imported discs
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Status: **2026-09-06, included in published v0.2**. Commit `dcc946299cdc2984783793ad5871a0ad0b90a2c9` and its `v0.2` tag were pushed to both remotes. The dated local test packages below preserve pre-release evidence; they are not the official release artifact. Chapter-boundary gameplay and a complete playthrough remain unverified.
 
 ## Behavior

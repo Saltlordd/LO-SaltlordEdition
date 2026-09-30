@@ -1,5 +1,7 @@
 # Multiple controllers and keyboard input
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Status: **2026-09-06, released in v0.2.1; not included in v0.2**. The input update opens all SDL-mapped game controllers and keeps the keyboard active. It merges them into player 1, not separate multiplayer slots.
 
 ## Behavior

@@ -1,8 +1,10 @@
 # Gate 1 host repair follow-up — 2026-09-27
 
-This note records the host-side repair work on the Gate 1 validation branch. It is development evidence, not a release or acceptance record.
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
 
-The repair was merged into [`main`](https://github.com/freefrank/LostOdysseyRecomp/commit/95f96e161f33a1fd0c35ee9316f683cb5f49d01c) on 2026-09-27. No release or tag was created.
+This note records the host-side repair work on the Gate 1 validation branch. The repair evidence is bounded to its tests and runs; the later maintainer acceptance and remaining limits are recorded under “Status and limits” below.
+
+The repair was merged into [`main`](https://github.com/freefrank/LostOdysseyRecomp/commit/95f96e161f33a1fd0c35ee9316f683cb5f49d01c) on 2026-09-27. No release or tag was created for that merge at the time.
 
 ## Scope
 

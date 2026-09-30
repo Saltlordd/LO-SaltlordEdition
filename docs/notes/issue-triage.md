@@ -1,6 +1,8 @@
 # Automated issue triage
 
-**Status: deployed on both `main` mirrors (2026-09-14).** The `@codex` comment and code-retrieval update was published at `600b08e`. A real public `@codex` reply remains to be observed after a user submits one.
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
+**2026-09-14 deployment checkpoint.** The `@codex` comment and code-retrieval update was published at `600b08e` on both `main` mirrors. A [real public `@codex` reply](https://github.com/freefrank/LostOdysseyRecomp/issues/21#issuecomment-5669773986) was subsequently verified; the earlier pending-observation statement no longer applies.
 
 The repository contains a bounded, non-agentic workflow for preliminary analysis of newly opened GitHub Issues. `.github/workflows/issue-triage.yml` runs on `issues.opened` and also supports manual `workflow_dispatch` with the required `issue_number` input, a `dry_run` input that defaults to `true`, and an optional `comment_id` for previewing an existing mention. The workflow also handles a new human `@codex` request in an Issue comment when the author is an OWNER, MEMBER or COLLABORATOR; pull requests are excluded, while a closed Issue may still receive a manually requested analysis. Each new qualifying mention is analyzed by comment ID, so an earlier automated triage marker does not block a later request. The job runs on GitHub-hosted Ubuntu and invokes `tools/issue_triage/triage.py`; it does not execute issue text, model output, commands or attachments.
 

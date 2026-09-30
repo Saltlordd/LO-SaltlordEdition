@@ -1,5 +1,7 @@
 # Geometric motion replay: implementation and validation boundary
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Date: 2026-09-18 (America/Edmonton). Replaces the camera-only regression on `mv`, code baseline `455b420d3027ac719f09a77d88c0a46878cf965e` (runtime equivalent to `9d7b778`).
 
 ## What changed

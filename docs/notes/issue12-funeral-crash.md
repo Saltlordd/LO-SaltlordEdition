@@ -1,5 +1,7 @@
 # Issue #12: funeral flower hand-in investigation
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 > **Current tracker clarification (2026-09-18T07:33:59Z).** [Issue #12](https://github.com/freefrank/LostOdysseyRecomp/issues/12) is **CLOSED / Done** in the live tracker. The bounded local repair evidence and the separate reporter, natural-shutdown and full-game validation limits below remain distinct; closure does not add those validation results.
 
 ## Current checkpoint — 2026-09-08

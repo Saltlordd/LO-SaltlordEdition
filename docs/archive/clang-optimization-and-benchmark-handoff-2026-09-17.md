@@ -35,7 +35,7 @@
 | **P0** | 基线环境全量留存 | 已完成 | 硬件、OS、内核、Mesa、LLVM 等标识保存于环境记录文件中 |
 | **PR 03** | 优化矩阵全量构建 | 已完成 | 全部 5 组二进制构建完毕（见下方表），段大小缩减趋势符合预期 |
 | **PR 04** | IR-PGO 构建与编译 | 已完成 | 生成采样 Profile：`/home/freefrank/perf/lo/pgo/game.profdata`；完成 C4 PGO Use 构建 |
-| **测试准备** | 自动化测试脚手架 | 进行中 | 脚本 [tools/run_city_bench.sh](../../tools/run_city_bench.sh) 已部署至目标机，正调试读档进城逻辑 |
+| **测试准备** | 自动化测试脚手架 | 进行中 | 脚本 tools/run_city_bench.sh (historical local path, unavailable in this checkout: `tools/run_city_bench.sh`) 已部署至目标机，正调试读档进城逻辑 |
 
 ### 已完成构建矩阵二进制汇总
 

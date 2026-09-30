@@ -1,5 +1,7 @@
 # 4K Vulkan shadow-loop GPU audit — 2026-09-12
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 以下“不是生产 translator 修复”等表述仅指最初诊断阶段；后续实施状态见下方“实施跟进”。
 
 本文记录最初的单帧 RenderDoc 诊断与单 shader 离线探针，以及后续 `gpu-perf` 分支上的有界修复；实现已纳入已发布的 v0.5.7，游戏实景验收仍待完成。目标是定位 RTX 5080 在 3840×2160 Vulkan 下的高 GPU 负载。诊断使用同一发布 EXE 0.5.6，SHA-256 为 `1fff598e1a0872da2a7728ceb9921aa2e4a1bff0bd818c224827b84eaf3f5aaa`。正确捕获是 [`audit_frame12462.rdc`](../../out/gpu-profile-20260912/session-02/audit_frame12462.rdc)，大小 1,274,168,861 bytes；较早的 `audit_frame7922.rdc` 不是本结论的依据。

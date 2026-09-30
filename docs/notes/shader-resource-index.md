@@ -1,5 +1,7 @@
 # Built-in shader resource index
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 `gpu/shader/resource_index.h` contains metadata for the tested four-disc resource set:
 25 distinct file layouts and 3,538 shader locations, yielding 2,000 unique shaders.
 It contains file names/sizes, sampled fingerprints, byte offsets/lengths, shader stages and

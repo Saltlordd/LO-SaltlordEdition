@@ -1,5 +1,7 @@
 # Startup shader coverage follow-up — 2026-09-13
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 The local change moves the newly observed `1474db97dfc0afad` declaration variant into the existing startup shader preparation path. Its original source, `11bc08f69da45bb3`, was already extracted from original game resources; the missing coverage was CPX SDK metadata plus the packed 40-byte static-mesh declaration. The earlier log recorded a 32.178 ms DXC compile for this variant during gameplay.
 
 The maintainer generator now accepts SHA-256 and size-verified decoded CPX package inventories alongside the original raw FPD inventory. It emits metadata for 245 vertex sources, nine declarations, 130 pixel representatives and 2,512 bounded link plans. Existing raw-package pixel representatives retain priority, so equivalent CPX discoveries do not add new source dependencies to old plans. The generated tables contain identities and patch metadata, not game microcode. The packed declaration comes from this capture and original SDK semantics; it is not claimed to be a recovered constant XEX constructor.

@@ -1,6 +1,6 @@
 # 未完成需求覆盖清单
 
-已冻结 65 个去重工作项，供主代理导入 GitHub Projects。机器清单：[合并后清单 items.json](items.json)。本任务仅编辑这两份本地产物，没有修改 GitHub、构建或操作游戏。
+生命周期：本文是 2026-09-08 冻结的 65 项去重覆盖快照，供当时导入 GitHub Projects。下文数量、Issue 状态及代理执行描述均属于该检查点。后续变化见 [2026-09-30 逐项对账](reconciliation-2026-09-30.md)、[STATUS](../STATUS.md)和[路线图](../ROADMAP.md)；当前机器清单见 [items.json](items.json)。
 
 ## 字段与状态
 

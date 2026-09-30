@@ -1,5 +1,7 @@
 # v0.4.0 后续开发交接（2026-09-07）
 
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。 下文 `out/...` 为历史本地证据路径；这些文件当前不在工作树，也不随仓库分发。
+
 ## 2026-09-07：v0.4.0 正式发布
 
 [v0.4.0](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.4.0) 已于 2026-09-07 21:56:34 UTC 从标签提交 `40362d78285d9ad829d2b0f6143d4fc54d3514d8` 发布，CI `34163445379` 成功。正式 ZIP 为 42,556,481 字节，SHA256 `92bf89f19d6eca3f6c2ec5c4a04d9ef372d0cadc9b3117546027e6e32e749cc1`；45 项 manifest 与 System32-only PATH 下安装器自测通过。正式 EXE SHA256 为 `6cbb1360c36a0492df78098a244c72bf4bba93e4f75052aab0e093c1ae30a09e`，匿名公开下载与受测 ZIP 一致。
@@ -25,7 +27,7 @@
 | Issue #6 | 补充启动分配失败阶段、OS 错误及内存诊断，186 项注入检查通过；未改变映射策略，原机器根因仍未知。 |
 | Plume 依赖补丁 | 两处原生纹理创建失败返回 null；固定 HEAD 应用补丁后 Git 规范化内容与当前源一致，原有改动保留。 |
 
-此前[开发包](../../out/v0.4.0-followup/packages-both-editions/LostOdysseyRecomp-windows-x64-c548b480-dev.zip)：ZIP SHA256 `ed8e0627…`，EXE SHA256 `c75946a3…`；45 项 manifest、安装器和两版 Map2 实跑核验通过，7 项用户文件保持。旧包和旧证据保留。
+此前开发包（历史本地路径：`out/v0.4.0-followup/packages-both-editions/LostOdysseyRecomp-windows-x64-c548b480-dev.zip`）：ZIP SHA256 `ed8e0627…`，EXE SHA256 `c75946a3…`；45 项 manifest、安装器和两版 Map2 实跑核验通过，7 项用户文件保持。旧包和旧证据保留。
 
 这些结果不代表整体启动／FPS 收益或全游戏画质验收；新版本视觉反馈、#5 原战斗和 #6 原机器仍待复查。旧 freeze 的独立窗口线程修复属于既有工作，本轮仅做关联检索。
 
@@ -39,7 +41,7 @@
 
 联合索引新包为 `out/v0.4.0-followup/packages-both-editions/LostOdysseyRecomp-windows-x64-c548b480-dev.zip`，42,612,002 字节，SHA256 `ed8e0627f5398e2103f758009854ce29ee240f732565e66aeb2b19aa8b0295d5`，EXE SHA256 `c75946a3e83e7e1652f93646f332e51b19919b6a642cfd8ccda39a013cd3fe2e`。45 项 manifest、受测 EXE／编译器 DLL 与安装器 self-test 通过，无游戏／用户数据。
 
-两版均实际运行新包 EXE `c75946a3…`，live 模块核实包内 DXC／DXIL；亚洲／美欧分别记录 13.482／13.367 秒发现、52 个裸资源文件索引命中、零扫描及 CPX 回退。相同 Map2 seed 的 Auto 1080p／AA3 场景均到达有效 1920×1080，无分配回退，两张静止截图已由主代理检查；每版实际清单全部 20,686 来源哈希与完整扫描基准一致。7 项用户文件、任务 seed 和 EXE 保持；任务进程均由 harness 结束，不记作自然退出验证。完整证据见[联合索引交付记录](../../out/v0.4.0-followup/cpx-both-editions/DELIVERY.md)和 `cpx-both-editions/runtime-summary.json`。这些发现时间不是受控完整启动／FPS 对照，也不扩大 #5 原战斗、全流程或玩家验收；该包产出时尚未提交、推送或发布。
+两版均实际运行新包 EXE `c75946a3…`，live 模块核实包内 DXC／DXIL；亚洲／美欧分别记录 13.482／13.367 秒发现、52 个裸资源文件索引命中、零扫描及 CPX 回退。相同 Map2 seed 的 Auto 1080p／AA3 场景均到达有效 1920×1080，无分配回退，两张静止截图已由主代理检查；每版实际清单全部 20,686 来源哈希与完整扫描基准一致。7 项用户文件、任务 seed 和 EXE 保持；任务进程均由 harness 结束，不记作自然退出验证。完整证据见联合索引交付记录（历史本地路径：`out/v0.4.0-followup/cpx-both-editions/DELIVERY.md`）和 `cpx-both-editions/runtime-summary.json`。这些发现时间不是受控完整启动／FPS 对照，也不扩大 #5 原战斗、全流程或玩家验收；该包产出时尚未提交、推送或发布。
 
 ### 此前版别验证：79308a15 包（2026-09-07）
 
@@ -47,7 +49,7 @@
 
 两版都运行当前交付包 EXE `3aae46b8…`，live 模块确认包内 DXC／DXIL；日志分别识别 Asia/default（5 种游戏语言）和 USA/Europe（6 种）。相同 Map2 seed 的普通 Auto 1080p／AA3／30 FPS 静止检查均到达场景，有效内部尺寸与已审阅截图均为 1920×1080，无分配回退；每版实际清单内全部 20,686 来源哈希与 scanner 一致。7 项用户文件、任务 seed 和 EXE 保持，任务进程均由 harness 结束，不记作自然退出验证。
 
-两版仍有相同的已知 `ps_78af7d75d932c582`／`vs_291187f5ef8ba74a` 预编译失败，不属于本次新漏提取。本次验证不涵盖原报告战斗、章节换盘、全语言／全游戏画质或新玩家验收。证据在 `out/v0.4.0-followup/edition-validation/` 的 `scanner/{layout-audit.json,comparison.json}`、`runtime-summary.json` 及两版 runtime 子目录；版别详情见[本次验证报告](../../out/v0.4.0-followup/edition-validation/REPORT.md)及[美欧版记录](europe-support.md)。本轮未修改源码、包或发布状态。
+两版仍有相同的已知 `ps_78af7d75d932c582`／`vs_291187f5ef8ba74a` 预编译失败，不属于本次新漏提取。本次验证不涵盖原报告战斗、章节换盘、全语言／全游戏画质或新玩家验收。证据在 `out/v0.4.0-followup/edition-validation/` 的 `scanner/{layout-audit.json,comparison.json}`、`runtime-summary.json` 及两版 runtime 子目录；版别详情见本次验证报告（历史本地路径：`out/v0.4.0-followup/edition-validation/REPORT.md`）及[美欧版记录](europe-support.md)。本轮未修改源码、包或发布状态。
 
 ### 此前交付：CPX 已知布局直接提取（2026-09-07）
 
@@ -57,7 +59,7 @@
 
 主程序构建通过，EXE SHA256 `3aae46b8d171cec4f977733a5a5f288d62d51aff7a1f0eeefbb098399509ebae`。该 EXE 使用亚洲版，在空资源发现缓存、复用任务自有 DXIL 缓存下实际启动，发现为 13.335 秒／142,093,208 字节／20,686 来源，52 个裸资源索引文件、零扫描／CPX 回退。Map2 普通 Auto 1080p／AA3／30 FPS 静止检查得到有效内部尺寸 1920×1080，无分配回退，1920×1080 截图已由主代理检查。运行缓存中的 20,686 个清单来源逐哈希仍与基线一致；另有运行来源，总计 22,954，不能把整个运行缓存数量视为 CPX 清单产物。7 项用户文件哈希不变；自有进程由 harness 结束，exit 1 不记作自然退出验证。
 
-新 ZIP 位于 `out/v0.4.0-followup/packages-cpx-direct/LostOdysseyRecomp-windows-x64-c548b480-dev.zip`，41,787,161 字节，SHA256 `79308a1508edc459360d8b0791329e719cd5bb75a100ab57a61fab5f23059cef`。45 项 manifest、包内 EXE／DXC／DXIL 与受测 build 一致，安装器 self-test 返回 0，无游戏或用户数据。见[本次交付记录](../../out/v0.4.0-followup/cpx-direct/DELIVERY.md)、`cpx-direct/runtime-validation.json`、`cpx-direct-runtime/result.json` 和 `package-cpx-direct-audit.json`。旧包保留，仍未提交、推送、发布或新增玩家验收；以下 TAA、freeze、v1–v3 及早期记录保留各自证据范围。
+新 ZIP 位于 `out/v0.4.0-followup/packages-cpx-direct/LostOdysseyRecomp-windows-x64-c548b480-dev.zip`，41,787,161 字节，SHA256 `79308a1508edc459360d8b0791329e719cd5bb75a100ab57a61fab5f23059cef`。45 项 manifest、包内 EXE／DXC／DXIL 与受测 build 一致，安装器 self-test 返回 0，无游戏或用户数据。见本次交付记录（历史本地路径：`out/v0.4.0-followup/cpx-direct/DELIVERY.md`）、`cpx-direct/runtime-validation.json`、`cpx-direct-runtime/result.json` 和 `package-cpx-direct-audit.json`。旧包保留，仍未提交、推送、发布或新增玩家验收；以下 TAA、freeze、v1–v3 及早期记录保留各自证据范围。
 
 用户补充“所有场景都看不出 upscale 效果”，并明确要求真正的内部分辨率最高到 4K，或默认跟随输出；随后授权自主开发 CPX 索引、内部分辨率及 Issue #5／#6。本轮工作基于本地 `c548b48`，尚未提交、推送或发布，公开下载仍为 v0.3.0。新版本画质收益尚未获用户验收。
 

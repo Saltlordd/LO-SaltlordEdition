@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "repository": "freefrank/LostOdysseyRecomp",
-  "source_revision": "147bffb214cd3650f3eadb810e86f7237511ac23",
-  "snapshot_at": "2026-09-08T07:16:56.575193+00:00",
+  "source_revision": "84f569a",
+  "snapshot_at": "2026-09-30T07:28:19.7295988Z",
   "scope": "Reachable retained Git history, releases, repository requirements and live Issues; feature/fix-level records, not every unrecorded conversation or unvisited game scene.",
   "items": [
     {
@@ -2951,11 +2951,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Performance",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "In progress",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "attack-animation-stutter"
       },
       "source_refs": [
         "docs/notes/shader-preparation.md",
@@ -2984,11 +2982,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Text and UI",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "In progress",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "text-clarity-and-garbled-glyphs"
       },
       "source_refs": [
         "docs/STATUS.md#v040-implementation-and-development-evidence",
@@ -3018,11 +3014,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shadows",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "fire-breath-shadow-regression"
       },
       "source_refs": [
         "docs/notes/fire-hit-rendering.md",
@@ -3088,11 +3082,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shaders",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "shader-translation-failures"
       },
       "source_refs": [
         "docs/notes/shader-preparation.md",
@@ -3133,11 +3125,9 @@
       "fields": {
         "Kind": "Research",
         "Area": "Shader preparation",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "resource-only-pso-preparation"
       },
       "source_refs": [
         "docs/notes/shader-preparation.md",
@@ -3201,11 +3191,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Battle animation",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "In progress",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "enemy-encounter-poses"
       },
       "source_refs": [
         "docs/notes/encounter-animation.md",
@@ -3234,11 +3222,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Effects",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "fire-hit-checker-effects"
       },
       "source_refs": [
         "docs/notes/shadow-texture-lod.md",
@@ -3278,11 +3264,9 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Debug menu",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "debug-protagonist-damage"
       },
       "source_refs": [
         "docs/debug-menu-requirements.md#主角攻击力调节2026-09-04",
@@ -3311,11 +3295,9 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Save and content",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "save-content-compatibility"
       },
       "source_refs": [
         "docs/notes/save-storage.md",
@@ -3344,11 +3326,10 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Game progression",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "In progress",
-        "Release": null,
-        "Start date": null,
-        "Target date": null,
+        "Source key": "chapter-disc-save-regression",
+        "Start date": "2026-09-10",
         "Evidence": "The completed 2026-09-10 four-save survey loaded and moved in four 3D scenes. user17 naturally entered Ipsilon Valley Road and the runtime opened sibling disc4, establishing bounded cross-disc save loading/resource availability. Follow-up product F1 capture ZIPs are complete for all four slots; each has three consecutive frames, screenshot, temporal JSON, runtime/shader logs and source manifest, with CRC and included-source hashes matching. A story-driven disc-change boundary, further save/restart behavior, player acceptance and publication remain untested. Evidence: out/save-temporal-survey-20260910/REPORT.md; F1-REPORT.md; f1-zip-audit.json."
       },
       "source_refs": [
@@ -3430,11 +3411,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shadows",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "map13-shadow-regression"
       },
       "source_refs": [
         "docs/notes/kaim-body-shadow-v040.md",
@@ -3465,11 +3444,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Effects",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Not started",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "crate-destruction-black-effects"
       },
       "source_refs": [
         "docs/STATUS.md",
@@ -3499,11 +3476,9 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Debug menu",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "save-anywhere-acceptance"
       },
       "source_refs": [
         "docs/notes/save-anywhere.md",
@@ -3566,11 +3541,9 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Desktop windowing",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "desktop-display-acceptance"
       },
       "source_refs": [
         "docs/STATUS.md",
@@ -3636,12 +3609,12 @@
       "fields": {
         "Kind": "Research",
         "Area": "Temporal rendering",
-        "Status": "Todo",
+        "Status": "Paused",
         "Delivery": "Deferred",
         "Release": "v0.8.0",
         "Start date": null,
         "Target date": null,
-        "Evidence": "FSR Frame Generation, D3D12 DLSS FG, and dynamic MFG are promoted to milestone v0.8.0 targets per user planning decision. Active FG production work is phased through P0 architecture evaluation, P3 infrastructure and P4 Windows Vulkan DLSS FG."
+        "Evidence": "Historical broad frame-generation research is deferred. Active delivered work is tracked by the D3D12 FSR/DLSS FG records; active Vulkan work remains in P0/P3/P4. This item stays as deferred backlog rather than an active Todo."
       },
       "source_refs": [
         "docs/notes/v0.7.0-frame-generation-plan.md",
@@ -3654,16 +3627,17 @@
     {
       "key": "hdr-output-tonemapping",
       "title": "Add HDR output and tone mapping",
-      "body": "<!-- lo-project:hdr-output-tonemapping -->\n\n建立完整 HDR 输出与色调映射链。\n\n## Scope and completion criteria\n\n- [ ] 核对场景线性颜色、曝光和输出传递函数\n- [ ] 实现显示器/交换链模式协商、设置与可靠 SDR 回退\n- [ ] 保护 UI 亮度和影片/过场行为\n\n## Validation and acceptance\n\n真实 HDR 显示器下验证动态范围、色彩、亮度、模式切换及截图含义。\n\n尚未完成所列场景验收；实现/发布/测试与用户验收独立。\n\nDependencies (source keys): `temporal-color-exposure`.\n\nstage_detail: Not started\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n",
+      "body": "<!-- lo-project:hdr-output-tonemapping -->\n\n建立完整 HDR 输出与色调映射链。\n\n## Scope and completion criteria\n\n- [ ] 核对场景线性颜色、曝光和输出传递函数\n- [ ] 实现显示器/交换链模式协商、设置与可靠 SDR 回退\n- [ ] 保护 UI 亮度和影片/过场行为\n\n## Validation and acceptance\n\n真实 HDR 显示器下验证动态范围、色彩、亮度、模式切换及截图含义。\n\n尚未完成所列场景验收；实现/发布/测试与用户验收独立。\n\nDependencies (source keys): `temporal-color-exposure`.\n\nstage_detail: Not started\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n\n\n## Open Issue association\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/90 requests HDR and save states. HDR is retained as deferred future work; no release date, implementation or validation is claimed.\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Paused",
+        "Delivery": "Deferred",
         "Release": null,
         "Start date": null,
-        "Target date": null
+        "Target date": null,
+        "Evidence": "Open Issue #90 requests HDR and save states. The maintainer said HDR is for a future release, without a version, implementation or validation evidence. HDR remains deferred backlog; save states are separately unplanned."
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -3755,12 +3729,12 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Released",
-        "Release": "v0.7.0",
+        "Source key": "linux-steamdeck-platform",
         "Start date": "2026-09-14",
-        "Target date": null,
-        "Evidence": "Linux x64 Vulkan runtime, SDL menus, importer, updater and AppImage are released. Native AMD Radeon 8060S RADV execution and FSR acceptance are recorded; WSL-only wording is obsolete. Steam Deck hardware, native Steam runtime/Flathub and full-game coverage remain separate open scope; APEX 15W is a proxy, not Deck hardware equivalence."
+        "Evidence": "Linux x64 Vulkan runtime, SDL menus, importer, updater and AppImage are released. Native AMD Radeon 8060S RADV execution and FSR acceptance are recorded; WSL-only wording is obsolete. Steam Deck hardware, native Steam runtime/Flathub and full-game coverage remain separate open scope; APEX 15W is a proxy, not Deck hardware equivalence.",
+        "Release": "v0.7.0"
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -3999,17 +3973,17 @@
     {
       "key": "temporal-phased-p0-common-contracts-probe",
       "title": "P0: Implement common upscaler/FG contracts and evaluate coexistence architecture",
-      "body": "<!-- lo-project:temporal-phased-p0-common-contracts-probe -->\n\n## Summary and objectives\n\nEstablish provider-agnostic temporal upscaling contracts and evaluate NVIDIA NGX + Streamline coexistence architecture on Vulkan before full pipeline integration.\n\n## Scope and completion criteria\n\n- [x] Add `Upscaler::Fsr=2` provider enum, sizing calculations, and cache key isolation in `gpu/upscaling_plan.h/.cpp` without modifying existing NGX sizing or using `dlssAvailable`.\n- [x] Expand wire layout in `gpu/frame_plan.h` beyond 2-bit consumer mask; update encode, decode, protocol identification, and backward-compatible default decoding.\n- [x] Expand `TemporalFrameInputs::CompleteForConsumer()` in `gpu/temporal_frame_inputs.h` to require valid motion vectors and depth contracts for DLSS, FSR, and independent FG requirements (not every legacy temporal consumer).\n- [~] Evaluate NGX + Streamline coexistence on Vulkan. Official SDK research is complete. An experimental standalone probe has a recorded foreground diagnostic run; it reported generated-present intervals but exited 1 with Vulkan validation errors. This does not prove validation-clean generated frames, physical display, production FG delivery or Gate 1 acceptance.\n- [ ] Retain all existing native Vulkan DLSS/DLAA tests and baseline functionality; preserving baseline is a requirement pending production compilation and game regression evidence.\n\n## Status — 2026-09-24\n\nP0 common temporal-upscaler contracts are implemented; recorded targeted checks passed (CPU 8/8 and affected frame-plan 1/1). P0 Gate 1 remains NOT PASSED (attempt 1/3; two material reviews remain). The experimental standalone Streamline/NGX probe has source and a recorded foreground diagnostic run: binary `f47431b7746cdf54d847d7008547c0d7af0bce8a579f7596cccd5d95334c9efa` reported generated-present intervals but exited 1 with Vulkan validation errors. This is failed-run diagnostic evidence, not a validation-clean generated frame, physical-display proof, production FG delivery or Gate 1 acceptance. Preserving the native Vulkan DLSS/DLAA baseline remains required. This P0 gate is separate from the exhausted P2 Gate B review budget.\n\n## Validation and acceptance\n\n- Provider enum round-trip encoding and backward compatibility test coverage (frame-plan test 1/1 passed).\n- Motion and depth qualification verified for DLSS/FSR/FG requirements without breaking legacy AA.\n- Production build and game regressions must pass before claiming P0 completion.\n- The probe run is bounded failed-run diagnostic evidence only; no validation-clean generated frame or physical-display acceptance is established.\n\nDependencies (source keys): `vendor-temporal-upscaling`, `temporal-color-exposure`, `native-object-motion`.\n\nstage_detail: In progress; common contracts and targeted checks recorded; P0 Gate 1 attempt 1/3 not passed with two material reviews remaining; experimental probe foreground run exited 1 with Vulkan validation errors; no Gate 1 acceptance; P0 incomplete\n\n## Sources\n\n- C:/Users/freefrank/Downloads/LORecomp_FSR_DLSS_FG_implementation_plan.zh-CN.md\n- [docs/STATUS.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/STATUS.md)\n- https://github.com/freefrank/LostOdysseyRecomp/commit/39bbda6ff1cb8216582798bebab21a3a5395a36e\n- https://github.com/freefrank/LostOdysseyRecomp/commit/871685fdd75b84c00bb9ebb685f36d90169eb82d\n",
+      "body": "<!-- lo-project:temporal-phased-p0-common-contracts-probe -->\n\n## P0 Gate 1 accepted — 2026-09-27\n\nThe common temporal-upscaler and frame-generation contracts are implemented. The maintainer accepted P0 Gate 1 after the foreground run recorded 1,980 generated intervals, zero SDK errors, and normal cleanup.\n\n## Remaining scope\n\nP0 remains In Progress because physical-display classification, failure injection, and settings-restart coverage remain open. The known Vulkan `PRESENT-AFTER-WRITE` validation exception is separately tracked as `streamline-vulkan-present-after-write` with Delivery `Deferred`.\n\n## Sources\n\n- docs/notes/gate1-host-repair-20260927.md\n- docs/notes/v0.8.0-fg-sdk-sync-attribution-20260926.md\n- https://github.com/freefrank/LostOdysseyRecomp/commit/39bbda6ff1cb8216582798bebab21a3a5395a36e",
       "issue_url": null,
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Temporal rendering",
         "Status": "In Progress",
-        "Delivery": "In progress",
+        "Delivery": "Validated",
         "Release": "v0.8.0",
         "Start date": "2026-09-22",
-        "Target date": null,
-        "Evidence": "P0 common temporal-upscaler contracts are implemented; recorded targeted checks passed (CPU 8/8 and affected frame-plan 1/1). P0 Gate 1 remains NOT PASSED (attempt 1/3; two material reviews remain). The experimental standalone Streamline/NGX probe has source and a recorded foreground diagnostic run: binary `f47431b7746cdf54d847d7008547c0d7af0bce8a579f7596cccd5d95334c9efa` reported generated-present intervals but exited 1 with Vulkan validation errors. This is failed-run diagnostic evidence, not a validation-clean generated frame, physical-display proof, production FG delivery or Gate 1 acceptance. Preserving the native Vulkan DLSS/DLAA baseline remains required. This P0 gate is separate from the exhausted P2 Gate B review budget."
+        "Evidence": "P0 Gate 1 PASSED by maintainer acceptance on 2026-09-27. The known Streamline Vulkan PRESENT-AFTER-WRITE exception is separately deferred under streamline-vulkan-present-after-write. The foreground run recorded 1,980 generated intervals, zero SDK errors and normal cleanup. Physical-display classification, failure injection and settings-restart coverage remain separate follow-up validation.",
+        "Source key": "temporal-phased-p0-common-contracts-probe"
       },
       "source_refs": [
         "docs/STATUS.md",
@@ -4090,17 +4064,16 @@
     {
       "key": "temporal-phased-p3-fg-infrastructure",
       "title": "P3: Implement frame generation presentation infrastructure and leases",
-      "body": "<!-- lo-project:temporal-phased-p3-fg-infrastructure -->\n\n## Summary and objectives\n\nImplement Streamline presentation hooks, full-drawable HUDless color extraction, guest UI separation, resource lease tracking, and Reflex frame tokens without activating frame generation.\n\n## Scope and completion criteria\n\n- [ ] Integrate researched Streamline manual hooks into Plume Vulkan backend and device creation flow following coexistence architecture evaluation.\n- [ ] Retain independent full output-resolution HUDless scene texture after scene promotion and prior to first guest UI draw.\n- [ ] Separate guest UI layers (dialogue, combat HUD, Aim Ring, damage numbers) with dedicated alpha/composition representation.\n- [ ] Implement `PresentFrameInputs` lease mechanism tracking render submission and FG consumer release, preventing premature buffer recycling.\n- [ ] Integrate Streamline Reflex frame tokens across CPU simulation, render submit, and present boundaries without altering guest tick rate or game pacing.\n\n## Status and scope\n\nPlanned production phase following P0 architecture evaluation and P2 validation. Implementation has not started. Unvalidated Streamline/NGX probe source exists in the working tree; it does not establish production integration or active FG.\n\n## Validation and acceptance\n\n- Resize, minimize, mode switch, and exit clean without leaked GPU resources or device hanging.\n- UI separation verified with HUDless, UI mask, and final composite verification.\n- Disabled FG introduces zero extra per-frame copy overhead or CPU/GPU synchronization wait.\n\nDependencies (source keys): `temporal-phased-p0-common-contracts-probe`, `frame-generation-research`.\n\nstage_detail: Not started; planned phase 3; probe source is unvalidated and is not production integration\n\n## Sources\n\n- C:/Users/freefrank/Downloads/LORecomp_FSR_DLSS_FG_implementation_plan.zh-CN.md\n- https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS_G.md\n- https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideManualHooking.md\n",
+      "body": "<!-- lo-project:temporal-phased-p3-fg-infrastructure -->\n\n## Summary and objectives\n\nMaintain the v0.8.0 Windows Vulkan frame-generation presentation foundation: Streamline present integration, the final composited backbuffer input, and ownership/lifetime tracking through FG completion.\n\n## Scope and completion criteria\n\n- [x] Land provider-neutral present leases, producer completion tracking, checked input drain, and retained inputs that are not reused before completion evidence.\n- [x] Associate the FG path with the final composited backbuffer and accept qualified same-frame temporal inputs.\n- [ ] Complete validation of resize, minimize, mode switch, and exit on the real session path without unresolved synchronization validation hazards.\n- [ ] Keep disabled FG on the native present path without a per-frame wait, and retain clear recovery when an input becomes invalid.\n\n## Status and scope — 2026-09-27\n\nImplemented work is merged to `main` at `81fe3048569f06bdeca4f1bd24c8fdc106428abc` (PR #72). The 70-second Uhra foreground run recorded 48 enabled periods with `actual_presents=2`, 2,830 generated intervals, zero SDK errors, and normal process termination. This is bounded runtime evidence; it is not validation-clean or external-display acceptance. The synchronization-validation run failed, while the FG-off control reported the same present hazard. P0 Gate 1 therefore remains not passed.\n\nProduction HUDless/UI separation and its dedicated handoff are deferred to the independent v1.0.0 item `v100-ui-separation-production-handoff`. They are not v0.8.0 completion dependencies. v0.8.0 uses the final composited backbuffer.\n\n## Validation and acceptance\n\n- Validate session lifecycle and swapchain recreation after P0 synchronization hazards are resolved.\n- Retain the existing generated-frame evidence without treating it as proof of artifact-free output or physical-display delivery.\n\nDependencies (source keys): `temporal-phased-p0-common-contracts-probe`, `frame-generation-research`.\n\nstage_detail: In progress; present and input-lifetime foundation is merged in 81fe304; bounded generated-frame evidence exists; P0 Gate 1 and lifecycle validation remain open\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/commit/81fe3048569f06bdeca4f1bd24c8fdc106428abc\n- https://github.com/freefrank/LostOdysseyRecomp/pull/72\n- docs/notes/v0.8.0-fg-checked-completion-20260927.md\n",
       "issue_url": null,
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "In Progress",
+        "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Start date": null,
-        "Target date": null,
-        "Evidence": "Planned production phase; not started. Unvalidated Streamline/NGX probe source exists in the working tree, but it does not establish production hooks, HUDless/UI separation, leases, Reflex integration or active FG."
+        "Evidence": "Provider-neutral present/input lifetime tracking and the final composited-backbuffer FG path are merged at 81fe304 (PR #72). The authorized 70-second Uhra run recorded generated-frame evidence; P3 remains In Progress for synchronization resolution and resize, mode-switch and exit-lifecycle validation. HUDless/UI separation is deferred to the separate v1.0.0 item.",
+        "Source key": "temporal-phased-p3-fg-infrastructure"
       },
       "source_refs": [
         "https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS_G.md",
@@ -4112,17 +4085,16 @@
     {
       "key": "temporal-phased-p4-dlss-fg-2x",
       "title": "P4: Deliver fixed 2× DLSS Frame Generation on Windows Vulkan",
-      "body": "<!-- lo-project:temporal-phased-p4-dlss-fg-2x -->\n\n## Summary and objectives\n\nEnable fixed 2× DLSS Frame Generation on Windows Vulkan for supported NVIDIA RTX hardware across DLSS Quality+FG, DLAA+FG, and FSR+FG combinations.\n\n## Scope and completion criteria\n\n- [ ] Enable fixed 2× DLSS-G mode under Windows Vulkan for supported RTX hardware.\n- [ ] Validate multi-provider combinations: DLSS Quality+FG, DLAA+FG, and FSR+FG.\n- [ ] Implement capability probing (HAGS, driver, Vulkan API support) with clear user-facing diagnostic reasons when unsupported.\n- [ ] Ensure safe FG suspension and restoration during scene cuts, FMVs, loading, pause, and window/swapchain recreation.\n- [ ] Preserve game simulation speed, input response timing, and Aim Ring pacing independent of displayed frame rate.\n\n## Status and scope\n\nPlanned phase following P3 presentation infrastructure. Production implementation has not started. Local Streamline/NGX probe source is unvalidated and does not establish FG delivery. Broader backlog (D3D12 FG, FSR FG, dynamic MFG) remains deferred for this iteration, not cancelled.\n\n## Validation and acceptance\n\n- Real generated frame production and display confirmed via SDK diagnostics and presentation metrics.\n- Game logic speed and input latency remain decoupled from display frame rate.\n- Disabled FG cleanly restores baseline native presentation path.\n\nDependencies (source keys): `temporal-phased-p3-fg-infrastructure`, `temporal-phased-p2-fsr-quality-hardware`.\n\nstage_detail: Not started; planned phase 4\n\n## Sources\n\n- C:/Users/freefrank/Downloads/LORecomp_FSR_DLSS_FG_implementation_plan.zh-CN.md\n- https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS_G.md\n",
+      "body": "<!-- lo-project:temporal-phased-p4-dlss-fg-2x -->\n\n## Summary and objectives\n\nDeliver fixed 2x DLSS Frame Generation on Windows Vulkan for supported NVIDIA RTX hardware, using the final composited backbuffer while preserving game pacing.\n\n## Scope and completion criteria\n\n- [x] Integrate fixed 2x DLSS-G presentation and record actual generated-frame intervals on Windows Vulkan.\n- [ ] Validate DLSS Quality+FG, DLAA+FG, and FSR+FG combinations.\n- [ ] Complete capability probing (HAGS, driver, Vulkan support) with actionable unsupported reasons.\n- [ ] Validate safe FG suspension and restoration for cuts, FMVs, loading, pause, and window/swapchain recreation.\n- [ ] Verify game simulation speed, input response timing, and Aim Ring pacing remain independent of displayed frame rate.\n\n## Status and scope — 2026-09-27\n\nImplementation is merged to `main` at `81fe3048569f06bdeca4f1bd24c8fdc106428abc` (PR #72). In the authorized 70-second foreground Uhra run, 48 enabled samples all reported `actual_presents=2`; the last sample recorded 2,830 generated intervals and zero SDK errors. A separate synchronization-validation run failed and the FG-off control observed the same present hazard, so P0 Gate 1 remains not passed. No external-display or artifact-free visual acceptance is recorded.\n\nProduction HUDless/UI separation and its dedicated handoff are deferred to the independent v1.0.0 item `v100-ui-separation-production-handoff`. They are not v0.8.0 completion dependencies. This P4 scope uses the final composited backbuffer.\n\n## Validation and acceptance\n\n- Validate the listed provider combinations and lifecycle transitions after P0 synchronization hazards are resolved.\n- Confirm generated-frame delivery through SDK/presentation evidence without substituting it for physical-display or visual-quality acceptance.\n\nDependencies (source keys): `temporal-phased-p3-fg-infrastructure`, `temporal-phased-p2-fsr-quality-hardware`.\n\nstage_detail: In progress; Windows Vulkan 2x DLSS FG is integrated with bounded generated-frame evidence; provider combinations, lifecycle, pacing, visual and display validation remain open\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/commit/81fe3048569f06bdeca4f1bd24c8fdc106428abc\n- https://github.com/freefrank/LostOdysseyRecomp/pull/72\n- docs/notes/v0.8.0-fg-checked-completion-20260927.md\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "In Progress",
+        "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Start date": null,
-        "Target date": null,
-        "Evidence": "Retained as P4 milestone v0.8.0 target per user decision. Production implementation has not started. Requires verified generated frame presentation and decoupled game pacing."
+        "Evidence": "Windows Vulkan fixed 2× DLSS Frame Generation is integrated at 81fe304 (PR #72). The authorized 70-second Uhra run recorded 48 enabled periods, 2,830 generated intervals and zero SDK errors. P4 remains In Progress for provider combinations, lifecycle recovery, pacing, visual quality and external-display validation; the known SDK exception is separately deferred.",
+        "Source key": "temporal-phased-p4-dlss-fg-2x"
       },
       "source_refs": [
         "https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS_G.md"
@@ -4133,17 +4105,17 @@
     {
       "key": "fsr-frame-generation",
       "title": "Deliver FSR Frame Generation",
-      "body": "<!-- lo-project:fsr-frame-generation -->\n\nDeliver FSR Frame Generation as an independent roadmap target for milestone v0.8.0 per user planning decision.\n\n## Scope and completion criteria\n\n- [ ] Evaluate and establish FSR Frame Generation integration contracts alongside existing temporal upscaling.\n- [ ] Define presentation, swapchain pacing, and UI separation paths for FSR Frame Generation without predetermining the graphics API, target platform, or frame rate multiplier.\n- [ ] Verify generated frame delivery and decoupled simulation pacing upon implementation authorization.\n\n## Boundaries\n\nIndependent milestone v0.8.0 planning target per user decision. Does not predetermine or restrict graphics API (Vulkan / Direct3D 12), target platform (Windows / Linux), or frame rate multiplier (2× or dynamic). Production implementation and runtime validation not started.\n\nstage_detail: Not started; milestone v0.8.0 planning\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/ROADMAP.md)\n- [docs/notes/v0.7.0-frame-generation-plan.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/v0.7.0-frame-generation-plan.md)\n",
+      "body": "<!-- lo-project:fsr-frame-generation -->\n\n## Delivered Windows D3D12 frame generation\n\nWindows D3D12 FSR Frame Generation shipped in v0.7.9 with the Graphics menu and same-process application of the saved request. The released v0.7.15 feature set was accepted by the maintainer.\n\n## Boundary\n\nBroader hardware, scene, pacing, image-quality, physical-display and failure-injection coverage remains separate follow-up work.\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.9\n- docs/ROADMAP.md\n- docs/STATUS.md",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.9",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Promoted from backlog to an independent milestone v0.8.0 target per user planning decision. Target platform, graphics API, and frame multiplier are not predetermined. Implementation and validation not started."
+        "Evidence": "Windows D3D12 FSR Frame Generation is delivered in v0.7.9 with in-game same-process switching. The v0.7.15 maintainer acceptance covers the released feature set. Broader hardware, scene, pacing, image-quality, physical-display and failure-injection coverage remains follow-up work."
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -4160,11 +4132,10 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "TAA",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "taa-motion-quality",
+        "Evidence": "Archived private-feedback aggregate checkpoint 1789199762 adds 15,557 observations for diagnosis only; it does not establish a visual repair, root cause, cross-version result, or player acceptance."
       },
       "source_refs": [
         "docs/notes/taa-coverage-audit.md",
@@ -4181,11 +4152,9 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Graphics presentation",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "internal-resolution-acceptance"
       },
       "source_refs": [
         "docs/notes/handoff-v0.4.0-followup.md",
@@ -4202,11 +4171,9 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Frame pacing",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "60fps-gameplay-regression"
       },
       "source_refs": [
         "docs/notes/v0.4.0-development.md",
@@ -4218,17 +4185,16 @@
     {
       "key": "optional-120fps",
       "title": "Evaluate the optional 120 FPS candidate",
-      "body": "<!-- lo-project:optional-120fps -->\n\nEvaluate the optional 120 FPS candidate for milestone v0.8.0 per user planning decision. Focus is native independent 120 FPS presentation, not FG-generated display frames.\n\n## Scope and completion criteria\n\n- [ ] Retain explicit experimental entry  and default 60 FPS behavior.\n- [ ] Verify native independent 120 FPS presentation (not FG-generated display frames).\n- [ ] Validate object pacing, Aim Ring timing, audio sync, cutscenes, and resource usage at 120 FPS.\n- [ ] External closed-source implementations serve as feasibility references only, not project verification.\n\n## Validation and acceptance\n\nVerify wall-clock motion/combat speed and actual independent display frames in matching scenes; do not release as standard support without passing checks.\n\nMilestone v0.8.0 target; implementation, release, testing, and user acceptance remain distinct.\n\nstage_detail: Not started; milestone v0.8.0 planning\n\n## Sources\n\n- [docs/notes/v0.4.0-development.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/notes/v0.4.0-development.md) (repository reference; working-tree requirements may be newer)\n",
+      "body": "<!-- lo-project:optional-120fps -->\n\n# Native 90/120 FPS delivery\n\nNative 90 FPS and 120 FPS Frame rate settings were delivered in v0.7.15. They set the real guest-frame target independently of DLSS/FSR Frame Generation output. The default remains 30 FPS, and the high-frame-rate options remain experimental.\n\n## Accepted delivery\n\nThe user accepted all v0.7.15 feature functionality. [PR #80](https://github.com/freefrank/LostOdysseyRecomp/pull/80) merged on 2026-09-28; [v0.7.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15) was published from `main`; [Release CI 36500844014](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36500844014) completed successfully.\n\n## Remaining regression coverage\n\nThis acceptance records the delivered feature. It does not quantify independent physical 120 FPS display frames, object pacing, Aim Ring timing, audio/video synchronization, a full playthrough, or coverage across GPUs and backends. Retain those as regression coverage for the released feature; they do not reopen this accepted v0.7.15 delivery.\n\n## Sources\n\n- [docs/notes/native-90-120fps.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/native-90-120fps.md)\n- [PR #80](https://github.com/freefrank/LostOdysseyRecomp/pull/80)\n- [v0.7.15 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15)\n- [Release CI 36500844014](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36500844014)",
       "issue_url": null,
       "fields": {
         "Kind": "Research",
         "Area": "Frame pacing",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Start date": null,
-        "Target date": null,
-        "Evidence": "Promoted to milestone v0.8.0 planning target per user decision. Evaluates native independent 120 FPS presentation (not FG-generated display frames). Implementation and validation not started."
+        "Status": "Done",
+        "Delivery": "Released",
+        "Source key": "optional-120fps",
+        "Release": "v0.7.15",
+        "Evidence": "User accepted all v0.7.15 feature functionality. PR #80 merged (e79a793, 2026-09-28); v0.7.15 published; Release CI 36500844014 succeeded. Native 90/120 FPS settings are released; default remains 30 FPS and high-rate options are experimental. Independent physical 120 FPS display frames, Aim Ring/object pacing, audio/video synchronization, full-playthrough, and cross-GPU/backend coverage remain unquantified regression coverage."
       },
       "source_refs": [
         "docs/notes/v0.4.0-development.md"
@@ -4244,11 +4210,9 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Audio and language",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "audio-and-language-regression"
       },
       "source_refs": [
         "docs/notes/audio-output.md",
@@ -4287,11 +4251,9 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Debug menu",
-        "Status": "Todo",
+        "Status": "Done",
         "Delivery": "Awaiting validation",
-        "Release": null,
-        "Start date": null,
-        "Target date": null
+        "Source key": "debug-victory-special-battles"
       },
       "source_refs": [
         "docs/debug-menu-requirements.md#当前战斗判胜2026-09-04",
@@ -5047,17 +5009,17 @@
     {
       "key": "native-macos-platform",
       "title": "Establish a native macOS (AArch64 / Apple Silicon) port",
-      "body": "<!-- lo-project:native-macos-platform -->\n\nNative macOS AArch64 (Apple Silicon) port planned as a roadmap target for milestone v0.8.0.\n\n## Scope and completion criteria\n\n- [ ] Establish toolchain, dependencies, distribution and platform integration feasibility on macOS AArch64 / Apple Silicon.\n- [ ] Define Metal/Vulkan (MoltenVK), window, input, audio, and guest memory alignment requirements for native macOS.\n- [ ] Validate a proportionate native macOS AArch64 path after implementation is authorized.\n\n## Boundaries\n\nTarget only; does not establish current implementation, packaging, hardware validation, player acceptance or publication.\n",
+      "body": "<!-- lo-project:native-macos-platform -->\n\nNative macOS AArch64 (Apple Silicon) port planned as a roadmap target for milestone v0.8.0.\n\n## Scope and completion criteria\n\n- [ ] Establish toolchain, dependencies, distribution and platform integration feasibility on macOS AArch64 / Apple Silicon.\n- [ ] Define Metal/Vulkan (MoltenVK), window, input, audio, and guest memory alignment requirements for native macOS.\n- [ ] Validate a proportionate native macOS AArch64 path after implementation is authorized.\n\n## Boundaries\n\nTarget only; does not establish current implementation, packaging, hardware validation, player acceptance or publication.\n\n\n## Open Issue association\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/96 tracks an external Apple Silicon/Metal fork and proposed upstream portability work. The main-repository platform target remains deferred pending review and scoped acceptance.\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Paused",
+        "Delivery": "Deferred",
         "Release": "v0.8.0",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Roadmap target for v0.8.0 (execution step 10); graphics backend and dependency feasibility investigation starts early in parallel. No macOS build, backend, package, or validation artifact exists."
+        "Evidence": "Open Issue #96 discusses an external Apple Silicon/Metal fork and focused upstream PRs. Maintainer plans review after renderer work and may merge selected PRs, but the main repository has no accepted macOS platform implementation, package, validation or release. Keep the platform target deferred."
       },
       "source_refs": [],
       "source_lines": [],
@@ -5630,8 +5592,8 @@
     },
     {
       "key": "d3d12-bundled-shader-pack",
-      "title": "D3D12 bundled portable shader pack (.lospv)",
-      "body": "<!-- lo-project:d3d12-bundled-shader-pack -->\n\n## Summary and objectives\n\nPlan D3D12 portable shader pack (.lospv) support for the next release after v0.6.15, reducing runtime HLSL->DXIL compilation overhead while reusing existing portable pack infrastructure.\n\n## Scope and technical boundaries\n\n- Reuse existing portable pack Reader/Writer, SHA-256 deduplication, Zstandard chunked compression, and `LoShaderPackTool`.\n- Establish D3D12/DXIL backend-specific contracts, container validation, filename routing, generation/merge tooling, renderer runtime loading, and Windows release packaging.\n- Note constraint: existing renderer hard-restricts to Vulkan and `CheckSpirv`; D3D12 consumption requires new program/runtime support rather than solely uploading a pack asset.\n- Explicitly exclude driver-private PSO cache: target is eliminating runtime HLSL->DXIL shader compilation latency, without claiming elimination of driver PSO link overhead.\n- No independent Vulkan bundle upload task: Vulkan shader pack is already bundled in the release archive.\n\n## Planned verification and limits\n\n- DXIL pack runtime cache hits and startup acceleration without first-run compilation.\n- Strict backend isolation and invalid/mismatched contract rejection.\n- Windows essential hardware minimum evidence.\n- Status: Planned for next release after v0.6.15; implementation and verification not started.\n\nDependencies (source keys): `portable-vulkan-shader-pack`.\n\nstage_detail: Planned for next release after v0.6.15; implementation and verification not started\n",
+      "title": "D3D12 portable shader pack (.lospd)",
+      "body": "<!-- lo-project:d3d12-bundled-shader-pack -->\n\n## Delivered D3D12 shader pack\n\nv0.7.10 delivers the separate D3D12 shader pack as `shaders/portable_dx12.lospd`. The pack is released for the D3D12/DXIL route; Vulkan shader packs remain bundled with application packages.\n\n## Boundary\n\nThis delivery does not claim driver-private PSO caching removal or a measured general startup improvement.\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10\n- CHANGELOG.md (v0.7.10)",
       "issue_url": null,
       "record_type": "backlog",
       "source_refs": [
@@ -5643,12 +5605,12 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Shaders",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "Next release",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.10",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Planned for next release after v0.6.15 (version unspecified); implementation and verification not started. Reuses existing portable pack reader/writer, deduplication, and LoShaderPackTool to support D3D12/DXIL backend contracts, container validation, generation/merge, renderer runtime loading, and Windows packaging. Requires new runtime support as current renderer hard-restricts Vulkan/CheckSpirv; excludes driver PSO caching to target HLSL->DXIL compile latency reduction. Expected verification includes DXIL runtime hit, backend isolation, and invalid contract rejection on Windows hardware; none executed yet."
+        "Evidence": "D3D12 shader pack delivered in v0.7.10 as shaders/portable_dx12.lospd. The release published the separate DX12 pack; Vulkan packs remain bundled. This record covers the released pack, not driver-private PSO caching or generalized startup-performance claims."
       }
     },
     {
@@ -6043,17 +6005,17 @@
     {
       "key": "d3d12-dlss-frame-generation",
       "title": "Deliver D3D12 DLSS Frame Generation",
-      "body": "<!-- lo-project:d3d12-dlss-frame-generation -->\n\nDeliver DLSS Frame Generation on the Direct3D 12 backend as a milestone v0.8.0 planning target per user decision.\n\n## Scope and completion criteria\n\n- [ ] Establish DLSS Frame Generation integration contracts and swapchain presentation under the Direct3D 12 backend.\n- [ ] Implement capability probing, device initialization, and safe suspension/recovery during scene transitions and window/swapchain changes.\n- [ ] Preserve game simulation pacing, input latency, and Aim Ring timing decoupled from generated frame presentation.\n\n## Boundaries\n\nIndependent milestone v0.8.0 planning target per user decision, separate from the Windows Vulkan P4 milestone. Production implementation and runtime validation not started.\n\nstage_detail: Not started; milestone v0.8.0 planning\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/ROADMAP.md)\n- [docs/notes/v0.7.0-frame-generation-plan.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/v0.7.0-frame-generation-plan.md)\n",
+      "body": "<!-- lo-project:d3d12-dlss-frame-generation -->\n\n## Delivered Windows D3D12 frame generation\n\nWindows D3D12 DLSS Frame Generation shipped in v0.7.9 with the Graphics menu and same-process application of the saved request. The released v0.7.15 feature set was accepted by the maintainer.\n\n## Boundary\n\nBroader hardware, scene, pacing, image-quality, physical-display and failure-injection coverage remains separate follow-up work.\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.9\n- docs/ROADMAP.md\n- docs/STATUS.md",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.9",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Promoted to a milestone v0.8.0 planning target per user decision. Focuses on DLSS Frame Generation on the Direct3D 12 backend, independent of the Windows Vulkan P4 milestone. Implementation and validation not started."
+        "Evidence": "Windows D3D12 DLSS Frame Generation is delivered in v0.7.9 with in-game same-process switching. The v0.7.15 maintainer acceptance covers the released feature set. Broader hardware, scene, pacing, image-quality, physical-display and failure-injection coverage remains follow-up work."
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -6065,17 +6027,17 @@
     {
       "key": "dynamic-mfg",
       "title": "Deliver Dynamic Multi-Frame Generation (MFG)",
-      "body": "<!-- lo-project:dynamic-mfg -->\n\nDeliver Dynamic Multi-Frame Generation (MFG) as an independent roadmap target for milestone v0.8.0 per user planning decision.\n\n## Scope and completion criteria\n\n- [ ] Evaluate and establish dynamic multi-frame generation integration contracts, pacing models, and frame generation scheduling.\n- [ ] Define presentation, swapchain scheduling, and UI separation paths without predetermining the target platform or frame multiplier.\n- [ ] Verify generated frame delivery and decoupled simulation pacing upon implementation authorization.\n\n## Boundaries\n\nIndependent milestone v0.8.0 planning target per user decision. Does not predetermine or restrict target platform or frame multiplier. Production implementation and runtime validation not started.\n\nstage_detail: Not started; milestone v0.8.0 planning\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/ROADMAP.md)\n- [docs/notes/v0.7.0-frame-generation-plan.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/v0.7.0-frame-generation-plan.md)\n",
+      "body": "<!-- lo-project:dynamic-mfg -->\n\n## Implemented diagnostic D3D12 path\n\nThe D3D12 adapter includes a capability-gated DLSS dynamic-MFG path. The in-game menu exposes fixed modes; v0.7.20 caps FG requests at 6×.\n\n## Remaining scope\n\nAPI/platform/multiplier/hardware validation, visual quality, physical-display evidence, pacing and failure-injection coverage remain open.\n\n## Sources\n\n- docs/notes/reusable-fg-game-integration.md\n- docs/ROADMAP.md\n- CHANGELOG.md (v0.7.20)",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
+        "Status": "In Progress",
+        "Delivery": "Implemented",
+        "Release": "v0.7.20",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Promoted to an independent milestone v0.8.0 target per user planning decision. Target platform and frame multiplier are not predetermined. Implementation and validation not started."
+        "Evidence": "The D3D12 adapter includes a capability-gated diagnostic DLSS dynamic-MFG path; the in-game menu exposes fixed modes. v0.7.20 caps FG requests at 6×. Broader API/platform/multiplier/hardware validation remains open."
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -6108,6 +6070,257 @@
       ],
       "source_lines": [],
       "record_type": "backlog"
+    },
+    {
+      "key": "reduce-f1-render-capture-export-size",
+      "title": "Reduce F1 render capture export size",
+      "body": "<!-- lo-project:reduce-f1-render-capture-export-size -->\n\nReduce F1 render-capture archive size while preserving an explicit complete-diagnostics mode.\n\n## Scope and completion criteria\n\n- [ ] Losslessly deduplicate identical raw content while preserving each resolve event's provenance and recoverable layout.\n- [ ] Omit previews only when retained raw data and documented conversion can reconstruct them.\n- [ ] Provide distinct regular-feedback and complete-diagnostics modes with their evidence boundaries visible to the user.\n- [ ] Evaluate 7z solid compression, including dictionary and file-order effects, as an optional format comparison.\n\n## Current evidence and limits\n\nFor this scenario, the user requires a feedback package at or below 200,000,000 bytes. One complete-preservation experiment reached 168,528,727 bytes, 76.4130% smaller than the original ZIP: 39 stride-shuffled lossless raw files and 42 direct-view WebP85 previews are stored, while reconstructible PPM/BMP files are omitted. Its 195 stored files and separate restoration of the original 201 files both matched source sizes and SHA256. Compression took 57.001 seconds at a 3.10 GB peak working set; 2.734 seconds of preprocessing and 11.927 seconds of preview generation are separate, so no end-to-end sub-60-second claim is made. Full original-layout recovery requires Python and NumPy; previews open directly. This validates one archive experiment only and does not implement an exporter, select an operational preset, or establish user acceptance.\n\n## Sources\n\n- `out/cf-feedback-review-20260910/capture-f6105/REPORT.md`\n- `out/cf-feedback-review-20260910/capture-f6105/export-size-review.md`\n- `out/cf-feedback-review-20260910/7z-experiment/COMPARISON.md`\n- `out/cf-feedback-review-20260910/7z-experiment/shuffle-webp-7z-4t-result.json`\n- `out/cf-feedback-review-20260910/7z-experiment/shuffle-restore-work/result.json`\n",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Diagnostics",
+        "Status": "Done",
+        "Delivery": "Not started",
+        "Release": "v0.5.0",
+        "Evidence": "Existing maintainer Project Status Done retained. Its archived experiment evidence records a successful size-preservation experiment and a later timed-out capture; the record does not by itself establish current exporter implementation, release, or acceptance. No current contrary code or runtime evidence was identified in this reconciliation.",
+        "Source key": "reduce-f1-render-capture-export-size"
+      }
+    },
+    {
+      "key": "native-migration-architecture-boundaries",
+      "title": "Map progressive native migration boundaries",
+      "body": "<!-- lo-project:native-migration-architecture-boundaries -->\n\nMap the current native CPU translation separately from guest ABI and memory layout, XEX data/import handling, PM4/Xenos command processing, and Xenia-derived components. Identify candidate draw boundaries with their resource, synchronization, lifetime, attribution, and fallback obligations.\n\n## Scope and completion criteria\n\n- [x] Record the dependency map and distinguish the seven concerns above.\n- [x] Identify one bounded draw-path candidate and its old-path fallback.\n- [x] State the XEX and runtime consumers that prevent a container-only change from removing guest layout.\n\n## Boundary\n\nPlanning only. This neither implements a takeover nor establishes performance, compatibility, validation, player acceptance, or release. It gates PM4-bypass and XEX-extraction implementation research.\n\n## Sources\n\n- [Architecture boundary map](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-boundaries.md)\n- `CMakeLists.txt`, `LostOdysseyRecomp/main.cpp`, `LostOdysseyRecomp/kernel/xex_loader.h`, `LostOdysseyRecomp/gpu/command_processor.cpp`\n\n\n<!-- lo-native-boundary-checkpoint:3a95001 -->\n## First-delivery checkpoint - 2026-09-28\nArchitecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete.\n\n[Draft PR #83](https://github.com/freefrank/LostOdysseyRecomp/pull/83) | [Research manifest](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-first-draw.json)\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration",
+        "Status": "In Progress",
+        "Delivery": "In progress",
+        "Evidence": "Architecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
+        "Source key": "native-migration-architecture-boundaries"
+      }
+    },
+    {
+      "key": "native-renderer-pm4-bypass-prototype",
+      "title": "Prototype one bounded PM4-bypass draw path",
+      "body": "<!-- lo-project:native-renderer-pm4-bypass-prototype -->\n\nAfter the architecture map identifies a reproducible candidate, prototype one isolated host-side draw path while retaining the current PM4 path as fallback.\n\n## Scope and completion criteria\n\n- [ ] Select one map/draw/pass boundary from the completed architecture map.\n- [ ] Compare old and candidate paths in the same real scene.\n- [ ] Record CPU frame time separately from frame pacing and GPU work.\n- [ ] Verify synchronization and resource lifetime, and retain a reversible fallback.\n\n## Stop/go\n\nA mismatch, lifecycle failure, or no material benefit ends the prototype or returns the candidate to PM4. A passing prototype is evidence only for its selected path and gates, but does not authorize, renderer expansion.\n\n## Sources\n\n- [Architecture boundary map](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-boundaries.md)\n- native-migration-architecture-boundaries\n\n\n<!-- lo-native-boundary-checkpoint:3a95001 -->\n## First-delivery checkpoint - 2026-09-28\nThe architecture research selects title-cloud-layer-v1 (historical frame 619, draw step 28; VS 81217dc973d5dc31 / PS cd6adb98ab83bf90). qualified_for_bypass=false. Producer attribution and current input/resource snapshots are still required before takeover. No bypass implementation or same-scene image, CPU/GPU timing, synchronization or lifetime comparison has run; this prototype remains not started.\n\n[Draft PR #83](https://github.com/freefrank/LostOdysseyRecomp/pull/83) | [Research manifest](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-first-draw.json)\n\n\n<!-- native-runtime-checkpoint:ce45afe -->\n## Runtime implementation and negative performance result\nImplemented on feature/native-pm4-bypass at ce45afe; draft PR #84. Native SDK state, indexed-quad and four-vertex title-fan commands are consumed in original ring/IB order. Title VS81217dc973d5dc31/PScd6adb98ab83bf90 matched 1486 times by swap1560. Final same-EXE D3D12 title pair exited0 on both paths, but CmdProc CPU/logged-frame rose 1.172737->1.450276ms (+23.7%). Performance go gate failed; default PM4 remains active and no expansion or full removal is accepted. https://github.com/freefrank/LostOdysseyRecomp/pull/84\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / renderer",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "The bounded PM4-bypass prototype is implemented at ce45afe (draft PR #84). Same-EXE D3D12 title comparison exited 0 on both paths, but CmdProc CPU/logged-frame rose 1.172737 to 1.450276 ms (+23.7%). The performance go gate failed; default PM4 remains active and expansion is not accepted.",
+        "Source key": "native-renderer-pm4-bypass-prototype"
+      }
+    },
+    {
+      "key": "native-renderer-conditional-coverage-expansion",
+      "title": "Expand native renderer coverage only after demonstrated gain",
+      "body": "<!-- lo-project:native-renderer-conditional-coverage-expansion -->\n\nExtend a successful bounded renderer migration in controlled groups such as scenes, battles, UI, and effects.\n\n## Scope and completion criteria\n\n- [ ] Start only after a PM4-bypass prototype records a material, bounded benefit.\n- [ ] Keep coverage accounting for each group and compare a representative real scene.\n- [ ] Preserve the PM4 fallback and state the rollback trigger for every expanded group.\n\n## Boundary\n\nOne-scene or generic FPS observations do not justify expansion. Existing PC Vulkan, D3D12, TAA/MV, stability, and gameplay validation remain separate requirements.\n\n## Sources\n\n- [Progressive native migration plan](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/progressive-native-migration-plan.md)\n- native-renderer-pm4-bypass-prototype\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / renderer",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Conditional work is paused because the bounded PM4-bypass prototype did not demonstrate a benefit; its performance go gate failed. Preserve the PM4 fallback and do not expand coverage.",
+        "Source key": "native-renderer-conditional-coverage-expansion"
+      }
+    },
+    {
+      "key": "xex-metadata-extraction-boundary",
+      "title": "Research XEX data and metadata extraction boundaries",
+      "body": "<!-- lo-project:xex-metadata-extraction-boundary -->\n\nDetermine which XEX data and metadata can be extracted during import while preserving consumers that require guest ABI and guest-memory layout.\n\n## Scope and completion criteria\n\n- [ ] Identify data/metadata candidates and each current consumer.\n- [ ] Prove a consumer boundary and parity before changing the import path.\n- [ ] Preserve required guest layout and ABI consumers, or record why they remain.\n\n## Boundary\n\nMay begin after the architecture map and run alongside the renderer prototype. Starting the game from a different container does not count as removing guest layout and does not promise FPS.\n\n## Sources\n\n- [Progressive native migration plan](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/progressive-native-migration-plan.md)\n- native-migration-architecture-boundaries\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / XEX",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Planning is paused pending maintainer acceptance of the architecture map. It may later proceed independently of renderer expansion, but no extraction implementation is scheduled.",
+        "Source key": "xex-metadata-extraction-boundary"
+      }
+    },
+    {
+      "key": "runtime-interface-native-replacement",
+      "title": "Evaluate native replacement of individual runtime interfaces",
+      "body": "<!-- lo-project:runtime-interface-native-replacement -->\n\nEvaluate kernel, memory, thread, and related runtime interfaces one at a time only when their real contract and a measurable cost or maintenance benefit are identified.\n\n## Scope and completion criteria\n\n- [ ] Record the interface contract, guest dependencies, candidate replacement, and expected measurable benefit.\n- [ ] Establish behavior checks and rollback conditions before implementation.\n- [ ] Keep each replacement separate from renderer claims unless a shared boundary is demonstrated.\n\n## Boundary\n\nResearch can proceed alongside renderer work after architecture mapping. No generic runtime rewrite, performance claim, or release is implied.\n\n## Sources\n\n- [Progressive native migration plan](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/progressive-native-migration-plan.md)\n- native-migration-architecture-boundaries\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / runtime",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Planning is paused pending a demonstrated interface contract and measurable benefit after architecture mapping. No native replacement implementation is scheduled.",
+        "Source key": "runtime-interface-native-replacement"
+      }
+    },
+    {
+      "key": "guest-abi-removal-conditional-research",
+      "title": "Evaluate full guest-ABI removal as conditional research",
+      "body": "<!-- lo-project:guest-abi-removal-conditional-research -->\n\nTreat full guest-ABI removal and manual rewriting as long-term conditional research.\n\n## Entry conditions\n\n- [ ] The architecture map records remaining ABI/layout dependencies.\n- [ ] Bounded renderer migrations, XEX-consumer work, and runtime-interface work provide positive evidence.\n- [ ] A tractable remaining boundary, compatibility strategy, and rollback plan are documented.\n\n## Boundary\n\nThis is not ordinary cleanup. It has no planned implementation, date, release, completeness claim, or FPS target.\n\n## Sources\n\n- [Progressive native migration plan](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/progressive-native-migration-plan.md)\n- native-migration-architecture-boundaries\n- xex-metadata-extraction-boundary\n- runtime-interface-native-replacement\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Native migration / ABI",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Long-term conditional research is paused: no implementation is scheduled, and entry requires positive bounded renderer, XEX-consumer and runtime-interface evidence.",
+        "Source key": "guest-abi-removal-conditional-research"
+      }
+    },
+    {
+      "key": "xenia-component-provenance-audit",
+      "title": "Audit Xenia-derived component provenance and replacement rationale",
+      "body": "<!-- lo-project:xenia-component-provenance-audit -->\n\nInventory Xenia-derived components, their provenance, licenses, local modifications, functional ownership, and attribution obligations.\n\n## Scope and completion criteria\n\n- [ ] Record component provenance, license/attribution requirements, and local ownership.\n- [ ] Separate technical, maintenance, or licensing replacement reasons from native-migration performance claims.\n- [ ] Retain required attribution in any future replacement decision.\n\n## Boundary\n\nThis audit may run alongside architecture mapping. Rewriting solely to remove a name is out of scope, and the audit does not establish native-migration benefit.\n\n## Sources\n\n- [Progressive native migration plan](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/notes/progressive-native-migration-plan.md)\n- native-migration-architecture-boundaries\n",
+      "fields": {
+        "Kind": "Research",
+        "Area": "Provenance and maintenance",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Planning only; independent from native-migration performance decisions.",
+        "Source key": "xenia-component-provenance-audit"
+      }
+    },
+    {
+      "key": "v100-ui-separation-production-handoff",
+      "title": "v1.0.0: Deliver production HUDless/UI separation handoff",
+      "body": "<!-- lo-project:v100-ui-separation-production-handoff -->\n\n## Summary and objectives\n\nDeliver a production HUDless/UI separation and handoff path for v1.0.0.\n\n## Scope and completion criteria\n\n- [ ] Produce a full-output-resolution HUDless scene source at the correct presentation boundary.\n- [ ] Represent guest UI layers with a verified alpha/composition contract.\n- [ ] Hand HUDless scene and UI to the presentation provider without screen subtraction or shader/ordinal whitelists.\n- [ ] Validate dialogue, combat HUD, Aim Ring, damage numbers, subtitles, transparent effects, resize, mode changes, and recovery.\n\n## Status and scope — 2026-09-27\n\nThe user deferred this work to v1.0.0. It is independent from v0.8.0 composited-backbuffer FG delivery and has no implementation or validation claim here.\n\nstage_detail: Deferred by user to v1.0.0; implementation and validation not started\n\n## Sources\n\n- docs/ROADMAP.md\n- docs/ROADMAP.zh-CN.md\n- docs/notes/v0.8.0-fg-checked-completion-20260927.md\n",
+      "fields": {
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Kind": "Infrastructure",
+        "Release": "v1.0.0",
+        "Area": "Temporal rendering",
+        "Source key": "v100-ui-separation-production-handoff"
+      }
+    },
+    {
+      "key": "streamline-vulkan-present-after-write",
+      "title": "Backlog: Streamline Vulkan PRESENT-AFTER-WRITE synchronization exception",
+      "body": "<!-- lo-project:streamline-vulkan-present-after-write -->\n\n## Known SDK synchronization exception\n\nTrack the Vulkan validation `SYNC-HAZARD-PRESENT-AFTER-WRITE` observed on the Streamline/DLSS-G presentation route.\n\n## Recorded evidence and acceptance decision\n\nThe 2026-09-27 validation-layer run emitted this message until its duplicate-message limit of 10; 10 is the reporting cap, not a total occurrence count. The authorized foreground run recorded 1,980 generated intervals, zero SDK errors, and normal cleanup. Maintainer acceptance on 2026-09-27 explicitly accepts this known SDK synchronization exception for P0 Gate 1.\n\n## Follow-up scope\n\nMonitor upstream Streamline Vulkan synchronization fixes and re-evaluate with a supported SDK update or a reproducible host-side correction. Do not suppress the validation message or infer artifact-free physical display from this acceptance. Generated-frame display classification, failure injection, and settings-restart coverage remain separate follow-up validation.\n\n## Sources\n\n- docs/notes/gate1-host-repair-20260927.md\n- docs/notes/v0.8.0-fg-sdk-sync-attribution-20260926.md\n- https://github.com/NVIDIA-RTX/Streamline/issues/84\n- https://github.com/NVIDIA-RTX/Streamline/issues/112",
+      "fields": {
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Source key": "streamline-vulkan-present-after-write",
+        "Evidence": "Accepted exception for P0 Gate 1 on 2026-09-27. Validation reports repeat PRESENT-AFTER-WRITE messages until its 10-message duplicate cap; total occurrences are unknown. Follow upstream SDK synchronization fixes and re-evaluate display classification, failure injection, and settings restart coverage."
+      }
+    },
+    {
+      "key": "issue-25-debug-menu",
+      "title": "[Feature] Optional built-in cheat / debug menu",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/25",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Debug menu",
+        "Status": "Done",
+        "Delivery": null,
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state."
+      }
+    },
+    {
+      "key": "issue-24-vibration-support",
+      "title": "[Feature] Vibration Support",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/24",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Status": "Done",
+        "Delivery": null,
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state."
+      }
+    },
+    {
+      "key": "issue-46-flickering-workaround",
+      "title": "[Bug] Flickering Issue+ Workaround",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/46",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Rendering",
+        "Status": "Done",
+        "Delivery": null,
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state."
+      }
+    },
+    {
+      "key": "issue-50-hide-mouse-cursor",
+      "title": "[Feature] Hide mouse cursor after a while.",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/50",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Status": "Done",
+        "Delivery": null,
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Existing linked Project item read back with maintainer Status Done on 2026-09-30. Delivery and acceptance evidence were not populated in the Project; this import does not infer them from Issue state."
+      }
+    },
+    {
+      "key": "issue-74-save-anywhere-party-switch",
+      "title": "[Bug] Save Anywhere loses split-party switching after load",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/74",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Save & Storage",
+        "Status": "In Progress",
+        "Delivery": "Implemented",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Maintainer reproduced the Astral Square (244) failure with the supplied save. Commit 2e1c547 adds an F1 Save Anywhere warning after v0.7.20; it does not repair affected saves or automatically block split-party saves. Maintainer requested a pre-split save to locate the live switch-permission state."
+      }
+    },
+    {
+      "key": "issue-85-minimap-toggle",
+      "title": "[Feature] Hide UI Mini map toggle",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/85",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "User interface",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Maintainer called the request doable but not yet planned, suggesting a future modder path. The open Issue requests minimap visibility toggle scope; no implementation or release is recorded."
+      }
+    },
+    {
+      "key": "issue-88-xbox360-save-conversion",
+      "title": "[Feature] Xbox 360 save conversion / rehash support",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/88",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Save & Storage",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Reporter supplied an RGH Xbox save and requested bidirectional PC/Xbox use. The maintainer stated an intent to address it before v0.8.0, but no implementation, compatibility contract, validation or release evidence is recorded; retain as deferred open backlog."
+      }
+    },
+    {
+      "key": "save-state-support",
+      "title": "Evaluate save-state support",
+      "body": "<!-- lo-project:save-state-support -->`n`n## Open request`n`nIssue #90 requests save states. The maintainer stated that save states are not planned. This is retained as deferred backlog without implementation, compatibility, validation, or release claims.`n`n## Source`n`n- https://github.com/freefrank/LostOdysseyRecomp/issues/90`n",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Save & Storage",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog."
+      }
     }
   ]
 }

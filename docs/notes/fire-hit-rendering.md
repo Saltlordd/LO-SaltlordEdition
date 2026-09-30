@@ -1,5 +1,7 @@
 # Fire-hit lighting investigation (2026-09-05)
 
+> **Investigation record.** Findings and open items are bounded to the recorded captures and dates. For current issue, delivery and acceptance status, see [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 Status: reproduced; not fixed. The explicit zero-LOD translation change does not eliminate the observed Flame Thrower lighting jumps.
 
 ## Reproduction and evidence

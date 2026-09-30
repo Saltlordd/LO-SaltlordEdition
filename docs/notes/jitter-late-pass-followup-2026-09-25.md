@@ -1,5 +1,7 @@
 # Late-pass jitter follow-up — 2026-09-25
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This note records the diagnostic blind-spot repair and the remaining review boundary for late-pass jitter candidates. The e810 trial is implemented in a narrow guarded path; its guarded build checks pass, the mapping was independently confirmed applied and bound, and the bounded user visual run is accepted.
 
 ## Diagnostic implementation

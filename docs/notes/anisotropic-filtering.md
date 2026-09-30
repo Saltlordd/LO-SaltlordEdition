@@ -1,5 +1,7 @@
 # Live anisotropic filtering
 
+> **Topic reference.** The implementation and measurements below retain their stated version and scope. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 The `AF` branch adds `Off / 2x / 4x / 8x / 16x` to the graphics menu.
 Save graphics settings to apply the request on the next renderer frame; no
 restart is required. The persisted key is `anisotropic_filtering`. Missing,

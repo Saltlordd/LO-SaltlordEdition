@@ -1,5 +1,7 @@
 # Local TAA live debug
 
+> Tool reference with historical Bell/Uhra experiments and source integration recorded through 2026-09-19. Executable hashes, deployment paths, “current” controls and run results below identify those experiments; they are not a live workstation inventory. Use an explicit run directory and check [current status](STATUS.md) before reusing an experimental configuration.
+
 The local panel at `http://127.0.0.1:8769` provides bounded Vulkan TAA
 diagnostics without uploading captures or game assets. Start it from the
 repository root with:
@@ -220,7 +222,7 @@ index 复用仍执行完整源字节验证。主 binary 的画面验收限定在
 看到拖影，因此未通过验收；当前控制已恢复为 RGBA8 `31/33` 基线。
 独立的 `history_fp16` 开关默认值为 `0`；开启后 history/display 可使用 runtime 的
 FP16 格式（`format 20` 和 `format 10`），source 保持 RGBA8，HDR 关闭插入点不变，
-最终输出仍为 SDR。state 和 trace 支持这些格式；该开关的 runtime/GPU 验证仍待完成。
+最终输出仍为 SDR。state 和 trace 支持这些格式；首轮限定 runtime/GPU 验证见下段。
 首轮精度验证已完成：50 项 precision-only GPU 检查、FP16 parser/Python half-trace、
 静止范围和 HTML syntax 检查通过。runtime 构建记录在
 `build-history-precision-runtime.log`，exe SHA-256 为

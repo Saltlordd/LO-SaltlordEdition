@@ -2,6 +2,8 @@
 
 # Motion Vector Implementation Milestone Report (M0 - M4)
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 ## 1. 代码基线与提交历史
 - **代码基线分支**: `mv`
 - **里程碑提交记录**:

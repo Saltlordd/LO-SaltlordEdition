@@ -1,5 +1,7 @@
 # Current-scene TAA coverage and static discovery — 2026-09-13
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This note records a local candidate and a bounded diagnostic capture. It does not record a release, a game acceptance result or a whole-game conclusion.
 
 ## Current-scene TAA candidate

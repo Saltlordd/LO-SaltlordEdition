@@ -1,5 +1,7 @@
 # CPU 性能优化指南：3C6T 预算、可行并行与反模式
 
+> **专题参考。** 下文实现和测量只适用于各自注明的版本与范围；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 日期：2026-09-14  
 分支：`cpu-perf` / 实验分支 `cpu-perf-exp`  
 状态：**指南与 R3 实现记录。** Card A / Card B / Card C / Card D（进程级 3C6T 信封）已用 published v0.5.11 测过（耗尽资源类 = null；B1/B2/B3、Parallel Prepare 与默认 pinning 均不实施）。2026-09-15 在本地 `deck` 分支已实现 R3 等待路径现代化（`notified_wait.h`、内核对象条件变量等待、CommandProcessor 写指针与关闭通知及 500 µs 上限等待），未提交、未改源版本、无发布。

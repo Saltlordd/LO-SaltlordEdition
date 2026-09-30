@@ -1,6 +1,8 @@
 # v0.2.2 release notes / 发布说明
 
-Published as the latest full release on **2026-09-07 at 03:11:10 UTC** (2026-09-06 local), not a draft or prerelease. / 已于 **UTC 2026-09-07 03:11:10**（本地 2026-09-06）正式发布，为最新版本，非草稿／预发布。
+> **历史检查点。** 下文版本、Issue、进程和待办均是原时点记录；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
+Published on **2026-09-07 at 03:11:10 UTC** (2026-09-06 local) as the then-latest full release, not a draft or prerelease. / 已于 **UTC 2026-09-07 03:11:10**（本地 2026-09-06）正式发布，当时为最新正式版本，非草稿／预发布。
 
 [Download / 下载](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.2.2) · [Hosted CI / 托管 CI](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/34077788392)
 

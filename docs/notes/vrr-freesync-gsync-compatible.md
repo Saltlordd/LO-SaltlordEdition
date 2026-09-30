@@ -1,5 +1,7 @@
 # FreeSync / G-SYNC Compatible：应用侧VRR接入
 
+> **专题参考。** 下文实现和测量只适用于各自注明的版本与范围；现行交付及验收状态见[项目状态](../STATUS.md)和[路线图](../ROADMAP.md)。
+
 日期：2026-09-28。开发分支：`feature/native-90-120fps`。
 
 ## 使用与边界

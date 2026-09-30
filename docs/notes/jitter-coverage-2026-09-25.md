@@ -1,5 +1,7 @@
 # Temporal jitter coverage review — 2026-09-25
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This note records a bounded discovery pass and its subsequent reviewed mapping batch. It separates the pre-implementation coverage snapshot from the implemented source/synthetic scope; it does not claim GPU pixel validation, player acceptance, or release completion.
 
 ## Inputs and current boundary

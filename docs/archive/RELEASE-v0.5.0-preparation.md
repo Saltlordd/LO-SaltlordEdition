@@ -4,21 +4,21 @@
 
 ## Current candidate — 2026-09-09
 
-The current source and release target remain **0.5.0**. The earlier visually sampled Windows executable is [shader-priority candidate](../../out/v0.5.0/performance-fix/shader-priority-0.5.0/LostOdysseyRecomp/LostOdysseyRecomp.exe), SHA256 prefix `1c9911a3`. It includes the settings-entry crash correction, Vulkan startup/presentation repair, optional TAA shader collection, sparse camera temporal collection and shader-anomaly priority scheduling, plus four capture-confirmed c7 paths. Build/link evidence is in [its report](../../out/v0.5.0/performance-fix/shader-priority-0.5.0/REPORT.md). The four c7 paths are accepted for the Ghost Town slot-02 scene after six spaced screenshots over approximately 11.37 seconds; this does not establish whole-game repair or a continuous recording.
+The current source and release target remain **0.5.0**. The earlier visually sampled Windows executable is shader-priority candidate (historical local path, unavailable in this checkout: `out/v0.5.0/performance-fix/shader-priority-0.5.0/LostOdysseyRecomp/LostOdysseyRecomp.exe`), SHA256 prefix `1c9911a3`. It includes the settings-entry crash correction, Vulkan startup/presentation repair, optional TAA shader collection, sparse camera temporal collection and shader-anomaly priority scheduling, plus four capture-confirmed c7 paths. Build/link evidence is in its report (historical local path, unavailable in this checkout: `out/v0.5.0/performance-fix/shader-priority-0.5.0/REPORT.md`). The four c7 paths are accepted for the Ghost Town slot-02 scene after six spaced screenshots over approximately 11.37 seconds; this does not establish whole-game repair or a continuous recording.
 
-The latest local source-0.5.0 position-evidence candidate is diagnostic infrastructure, with conservative schema 2 client data and Worker support for schemas 1 and 2. Its incremental executable SHA256 is `6feb20923e3632ac00b718950927ee245fb6929c7c3bc95e87e9d13f5cd23937`; native, corpus, protocol and build evidence passed in the [focused report](../../out/v0.5.0/performance-fix/position-evidence-0.5.0/REPORT.md). It was not run in-game, so the earlier Ghost Town visual acceptance does not apply to this binary.
+The latest local source-0.5.0 position-evidence candidate is diagnostic infrastructure, with conservative schema 2 client data and Worker support for schemas 1 and 2. Its incremental executable SHA256 is `6feb20923e3632ac00b718950927ee245fb6929c7c3bc95e87e9d13f5cd23937`; native, corpus, protocol and build evidence passed in the focused report (historical local path, unavailable in this checkout: `out/v0.5.0/performance-fix/position-evidence-0.5.0/REPORT.md`). It was not run in-game, so the earlier Ghost Town visual acceptance does not apply to this binary.
 
 The v0.5.0 release is published at [GitHub](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.5.0) (`385591785`, published 2026-09-09T22:18:20Z). The clean package is 44,137,866 bytes with SHA256 `1767dd1ab6cf675e48f28e00c64c8ce48b2f6dabd9706a3ee699f8039d60387b`; its executable SHA256 is `0564bd78c4f4dd96b3a9e6c7690ff6f09aceb30d34e754b913006e041db5bc64`. Source main/0.5.0/tag commit is `f78f64fea8707b1447ada044abec2e0da4e6e9bc`, and the anonymous download hash matches the verified package. The later position-evidence local binary is outside this published package and has no transferred visual acceptance.
 
 ## Current CI delivery — 2026-09-09
 
-Release CI `34362242667` succeeded for tag/main `28be72f02649cf87126dd9f1a604ada6cdd380c5`. Its earlier verified Windows ZIP is 44,020,136 bytes with SHA256 `e8391a2353a7206398b2dca24a2d73bccdea7b946d55cbfca4e7573648e95312`; source identity is `5038af3b3561ffce579a78158fb088c8d5f27df7705ba140e0e56bd11624e9cc`. Evidence is in [CI-DELIVERY.json](../../out/v0.5.0/release-finalization/ci-34362242667/CI-DELIVERY.json) and [REPORT.md](../../out/v0.5.0/release-finalization/ci-34362242667/REPORT.md). The published replacement package and anonymous download are recorded above; this earlier CI ZIP remains historical.
+Release CI `34362242667` succeeded for tag/main `28be72f02649cf87126dd9f1a604ada6cdd380c5`. Its earlier verified Windows ZIP is 44,020,136 bytes with SHA256 `e8391a2353a7206398b2dca24a2d73bccdea7b946d55cbfca4e7573648e95312`; source identity is `5038af3b3561ffce579a78158fb088c8d5f27df7705ba140e0e56bd11624e9cc`. Evidence is in CI-DELIVERY.json (historical local path, unavailable in this checkout: `out/v0.5.0/release-finalization/ci-34362242667/CI-DELIVERY.json`) and REPORT.md (historical local path, unavailable in this checkout: `out/v0.5.0/release-finalization/ci-34362242667/REPORT.md`). The published replacement package and anonymous download are recorded above; this earlier CI ZIP remains historical.
 
 The agent-captured paired 4K Map16 TAA/AA-Off observation and follow-up shader captures are recorded in the [rendering handoff](../notes/v0.5.0-rendering-handoff-2026-09-09.md). The latest candidate prioritizes four capture-confirmed c7 shader paths; the Ghost Town slot-02 scene was accepted by the user, while broader scenes remain regression coverage. The sparse camera-only MV/jitter collection is for future temporal research and does not implement DLSS frame generation or provide object/skinned motion vectors. The observed 25–30 FPS is not a benchmark, and the bounded Map16 performance result does not represent whole-game performance.
 
 ## Historical local package — 2026-09-09
 
-Source 0.5.0 has a reviewed local v0.5.0 Windows package: `LostOdysseyRecomp-windows-x64-v0.5.0.zip`, 44,080,866 bytes, SHA256 `100e6491548579e3a13aa60564bc760bca121113915842f73817d1b943482ce4`. The package/link commit is `86ba2c1641bb9a8324e0b1710783bead0c39bf23`; source identity is `896317f1a0ed86cea58fe353a2cb2104b4aa757efff4b72147e4da8ba2b82f7c`. Packaging completed 1 PCH, 4 version translation units, 2 links and 1 normal package, with 0 guest compiles, tests, game runs or CI. Manifest, payload and license checks are recorded in [DELIVERY.json](../../out/v0.5.0/release-finalization/DELIVERY.json) and [REPORT.md](../../out/v0.5.0/release-finalization/REPORT.md). The package is local and unpublished; at this historical checkpoint there was no remote tag or push, and the public baseline remained v0.4.2.
+Source 0.5.0 has a reviewed local v0.5.0 Windows package: `LostOdysseyRecomp-windows-x64-v0.5.0.zip`, 44,080,866 bytes, SHA256 `100e6491548579e3a13aa60564bc760bca121113915842f73817d1b943482ce4`. The package/link commit is `86ba2c1641bb9a8324e0b1710783bead0c39bf23`; source identity is `896317f1a0ed86cea58fe353a2cb2104b4aa757efff4b72147e4da8ba2b82f7c`. Packaging completed 1 PCH, 4 version translation units, 2 links and 1 normal package, with 0 guest compiles, tests, game runs or CI. Manifest, payload and license checks are recorded in DELIVERY.json (historical local path, unavailable in this checkout: `out/v0.5.0/release-finalization/DELIVERY.json`) and REPORT.md (historical local path, unavailable in this checkout: `out/v0.5.0/release-finalization/REPORT.md`). The package is local and unpublished; at this historical checkpoint there was no remote tag or push, and the public baseline remained v0.4.2.
 
 
 This is a historical preparation record for the Windows x64 v0.5.0 development candidate. It is
@@ -46,7 +46,7 @@ The menu-asset implementation uses the selected installed `LO.fpi` package's nat
 The dependency source and package rules are maintained in [release packaging](../notes/release-packaging.md)
 and [installing](../INSTALLING.md). The published baseline remains [v0.4.2](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.4.2).
 
-The local candidate is [LostOdysseyRecomp-windows-x64-v0.5.0-147bffb2-dev.zip](../../out/v0.5.0/release-readiness/package/LostOdysseyRecomp-windows-x64-v0.5.0-147bffb2-dev.zip), 43,862,583 bytes, SHA256 `1afcc6b56550bfb9d41e4799b0f747beda8002f0739ddead9a4c81959eaffcbb`. The main executable is 82,460,160 bytes with SHA256 `b88c0d3e1a5a250757e61428bb9a0d4e66529b4fda2d38471c51a66de50a62b2`. Manifest hashes, CRCs, duplicate-member checks, DXC provenance, licenses and top-level PE imports passed; see `../../out/v0.5.0/release-readiness/package-validation.json` and `manifest.json`.
+The local candidate is LostOdysseyRecomp-windows-x64-v0.5.0-147bffb2-dev.zip (historical local path, unavailable in this checkout: `out/v0.5.0/release-readiness/package/LostOdysseyRecomp-windows-x64-v0.5.0-147bffb2-dev.zip`), 43,862,583 bytes, SHA256 `1afcc6b56550bfb9d41e4799b0f747beda8002f0739ddead9a4c81959eaffcbb`. The main executable is 82,460,160 bytes with SHA256 `b88c0d3e1a5a250757e61428bb9a0d4e66529b4fda2d38471c51a66de50a62b2`. Manifest hashes, CRCs, duplicate-member checks, DXC provenance, licenses and top-level PE imports passed; see `../../out/v0.5.0/release-readiness/package-validation.json` and `manifest.json`.
 
 The unique Release clang-cl/Ninja main build completed in session `4497` and packaging completed in session `47942`. The checks did not run the game, installer or feature suites. The package is a local development candidate only; v0.4.2 remains the published baseline.
 
@@ -60,7 +60,7 @@ The unique Release clang-cl/Ninja main build completed in session `4497` and pac
 
 The accepted rendering checks include the existing bounded FXAA/SMAA/TAA paths and their documented
 Map-scoped comparisons; they do not establish whole-game anti-aliasing quality or cross-GPU behavior.
-See the [current status](../STATUS.md) and the retained [Vulkan report](../../out/v0.5.0/vulkan/REPORT.md)
+See the [current status](../STATUS.md) and the retained Vulkan report (historical local path, unavailable in this checkout: `out/v0.5.0/vulkan/REPORT.md`)
 for the exact validation boundary.
 
 ## Validation retained for the candidate
@@ -68,9 +68,9 @@ for the exact validation boundary.
 The user accepted the bounded D3D12/Vulkan scene evidence. The lifecycle report records hidden
 window/swapchain resize, reset/re-init, owner-thread cleanup and controlled process restart for
 the actual video/presentation/Plume path. It omits guest, renderer, audio, draw, present, capture,
-full-game and cross-GPU coverage; see [lifecycle evidence](../../out/v0.5.0/backend-lifecycle/REPORT.md).
-Typed backend cache and capability checks remain at the [cache report](../../out/v0.5.0/backend-completion/cache/REPORT.md)
-and [selection report](../../out/v0.5.0/backend-completion/selection/REPORT.md). Existing shader failures,
+full-game and cross-GPU coverage; see lifecycle evidence (historical local path, unavailable in this checkout: `out/v0.5.0/backend-lifecycle/REPORT.md`).
+Typed backend cache and capability checks remain at the cache report (historical local path, unavailable in this checkout: `out/v0.5.0/backend-completion/cache/REPORT.md`)
+and selection report (historical local path, unavailable in this checkout: `out/v0.5.0/backend-completion/selection/REPORT.md`). Existing shader failures,
 DX11 support, other GPUs and complete playthrough coverage remain open.
 
 ## Publication gate

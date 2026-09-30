@@ -240,7 +240,7 @@ and logs.
 | `LO_HEADLESS=1` | No video device/window; not equivalent to hidden rendering. |
 | `LO_AUDIO_MUTE=1` | Mute device output. |
 | `LO_AUDIO_CAPTURE=<path>` | Up to 60 seconds of raw 48kHz stereo float PCM before mute. |
-| `LO_CONTROLLER_RUMBLE=1` | Enable controller rumble; default is off. |
+| `LO_CONTROLLER_RUMBLE=0` | Disable host controller rumble; it is enabled by default. Physical device support remains driver/controller dependent. |
 | `LO_GRAPHICS_API=d3d12\|vulkan` | Override the persisted `graphics_backend` choice for one launch; unset/`auto` uses the saved choice. |
 
 Clear test-only environment variables before manual play. Do not treat a window staying open, a heartbeat, or nonzero PCM as proof a scene is correct.

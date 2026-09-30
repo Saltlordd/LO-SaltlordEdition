@@ -1,5 +1,7 @@
 # Issue #40 UI Resource Map and Asset Archive
 
+> **Historical checkpoint.** Version, issue, process and pending-work statements below describe their original date. Recheck current delivery and acceptance in [STATUS](../STATUS.md) and [ROADMAP](../ROADMAP.md).
+
 This document archives game UI packages, texture atlases, fonts, and configuration offsets located during the investigation of Issue #40 (gamepad button prompt / PlayStation glyph mapping).
 
 Detailed documentation in Simplified Chinese is maintained in [issue-40-ui-resource-map.zh-CN.md](issue-40-ui-resource-map.zh-CN.md).
