@@ -1,4 +1,5 @@
 #include <gpu/temporal_jitter.h>
+#include <gpu/temporal_suspect.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1546,6 +1547,93 @@ static void CapturedF3449Sky()
         true,0x02ee5f0608be581aull},
         issue67_sky_f3449::draws[0]);
 }
+// Runtime suspect locator (no F1 capture): camera slot choice, same-frame
+// companion lookup, per-pair settling and the fixture-bearing log format.
+static void SuspectLocator()
+{
+    const auto startChecks=checks;
+    using namespace issue102_sky_f1800;
+    const auto& draw=draws[0];
+    Constants material{},pixel{};
+    std::copy(draw.vertex.begin(),draw.vertex.end(),material.begin());
+    std::copy(draw.vertexLate.begin(),draw.vertexLate.end(),material.begin()+254*4);
+    std::copy(draw.pixel.begin(),draw.pixel.end(),pixel.begin());
+    std::array<uint32_t,16> camera{},world{},vp{};
+    std::copy_n(material.begin()+7*4,16,camera.begin());
+    std::copy_n(draw.depth.begin(),16,world.begin());
+    std::copy_n(draw.depth.begin()+16,16,vp.begin());
+    Check(SceneCameraSlot(material.data(),camera)==7,"suspect camera slot finds the f1800 sky camera at c7");
+    auto other=camera; other[0]^=1;
+    Check(SceneCameraSlot(material.data(),other)==-1,"suspect camera slot rejects a different camera");
+    // A skinned VS whose real VP is at c233 while a stale scene camera stays at c7.
+    auto stale=material; std::copy(camera.begin(),camera.end(),stale.begin()+233*4);
+    using Action=SuspectDecision::Action;
+    const auto decide=[&](SuspectEvidence e,const Constants& c,uint64_t waited=0) {
+        return DecideSuspect(e,c.data(),camera,SceneCameraSlot(c.data(),camera),waited);
+    };
+    const auto skinned=decide({true,true,1,0,233},stale);
+    Check(skinned.action==Action::Report && skinned.cameraSlot==233 && skinned.evidenceSlot==233 &&
+        skinned.positionKind==1,"proven window is reported even when a stale camera sits earlier");
+    auto moved=stale; moved[233*4]^=1;
+    Check(decide({true,true,1,0,233},moved).action==Action::Wait,
+        "a proven window that differs on this draw waits instead of dismissing the pair");
+    Check(decide({true,true,2,0,-1},material).action==Action::Dismiss,"direct-position evidence dismisses for good");
+    const auto skyDecision=decide({true,true,1,0,7},material);
+    Check(skyDecision.action==Action::Report && skyDecision.cameraSlot==7 && skyDecision.positionKind==1,
+        "f1800 sky evidence reports slot 7");
+    Check(decide({true,false,0,0,-1},material,SuspectEvidenceFrames-1).action==Action::Wait &&
+        decide({true,false,0,0,-1},material,SuspectEvidenceFrames).action==Action::Report,
+        "missing evidence waits a bounded number of frames, then reports unproven");
+    const auto flagged=decide({true,true,1,4,7},material);
+    Check(flagged.action==Action::Report && flagged.positionKind==1 && flagged.evidenceSlot==-1,
+        "evidence with analyzer issues is treated as unproven");
+    Check(decide({false,false,0,0,-1},material).action==Action::Report,"no collection reports immediately");
+
+    SuspectTracker tracker;
+    const SuspectGeometry sky{0xb8f3c00,2484,0,0xc258003},cube{0xb8f3c00,36,0,0xc258003};
+    tracker.BeginFrame(10);
+    Check(!tracker.FindCompanion(sky),"no companion before a jittered depth writer");
+    tracker.ObserveJitteredDepth(sky,draw.depthVs,4,351,world,vp);
+    tracker.ObserveJitteredDepth(cube,0x1234,7,352,world,vp);
+    const auto* companion=tracker.FindCompanion(sky);
+    Check(companion && companion->vs==draw.depthVs && companion->slot==4 && companion->draw==351 &&
+        !tracker.FindCompanion({0xb8f3c00,2484,3,0xc258003}),"companion lookup matches exact geometry only");
+    tracker.ObserveJitteredDepth(sky,0x5678,4,400,world,vp);
+    Check(tracker.FindCompanion(sky)->draw==400,"latest jittered writer of the geometry wins");
+    tracker.BeginFrame(10);
+    Check(tracker.FindCompanion(sky)!=nullptr,"same frame keeps companions");
+    tracker.BeginFrame(11);
+    Check(!tracker.FindCompanion(sky) && !tracker.FindCompanion(cube),"a new frame retires companions");
+    for (uint32_t i=0;i<SuspectTracker::MaxCompanions+10;++i)
+        tracker.ObserveJitteredDepth({i,3,0,0},i,4,i,world,vp);
+    Check(tracker.FindCompanion({0,3,0,0}) && !tracker.FindCompanion({SuspectTracker::MaxCompanions,3,0,0}),
+        "companion table stays bounded");
+
+    Check(tracker.Waited(draw.vs,draw.ps,100)==0 && tracker.Waited(draw.vs,draw.ps,150)==50 &&
+        tracker.Waited(draw.vs,0x1111,150)==0,"evidence wait is counted per pair from its first frame");
+    Check(!tracker.Settled(draw.vs,draw.ps),"unseen pair is not settled");
+    tracker.Settle(draw.vs,draw.ps,true);
+    Check(tracker.Settled(draw.vs,draw.ps) && !tracker.Settled(draw.vs,0x1111),"settled pair is logged once");
+    for (uint64_t i=1;i<SuspectTracker::MaxReports;++i) tracker.Settle(i,i,true);
+    Check(tracker.Settled(0x9999,0x9999),"report cap stops further lines");
+
+    SuspectTracker lines;
+    lines.BeginFrame(1138);
+    lines.ObserveJitteredDepth(sky,draw.depthVs,4,351,world,vp);
+    const auto text=FormatSuspect({draw.vs,draw.ps,1138,1231,0x700766,7,1,7,sky,lines.FindCompanion(sky),
+        material.data(),pixel.data()});
+    Check(text[0].starts_with("temporal suspect: kind=depth_writer_after_jittered_geometry vs=db23a2ad4493bbb4 ps=02ee5f0608be581a ") &&
+        text[0].find(" companion_vs=f7fd88506d704a3d companion_slot=4 companion_draw=351 same_world=true same_camera=true")!=std::string::npos &&
+        text[0].find(" zfunc=6 zwrite=true index_base=0x0b8f3c00 index_count=2484 ")!=std::string::npos,
+        "suspect line names the pair, companion and depth state");
+    Check(text[1].starts_with("temporal suspect banks: vs=db23a2ad4493bbb4 ps=02ee5f0608be581a material=") &&
+        text[1].find(" late=")!=std::string::npos && text[1].find(" companion_vp=-")==std::string::npos &&
+        text[1].size()<2200,"banks line carries fixture words within a bounded size");
+    const auto alone=FormatSuspect({draw.vs,draw.ps,1,2,0x700766,7,-1,-1,sky,nullptr,material.data(),pixel.data()});
+    Check(alone[0].find("kind=depth_writer ")!=std::string::npos && alone[1].ends_with(" companion_world=- companion_vp=-"),
+        "a depth writer without companion omits companion banks");
+    std::printf("Suspect locator: %u checks, f1800 sky line %zu+%zu bytes\n",checks-startChecks,text[0].size(),text[1].size());
+}
 static void CapturedF1800Sky()
 {
     // #102 replays object motion; the fallback aborted it every frame.
@@ -1716,6 +1804,8 @@ int main(int argc,char** argv)
     { CapturedF3449Sky(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f1800-sky")==0)
     { CapturedF1800Sky(); return 0; }
+    if (argc==2 && std::strcmp(argv[1],"--suspect-tracker")==0)
+    { SuspectLocator(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f5912-layers")==0)
     { CapturedF5912Layers(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f5997-layers")==0)
@@ -1730,6 +1820,7 @@ int main(int argc,char** argv)
     CapturedF6131E810ConstantSample();
     CapturedF3449Sky();
     CapturedF1800Sky();
+    SuspectLocator();
     FeedbackMappingBatch();
     ScreenMappingBatch();
     TireMaterialCoverage();
