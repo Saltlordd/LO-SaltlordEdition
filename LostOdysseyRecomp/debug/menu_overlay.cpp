@@ -181,7 +181,7 @@ namespace debug_menu
         case InputAction::Down:
             if (g_overlayState.activeTab == 0)
             {
-                if (g_overlayState.selectedRow < 4)
+                if (g_overlayState.selectedRow < 5)
                     g_overlayState.selectedRow++;
             }
             else
@@ -200,8 +200,9 @@ namespace debug_menu
             // 0: Language (Toggle En / Zh)
             // 1: Render Capture
             // 2: Save Anywhere
-            // 3: Win Battle
-            // 4: Cancel Battle Request
+            // 3: Force RB party switch
+            // 4: Win Battle
+            // 5: Cancel Battle Request
             if (action == InputAction::Confirm || action == InputAction::Left || action == InputAction::Right)
             {
                 switch (g_overlayState.selectedRow)
@@ -229,13 +230,21 @@ namespace debug_menu
                 {
                     const bool zh = g_overlayState.chinese;
                     stateLock.unlock();
+                    debug_menu::RequestPartySwitch();
+                    SetOverlayStatus(zh ? L"已开启 RB 换人（仅分队区域有效）" : L"RB party switch enabled (split-party areas only)");
+                    return;
+                }
+                case 4:
+                {
+                    const bool zh = g_overlayState.chinese;
+                    stateLock.unlock();
                     const bool accepted = debug_menu::RequestVictory();
                     SetOverlayStatus(accepted
                         ? (zh ? L"已提交判胜请求（等待安全阶段生效）" : L"Victory requested (pending)")
                         : (zh ? L"无法请求判胜（当前无活跃战斗）" : L"Cannot request victory (no active battle)"));
                     return;
                 }
-                case 4:
+                case 5:
                 {
                     const bool zh = g_overlayState.chinese;
                     stateLock.unlock();
@@ -462,7 +471,12 @@ namespace debug_menu
             bool saveOn = debug_menu::SaveAnywhereEnabled();
             std::wstring saveText = zh ? (saveOn ? L"随时存档: 开启" : L"随时存档: 关闭")
                                        : (saveOn ? L"Save Anywhere: ON" : L"Save Anywhere: OFF");
-            host_ui::DrawButton(r, btnX, contentY + 2 * rowH + 8, btnW, 30, saveText, state.selectedRow == 2);
+            // 3: Force RB party switch (beside Save Anywhere, same 520px row)
+            const int saveGap = 16;
+            const int saveBtnW = (btnW - saveGap) / 2;
+            host_ui::DrawButton(r, btnX, contentY + 2 * rowH + 8, saveBtnW, 30, saveText, state.selectedRow == 2);
+            host_ui::DrawButton(r, btnX + saveBtnW + saveGap, contentY + 2 * rowH + 8, saveBtnW, 30,
+                zh ? L"强制开启 RB 换人" : L"Force RB Party Switch", state.selectedRow == 3);
 
             // Map info display (Centered)
             auto mapInfo = debug_menu::GetMapInfo();
@@ -478,14 +492,14 @@ namespace debug_menu
             int mapTextW = r.MeasureWString(mapText);
             r.DrawWString(panelX + (panelW - mapTextW) / 2, contentY + 3 * rowH + 12, mapText, host_ui::MakeColor(255, 180, 210, 240));
 
-            // 3: Win Battle & 4: Cancel Victory (Side by side, centered total 520px)
+            // 4: Win Battle & 5: Cancel Victory (Side by side, centered total 520px)
             int battleGap = 16;
             int battleBtnW = (btnW - battleGap) / 2; // 252
             std::wstring winText = zh ? L"当前战斗判胜" : L"Win Current Battle";
-            host_ui::DrawButton(r, btnX, contentY + 4 * rowH + 12, battleBtnW, 30, winText, state.selectedRow == 3);
+            host_ui::DrawButton(r, btnX, contentY + 4 * rowH + 12, battleBtnW, 30, winText, state.selectedRow == 4);
 
             std::wstring cancelWinText = zh ? L"取消判胜请求" : L"Cancel Victory Request";
-            host_ui::DrawButton(r, btnX + battleBtnW + battleGap, contentY + 4 * rowH + 12, battleBtnW, 30, cancelWinText, state.selectedRow == 4);
+            host_ui::DrawButton(r, btnX + battleBtnW + battleGap, contentY + 4 * rowH + 12, battleBtnW, 30, cancelWinText, state.selectedRow == 5);
 
             const wchar_t* rawBStat = debug_menu::Status();
             if (rawBStat && *rawBStat)
@@ -500,7 +514,7 @@ namespace debug_menu
             {
                 const wchar_t* warning[] = {
                     zh ? L"随时存档可在原作不允许存档的时刻保存。" : L"Save Anywhere also saves where the game normally forbids it.",
-                    zh ? L"分队探索期间存档，读档后将无法用 RB 换人。" : L"Saving during a split-party section loses RB character switching.",
+                    zh ? L"分队探索期间不提供随时存档；旧存档丢失换人时用上方按钮恢复。" : L"Not offered while the party is split; the button above restores RB on older saves.",
                 };
                 for (int line = 0; line < 2; ++line)
                 {

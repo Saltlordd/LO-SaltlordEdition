@@ -8,11 +8,11 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
-- The F1 debug menu now warns while Save Anywhere is on (#74). Saving where the game normally forbids it, such as during a split-party section, loses RB character switching after loading, because the game keeps that permission only in memory and never writes it to the save. Leaving the map and returning does not bring it back. Load an earlier save made at a regular save point instead.
+- Added a Force RB Party Switch button next to Save Anywhere in the F1 debug menu (#74). A save made with Save Anywhere during a split-party section loses RB character switching after loading, because the event script keeps that permission in memory only. The button turns it back on: with the reporter's save in Astral Square, the Change Character prompt returned and RB switched between the two groups in both directions. It only has an effect in areas whose script offers party switching. Save Anywhere now also stays off while the party is split, so the System menu's Save follows the game's own rule there and new saves can no longer lose switching.
 
 ### 简体中文
 
-- 开启随时存档时，F1 调试菜单会显示警告（#74）。在原作不允许存档的时刻保存，例如分队探索期间，读档后将无法用 RB 换人：游戏只在内存里保留这项权限，从不写入存档，离开地图再回来也不会恢复。遇到这种情况请读取更早的普通存档点存档。
+- F1 调试菜单在随时存档旁新增“强制开启 RB 换人”按钮（#74）。分队探索期间用随时存档保存后，读档会失去 RB 换人，因为事件脚本只在内存里保留这项权限。该按钮会重新打开它：用报告者在 Astral Square 的存档测试，"Change Character" 提示恢复，按 RB 能在两组之间来回切换。它只在脚本提供换人的区域生效。随时存档在分队期间也不再生效，System 菜单的 Save 按原作规则处理，新存档不会再丢失换人。
 
 ## [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) — 2026-09-30
 
