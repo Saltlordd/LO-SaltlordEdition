@@ -1,5 +1,6 @@
 """Build a portable Windows release using an explicit runtime payload allowlist."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import shutil
@@ -188,12 +189,17 @@ def main():
                 if redist or not (dll.lower().startswith(('api-ms-', 'ext-ms-')) or (system / dll).exists()):
                     raise SystemExit(f'Unbundled dependency: {binary.name} -> {dll}')
         payload_files = {p.relative_to(package).as_posix(): p for p in package.rglob('*') if p.is_file()}
-        file_sizes = {name: path.stat().st_size for name, path in payload_files.items()}
+        # Published legacy updaters require SHA-256 strings here. Current updaters
+        # use only the paths, so computing these once at packaging keeps both working.
+        file_hashes = {}
+        for relative_path, payload_path in payload_files.items():
+            with payload_path.open('rb') as payload:
+                file_hashes[relative_path] = hashlib.file_digest(payload, 'sha256').hexdigest()
         manifest = {
             'commit': commit,
             'version': normalized_version, 'source_version': source_version, 'development_build': development,
             'dependencies': dependencies_report,
-            'files': file_sizes,
+            'files': file_hashes,
         }
         (package / 'manifest.json').write_text(json.dumps(manifest, indent=2), encoding='utf-8')
         shutil.make_archive(str(package_zip.with_suffix('')), 'zip', work, name)

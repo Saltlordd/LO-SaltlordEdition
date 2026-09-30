@@ -22,10 +22,12 @@ details in technical notes rather than the changelog entry.
 The v0.7.9 Windows transition ZIP carried the old SHA map in `files`, allowing
 already published v0.7.3 updaters to upgrade automatically. The v0.7.9 updater
 ignores the map values and installs the downloaded archive directly after
-ordinary HTTP/I/O, ZIP CRC, path and rollback handling. Main after v0.7.9 no
-longer generates this compatibility SHA map; ordinary packages may retain
-`files` as path-to-size metadata, but it is not used for integrity
-authentication.
+ordinary HTTP/I/O, ZIP CRC, path and rollback handling. Future Windows ZIPs
+created by `tools/package_release.py` write a SHA-256 string for every payload
+under `manifest.files`, restoring the manifest shape expected by the legacy
+v0.7.0–v0.7.3 updaters. This does not restore runtime hash validation: the
+current updater consumes paths only. The v0.7.10–v0.7.20 packages were already
+published without this compatibility map and are not changed retroactively.
 
 For the v0.7.9 prerelease, the original Windows ZIP, Linux AppImage,
 and stable Linux Flatpak bundle remain available. Optional portable shader
