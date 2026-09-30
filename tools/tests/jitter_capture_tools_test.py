@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tools.capture_analysis import export_jitter_fixture, jitter_candidates, trace
+from tools.capture_analysis import export_jitter_fixture, jitter_candidates, suspect_log, trace
 
 
 DEPTH = "1111111111111111"
@@ -161,6 +161,69 @@ class JitterCaptureToolsTest(unittest.TestCase):
             with trace.load_capture(capture) as opened:
                 with self.assertRaisesRegex(ValueError, "no valid bound material PS"):
                     export_jitter_fixture.collect(opened, "frame-01-f42", [(1, MATERIAL, 7)], DEPTH, 4)
+
+
+def hex_words(values):
+    return ",".join(f"{value:08x}" for value in values)
+
+
+def suspect_lines(companion_slot=4, same=True, banks=True):
+    material, late, pixel = list(range(64)), list(range(200, 208)), list(range(300, 364))
+    world, vp = list(range(400, 416)), list(range(500, 516))
+    companion = f"companion_vs={DEPTH} companion_slot={companion_slot} companion_draw=351"
+    lines = [
+        "[   24.602 tca42] [info]  current map available=true id=243 name=Legacy of the Eastern Tribe package=ev4_0_scrw",
+        f"[   26.477 t613b] [info]  temporal suspect: kind=depth_writer_after_jittered_geometry vs={MATERIAL} "
+        f"ps={PIXEL} frame=1138 draw=1231 camera_slot=7 position_kind=1 evidence_slot=7 depth_control=0x00700766 "
+        f"zfunc=6 zwrite=true index_base=0x0b8f3c00 index_count=2484 base_vertex=0 fetch95=0x0c258003 {companion} "
+        f"same_world={str(same).lower()} same_camera={str(same).lower()}"]
+    if banks:
+        lines.append(f"[   26.477 t613b] [info]  temporal suspect banks: vs={MATERIAL} ps={PIXEL} "
+                     f"material={hex_words(material)} late={hex_words(late)} camera={hex_words(material[28:44])} "
+                     f"pixel={hex_words(pixel)} "
+                     f"companion_world={hex_words(world)} companion_vp={hex_words(vp)}")
+    return "\n".join(lines) + "\n", material, late, pixel, world + vp
+
+
+class SuspectLogTest(unittest.TestCase):
+    def test_log_lines_become_located_fixture_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "runtime.log"
+            text, material, late, pixel, depth = suspect_lines()
+            log.write_text(text)
+            rows = suspect_log.parse_log(log)
+            self.assertEqual(len(rows), 1)
+            row = rows[0]
+            self.assertEqual((row["vs"], row["ps"], row["camera_slot"], row["companion_slot"], row["position_kind"]),
+                             (MATERIAL, PIXEL, 7, 4, 1))
+            self.assertEqual(row["banks"]["camera"], material[28:44])
+            self.assertEqual(row["map"]["package"], "ev4_0_scrw")
+            self.assertEqual(row["map"]["name"], "Legacy of the Eastern Tribe")
+            fixture = suspect_log.fixture_row(row)
+            self.assertEqual((fixture["vertex"], fixture["vertex_late"], fixture["pixel"], fixture["depth"]),
+                             (material, late, pixel, depth))
+            output, header = Path(tmp) / "summary.json", Path(tmp) / "fixture.h"
+            suspect_log.main(["--log", str(log), "--output", str(output), "--fixture", str(header),
+                              "--namespace", "runtime_sky"])
+            self.assertEqual(json.loads(output.read_text())["fixture_rows"], 1)
+            self.assertIn(f"{{0x{MATERIAL}ull,0x{PIXEL}ull,0x{DEPTH}ull,7,1231,351, {{", header.read_text())
+            self.assertIn("at the first reported draw.", header.read_text())
+
+    def test_unpaired_or_unsupported_suspects_do_not_make_fixtures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "runtime.log"
+            for kwargs in ({"companion_slot": 0}, {"same": False}, {"banks": False}):
+                log.write_text(suspect_lines(**kwargs)[0])
+                self.assertIsNone(suspect_log.fixture_row(suspect_log.parse_log(log)[0]))
+            log.write_text(suspect_lines()[0].splitlines()[2] + "\n")
+            with self.assertRaisesRegex(ValueError, "without a preceding suspect line"):
+                suspect_log.parse_log(log, strict=True)
+            self.assertEqual(suspect_log.parse_log(log), [])
+            lines = suspect_lines()[0].splitlines()
+            log.write_text("\n".join([lines[0], lines[1][:120], *lines[1:]]) + "\n")
+            rows = suspect_log.parse_log(log)
+            self.assertEqual(len(rows), 1)
+            self.assertIsNotNone(suspect_log.fixture_row(rows[0]))
 
 
 if __name__ == "__main__":

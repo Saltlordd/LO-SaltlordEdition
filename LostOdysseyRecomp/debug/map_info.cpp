@@ -90,11 +90,23 @@ void debug_menu::UpdateMapInfo(uint8_t* base) {
         }
     }
 done:
-    if (getenv("LO_TRACE_MAP_INFO") && (current.available != snapshot.available ||
-        current.id != snapshot.id || current.name != snapshot.name)) {
+    // Map changes are always logged, once per resolved map and once when it is
+    // lost: they place runtime reports such as temporal suspects without a capture.
+    static bool loggedAvailable = false;
+    static uint32_t loggedId = ~0u;
+    static bool loggedNamed = false;
+    const bool changed = current.available != snapshot.available ||
+        current.id != snapshot.id || current.name != snapshot.name;
+    const bool edge = current.available != loggedAvailable ||
+        (current.available && (current.id != loggedId || (!loggedNamed && !current.name.empty())));
+    if ((changed && getenv("LO_TRACE_MAP_INFO")) || edge) {
         const auto name = std::filesystem::path(current.name).u8string();
-        LOG_INFO("current map available={} id={} name={}", current.available, current.id,
-            reinterpret_cast<const char*>(name.c_str()));
+        const auto package = std::filesystem::path(current.package).u8string();
+        LOG_INFO("current map available={} id={} name={} package={}", current.available, current.id,
+            reinterpret_cast<const char*>(name.c_str()), reinterpret_cast<const char*>(package.c_str()));
+        loggedAvailable = current.available;
+        loggedId = current.id;
+        loggedNamed = !current.name.empty();
     }
     snapshot = std::move(current);
 }

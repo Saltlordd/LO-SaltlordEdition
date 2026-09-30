@@ -89,6 +89,7 @@ bool RequestPoiTeleport(uint64_t) { return true; }
 MapInfo GetMapInfo() { return {}; }
 bool SaveAnywhereEnabled() { return g_saveAnywhere.load(); }
 void SetSaveAnywhereEnabled(bool enabled) { g_saveAnywhere = enabled; }
+void RequestPartySwitch() {}
 bool RequestVictory() { return true; }
 void CancelVictory() {}
 const wchar_t* Status() { return L""; }

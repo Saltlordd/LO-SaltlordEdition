@@ -1,8 +1,10 @@
 #include <gpu/temporal_jitter.h>
+#include <gpu/temporal_suspect.h>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <string>
 #include "map16_jitter_capture.h"
 #include "f5997_jitter_capture.h"
 #include "f5912_jitter_capture.h"
@@ -11,6 +13,7 @@
 #include "f6131_late_floor_jitter_capture.h"
 #include "f6131_e810_jitter_capture.h"
 #include "f3449_sky_jitter_capture.h"
+#include "f1800_sky_jitter_capture.h"
 #include "feedback_mapping_cases.h"
 #include "screen_batch_cases.h"
 
@@ -1439,14 +1442,17 @@ static void CapturedF6131E810ConstantSample()
     std::printf("Captured f6131 e810 constant sample: %u checks, draw746/depth178, 32 phases, 1440p/4K; old separation %.6f px\n",
         checks,oldSeparation);
 }
-// f3449 VS bda41 lines 427-444 have the same independently transcribed
-// world/clip arithmetic as TireMaterialFf9; paired depth VS b030 uses
-// TireDepthB030. Captured banks are exact; the local vertices below are
+// Captured sky material/depth pairs. f3449 VS bda41 and f1800 VS db23
+// (HLSL lines 427-444 in both) have the same independently transcribed
+// world/clip arithmetic as TireMaterialFf9; paired depth VS b030 and f7fd
+// use TireDepthB030. Captured banks are exact; the local vertices below are
 // synthetic because the F1 trace does not include the vertex buffer.
-static void CapturedF3449Sky()
+struct CapturedSkyCase { const char* label; uint64_t vs, ps, depthVs; unsigned draw, depthDraw;
+    bool motionFallback; uint64_t otherSkyPs; };
+template<class Draw>
+static void CapturedSky(const CapturedSkyCase& expected,const Draw& draw)
 {
-    using namespace issue67_sky_f3449;
-    const auto& draw=draws[0];
+    const auto message=[&](const char* text) { return std::string(expected.label)+" "+text; };
     Constants original{},originalDepth{},originalPs{};
     std::copy(draw.vertex.begin(),draw.vertex.end(),original.begin());
     std::copy(draw.vertexLate.begin(),draw.vertexLate.end(),original.begin()+254*4);
@@ -1454,16 +1460,25 @@ static void CapturedF3449Sky()
     std::copy(draw.pixel.begin(),draw.pixel.end(),originalPs.begin());
     std::array<uint32_t,16> vp{};
     std::copy_n(original.begin()+7*4,16,vp.begin());
-    Check(draw.vs==0xbda41a11626a545cull && draw.ps==0xa9e9542e2c60029aull &&
-        draw.depthVs==0xb030ab4e17a20783ull && draw.slot==7 &&
-        draw.draw==172 && draw.depthDraw==16 &&
+    Check(draw.vs==expected.vs && draw.ps==expected.ps &&
+        draw.depthVs==expected.depthVs && draw.slot==7 &&
+        draw.draw==expected.draw && draw.depthDraw==expected.depthDraw &&
         std::equal(original.begin(),original.begin()+16,originalDepth.begin()) &&
         std::equal(vp.begin(),vp.end(),originalDepth.begin()+4*4),
-        "f3449 sky and depth share captured world and scene camera");
+        message("sky and depth share captured world and scene camera").c_str());
     constexpr uint64_t unmatchedPs=0x12345678ull; // synthetic negative control
     Check(PositionVPSlot(draw.vs)==-1 && DrawPositionVPSlot(draw.vs,draw.ps)==7 &&
-        DrawPositionVPSlot(draw.vs,unmatchedPs)==-1,
-        "f3449 sky slot 7 is restricted to the reviewed VS/PS pair");
+        DrawPositionVPSlot(draw.vs,unmatchedPs)==-1 && PositionVPSlot(draw.depthVs)==4,
+        message("sky slot 7 is restricted to the reviewed VS/PS pair").c_str());
+    Check(DrawPositionVPSlot(draw.vs,expected.otherSkyPs)==-1 &&
+        !RequiresEarlierSceneAnchor(draw.vs,expected.otherSkyPs),
+        message("another reviewed sky PS does not authorize this VS").c_str());
+    Check(RequiresEarlierSceneAnchor(draw.vs,draw.ps) &&
+        !RequiresEarlierSceneAnchor(draw.vs,unmatchedPs) && !RequiresEarlierSceneAnchor(draw.depthVs,0),
+        message("sky pair never self-anchors while its depth companion still can").c_str());
+    Check(RetainsMotionFallback(draw.vs,draw.ps)==expected.motionFallback &&
+        !RetainsMotionFallback(draw.vs,unmatchedPs) && !RetainsMotionFallback(draw.depthVs,0),
+        message("sky pair keeps its reviewed object-motion policy").c_str());
     const Viewport extent{0,0,3840,2160}; // captured raster extent
     double maxPixelError=0,oldSeparation=0;
     const auto startChecks=checks;
@@ -1478,42 +1493,42 @@ static void CapturedF3449Sky()
         Check(depthResult.applied && layerResult.applied && layerResult.slot==7 &&
             layerResult.rejection==JitterRejection::None && !layerResult.shadowCompensated &&
             ps==originalPs && depthPs==originalPs,
-            "f3449 sky and depth accept one phase without changing PS constants");
+            message("sky and depth accept one phase without changing PS constants").c_str());
         for (unsigned i=0;i<layer.size();++i)
             if (i<7*4 || i>=11*4 || i%4>=2)
-                Check(layer[i]==original[i],"f3449 sky keeps non-VP and VP Z/W constants");
+                Check(layer[i]==original[i],message("sky keeps non-VP and VP Z/W constants").c_str());
         for (const auto local:{Float4{-250,-100,20,1},Float4{120,90,80,1},Float4{10,250,160,1}})
         {
             const auto reference=TireDepthB030(depth,local);
             const auto current=TireMaterialFf9(layer,local);
             const auto legacy=TireMaterialFf9(original,local);
-            Check(reference==current,"f3449 independent material clip agrees with paired depth");
+            Check(reference==current,message("independent material clip agrees with paired depth").c_str());
             Check(current[2]==legacy[2] && current[3]==legacy[3],
-                "f3449 sky jitter preserves clip Z and W");
+                message("sky jitter preserves clip Z and W").c_str());
             Check(std::isfinite(current[3]) && std::abs(current[3])>1,
-                "f3449 synthetic local vertex has a usable clip W");
+                message("synthetic local vertex has a usable clip W").c_str());
             for (unsigned axis=0;axis<2;++axis)
             {
                 const double dimension=axis?extent.height:extent.width;
                 const double pixels=(double(current[axis])/current[3]-
                     double(legacy[axis])/legacy[3])*dimension*(axis?-.5:.5);
-                const double expected=axis?layerResult.sample.pixelY:layerResult.sample.pixelX;
-                maxPixelError=std::max(maxPixelError,std::abs(pixels-expected));
+                const double expectedPixels=axis?layerResult.sample.pixelY:layerResult.sample.pixelX;
+                maxPixelError=std::max(maxPixelError,std::abs(pixels-expectedPixels));
                 oldSeparation=std::max(oldSeparation,std::abs(pixels));
-                Check(std::abs(pixels-expected)<.003,
-                    "f3449 independent clip shift matches the requested physical jitter");
+                Check(std::abs(pixels-expectedPixels)<.003,
+                    message("independent clip shift matches the requested physical jitter").c_str());
             }
         }
     }
     const SceneAnchor anchor{vp,extent,0x10000};
     const auto reject=[&](bool enabled,uint64_t psHash,const SceneAnchor* camera,
-        uint64_t depthAllocation,JitterRejection expected) {
+        uint64_t depthAllocation,JitterRejection rejection) {
         auto layer=original,ps=originalPs;
         const auto result=ApplyDrawJitter(draw.vs,psHash,9,enabled,true,camera,
             depthAllocation,extent,layer.data(),ps.data());
-        Check(!result.applied && result.rejection==expected &&
+        Check(!result.applied && result.rejection==rejection &&
             layer==original && ps==originalPs,
-            "f3449 disabled or mismatched sky draw leaves both banks unchanged");
+            message("disabled or mismatched sky draw leaves both banks unchanged").c_str());
     };
     reject(false,draw.ps,&anchor,anchor.depthAllocation,JitterRejection::Disabled);
     reject(true,unmatchedPs,&anchor,anchor.depthAllocation,JitterRejection::UnknownShader);
@@ -1521,9 +1536,110 @@ static void CapturedF3449Sky()
     otherCamera.vpBits[0]^=1;
     reject(true,draw.ps,&otherCamera,anchor.depthAllocation,JitterRejection::CameraMismatch);
     reject(true,draw.ps,&anchor,anchor.depthAllocation+1,JitterRejection::DepthMismatch);
-    Check(oldSeparation>.3,"f3449 old unjittered sky separates from paired depth");
-    std::printf("Captured f3449 sky: %u checks, draw172/depth16, 32 synthetic phases at captured 4K; old separation %.6f px, max jitter error %.6f px\n",
-        checks-startChecks,oldSeparation,maxPixelError);
+    Check(oldSeparation>.3,message("old unjittered sky separates from paired depth").c_str());
+    std::printf("Captured %s sky: %u checks, draw%u/depth%u, 32 synthetic phases at captured 4K; old separation %.6f px, max jitter error %.6f px\n",
+        expected.label,checks-startChecks,expected.draw,expected.depthDraw,oldSeparation,maxPixelError);
+}
+static void CapturedF3449Sky()
+{
+    // #67 keeps the whole-frame motion fallback of its former unknown writer.
+    CapturedSky({"f3449",0xbda41a11626a545cull,0xa9e9542e2c60029aull,0xb030ab4e17a20783ull,172,16,
+        true,0x02ee5f0608be581aull},
+        issue67_sky_f3449::draws[0]);
+}
+// Runtime suspect locator (no F1 capture): camera slot choice, same-frame
+// companion lookup, per-pair settling and the fixture-bearing log format.
+static void SuspectLocator()
+{
+    const auto startChecks=checks;
+    using namespace issue102_sky_f1800;
+    const auto& draw=draws[0];
+    Constants material{},pixel{};
+    std::copy(draw.vertex.begin(),draw.vertex.end(),material.begin());
+    std::copy(draw.vertexLate.begin(),draw.vertexLate.end(),material.begin()+254*4);
+    std::copy(draw.pixel.begin(),draw.pixel.end(),pixel.begin());
+    std::array<uint32_t,16> camera{},world{},vp{};
+    std::copy_n(material.begin()+7*4,16,camera.begin());
+    std::copy_n(draw.depth.begin(),16,world.begin());
+    std::copy_n(draw.depth.begin()+16,16,vp.begin());
+    Check(SceneCameraSlot(material.data(),camera)==7,"suspect camera slot finds the f1800 sky camera at c7");
+    auto other=camera; other[0]^=1;
+    Check(SceneCameraSlot(material.data(),other)==-1,"suspect camera slot rejects a different camera");
+    // A skinned VS whose real VP is at c233 while a stale scene camera stays at c7.
+    auto stale=material; std::copy(camera.begin(),camera.end(),stale.begin()+233*4);
+    using Action=SuspectDecision::Action;
+    const auto decide=[&](SuspectEvidence e,const Constants& c,uint64_t waited=0) {
+        return DecideSuspect(e,c.data(),camera,SceneCameraSlot(c.data(),camera),waited);
+    };
+    const auto skinned=decide({true,true,1,0,233},stale);
+    Check(skinned.action==Action::Report && skinned.cameraSlot==233 && skinned.evidenceSlot==233 &&
+        skinned.positionKind==1,"proven window is reported even when a stale camera sits earlier");
+    auto moved=stale; moved[233*4]^=1;
+    Check(decide({true,true,1,0,233},moved).action==Action::Wait,
+        "a proven window that differs on this draw waits instead of dismissing the pair");
+    Check(decide({true,true,2,0,-1},material).action==Action::Dismiss,"direct-position evidence dismisses for good");
+    const auto skyDecision=decide({true,true,1,0,7},material);
+    Check(skyDecision.action==Action::Report && skyDecision.cameraSlot==7 && skyDecision.positionKind==1,
+        "f1800 sky evidence reports slot 7");
+    Check(decide({true,false,0,0,-1},material,SuspectEvidenceFrames-1).action==Action::Wait &&
+        decide({true,false,0,0,-1},material,SuspectEvidenceFrames).action==Action::Report,
+        "missing evidence waits a bounded number of frames, then reports unproven");
+    const auto flagged=decide({true,true,1,4,7},material);
+    Check(flagged.action==Action::Report && flagged.positionKind==1 && flagged.evidenceSlot==-1,
+        "evidence with analyzer issues is treated as unproven");
+    Check(decide({false,false,0,0,-1},material).action==Action::Report,"no collection reports immediately");
+
+    SuspectTracker tracker;
+    const SuspectGeometry sky{0xb8f3c00,2484,0,0xc258003},cube{0xb8f3c00,36,0,0xc258003};
+    tracker.BeginFrame(10);
+    Check(!tracker.FindCompanion(sky),"no companion before a jittered depth writer");
+    tracker.ObserveJitteredDepth(sky,draw.depthVs,4,351,world,vp);
+    tracker.ObserveJitteredDepth(cube,0x1234,7,352,world,vp);
+    const auto* companion=tracker.FindCompanion(sky);
+    Check(companion && companion->vs==draw.depthVs && companion->slot==4 && companion->draw==351 &&
+        !tracker.FindCompanion({0xb8f3c00,2484,3,0xc258003}),"companion lookup matches exact geometry only");
+    tracker.ObserveJitteredDepth(sky,0x5678,4,400,world,vp);
+    Check(tracker.FindCompanion(sky)->draw==400,"latest jittered writer of the geometry wins");
+    tracker.BeginFrame(10);
+    Check(tracker.FindCompanion(sky)!=nullptr,"same frame keeps companions");
+    tracker.BeginFrame(11);
+    Check(!tracker.FindCompanion(sky) && !tracker.FindCompanion(cube),"a new frame retires companions");
+    for (uint32_t i=0;i<SuspectTracker::MaxCompanions+10;++i)
+        tracker.ObserveJitteredDepth({i,3,0,0},i,4,i,world,vp);
+    Check(tracker.FindCompanion({0,3,0,0}) && !tracker.FindCompanion({SuspectTracker::MaxCompanions,3,0,0}),
+        "companion table stays bounded");
+
+    Check(tracker.Waited(draw.vs,draw.ps,100)==0 && tracker.Waited(draw.vs,draw.ps,150)==50 &&
+        tracker.Waited(draw.vs,0x1111,150)==0,"evidence wait is counted per pair from its first frame");
+    Check(!tracker.Settled(draw.vs,draw.ps),"unseen pair is not settled");
+    tracker.Settle(draw.vs,draw.ps,true);
+    Check(tracker.Settled(draw.vs,draw.ps) && !tracker.Settled(draw.vs,0x1111),"settled pair is logged once");
+    for (uint64_t i=1;i<SuspectTracker::MaxReports;++i) tracker.Settle(i,i,true);
+    Check(tracker.Settled(0x9999,0x9999),"report cap stops further lines");
+
+    SuspectTracker lines;
+    lines.BeginFrame(1138);
+    lines.ObserveJitteredDepth(sky,draw.depthVs,4,351,world,vp);
+    const auto text=FormatSuspect({draw.vs,draw.ps,1138,1231,0x700766,7,1,7,sky,lines.FindCompanion(sky),
+        material.data(),pixel.data()});
+    Check(text[0].starts_with("temporal suspect: kind=depth_writer_after_jittered_geometry vs=db23a2ad4493bbb4 ps=02ee5f0608be581a ") &&
+        text[0].find(" companion_vs=f7fd88506d704a3d companion_slot=4 companion_draw=351 same_world=true same_camera=true")!=std::string::npos &&
+        text[0].find(" zfunc=6 zwrite=true index_base=0x0b8f3c00 index_count=2484 ")!=std::string::npos,
+        "suspect line names the pair, companion and depth state");
+    Check(text[1].starts_with("temporal suspect banks: vs=db23a2ad4493bbb4 ps=02ee5f0608be581a material=") &&
+        text[1].find(" late=")!=std::string::npos && text[1].find(" companion_vp=-")==std::string::npos &&
+        text[1].size()<2200,"banks line carries fixture words within a bounded size");
+    const auto alone=FormatSuspect({draw.vs,draw.ps,1,2,0x700766,7,-1,-1,sky,nullptr,material.data(),pixel.data()});
+    Check(alone[0].find("kind=depth_writer ")!=std::string::npos && alone[1].ends_with(" companion_world=- companion_vp=-"),
+        "a depth writer without companion omits companion banks");
+    std::printf("Suspect locator: %u checks, f1800 sky line %zu+%zu bytes\n",checks-startChecks,text[0].size(),text[1].size());
+}
+static void CapturedF1800Sky()
+{
+    // #102 replays object motion; the fallback aborted it every frame.
+    CapturedSky({"f1800",0xdb23a2ad4493bbb4ull,0x02ee5f0608be581aull,0xf7fd88506d704a3dull,1222,466,
+        false,0xa9e9542e2c60029aull},
+        issue102_sky_f1800::draws[0]);
 }
 static float Dot(const Float4& a,const Float4& b)
 {
@@ -1686,6 +1802,10 @@ int main(int argc,char** argv)
     { CapturedF6131E810ConstantSample(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f3449-sky")==0)
     { CapturedF3449Sky(); return 0; }
+    if (argc==2 && std::strcmp(argv[1],"--captured-f1800-sky")==0)
+    { CapturedF1800Sky(); return 0; }
+    if (argc==2 && std::strcmp(argv[1],"--suspect-tracker")==0)
+    { SuspectLocator(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f5912-layers")==0)
     { CapturedF5912Layers(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f5997-layers")==0)
@@ -1699,6 +1819,8 @@ int main(int argc,char** argv)
     CapturedF6131LateFloor();
     CapturedF6131E810ConstantSample();
     CapturedF3449Sky();
+    CapturedF1800Sky();
+    SuspectLocator();
     FeedbackMappingBatch();
     ScreenMappingBatch();
     TireMaterialCoverage();

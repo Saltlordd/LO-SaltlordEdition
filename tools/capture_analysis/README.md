@@ -66,6 +66,17 @@ The manifest requires positive integer `width`/`height`, `format` `rgba8_unorm` 
 
 The report exposes `capture_equation_fit`, `equation_scope`, RGB transmission/derived opacity and recomposition error. `capture_equation_fit` is true only when the numeric equation fits and the manifest capture is valid; a mathematically fitting invalid capture remains unqualified. Every report fixes `ui_separation` to `unavailable` and `provider_ready` to `false`. A fitting equation is evidence for this explicitly supplied replay only. It does not prove real HUDless separation, general UI alpha semantics, final-present association, provider readiness, frame generation, hardware behavior, or player acceptance. Do not infer a reusable UI whitelist from one scene, shader, draw ordinal, scissor, or image pair.
 
+## Runtime temporal suspects without a capture
+
+While TAA, FSR or DLSS jitter is active, the renderer writes two lines to the ordinary runtime log for each VS/PS pair that looks like the #67/#102 class: the VS is not in `temporal_scene.h`, it draws into the main scene depth with the scene camera in one of its VP windows, and it either writes depth or repeats the index geometry of an earlier jittered depth writer in the same frame. Position evidence for the VS is analyzed off-thread first, because constants persist across draws and a scene camera left in another window is not proof. A direct-position VS is dismissed; a VS whose proven `oPos` window differs on a draw waits for a draw where that window holds the camera; evidence that is flagged or still missing after 120 frames is reported as unproven (`position_kind` -1 or `evidence_slot` -1). At most 32 pairs are logged per run, about 2 KB each. The runtime log also records each resolved map as `current map ... package=<internal name>` and the loss of a resolved map, so the preceding map line places the pair.
+
+```sh
+python -B tools/capture_analysis/suspect_log.py --log /path/to/runtime.log --output out/local-suspects.json
+python -B tools/capture_analysis/suspect_log.py --log /path/to/runtime.log --output out/local-suspects.json --fixture out/local-suspect-fixture.h --namespace reported_scene
+```
+
+`--log` may repeat. Truncated or malformed lines are skipped with a warning unless `--strict` is given. The JSON lists every suspect with its map, depth state, camera slot, position evidence and depth companion; the banks line also carries the 16-word `camera` window for slots outside the fixture range. `--fixture` writes the compact header described below for pairs whose companion uses slot 4 with the same world and camera; the banks come from the first reported draw, so non-position constants such as animated PS values can differ from a capture of another frame. A suspect line is a lead for review, not a mapping decision: the HLSL, every PS pairing and a same-scene A/B still decide whether a pair is mapped.
+
 ## Jitter candidate triage and reviewed fixtures
 
 `trace.py` reads register deltas and shader IDs from an F1 ZIP or extracted capture. `iter_draw_states` reconstructs each draw's cumulative register state without retaining a full copy per draw. The following tools use that parser and read only capture metadata and shaders; they do not extract binary render surfaces or run the game.
