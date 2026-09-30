@@ -6171,11 +6171,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         Reg(REG_FETCH_CONSTANTS + 2), Reg(REG_FETCH_CONSTANTS + 5),
                         FindResolved((Reg(REG_FETCH_CONSTANTS + 1) >> 12) << 12,
                             Reg(REG_FETCH_CONSTANTS + 1) & 0x3f) != nullptr);
-                const bool bdaMaterialPair = key.vs == 0xbda41a11626a545cull && key.ps == 0xa9e9542e2c60029aull;
+                const bool motionFallbackPair = temporal::RetainsMotionFallback(key.vs, key.ps);
                 const int temporalSlot=temporal::DrawPositionVPSlot(key.vs, key.ps, constantScreenSample);
-                // bda also appears with a different camera. Require a scene
-                // camera observed before this draw instead of self-anchoring it.
-                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!bdaMaterialPair&&temporalViewport&&depth&&(depthControl&4)) {
+                // bda also appears with a different camera. Reviewed sky pairs
+                // require a scene camera observed before the draw instead of
+                // self-anchoring it.
+                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
+                    temporalViewport&&depth&&(depthControl&4)) {
                     temporal::SceneAnchor anchor;
                     std::copy_n(vsConstants+temporalSlot*4,16,anchor.vpBits.begin());
                     anchor.depthAllocation=depth->allocationSerial;
@@ -6226,9 +6228,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rasterViewport.width == jitterAnchor->viewport.width && rasterViewport.height == jitterAnchor->viewport.height;
                 const bool motionDepthWrite = motionScene && (depthControl & 6) == 6;
                 const float motionSlopeBias = std::bit_cast<float>(key.slopeBias);
-                // This pair was previously an unknown depth writer. Preserve
-                // its conservative motion fallback while aligning its raster.
-                const bool motionSupported = motionDepthWrite && !bdaMaterialPair && !drawTemporalTracker.Failed() && temporalSlot >= 0 && temporalSlot <= 252 && !vs->info.textureSlotMask &&
+                // A reviewed pair may preserve its previous unknown-writer motion
+                // fallback while aligning its raster.
+                const bool motionSupported = motionDepthWrite && !motionFallbackPair && !drawTemporalTracker.Failed() && temporalSlot >= 0 && temporalSlot <= 252 && !vs->info.textureSlotMask &&
                     !vs->info.usesPointSize && vs->info.errors.empty() && (!ps || (!ps->info.writesDepth && ps->info.errors.empty())) &&
                     // Replay uses the same rasterizer key, so a constant polygon offset
                     // remains self-consistent. Reject a real slope offset and NaNs.
@@ -8343,7 +8345,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         // Unknown visibility writers require a conservative whole-frame
                         // fallback; camera reprojection is not valid object motion.
                         const char* reason = !motionStreamsValid ? "invalid_streams" :
-                            bdaMaterialPair || temporalSlot < 0 || temporalSlot > 252 ? "position_slot_unavailable" :
+                            motionFallbackPair || temporalSlot < 0 || temporalSlot > 252 ? "position_slot_unavailable" :
                             vs->info.textureSlotMask ? "vertex_texture_fetch" :
                             vs->info.usesPointSize ? "point_size" : !vs->info.errors.empty() ? "vertex_translation" :
                             ps && ps->info.writesDepth ? "pixel_depth_write" :

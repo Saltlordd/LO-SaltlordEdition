@@ -9,10 +9,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 ### English
 
 - Added a Force RB Party Switch button next to Save Anywhere in the F1 debug menu (#74). A save made with Save Anywhere during a split-party section loses RB character switching after loading, because the event script keeps that permission in memory only. The button turns it back on: with the reporter's save in Astral Square, the Change Character prompt returned and RB switched between the two groups in both directions. It only has an effect in areas whose script offers party switching. Save Anywhere now also stays off while the party is split, so the System menu's Save follows the game's own rule there and new saves can no longer lose switching.
+- Fixed the sky flickering with TAA and FSR in the disc 4 Legacy of the Eastern Tribe area (#102). The sky's depth pass was jittered but its colour pass was not, so on some jitter phases the whole sky failed the depth test and showed a dark fallback. The colour pass now gets the same jitter. Its draw also no longer disables object motion vectors for the whole frame in this area, a likely cause of the reported smearing on the rest of the image. With the reporter's save on D3D12 at 3840x2160, the dark sky appeared in 41 of 134 screenshots with TAA and 38 of 102 with FSR 3.1 Quality before the fix, and in none of 98 and 90 after it. Reporter confirmation is pending.
 
 ### 简体中文
 
 - F1 调试菜单在随时存档旁新增“强制开启 RB 换人”按钮（#74）。分队探索期间用随时存档保存后，读档会失去 RB 换人，因为事件脚本只在内存里保留这项权限。该按钮会重新打开它：用报告者在 Astral Square 的存档测试，"Change Character" 提示恢复，按 RB 能在两组之间来回切换。它只在脚本提供换人的区域生效。随时存档在分队期间也不再生效，System 菜单的 Save 按原作规则处理，新存档不会再丢失换人。
+- 修复第四张光盘“东方部族的遗产”区域开启 TAA 或 FSR 时天空闪烁的问题（#102）。天空的深度预通道加了 jitter，颜色通道却没有加，部分 jitter 相位下整片天空无法通过深度测试，只剩暗色底色。现在颜色通道使用相同的 jitter。该 draw 也不再让这一区域整帧的物体运动向量失效，这很可能是报告中其余画面拖影的原因。用报告者存档在 D3D12、3840x2160 下测试：修复前 TAA 的 134 张截图中有 41 张天空变暗，FSR 3.1 Quality 的 102 张中有 38 张；修复后分别为 98 张和 90 张中 0 张。报告者复测待完成。
 
 ## [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) — 2026-09-30
 
