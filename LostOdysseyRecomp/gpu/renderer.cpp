@@ -340,12 +340,13 @@ namespace gpu::renderer
             uint32_t ScaleX(uint32_t value) const { return resolution::ScaleX(value, resolutionSize.width); }
             uint32_t ScaleY(uint32_t value) const { return resolution::Scale(value, resolutionSize.height); }
             uint32_t depthMsaa = 0;
-            // Guest-memory footprint and a sampled hash of it, so a texture the
-            // title streams in after we first uploaded it is noticed and re-read.
+            // Guest-memory footprint with sampled and full hashes of it, so a
+            // texture the title streams in after we first uploaded it is re-read.
             uint32_t guestAddress = 0, guestBytes = 0;
             uint32_t mipAddress = 0, mipBytes = 0; // stored mip chain, if uploaded
-            uint64_t guestHash = 0;
+            uint64_t guestHash = 0, guestFullHash = 0;
             uint64_t checkedFrame = ~0ull;
+            uint64_t nextFullScanFrame = 0;
             // The source remains BC3. Only a verified controller atlas owns an
             // optional, single-mip RGBA PlayStation child; retirement of the
             // source also retires its child after the GPU fence.
@@ -5211,8 +5212,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         return SelectControllerAtlas(cached, bindingInfo, bindingEpoch);
                     }
                     cached->checkedFrame = frame;
-                    const uint64_t now = GuestHash(*cached);
-                    if (now == cached->guestHash) {
+                    bool changed = SampledGuestHash(*cached) != cached->guestHash;
+                    if (!changed && frame >= cached->nextFullScanFrame) {
+                        cached->nextFullScanFrame = frame + texture_cache::kFullScanInterval;
+                        changed = FullGuestHash(*cached) != cached->guestFullHash;
+                    }
+                    if (!changed) {
                         return SelectControllerAtlas(cached, bindingInfo, bindingEpoch);
                     }
                     textureReuploads++;
@@ -5372,7 +5377,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     tex->mipAddress = mipAddress;
                     tex->mipBytes = std::max(tex->mipBytes, uint32_t(mipBytes));
                 }
-                tex->guestHash = GuestHash(*tex);
+                tex->guestHash = SampledGuestHash(*tex);
+                tex->guestFullHash = FullGuestHash(*tex);
+                tex->nextFullScanFrame = texture_cache::FirstFullScanFrame(frame, tex->guestAddress);
                 if (dimension == 3)
                     tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, fi.host, RenderTextureFlag::CUBE));
                 else
@@ -5589,9 +5596,16 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return desc;
             }
 
-            // Revalidate every byte of both stored extents once per active frame.
-            // Sampling cannot detect streaming writes outside sampled windows.
-            uint64_t GuestHash(const HostTexture& tex) const
+            // Streamed mips are re-read with their base, so hash both ranges.
+            // The sampled hash runs every active frame; the full one covers
+            // writes outside the sampled windows on the staggered schedule.
+            uint64_t SampledGuestHash(const HostTexture& tex) const
+            {
+                return texture_cache::SampledGuestContentHash(Phys(tex.guestAddress), tex.guestBytes,
+                    tex.mipBytes ? Phys(tex.mipAddress) : nullptr, tex.mipBytes);
+            }
+
+            uint64_t FullGuestHash(const HostTexture& tex) const
             {
                 return texture_cache::GuestContentHash(Phys(tex.guestAddress), tex.guestBytes,
                     tex.mipBytes ? Phys(tex.mipAddress) : nullptr, tex.mipBytes);
