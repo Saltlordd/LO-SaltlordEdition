@@ -30,4 +30,6 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 
 2026-09-14 精简核验：针对固定 HEAD `d890ac899e505fb30040e037a4037cdeca68f033`，Plume 补丁由 78,500 行／3,398,001 字节缩减为 1,849 行／92,265 字节，保留 6 个真实改动文件（含新增 `plume_log.h`），并消除 3 个同 SHA 的 `-dirty` gitlink 伪差异。正向 `apply --cached --check` 通过，应用后 tree 与旧补丁应用 tree 一致（133 个普通文件规范化内容及 gitlink 均核对）；当前 Plume 工作树 `reverse --check` 通过。未改动源码，未进行构建或游戏运行验证；该补丁尚未发布。
 
+2026-09-29 D3D12 冗余状态过滤：D3D12 命令列表在管线与已绑定的相同时跳过 `SetPipelineState`，单个 viewport 或 scissor 与已绑定值逐位相同时跳过 `RSSetViewports`、`RSSetScissorRects`，再次绑定同一个 framebuffer 对象（按每个对象的创建序号识别）时跳过 `OMSetRenderTargets`；`invalidateCachedNativeState()` 会清除这些记录，命令列表开始录制以及 DLSS、插帧、FSR 和 `video.cpp` 的原生路径都已调用它。新补丁在固定 HEAD `d890ac8` 的临时干净 worktree 上依次应用原补丁和该过滤后生成，另一个干净 worktree 应用新补丁后的 index tree 与之相同，只有 `plume_d3d12.cpp`、`plume_d3d12.h` 两段变化。Vulkan 不受影响。
+
 2026-09-27 Issue #70 状态缓存改动：Plume 的 D3D12 graphics/compute root signature 与 root descriptor table 去重，以及 descriptor heap、原生 root signature 变化、native `Reset`/`Close` 和外部状态失效路径已同步到本项目补丁。runtime、NGX/FSR D3D12 fixture、AF measurement fixture 和 root binding fixture 验证通过；独立临时 index 从固定干净 Plume 基线应用补丁并与本地依赖修改一致。未进行补丁发布或目标游戏性能验收。
