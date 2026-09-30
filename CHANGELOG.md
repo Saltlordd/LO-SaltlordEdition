@@ -11,12 +11,14 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Capped frame generation multiplier requests at 6×, the most DLSS multi-frame generation supports. The Graphics menu offers 2× to 6×, `settings.ini` values above 6 fall back to 2×, and `LO_FG_MULTIPLIER` accepts 2 to 6. Each request is still limited to what the GPU and driver report.
 - Keep Windows native messages pumping during GPU shutdown to prevent a DXGI quit-to-desktop deadlock (#82). The hang reproduced locally in D3D12 exclusive fullscreen with DLSS frame generation, and the fixed build quit in about 2 seconds. Reporter confirmation is pending.
 - Reduced command-processor CPU overhead on the default render path. `WAIT_REG_MEM` polls wake as soon as an interrupt callback finishes instead of sleeping through the poll interval, constant and fetch register runs are copied in bulk, debug environment variables are read once, and a texture-set cache miss rewrites only the bindings that can change. In the Uhra plaza at 3840x2160 on D3D12 with a 120 FPS target, the frame rate rose from about 98 to about 119 FPS, which is the cap, and command-processor CPU time fell from about 8.6 to about 5.9 ms per frame. With the frame cap removed through the `LO_FPS=0` diagnostic override, the same scene ran at about 142 FPS, compared with about 96 FPS on main.
+- Skipped redundant D3D12 state changes. The renderer no longer re-sends an identical pipeline, a single identical viewport or scissor, or the same render targets to the driver. In the Uhra plaza at 3840x2160 without a frame cap, the frame rate rose from about 156 to about 159 FPS.
 
 ### 简体中文
 
 - 插帧倍率上限改为 6×，即 DLSS 多帧生成支持的最大值。图形菜单只提供 2× 到 6×，`settings.ini` 中大于 6 的值回退为 2×，`LO_FG_MULTIPLIER` 只接受 2 到 6。每次请求仍受显卡和驱动报告的上限限制。
 - 退出期间继续处理Windows窗口消息，修复DXGI清理时可能出现的退出桌面死锁（#82）。本机在D3D12独占全屏并开启DLSS插帧时复现了卡死，修复后约2秒正常退出；报告者复测待完成。
 - 降低默认渲染路径中命令处理器的 CPU 开销：`WAIT_REG_MEM` 轮询在中断回调完成后立即唤醒，不再睡满整个轮询间隔；常量和 fetch 寄存器的连续写入改为批量复制；调试环境变量只读取一次；纹理描述符集缓存未命中时只重写可能变化的绑定。在 D3D12、3840x2160、120 FPS 目标下的 Uhra 广场，帧率从约 98 FPS 提升到约 119 FPS（已到上限），命令处理器 CPU 时间从约 8.6 降到约 5.9 ms/帧。用 `LO_FPS=0` 诊断开关取消帧率上限后，同一场景约 142 FPS，main 约 96 FPS。
+- 跳过重复的 D3D12 状态设置：管线、单个视口或裁剪框与当前绑定完全相同，或再次绑定同一组渲染目标时，不再重复提交给驱动。在 3840x2160、不限帧的 Uhra 广场，帧率从约 156 FPS 提升到约 159 FPS。
 
 ## [v0.7.15 — 2026-09-29](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15)
 

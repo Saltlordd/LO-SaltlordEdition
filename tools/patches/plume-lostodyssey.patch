@@ -1,16 +1,19 @@
 diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
-index 2cdcf18..0a2805e 100644
+index 2cdcf18..92a6330 100644
 --- a/plume_d3d12.cpp
 +++ b/plume_d3d12.cpp
-@@ -6,6 +6,7 @@
+@@ -6,7 +6,10 @@
  //
  
  #include "plume_d3d12.h"
 +#include "plume_log.h"
  
++#include <atomic>
++#include <cstring>
  #include <unordered_set>
  
-@@ -795,7 +796,7 @@ namespace plume {
+ #include <dxgi1_5.h>
+@@ -795,7 +798,7 @@ namespace plume {
  
          HRESULT res = device->d3d->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&heap));
          if (FAILED(res)) {
@@ -19,7 +22,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
          
-@@ -937,7 +938,7 @@ namespace plume {
+@@ -937,7 +940,7 @@ namespace plume {
          if (viewDescriptorCount > 0) {
              viewAllocation.offset = device->viewHeapAllocator->allocate(viewDescriptorCount);
              if (viewAllocation.offset == D3D12DescriptorHeapAllocator::INVALID_OFFSET) {
@@ -28,7 +31,7 @@ index 2cdcf18..0a2805e 100644
                  return;
              }
  
-@@ -947,7 +948,7 @@ namespace plume {
+@@ -947,7 +950,7 @@ namespace plume {
          if (samplerDescriptorCount > 0) {
              samplerAllocation.offset = device->samplerHeapAllocator->allocate(samplerDescriptorCount);
              if (samplerAllocation.offset == D3D12DescriptorHeapAllocator::INVALID_OFFSET) {
@@ -37,7 +40,7 @@ index 2cdcf18..0a2805e 100644
                  return;
              }
  
-@@ -1342,21 +1343,30 @@ namespace plume {
+@@ -1342,21 +1345,30 @@ namespace plume {
          swapChainDesc.SampleDesc.Count = 1;
          swapChainDesc.Flags = swapChainFlags;
  
@@ -72,10 +75,10 @@ index 2cdcf18..0a2805e 100644
 +        }
          d3d->SetMaximumFrameLatency(desc.maxFrameLatency);
          waitableObject = d3d->GetFrameLatencyWaitableObject();
-
-@@ -1376,10 +1386,10 @@ namespace plume {
+ 
+@@ -1376,10 +1388,10 @@ namespace plume {
      }
-
+ 
      D3D12SwapChain::~D3D12SwapChain() {
 -        for (uint32_t i = 0; i < desc.textureCount; i++) {
 -            if (textures[i].d3d != nullptr) {
@@ -87,8 +90,8 @@ index 2cdcf18..0a2805e 100644
 +                texture.d3d = nullptr;
              }
          }
-
-@@ -1392,7 +1402,12 @@ namespace plume {
+ 
+@@ -1392,7 +1404,12 @@ namespace plume {
          // If using present wait, we prefer using a SyncInterval of 0 even when Vsync is enabled. Tearing won't happen if DXGI_PRESENT_ALLOW_TEARING is not specified.
          const bool tearingAllowed = (swapChainFlags & DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING) != 0U;
          UINT syncInterval = (vsyncEnabled && !desc.enablePresentWait) ? 1 : 0;
@@ -102,7 +105,7 @@ index 2cdcf18..0a2805e 100644
          HRESULT res = d3d->Present(syncInterval, flags);
          return SUCCEEDED(res);
      }
-@@ -1406,21 +1416,27 @@ namespace plume {
+@@ -1406,21 +1423,27 @@ namespace plume {
      }
  
      bool D3D12SwapChain::resize() {
@@ -135,7 +138,7 @@ index 2cdcf18..0a2805e 100644
              return false;
          }
  
-@@ -1451,10 +1467,7 @@ namespace plume {
+@@ -1451,10 +1474,7 @@ namespace plume {
      }
  
      void D3D12SwapChain::getWindowSize(uint32_t &dstWidth, uint32_t &dstHeight) const {
@@ -147,7 +150,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      void D3D12SwapChain::setTextures() {
-@@ -1463,6 +1476,13 @@ namespace plume {
+@@ -1463,6 +1483,13 @@ namespace plume {
          for (uint32_t i = 0; i < desc.textureCount; i++) {
              d3d->GetBuffer(i, IID_PPV_ARGS(&textures[i].d3d));
  
@@ -161,7 +164,17 @@ index 2cdcf18..0a2805e 100644
              textures[i].desc.width = width;
              textures[i].desc.height = height;
              textures[i].resourceStates = D3D12_RESOURCE_STATE_PRESENT;
-@@ -1545,7 +1565,7 @@ namespace plume {
+@@ -1501,7 +1528,9 @@ namespace plume {
+     D3D12Framebuffer::D3D12Framebuffer(D3D12Device *device, const RenderFramebufferDesc &desc) {
+         assert(device != nullptr);
+ 
++        static std::atomic<uint64_t> nextSerial{ 1 };
+         this->device = device;
++        this->serial = nextSerial.fetch_add(1, std::memory_order_relaxed);
+         
+         if (desc.colorAttachmentsCount > 0) {
+             for (uint32_t i = 0; i < desc.colorAttachmentsCount; i++) {
+@@ -1545,7 +1574,7 @@ namespace plume {
      void D3D12Framebuffer::createRenderTargetHeap(const D3D12Texture* texture, const D3D12TextureView* textureView) {
          const uint32_t targetAllocatorOffset = device->colorTargetHeapAllocator->allocate(1);
          if (targetAllocatorOffset == D3D12DescriptorHeapAllocator::INVALID_OFFSET) {
@@ -170,7 +183,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -1660,7 +1680,7 @@ namespace plume {
+@@ -1660,7 +1689,7 @@ namespace plume {
      void D3D12Framebuffer::createDepthStencilHeap(const D3D12Texture* texture, const D3D12TextureView* textureView, const bool readOnly) {
          const uint32_t targetAllocatorOffset = device->depthTargetHeapAllocator->allocate(1);
          if (targetAllocatorOffset == D3D12DescriptorHeapAllocator::INVALID_OFFSET) {
@@ -179,7 +192,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -1787,7 +1807,7 @@ namespace plume {
+@@ -1787,7 +1816,7 @@ namespace plume {
  
          HRESULT res = device->d3d->CreateQueryHeap(&queryHeapDesc, IID_PPV_ARGS(&d3d));
          if (FAILED(res)) {
@@ -188,7 +201,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -1844,13 +1864,13 @@ namespace plume {
+@@ -1844,13 +1873,13 @@ namespace plume {
  
          HRESULT res = queue->device->d3d->CreateCommandAllocator(commandListType, IID_PPV_ARGS(&commandAllocator));
          if (FAILED(res)) {
@@ -204,7 +217,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -1878,6 +1898,8 @@ namespace plume {
+@@ -1878,6 +1907,8 @@ namespace plume {
      void D3D12CommandList::begin() {
          assert(!open);
  
@@ -213,7 +226,7 @@ index 2cdcf18..0a2805e 100644
          commandAllocator->Reset();
          d3d->Reset(commandAllocator, nullptr);
          open = true;
-@@ -1891,14 +1913,7 @@ namespace plume {
+@@ -1891,14 +1922,7 @@ namespace plume {
  
          d3d->Close();
          open = false;
@@ -229,7 +242,45 @@ index 2cdcf18..0a2805e 100644
      }
      
      void D3D12CommandList::barriers(RenderBarrierStages stages, const RenderBufferBarrier *bufferBarriers, uint32_t bufferBarriersCount, const RenderTextureBarrier *textureBarriers, uint32_t textureBarriersCount) {
-@@ -2065,7 +2080,15 @@ namespace plume {
+@@ -2037,15 +2061,27 @@ namespace plume {
+         assert(pipeline != nullptr);
+ 
+         const D3D12Pipeline *interfacePipeline = static_cast<const D3D12Pipeline *>(pipeline);
++        // Compute and graphics pipelines share one PSO slot; re-setting the PSO
++        // it already holds is redundant. A null PSO is always forwarded.
++        auto setPipelineState = [&](ID3D12PipelineState *state) {
++            if (captureRootBindingStats) stateBindingStats.pipelines.requests++;
++            if (state != nullptr && state == activePipelineState) {
++                if (captureRootBindingStats) stateBindingStats.pipelines.skipped++;
++                return;
++            }
++            d3d->SetPipelineState(state);
++            activePipelineState = state;
++            if (captureRootBindingStats) stateBindingStats.pipelines.nativeCalls++;
++        };
+         switch (interfacePipeline->type) {
+         case D3D12Pipeline::Type::Compute: {
+             const D3D12ComputePipeline *computePipeline = static_cast<const D3D12ComputePipeline *>(interfacePipeline);
+-            d3d->SetPipelineState(computePipeline->d3d);
++            setPipelineState(computePipeline->d3d);
+             break;
+         }
+         case D3D12Pipeline::Type::Graphics: {
+             const D3D12GraphicsPipeline *graphicsPipeline = static_cast<const D3D12GraphicsPipeline *>(interfacePipeline);
+-            d3d->SetPipelineState(graphicsPipeline->d3d);
++            setPipelineState(graphicsPipeline->d3d);
+             activeGraphicsPipeline = graphicsPipeline;
+             break;
+         }
+@@ -2053,6 +2089,7 @@ namespace plume {
+             assert(d3dV4 != nullptr);
+             const D3D12RaytracingPipeline *raytracingPipeline = static_cast<const D3D12RaytracingPipeline *>(interfacePipeline);
+             d3dV4->SetPipelineState1(raytracingPipeline->stateObject);
++            activePipelineState = nullptr;
+             break;
+         }
+         default:
+@@ -2065,7 +2102,15 @@ namespace plume {
          assert(pipelineLayout != nullptr);
  
          const D3D12PipelineLayout *interfacePipelineLayout = static_cast<const D3D12PipelineLayout *>(pipelineLayout);
@@ -246,7 +297,7 @@ index 2cdcf18..0a2805e 100644
          activeComputePipelineLayout = interfacePipelineLayout;
      }
  
-@@ -2091,7 +2114,15 @@ namespace plume {
+@@ -2091,7 +2136,15 @@ namespace plume {
          assert(pipelineLayout != nullptr);
  
          const D3D12PipelineLayout *interfacePipelineLayout = static_cast<const D3D12PipelineLayout *>(pipelineLayout);
@@ -263,7 +314,87 @@ index 2cdcf18..0a2805e 100644
          activeGraphicsPipelineLayout = interfacePipelineLayout;
      }
  
-@@ -2287,7 +2318,19 @@ namespace plume {
+@@ -2185,11 +2238,22 @@ namespace plume {
+             if (!viewportVector.empty()) {
+                 d3d->RSSetViewports(UINT(viewportVector.size()), viewportVector.data());
+             }
++
++            activeViewportValid = false;
+         }
+         else {
+-            // Single element fast path.
++            // Single element fast path. Bitwise-identical to the bound viewport is a no-op.
+             D3D12_VIEWPORT viewport = D3D12_VIEWPORT{ viewports[0].x, viewports[0].y, viewports[0].width, viewports[0].height, viewports[0].minDepth, viewports[0].maxDepth };
++            if (captureRootBindingStats) stateBindingStats.viewports.requests++;
++            if (activeViewportValid && (memcmp(&viewport, &activeViewport, sizeof(viewport)) == 0)) {
++                if (captureRootBindingStats) stateBindingStats.viewports.skipped++;
++                return;
++            }
++
+             d3d->RSSetViewports(1, &viewport);
++            activeViewport = viewport;
++            activeViewportValid = true;
++            if (captureRootBindingStats) stateBindingStats.viewports.nativeCalls++;
+         }
+     }
+ 
+@@ -2204,11 +2268,22 @@ namespace plume {
+             if (!rectVector.empty()) {
+                 d3d->RSSetScissorRects(UINT(rectVector.size()), rectVector.data());
+             }
++
++            activeScissorValid = false;
+         }
+         else {
+-            // Single element fast path.
++            // Single element fast path. Identical to the bound scissor is a no-op.
+             D3D12_RECT scissor = D3D12_RECT{ scissorRects[0].left, scissorRects[0].top, scissorRects[0].right, scissorRects[0].bottom };
++            if (captureRootBindingStats) stateBindingStats.scissors.requests++;
++            if (activeScissorValid && (memcmp(&scissor, &activeScissor, sizeof(scissor)) == 0)) {
++                if (captureRootBindingStats) stateBindingStats.scissors.skipped++;
++                return;
++            }
++
+             d3d->RSSetScissorRects(1, &scissor);
++            activeScissor = scissor;
++            activeScissorValid = true;
++            if (captureRootBindingStats) stateBindingStats.scissors.nativeCalls++;
+         }
+     }
+     
+@@ -2225,15 +2300,28 @@ namespace plume {
+                 assert((depthReadLayout || depthWriteLayout) && "Depth target must be in depth read or write layout when setting the framebuffer.");
+             }
+ 
+-            const D3D12_CPU_DESCRIPTOR_HANDLE *colorDescriptors = !interfaceFramebuffer->colorHandles.empty() ? interfaceFramebuffer->colorHandles.data() : nullptr;
+-            const D3D12_CPU_DESCRIPTOR_HANDLE *depthDescriptor = (interfaceFramebuffer->depthHandle.ptr != 0) ? &interfaceFramebuffer->depthHandle : nullptr;
+-            d3d->OMSetRenderTargets(UINT(interfaceFramebuffer->colorHandles.size()), colorDescriptors, false, depthDescriptor);
++            // A framebuffer's descriptors are written once at creation, so rebinding
++            // the same framebuffer object only repeats the bound render targets.
++            if (captureRootBindingStats) stateBindingStats.renderTargets.requests++;
++            if (activeRenderTargetsValid && (activeRenderTargetsSerial == interfaceFramebuffer->serial)) {
++                if (captureRootBindingStats) stateBindingStats.renderTargets.skipped++;
++            }
++            else {
++                const D3D12_CPU_DESCRIPTOR_HANDLE *colorDescriptors = !interfaceFramebuffer->colorHandles.empty() ? interfaceFramebuffer->colorHandles.data() : nullptr;
++                const D3D12_CPU_DESCRIPTOR_HANDLE *depthDescriptor = (interfaceFramebuffer->depthHandle.ptr != 0) ? &interfaceFramebuffer->depthHandle : nullptr;
++                d3d->OMSetRenderTargets(UINT(interfaceFramebuffer->colorHandles.size()), colorDescriptors, false, depthDescriptor);
++                activeRenderTargetsSerial = interfaceFramebuffer->serial;
++                activeRenderTargetsValid = true;
++                if (captureRootBindingStats) stateBindingStats.renderTargets.nativeCalls++;
++            }
++
+             targetFramebuffer = interfaceFramebuffer;
+             targetFramebufferSamplePositionsSet = false;
+         }
+         else {
+             d3d->OMSetRenderTargets(0, nullptr, false, nullptr);
+             targetFramebuffer = nullptr;
++            activeRenderTargetsValid = false;
+         }
+     }
+ 
+@@ -2287,7 +2375,19 @@ namespace plume {
          if (clearStencil) {
              clearFlags |= D3D12_CLEAR_FLAG_STENCIL;
          }
@@ -284,7 +415,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      void D3D12CommandList::copyBufferRegion(RenderBufferReference dstBuffer, RenderBufferReference srcBuffer, uint64_t size) {
-@@ -2312,9 +2355,14 @@ namespace plume {
+@@ -2312,9 +2412,14 @@ namespace plume {
  
          const D3D12_TEXTURE_COPY_LOCATION copyDstLocation = toD3D12(dstLocation);
          const D3D12_TEXTURE_COPY_LOCATION copySrcLocation = toD3D12(srcLocation);
@@ -301,7 +432,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      void D3D12CommandList::copyBuffer(const RenderBuffer *dstBuffer, const RenderBuffer *srcBuffer) {
-@@ -2441,11 +2489,43 @@ namespace plume {
+@@ -2441,11 +2546,52 @@ namespace plume {
              ID3D12DescriptorHeap *descriptorHeaps[] = { queue->device->viewHeapAllocator->heap, queue->device->samplerHeapAllocator->heap };
              d3d->SetDescriptorHeaps(std::size(descriptorHeaps), descriptorHeaps);
              descriptorHeapsSet = true;
@@ -333,6 +464,10 @@ index 2cdcf18..0a2805e 100644
 +        activeStencilRef = UINT32_MAX;
 +        activeSamplePositions = false;
 +        descriptorHeapsSet = false;
++        activePipelineState = nullptr;
++        activeViewportValid = false;
++        activeScissorValid = false;
++        activeRenderTargetsValid = false;
 +        invalidateRootTables();
 +    }
 +
@@ -340,12 +475,17 @@ index 2cdcf18..0a2805e 100644
 +        return rootBindingStats;
 +    }
 +
++    D3D12CommandList::StateBindingStats D3D12CommandList::getStateBindingStats() const {
++        return stateBindingStats;
++    }
++
 +    void D3D12CommandList::resetRootBindingStats() {
 +        rootBindingStats = {};
++        stateBindingStats = {};
      }
  
      void D3D12CommandList::checkTopology() {
-@@ -2529,13 +2609,26 @@ namespace plume {
+@@ -2529,13 +2675,26 @@ namespace plume {
              return;
          }
  
@@ -372,7 +512,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      void D3D12CommandList::setRootDescriptor(const D3D12PipelineLayout* activePipelineLayout, RenderBufferReference bufferReference, uint32_t rootDescriptorIndex, bool setCompute) {
-@@ -2587,11 +2680,15 @@ namespace plume {
+@@ -2587,11 +2746,15 @@ namespace plume {
  
          HRESULT res = device->d3d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3d));
          if (FAILED(res)) {
@@ -389,7 +529,7 @@ index 2cdcf18..0a2805e 100644
          fenceValue = 1;
      }
  
-@@ -2614,7 +2711,7 @@ namespace plume {
+@@ -2614,7 +2777,7 @@ namespace plume {
  
          HRESULT res = device->d3d->CreateFence(1, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3d));
          if (FAILED(res)) {
@@ -398,7 +538,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -2655,9 +2752,12 @@ namespace plume {
+@@ -2655,9 +2818,12 @@ namespace plume {
              return;
          }
  
@@ -413,10 +553,10 @@ index 2cdcf18..0a2805e 100644
              return;
          }
      }
-@@ -2668,12 +2768,23 @@ namespace plume {
+@@ -2668,12 +2834,23 @@ namespace plume {
          }
      }
-
+ 
 +    bool D3D12CommandQueue::recreateNativeQueue() {
 +        D3D12CommandQueue replacement(device, type);
 +        if (!replacement.d3d) return false;
@@ -439,7 +579,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      void D3D12CommandQueue::executeCommandLists(const RenderCommandList **commandLists, uint32_t commandListCount, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount, RenderCommandSemaphore **signalSemaphores, uint32_t signalSemaphoreCount, RenderCommandFence *signalFence) {
-@@ -2762,7 +2873,10 @@ namespace plume {
+@@ -2762,7 +2939,10 @@ namespace plume {
  
          HRESULT res = device->allocator->CreateResource(&allocationDesc, &resourceDesc, resourceStates, nullptr, &allocation, IID_PPV_ARGS(&d3d));
          if (FAILED(res)) {
@@ -451,7 +591,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
      }
-@@ -2782,7 +2896,15 @@ namespace plume {
+@@ -2782,7 +2962,15 @@ namespace plume {
          }
  
          void *outputData = nullptr;
@@ -468,7 +608,7 @@ index 2cdcf18..0a2805e 100644
          return outputData;
      }
  
-@@ -2878,7 +3000,11 @@ namespace plume {
+@@ -2878,7 +3066,11 @@ namespace plume {
  
          HRESULT res = device->allocator->CreateResource(&allocationDesc, &resourceDesc, resourceStates, (desc.optimizedClearValue != nullptr) ? &optimizedClearValue : nullptr, &allocation, IID_PPV_ARGS(&d3d));
          if (FAILED(res)) {
@@ -481,7 +621,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
      }
-@@ -2941,7 +3067,7 @@ namespace plume {
+@@ -2941,7 +3133,7 @@ namespace plume {
  
          HRESULT res = device->allocator->CreatePool(&poolDesc, &d3d);
          if (FAILED(res)) {
@@ -490,7 +630,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
      }
-@@ -2957,7 +3083,9 @@ namespace plume {
+@@ -2957,7 +3149,9 @@ namespace plume {
      }
  
      std::unique_ptr<RenderTexture> D3D12Pool::createTexture(const RenderTextureDesc &desc) {
@@ -501,7 +641,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      // D3D12Shader
-@@ -3054,7 +3182,11 @@ namespace plume {
+@@ -3054,7 +3248,11 @@ namespace plume {
          psoDesc.pRootSignature = rootSignature->rootSignature;
          psoDesc.CS.pShaderBytecode = computeShader->d3d.data();
          psoDesc.CS.BytecodeLength = computeShader->d3d.size();
@@ -514,7 +654,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      D3D12ComputePipeline::~D3D12ComputePipeline() {
-@@ -3075,6 +3207,7 @@ namespace plume {
+@@ -3075,6 +3273,7 @@ namespace plume {
      // D3D12GraphicsPipeline
  
      D3D12GraphicsPipeline::D3D12GraphicsPipeline(D3D12Device *device, const RenderGraphicsPipelineDesc &desc) : D3D12Pipeline(device, Type::Graphics) {
@@ -522,7 +662,7 @@ index 2cdcf18..0a2805e 100644
          assert(desc.pipelineLayout != nullptr);
  
          topology = toD3D12(desc.primitiveTopology);
-@@ -3199,7 +3332,14 @@ namespace plume {
+@@ -3199,7 +3398,14 @@ namespace plume {
  
          psoDesc.InputLayout = { inputElements.data(), UINT(inputElements.size()) };
  
@@ -538,7 +678,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      D3D12GraphicsPipeline::~D3D12GraphicsPipeline() {
-@@ -3393,21 +3533,21 @@ namespace plume {
+@@ -3393,21 +3599,21 @@ namespace plume {
              const D3D12RaytracingPipeline *previousRaytracingPipeline = static_cast<const D3D12RaytracingPipeline *>(previousPipeline);
              HRESULT res = device->d3d->AddToStateObject(&pipelineDesc, previousRaytracingPipeline->stateObject, IID_PPV_ARGS(&stateObject));
              if (FAILED(res)) {
@@ -563,7 +703,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -3621,13 +3761,14 @@ namespace plume {
+@@ -3621,13 +3827,14 @@ namespace plume {
          ID3DBlob *errorBlob;
          HRESULT res = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_0, &signatureBlob, &errorBlob);
          if (FAILED(res)) {
@@ -580,7 +720,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
      }
-@@ -3673,18 +3814,16 @@ namespace plume {
+@@ -3673,18 +3880,16 @@ namespace plume {
              const D3D_SHADER_MODEL supportedShaderModels[] = { D3D_SHADER_MODEL_6_0 };
  #       endif
              D3D12_FEATURE_DATA_SHADER_MODEL dataShaderModel = {};
@@ -606,7 +746,7 @@ index 2cdcf18..0a2805e 100644
              }
  
              // Determine if the device supports sample locations.
-@@ -3754,6 +3893,7 @@ namespace plume {
+@@ -3754,6 +3959,7 @@ namespace plume {
                  adapter = adapterOption;
                  d3d = deviceOption;
                  shaderModel = dataShaderModel.HighestShaderModel;
@@ -614,7 +754,7 @@ index 2cdcf18..0a2805e 100644
                  capabilities.geometryShader = true;
                  capabilities.raytracing = rtSupportOption;
                  capabilities.raytracingStateUpdate = rtStateUpdateSupportOption;
-@@ -3790,7 +3930,7 @@ namespace plume {
+@@ -3790,7 +3996,7 @@ namespace plume {
          }
  
          if (d3d == nullptr) {
@@ -623,7 +763,7 @@ index 2cdcf18..0a2805e 100644
              return;
          }
  
-@@ -3806,7 +3946,7 @@ namespace plume {
+@@ -3806,7 +4012,7 @@ namespace plume {
  
          res = D3D12MA::CreateAllocator(&allocatorDesc, &allocator);
          if (FAILED(res)) {
@@ -632,7 +772,7 @@ index 2cdcf18..0a2805e 100644
              release();
              return;
          }
-@@ -3881,7 +4021,7 @@ namespace plume {
+@@ -3881,7 +4087,7 @@ namespace plume {
          std::unique_ptr<D3D12CommandQueue> timestampCommandQueue = std::make_unique<D3D12CommandQueue>(this, RenderCommandListType::DIRECT);
          res = timestampCommandQueue->d3d->GetTimestampFrequency(&timestampFrequency);
          if (FAILED(res)) {
@@ -641,7 +781,7 @@ index 2cdcf18..0a2805e 100644
          }
      }
  
-@@ -3894,7 +4034,10 @@ namespace plume {
+@@ -3894,7 +4100,10 @@ namespace plume {
      }
  
      std::unique_ptr<RenderDescriptorSet> D3D12Device::createDescriptorSet(const RenderDescriptorSetDesc &desc) {
@@ -653,7 +793,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      std::unique_ptr<RenderShader> D3D12Device::createShader(const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format) {
-@@ -3906,11 +4049,15 @@ namespace plume {
+@@ -3906,11 +4115,15 @@ namespace plume {
      }
  
      std::unique_ptr<RenderPipeline> D3D12Device::createComputePipeline(const RenderComputePipelineDesc &desc) {
@@ -671,7 +811,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      std::unique_ptr<RenderPipeline> D3D12Device::createRaytracingPipeline(const RenderRaytracingPipelineDesc &desc, const RenderPipeline *previousPipeline) {
-@@ -3918,20 +4065,28 @@ namespace plume {
+@@ -3918,20 +4131,28 @@ namespace plume {
      }
  
      std::unique_ptr<RenderCommandQueue> D3D12Device::createCommandQueue(RenderCommandListType type) {
@@ -704,7 +844,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      std::unique_ptr<RenderAccelerationStructure> D3D12Device::createAccelerationStructure(const RenderAccelerationStructureDesc &desc) {
-@@ -3943,15 +4098,21 @@ namespace plume {
+@@ -3943,15 +4164,21 @@ namespace plume {
      }
  
      std::unique_ptr<RenderPipelineLayout> D3D12Device::createPipelineLayout(const RenderPipelineLayoutDesc &desc) {
@@ -729,7 +869,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      std::unique_ptr<RenderFramebuffer> D3D12Device::createFramebuffer(const RenderFramebufferDesc &desc) {
-@@ -4161,7 +4322,9 @@ namespace plume {
+@@ -4161,7 +4388,9 @@ namespace plume {
      }
  
      bool D3D12Device::isValid() const {
@@ -740,7 +880,7 @@ index 2cdcf18..0a2805e 100644
      }
  
      bool D3D12Device::beginCapture() {
-@@ -4195,7 +4358,7 @@ namespace plume {
+@@ -4195,7 +4424,7 @@ namespace plume {
  
          HRESULT res = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgiFactory));
          if (FAILED(res)) {
@@ -750,10 +890,20 @@ index 2cdcf18..0a2805e 100644
          }
  
 diff --git a/plume_d3d12.h b/plume_d3d12.h
-index 4827452..85073ff 100644
+index 4827452..d3ba6e2 100644
 --- a/plume_d3d12.h
 +++ b/plume_d3d12.h
-@@ -166,6 +166,24 @@ namespace plume {
+@@ -142,6 +142,9 @@ namespace plume {
+         std::vector<uint32_t> colorTargetAllocatorOffsets;
+         D3D12_CPU_DESCRIPTOR_HANDLE depthHandle = {};
+         uint32_t depthTargetAllocatorOffset = D3D12DescriptorHeapAllocator::INVALID_OFFSET;
++        // Unique per framebuffer object for its lifetime, unlike its address or
++        // descriptor handles, which a later framebuffer may reuse.
++        uint64_t serial = 0;
+ 
+         D3D12Framebuffer(D3D12Device *device, const RenderFramebufferDesc &desc);
+         ~D3D12Framebuffer() override;
+@@ -166,6 +169,24 @@ namespace plume {
      };
  
      struct D3D12CommandList : RenderCommandList {
@@ -778,7 +928,7 @@ index 4827452..85073ff 100644
          ID3D12GraphicsCommandList *d3d = nullptr;
          ID3D12GraphicsCommandList1 *d3dV1 = nullptr;
          ID3D12GraphicsCommandList4 *d3dV4 = nullptr;
-@@ -181,6 +199,14 @@ namespace plume {
+@@ -181,9 +202,34 @@ namespace plume {
          const D3D12PipelineLayout *activeGraphicsPipelineLayout = nullptr;
          const D3D12GraphicsPipeline *activeGraphicsPipeline = nullptr;
          bool descriptorHeapsSet = false;
@@ -793,20 +943,41 @@ index 4827452..85073ff 100644
          D3D12_PRIMITIVE_TOPOLOGY activeTopology = D3D_PRIMITIVE_TOPOLOGY_UNDEFINED;
          uint32_t activeStencilRef = 0;
          bool activeSamplePositions = false;
-@@ -226,6 +252,11 @@ namespace plume {
++        // Identical pipeline, single viewport/scissor and render-target bindings
++        // are skipped until invalidateCachedNativeState(). Appended after the
++        // existing members so their offsets stay unchanged.
++        struct StateBindingStats {
++            RootBindingCount pipelines;
++            RootBindingCount viewports;
++            RootBindingCount scissors;
++            RootBindingCount renderTargets;
++        };
++        StateBindingStats stateBindingStats;
++        ID3D12PipelineState *activePipelineState = nullptr;
++        D3D12_VIEWPORT activeViewport = {};
++        bool activeViewportValid = false;
++        D3D12_RECT activeScissor = {};
++        bool activeScissorValid = false;
++        uint64_t activeRenderTargetsSerial = 0;
++        bool activeRenderTargetsValid = false;
+ 
+         D3D12CommandList(D3D12CommandQueue *queue);
+         ~D3D12CommandList() override;
+@@ -226,6 +272,12 @@ namespace plume {
          void writeTimestamp(const RenderQueryPool *queryPool, uint32_t queryIndex) override;
          void checkDescriptorHeaps();
          void notifyDescriptorHeapWasChangedExternally();
 +        // Call around native command-list operations whose Plume state is not tracked.
 +        void invalidateCachedNativeState();
 +        RootBindingStats getRootBindingStats() const;
++        StateBindingStats getStateBindingStats() const;
 +        void resetRootBindingStats();
 +        void invalidateRootTables();
          void checkTopology();
          void checkStencilRef();
          void checkFramebufferSamplePositions();
-@@ -262,6 +293,9 @@ namespace plume {
-
+@@ -262,6 +314,9 @@ namespace plume {
+ 
          D3D12CommandQueue(D3D12Device *device, RenderCommandListType type);
          ~D3D12CommandQueue() override;
 +        // Caller must have drained all work and released the old swapchain.
@@ -815,7 +986,7 @@ index 4827452..85073ff 100644
          std::unique_ptr<RenderCommandList> createCommandList() override;
          std::unique_ptr<RenderSwapChain> createSwapChain(const RenderSwapChainDesc &desc) override;
          void executeCommandLists(const RenderCommandList **commandLists, uint32_t commandListCount, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount, RenderCommandSemaphore **signalSemaphores, uint32_t signalSemaphoreCount, RenderCommandFence *signalFence) override;
-@@ -431,7 +465,16 @@ namespace plume {
+@@ -431,7 +486,16 @@ namespace plume {
          ~D3D12PipelineLayout() override;
      };
  
