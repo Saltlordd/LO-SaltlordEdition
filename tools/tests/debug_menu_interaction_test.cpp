@@ -30,6 +30,7 @@ struct MockServices
     bool saveLanguageSuccess = true;
     bool captureRequested = false;
     bool saveAnywhere = false;
+    int partySwitchRequests = 0;
     bool allowVictory = true;
     bool victoryRequested = false;
     bool victoryCancelled = false;
@@ -81,6 +82,7 @@ MapInfo GetMapInfo()
 }
 bool SaveAnywhereEnabled() { return g_mock.saveAnywhere; }
 void SetSaveAnywhereEnabled(bool enabled) { g_mock.saveAnywhere = enabled; }
+void RequestPartySwitch() { ++g_mock.partySwitchRequests; }
 
 bool RequestVictory()
 {
@@ -170,7 +172,12 @@ int main()
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.saveAnywhere, "Save anywhere was not enabled");
 
-    // Row 3: Win Battle (Success and Rejection)
+    // Row 3: Force RB party switch
+    debug_menu::HandleInput(debug_menu::InputAction::Down);
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm);
+    Require(g_mock.partySwitchRequests == 1, "Party switch was not requested");
+
+    // Row 4: Win Battle (Success and Rejection)
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.victoryRequested, "Victory request not registered");
@@ -178,7 +185,7 @@ int main()
     g_mock.allowVictory = false;
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
 
-    // Row 4: Cancel Victory
+    // Row 5: Cancel Victory
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.victoryCancelled, "Cancel victory was not called");
