@@ -47,10 +47,14 @@ substitutions. This conservative policy intentionally leaves some materials at
 their original filtering. It is not a semantic classification of every game UI
 or shader; game captures remain the final compatibility check.
 
-LOD bias, guest mip selection, and shader translation are unchanged. In
-particular, the existing guest uploader still uploads one available mip level,
-not a complete mip chain. AF does not fix that separate limitation and must not
-be described as a complete solution to distant-texture shimmer.
+LOD bias and shader translation are unchanged. Until issue #87 the guest
+uploader kept only one mip level, so AF had almost nothing to filter and distant
+ground still shimmered. Tiled 2D guest textures with a base level and a
+`mip_address` now upload their stored mip chain (levels 1+ at power-of-two
+storage sizes, packed tails shared by later levels, following Xenia's guest
+layout). Block-compressed chains stop before a level is smaller than one block,
+and the Xenos basemap mip filter clamps sampling to level 0. Cube, 3D, linear
+and mip-only (`base_address == 0`) fetches still upload a single level.
 
 ## Regression coverage
 

@@ -10,6 +10,8 @@ inline plume::RenderSamplerDesc Describe(uint64_t key) {
     desc.magFilter = filter(key & 3);
     desc.minFilter = filter((key >> 2) & 3);
     desc.mipmapMode = ((key >> 4) & 3) == 0 ? RenderMipmapMode::NEAREST : RenderMipmapMode::LINEAR;
+    // Xenos basemap mip filter samples only the base level of a mip chain.
+    if (((key >> 4) & 3) == 2) desc.maxLOD = 0.0f;
     auto clamp = [](uint32_t c) {
         switch (c) {
         case 0: return RenderTextureAddressMode::WRAP;

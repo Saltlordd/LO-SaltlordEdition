@@ -341,6 +341,7 @@ namespace gpu::renderer
             // Guest-memory footprint and a sampled hash of it, so a texture the
             // title streams in after we first uploaded it is noticed and re-read.
             uint32_t guestAddress = 0, guestBytes = 0;
+            uint32_t mipAddress = 0, mipBytes = 0; // stored mip chain, if uploaded
             uint64_t guestHash = 0;
             uint64_t checkedFrame = ~0ull;
             // The source remains BC3. Only a verified controller atlas owns an
@@ -5121,6 +5122,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t originalWidth = width, originalHeight = height;
                 const uint32_t sourceMip = base == 0 ? std::max<uint32_t>(1, (fetch[4] >> 2) & 0xF) : 0;
                 const uint32_t sourceAddress = base ? base : (fetch[5] >> 12) << 12;
+                // A level-0 packed tail leaves mip_address at zero and keeps the
+                // mips beside the base (Xenia GetTextureInfo). Only tiled 2D
+                // textures with a base level load a mip chain.
+                uint32_t mipAddress = (fetch[5] >> 12) << 12;
+                if (!mipAddress && packedMips && PackedMipLevel(width, height) == 0) mipAddress = base;
+                const uint32_t mipLevels = base && mipAddress && tiled && dimension == 1
+                    ? std::min<uint32_t>((fetch[4] >> 6) & 0xF, std::bit_width(std::max(width, height)) - 1) : 0;
                 if (bindingInfo) {
                     *bindingInfo = {};
                     bindingInfo->guestFormat = format;
@@ -5128,7 +5136,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bindingInfo->sourceMip = sourceMip;
                     bindingInfo->guestExtent = {originalWidth, originalHeight};
                 }
-                TextureKey key{ sourceAddress, format, width, height, (tiled ? 1u : 0u) | (endian << 1) | (pitch32 << 3) | (dimension << 12) | (uint32_t(packedMips) << 14) | (sourceMip << 15) };
+                TextureKey key{ sourceAddress, format, width, height, (tiled ? 1u : 0u) | (endian << 1) | (pitch32 << 3) | (dimension << 12) | (uint32_t(packedMips) << 14) | (sourceMip << 15) | (mipLevels << 19) };
                 // LO_NO_DEPTH_FETCH=1: hand shaders a constant instead of the resolved
                 // depth, to tell depth-driven artefacts from shading ones.
                 static const bool noDepthFetch = getenv("LO_NO_DEPTH_FETCH") != nullptr;
@@ -5200,7 +5208,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         return SelectControllerAtlas(cached, bindingInfo, bindingEpoch);
                     }
                     cached->checkedFrame = frame;
-                    const uint64_t now = SampleHash(Phys(cached->guestAddress), cached->guestBytes);
+                    const uint64_t now = GuestHash(*cached);
                     if (now == cached->guestHash) {
                         return SelectControllerAtlas(cached, bindingInfo, bindingEpoch);
                     }
@@ -5254,15 +5262,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t faceStride = ((pitchBlocks * blocksYAligned * fi.bytesPerBlock) + 4095u) & ~4095u;
                 std::vector<uint8_t> staging(size_t(rowPitch) * blocksY * faces);
                 std::vector<uint8_t> block(fi.bytesPerBlock);
-                for (uint32_t f = 0; f < faces; f++)
-                for (uint32_t by = 0; by < blocksY; by++)
+                auto decode = [&](const uint8_t* levelSrc, uint32_t levelPitchBlocks, TextureBlockOffset origin,
+                    uint32_t levelBlocksX, uint32_t levelBlocksY, uint32_t levelFaces, uint8_t* out, uint32_t outPitch)
                 {
-                    uint8_t* dstRow = staging.data() + (size_t(f) * blocksY + by) * rowPitch;
-                    for (uint32_t bx = 0; bx < blocksX; bx++)
+                for (uint32_t f = 0; f < levelFaces; f++)
+                for (uint32_t by = 0; by < levelBlocksY; by++)
+                {
+                    uint8_t* dstRow = out + (size_t(f) * levelBlocksY + by) * outPitch;
+                    for (uint32_t bx = 0; bx < levelBlocksX; bx++)
                     {
-                        const uint32_t sx = bx + packedOffset.x, sy = by + packedOffset.y;
-                        uint32_t offset = tiled ? video::TiledOffset2D(sx, sy, pitchBlocks, bpbLog2) : (sy * pitchBlocks + sx) * fi.bytesPerBlock;
-                        memcpy(block.data(), src + size_t(f) * faceStride + offset, fi.bytesPerBlock);
+                        const uint32_t sx = bx + origin.x, sy = by + origin.y;
+                        uint32_t offset = tiled ? video::TiledOffset2D(sx, sy, levelPitchBlocks, bpbLog2) : (sy * levelPitchBlocks + sx) * fi.bytesPerBlock;
+                        memcpy(block.data(), levelSrc + size_t(f) * faceStride + offset, fi.bytesPerBlock);
                         // Endian swap within the block.
                         if (endian == 1 || (endian == 2 && fi.bytesPerBlock == 2))
                             for (uint32_t i = 0; i + 1 < fi.bytesPerBlock; i += 2) std::swap(block[i], block[i + 1]);
@@ -5295,6 +5306,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         }
                     }
                 }
+                };
+                decode(src, pitchBlocks, packedOffset, blocksX, blocksY, faces, staging.data(), rowPitch);
 
                 auto tex = std::make_unique<HostTexture>();
                 tex->format = fi.host;
@@ -5302,7 +5315,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 tex->height = height;
                 tex->guestAddress = sourceAddress;
                 tex->guestBytes = uint32_t(std::min<uint64_t>(uint64_t(faceStride) * faces, 64u << 20));
-                tex->guestHash = SampleHash(src, tex->guestBytes);
                 tex->checkedFrame = frame;
                 if (controller_atlas::Candidate(dimension, format, originalWidth, originalHeight,
                         width, height, sourceMip)) {
@@ -5318,10 +5330,33 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 uint32_t texWidth = fi.blockWidth > 1 ? blocksX * fi.blockWidth : width;
                 uint32_t texHeight = fi.blockHeight > 1 ? blocksY * fi.blockHeight : height;
                 tex->bindingWidth = texWidth; tex->bindingHeight = texHeight;
+                // Guest mips 1+ from mip_address. Block-compressed chains stop
+                // before a level stops being whole blocks so every upload
+                // footprint is valid on both D3D12 and Vulkan.
+                struct UploadLevel { uint32_t width, height, rowPitch; size_t offset; };
+                std::vector<UploadLevel> levels{{texWidth, texHeight, rowPitch, 0}};
+                for (uint32_t level = 1; level <= mipLevels; ++level)
+                {
+                    const uint32_t levelWidth = std::max(1u, texWidth >> level), levelHeight = std::max(1u, texHeight >> level);
+                    if ((texWidth >> level) % fi.blockWidth || (texHeight >> level) % fi.blockHeight ||
+                        (texWidth >> level) + (texHeight >> level) == 0) break;
+                    const auto layout = GuestMip2D(originalWidth, originalHeight, level, packedMips,
+                        fi.blockWidth, fi.blockHeight, fi.bytesPerBlock);
+                    const uint32_t levelBlocksX = levelWidth / fi.blockWidth, levelBlocksY = levelHeight / fi.blockHeight;
+                    const uint32_t levelRowPitch = (levelBlocksX * hostBpp + 255) & ~255u;
+                    const size_t levelOffset = (staging.size() + 511) & ~size_t(511);
+                    staging.resize(levelOffset + size_t(levelRowPitch) * levelBlocksY);
+                    decode(Phys(mipAddress + layout.storageOffset), layout.pitchBlocks, layout.origin,
+                        levelBlocksX, levelBlocksY, 1, staging.data() + levelOffset, levelRowPitch);
+                    levels.push_back({levelWidth, levelHeight, levelRowPitch, levelOffset});
+                    tex->mipAddress = mipAddress;
+                    tex->mipBytes = std::max(tex->mipBytes, layout.storageOffset + layout.storageBytes);
+                }
+                tex->guestHash = GuestHash(*tex);
                 if (dimension == 3)
                     tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, fi.host, RenderTextureFlag::CUBE));
                 else
-                    tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texWidth, texHeight, 1, fi.host));
+                    tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texWidth, texHeight, uint32_t(levels.size()), fi.host));
                 tex->layout = RenderTextureLayout::UNKNOWN;
                 if (!tex->texture)
                 {
@@ -5339,6 +5374,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         RenderTextureCopyLocation::Subresource(tex->texture.get(), 0, f),
                         RenderTextureCopyLocation::PlacedFootprint(uploadRing, fi.host, texWidth, texHeight, 1, (rowPitch / hostBpp) * fi.blockWidth,
                             offset + uint64_t(f) * rowPitch * blocksY));
+                for (uint32_t level = 1; level < levels.size(); ++level)
+                    commandList->copyTextureRegion(
+                        RenderTextureCopyLocation::Subresource(tex->texture.get(), level, 0),
+                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, fi.host, levels[level].width, levels[level].height, 1,
+                            (levels[level].rowPitch / hostBpp) * fi.blockWidth, offset + levels[level].offset));
                 Transition(*tex, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
 
                 HostTexture* result = tex.get();
@@ -5532,6 +5572,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // ---- vertex buffers ------------------------------------------------------------
             // Cheap change detection: everything for small buffers, otherwise the
             // head, the tail and 64 evenly spread 64-byte windows.
+            // Streamed mips are re-read with their base, so hash both ranges.
+            uint64_t GuestHash(const HostTexture& tex) const
+            {
+                const uint64_t base = SampleHash(Phys(tex.guestAddress), tex.guestBytes);
+                return tex.mipBytes ? base ^ SampleHash(Phys(tex.mipAddress), tex.mipBytes) * 0x9E3779B97F4A7C15ull : base;
+            }
+
             static uint64_t SampleHash(const uint8_t* data, size_t bytes)
             {
                 uint64_t h = 0x9E3779B97F4A7C15ull ^ bytes;

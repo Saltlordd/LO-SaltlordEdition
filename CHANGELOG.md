@@ -12,6 +12,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Keep Windows native messages pumping during GPU shutdown to prevent a DXGI quit-to-desktop deadlock (#82). The hang reproduced locally in D3D12 exclusive fullscreen with DLSS frame generation, and the fixed build quit in about 2 seconds. Reporter confirmation is pending.
 - Reduced command-processor CPU overhead on the default render path. `WAIT_REG_MEM` polls wake as soon as an interrupt callback finishes instead of sleeping through the poll interval, constant and fetch register runs are copied in bulk, debug environment variables are read once, and a texture-set cache miss rewrites only the bindings that can change. In the Uhra plaza at 3840x2160 on D3D12 with a 120 FPS target, the frame rate rose from about 98 to about 119 FPS, which is the cap, and command-processor CPU time fell from about 8.6 to about 5.9 ms per frame. With the frame cap removed through the `LO_FPS=0` diagnostic override, the same scene ran at about 142 FPS, compared with about 96 FPS on main.
 - Skipped redundant D3D12 state changes. The renderer no longer re-sends an identical pipeline, a single identical viewport or scissor, or the same render targets to the driver. In the Uhra plaza at 3840x2160 without a frame cap, the frame rate rose from about 156 to about 159 FPS.
+- Guest textures now load their mip chains (#87). The renderer previously uploaded only the largest level of each texture, so anisotropic filtering had no smaller levels to filter and distant surfaces could not be filtered down. Tiled 2D textures now upload the levels stored in guest memory, following Xenia's guest layout, and the Xenos base-map mip filter stays on level 0. Forcing a minimum LOD of 2 in a local test showed every level decoding without corruption. In the Uhra plaza at 3840x2160 most ground is magnified, so screenshots barely change; at 1280x720 distant ground is slightly smoother. Cube, 3D and linear textures still load one level. Reporter confirmation is pending.
 
 ### 简体中文
 
@@ -19,6 +20,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - 退出期间继续处理Windows窗口消息，修复DXGI清理时可能出现的退出桌面死锁（#82）。本机在D3D12独占全屏并开启DLSS插帧时复现了卡死，修复后约2秒正常退出；报告者复测待完成。
 - 降低默认渲染路径中命令处理器的 CPU 开销：`WAIT_REG_MEM` 轮询在中断回调完成后立即唤醒，不再睡满整个轮询间隔；常量和 fetch 寄存器的连续写入改为批量复制；调试环境变量只读取一次；纹理描述符集缓存未命中时只重写可能变化的绑定。在 D3D12、3840x2160、120 FPS 目标下的 Uhra 广场，帧率从约 98 FPS 提升到约 119 FPS（已到上限），命令处理器 CPU 时间从约 8.6 降到约 5.9 ms/帧。用 `LO_FPS=0` 诊断开关取消帧率上限后，同一场景约 142 FPS，main 约 96 FPS。
 - 跳过重复的 D3D12 状态设置：管线、单个视口或裁剪框与当前绑定完全相同，或再次绑定同一组渲染目标时，不再重复提交给驱动。在 3840x2160、不限帧的 Uhra 广场，帧率从约 156 FPS 提升到约 159 FPS。
+- 游戏纹理现在会加载完整的 mip 链（#87）。之前渲染器只上传每张纹理的最大一层，各向异性过滤没有更小的层级可用，远处表面无法被过滤。现在分块（tiled）2D 纹理会按 Xenia 的游戏内存布局上传所有已存储的层级，Xenos 的 base-map mip 过滤仍只采样第 0 层。本机测试中强制最小 LOD 为 2 时，各层级解码正常，没有花屏。在 3840x2160 的 Uhra 广场，大部分地面处于放大采样，截图几乎没有变化；在 1280x720 下远处地面略微平滑。立方体、3D 和线性纹理仍只加载一层。报告者复测待完成。
 
 ## [v0.7.15 — 2026-09-29](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15)
 
