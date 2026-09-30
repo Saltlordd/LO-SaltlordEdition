@@ -29,6 +29,7 @@
 #include "controller_atlas.h"
 #include "temporal_scene.h"
 #include "temporal_jitter.h"
+#include "temporal_suspect.h"
 #include "temporal_history.h"
 #include "sr_scene_input_policy.h"
 #include "temporal_lifecycle.h"
@@ -614,6 +615,7 @@ namespace gpu::renderer
             temporal::SceneObservation temporalScene;
             std::shared_ptr<taa_collection::SparseDepthGPU> sparseCollector;
             temporal::DrawTemporalTracker drawTemporalTracker;
+            temporal::SuspectTracker suspectTracker;
             double mvTrackCpuMs = 0;
             uint64_t mvScratchBytes = 0;
             const temporal::MotionOptions motionOptions = temporal::MotionOptions::Environment();
@@ -6171,11 +6173,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         Reg(REG_FETCH_CONSTANTS + 2), Reg(REG_FETCH_CONSTANTS + 5),
                         FindResolved((Reg(REG_FETCH_CONSTANTS + 1) >> 12) << 12,
                             Reg(REG_FETCH_CONSTANTS + 1) & 0x3f) != nullptr);
-                const bool bdaMaterialPair = key.vs == 0xbda41a11626a545cull && key.ps == 0xa9e9542e2c60029aull;
+                const bool motionFallbackPair = temporal::RetainsMotionFallback(key.vs, key.ps);
                 const int temporalSlot=temporal::DrawPositionVPSlot(key.vs, key.ps, constantScreenSample);
-                // bda also appears with a different camera. Require a scene
-                // camera observed before this draw instead of self-anchoring it.
-                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!bdaMaterialPair&&temporalViewport&&depth&&(depthControl&4)) {
+                // bda also appears with a different camera. Reviewed sky pairs
+                // require a scene camera observed before the draw instead of
+                // self-anchoring it.
+                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
+                    temporalViewport&&depth&&(depthControl&4)) {
                     temporal::SceneAnchor anchor;
                     std::copy_n(vsConstants+temporalSlot*4,16,anchor.vpBits.begin());
                     anchor.depthAllocation=depth->allocationSerial;
@@ -6226,9 +6230,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rasterViewport.width == jitterAnchor->viewport.width && rasterViewport.height == jitterAnchor->viewport.height;
                 const bool motionDepthWrite = motionScene && (depthControl & 6) == 6;
                 const float motionSlopeBias = std::bit_cast<float>(key.slopeBias);
-                // This pair was previously an unknown depth writer. Preserve
-                // its conservative motion fallback while aligning its raster.
-                const bool motionSupported = motionDepthWrite && !bdaMaterialPair && !drawTemporalTracker.Failed() && temporalSlot >= 0 && temporalSlot <= 252 && !vs->info.textureSlotMask &&
+                // A reviewed pair may preserve its previous unknown-writer motion
+                // fallback while aligning its raster.
+                const bool motionSupported = motionDepthWrite && !motionFallbackPair && !drawTemporalTracker.Failed() && temporalSlot >= 0 && temporalSlot <= 252 && !vs->info.textureSlotMask &&
                     !vs->info.usesPointSize && vs->info.errors.empty() && (!ps || (!ps->info.writesDepth && ps->info.errors.empty())) &&
                     // Replay uses the same rasterizer key, so a constant polygon offset
                     // remains self-consistent. Reject a real slope offset and NaNs.
@@ -6251,6 +6255,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 bool motionStreamsValid = true;
                 const bool diagnosticMaterialBypass = taaDiagnosticMaterials == 0 &&
                     (key.vs == 0x3c86f4a89d220ee8ull || key.vs == 0xf3b9f20b3d3a62d5ull || key.vs == 0xe7b38eb08c70e5e1ull);
+                // Temporal suspects are depth-tested main-scene draws while jitter is on.
+                // Jittered depth writers are kept as possible companions, pre-jitter.
+                const bool suspectScene = temporalActive && temporalJitter && temporalViewport && depth && jitterAnchor &&
+                    depth->allocationSerial == jitterAnchor->depthAllocation && (depthControl & 2);
+                const temporal::SuspectGeometry suspectGeometry{info.indexed ? info.indexBase : 0, info.indexCount,
+                    Reg(REG_VGT_INDX_OFFSET), Reg(REG_FETCH_CONSTANTS + 190)};
+                const bool suspectCompanion = suspectScene && !suspectTracker.Done() && (depthControl & 4) &&
+                    temporalSlot >= 0 && temporalSlot <= 252;
+                std::array<uint32_t, 16> suspectWorld{}, suspectVP{};
+                if (suspectCompanion) {
+                    std::copy_n(vsConstants, 16, suspectWorld.begin());
+                    std::copy_n(vsConstants + temporalSlot * 4, 16, suspectVP.begin());
+                }
                 const auto drawJitter = temporal::ApplyDrawJitter(key.vs, key.ps, frame,
                     temporalActive && temporalJitter && !diagnosticMaterialBypass, temporalViewport, jitterAnchor,
                     depth ? depth->allocationSerial : 0,
@@ -6299,6 +6316,36 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (taa_collection::Enabled() && temporalExperiment)
                     taa_collection::Observe(frame,key.vs,key.ps,uint32_t(rasterViewport.width),uint32_t(rasterViewport.height),
                         temporalSlot,collectionCandidates,collectionFlags,uint32_t(drawJitter.rejection),vs->position,positionGuards);
+                // After telemetry: position evidence requested here must not change this draw's record.
+                if (suspectScene && !suspectTracker.Done()) {
+                    suspectTracker.BeginFrame(frame);
+                    if (suspectCompanion && drawJitter.applied)
+                        suspectTracker.ObserveJitteredDepth(suspectGeometry, key.vs, temporalSlot, drawsThisFrame, suspectWorld, suspectVP);
+                    else if (temporalSlot < 0 && drawJitter.rejection == temporal::JitterRejection::UnknownShader &&
+                        !suspectTracker.Settled(key.vs, key.ps)) {
+                        const int fallbackSlot = temporal::SceneCameraSlot(vsConstants, jitterAnchor->vpBits);
+                        const auto* companion = fallbackSlot >= 0 ? suspectTracker.FindCompanion(suspectGeometry) : nullptr;
+                        if (fallbackSlot >= 0 && ((depthControl & 4) || companion)) {
+                            // Evidence is analyzed off-thread; it tells which window feeds oPos.
+                            if (!vs->positionReady && positionEvidence)
+                                vs->positionReady = positionEvidence->TryGet(vsHash, vsWords, vsCount, vs->position);
+                            const temporal::SuspectEvidence evidence{positionEvidence != nullptr, vs->positionReady,
+                                vs->position.kind, vs->position.issues, vs->position.slot};
+                            const auto decision = temporal::DecideSuspect(evidence, vsConstants, jitterAnchor->vpBits, fallbackSlot,
+                                vs->positionReady || !positionEvidence ? 0 : suspectTracker.Waited(key.vs, key.ps, frame));
+                            using Action = temporal::SuspectDecision::Action;
+                            if (decision.action != Action::Wait)
+                                suspectTracker.Settle(key.vs, key.ps, decision.action == Action::Report);
+                            if (decision.action == Action::Report) {
+                                const auto lines = temporal::FormatSuspect({key.vs, key.ps, frame, drawsThisFrame, depthControl,
+                                    decision.cameraSlot, decision.positionKind, decision.evidenceSlot,
+                                    suspectGeometry, companion, vsConstants, psConstants});
+                                LOG_INFO("{}", lines[0]);
+                                LOG_INFO("{}", lines[1]);
+                            }
+                        }
+                    }
+                }
                 if(temporalExperiment && temporalJitter && temporalSlot<0 && temporalViewport) {
                     ++temporalJitterUnknowns;
                 }
@@ -8343,7 +8390,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         // Unknown visibility writers require a conservative whole-frame
                         // fallback; camera reprojection is not valid object motion.
                         const char* reason = !motionStreamsValid ? "invalid_streams" :
-                            bdaMaterialPair || temporalSlot < 0 || temporalSlot > 252 ? "position_slot_unavailable" :
+                            motionFallbackPair || temporalSlot < 0 || temporalSlot > 252 ? "position_slot_unavailable" :
                             vs->info.textureSlotMask ? "vertex_texture_fetch" :
                             vs->info.usesPointSize ? "point_size" : !vs->info.errors.empty() ? "vertex_translation" :
                             ps && ps->info.writesDepth ? "pixel_depth_write" :

@@ -126,15 +126,38 @@ inline int PositionVPSlot(uint64_t shader) {
     default:return -1;
     }
 }
+// Reviewed sky material VS/PS pairs. Each exact pair shares an earlier depth
+// draw's c4-c7 camera at c7-c10; other PS partners of the same VS stay held.
+struct SkyMaterialPair { uint64_t vs, ps; bool motionFallback; };
+inline constexpr SkyMaterialPair SkyMaterialPairs[]{
+    // Grand Staff f3448-f3450 (#67), b030 depth. Previously an unknown depth
+    // writer, it keeps the conservative whole-frame motion fallback.
+    {0xbda41a11626a545cull, 0xa9e9542e2c60029aull, true},
+    // Legacy of the Eastern Tribe f1800-f1802 (#102), f7fd depth. Its PS reads
+    // only the clip W copy; object motion replays like the depth companion.
+    {0xdb23a2ad4493bbb4ull, 0x02ee5f0608be581aull, false},
+};
+inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
+    for (const auto& pair : SkyMaterialPairs)
+        if (pair.vs == vs && pair.ps == ps) return &pair;
+    return nullptr;
+}
 // e810 has eleven observed PS partners. Only this independently reviewed pair
 // may use the slot-7 path, and only with a constant single-texel screen sample.
 // Keep it out of the VS-wide table so other consumers cannot self-anchor it.
 inline int DrawPositionVPSlot(uint64_t vs, uint64_t ps, bool constantScreenSample = false) {
-    // Grand Staff f3448-f3450: this exact material pair shares the earlier
-    // b030 depth draw's c4-c7 camera at c7-c10. Other PS pairs stay held.
-    if (vs == 0xbda41a11626a545cull && ps == 0xa9e9542e2c60029aull) return 7;
+    if (FindSkyMaterialPair(vs, ps)) return 7;
     if (vs == 0xe810cfacc107fd3cull && ps == 0xfe31f3d6588fde95ull && constantScreenSample) return 7;
     return PositionVPSlot(vs);
+}
+// Sky pairs jitter only against a scene camera observed before them; they
+// never become the frame's camera anchor themselves.
+inline bool RequiresEarlierSceneAnchor(uint64_t vs, uint64_t ps) {
+    return FindSkyMaterialPair(vs, ps) != nullptr;
+}
+inline bool RetainsMotionFallback(uint64_t vs, uint64_t ps) {
+    const auto* pair = FindSkyMaterialPair(vs, ps);
+    return pair && pair->motionFallback;
 }
 
 // Ordered observations from one renderer frame. This associates selected draw
