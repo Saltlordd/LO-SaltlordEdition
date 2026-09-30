@@ -23,6 +23,7 @@ Optional diagnostics are off by default and can be disabled in Settings. See [Pr
 
 | Version | Highlights |
 | :--- | :--- |
+| [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) | Guest texture mip chains for anisotropic filtering (#87), 6× frame generation cap, a D3D12 quit deadlock fix (#82), and lower command-processor and D3D12 state overhead. |
 | [v0.7.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.15) | Native 90/120 FPS targets and VRR pacing, RGB Range and F1 speed controls, the Hungry Man timer fix, portable game-path fallback, and a targeted sky-flicker TAA mapping. |
 | [v0.7.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) | Refreshed bundled Vulkan shaders (+19 captured records) and a separate DX12 shader pack under `shaders/`. |
 | [v0.7.9](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.9) | Windows D3D12 frame generation (Off/DLSS/FSR), applied on Save without restarting; Ubuntu 22.04 AppImage compatibility and updater improvements. |
@@ -35,7 +36,7 @@ See the [roadmap](docs/ROADMAP.md) for current plans and the [changelog](CHANGEL
 ## Start playing
 
 ### Windows
-1. **Download and extract** the v0.7.15 Windows release ZIP (`LostOdysseyRecomp-windows-x64-v0.7.15.zip`) from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) to a writable folder.
+1. **Download and extract** the v0.7.20 Windows release ZIP (`LostOdysseyRecomp-windows-x64-v0.7.20.zip`) from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) to a writable folder.
 2. **Run `LostOdysseyRecomp.exe`** and import your game files when prompted. The importer accepts an extracted folder, `default.xex`, an XDVDFS ISO or a GOD container.
 3. **Choose your language and graphics settings.** The game continues after setup and shader preparation.
 
@@ -44,12 +45,12 @@ See the [roadmap](docs/ROADMAP.md) for current plans and the [changelog](CHANGEL
   ```bash
   flatpak --system install flathub org.freedesktop.Platform//26.08
   ```
-  Download the v0.7.15 standalone `.flatpak` bundle (`LostOdysseyRecomp-linux-x64-v0.7.15.flatpak`) and install:
+  Download the v0.7.20 standalone `.flatpak` bundle (`LostOdysseyRecomp-linux-x64-v0.7.20.flatpak`) and install:
   ```bash
-  flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.15.flatpak
+  flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.20.flatpak
   flatpak run io.github.freefrank.LostOdysseyRecomp
   ```
-- **AppImage**: Download `LostOdysseyRecomp-linux-x64-v0.7.15.AppImage`, make it executable (`chmod +x`), and run directly.
+- **AppImage**: Download `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage`, make it executable (`chmod +x`), and run directly.
 
 No Python or Visual Studio installation is needed for the release package. Later launches reuse the shader cache. Keep your save and profile folders when updating.
 
@@ -85,7 +86,7 @@ See the [installation guide](docs/INSTALLING.md) for accepted disc versions, fil
 | CPU use | Reduced unnecessary polling and reuse of rendering work |
 | Input and debug | Controller and keyboard input; English/Simplified Chinese in-game overlay debug menu (F1 or LB+RB) with capture, map information and same-map POI teleport |
 
-Release packages import game discs and supported DLC with **Files** or **Folder** in `LostOdysseyRecomp.exe`. In v0.7.1, **Gameplay → Import discs & DLC** allows reopening the importer to replace selected discs and DLC. The v0.7.15 release provides Windows ZIP, Linux AppImage, and standalone Linux Flatpak packages, with a separate DX12 shader asset under `shaders/`. See the [installation guide](docs/INSTALLING.md#automatic-content-import), [build instructions](docs/BUILDING.md#packaging-flatpak), and [development status](docs/STATUS.md) for validation limits.
+Release packages import game discs and supported DLC with **Files** or **Folder** in `LostOdysseyRecomp.exe`. In v0.7.1, **Gameplay → Import discs & DLC** allows reopening the importer to replace selected discs and DLC. The v0.7.20 release provides Windows ZIP, Linux AppImage, and standalone Linux Flatpak packages, with a separate DX12 shader asset under `shaders/`. See the [installation guide](docs/INSTALLING.md#automatic-content-import), [build instructions](docs/BUILDING.md#packaging-flatpak), and [development status](docs/STATUS.md) for validation limits.
 
 Validation progress and remaining work are tracked in the [Maintainer Project](https://github.com/users/freefrank/projects/3).
 
