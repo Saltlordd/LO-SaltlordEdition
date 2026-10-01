@@ -12,9 +12,11 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <string_view>
 
 namespace gpu::fsr_fg {
 namespace {
+// Only for states where GPU completion of retained resources is unknown.
 void Require(bool okay, const char* operation) {
     if (okay) return;
     LOG_ERROR("Vulkan FSR FG: {} failed; GPU ownership cannot be retired", operation);
@@ -24,6 +26,8 @@ bool Check(ffxReturnCode_t result, const char* operation, std::string& reason) {
     if (result == FFX_API_RETURN_OK) return true;
     reason = std::string(operation) + " result=" + std::to_string(result); return false;
 }
+// A lost device runs no further work, so its resources are no longer in use.
+bool Retired(VkResult result) { return result == VK_SUCCESS || result == VK_ERROR_DEVICE_LOST; }
 FfxApiResource Resource(plume::VulkanTexture& texture) {
     VkImageCreateInfo desc{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     desc.imageType = VK_IMAGE_TYPE_2D; desc.format = texture.imageFormat;
@@ -48,7 +52,6 @@ struct Session::Impl {
     PFN_vkGetSwapchainImagesKHR nativeImages = nullptr;
     PFN_vkAcquireNextImageKHR nativeAcquire = nullptr;
     PFN_vkQueuePresentKHR nativePresent = nullptr;
-    PFN_vkDeviceWaitIdle nativeIdle = nullptr;
     PFN_vkGetDeviceProcAddr nativeProc = nullptr;
     ffxContext swapContext = nullptr, fgContext = nullptr;
     VkSwapchainKHR swapchain = VK_NULL_HANDLE;
@@ -65,11 +68,11 @@ struct Session::Impl {
     frame_plan::FramePlan previousPlan{};
     temporal::Matrix previousVP{};
     temporal::Viewport previousRaster{};
-    uint64_t previousFrame = 0, previousEpoch = 0, frame = 0;
+    uint64_t previousFrame = 0, previousEpoch = 0, frame = 0, presents = 0;
     std::atomic<bool> reset{true};
     std::atomic<uint32_t> callbackError{FFX_API_RETURN_OK};
     std::atomic<uint64_t> generations{0};
-    bool installed = false, failed = false, prepared = false, active = false;
+    bool installed = false, failed = false, prepared = false, active = false, generating = false;
 
     static VkResult SubmitGame(uint32_t count, const VkSubmitInfo* submits, VkFence fence) {
         auto& self = *current;
@@ -87,6 +90,25 @@ struct Session::Impl {
         else if (params->numGeneratedFrames) self.generations.fetch_add(1, std::memory_order_relaxed);
         return result;
     }
+    // FidelityFX 1.1.4 resolves vkGetBufferMemoryRequirements2KHR, an alias of a
+    // Vulkan 1.1 core command. Plume does not enable that promoted extension and
+    // strict drivers return NULL for the alias, so fall back to the core name
+    // instead of changing device creation for every backend user.
+    static PFN_vkVoidFunction VKAPI_PTR DeviceProc(VkDevice d, const char* name) {
+        auto& self = *current;
+        if (const auto function = self.nativeProc(d, name)) return function;
+        constexpr std::string_view suffix = "KHR";
+        const std::string_view requested = name ? name : "";
+        if (requested.size() <= suffix.size() || !requested.ends_with(suffix)) return nullptr;
+        const std::string core(requested.substr(0, requested.size() - suffix.size()));
+        const auto function = self.nativeProc(d, core.c_str());
+        if (function) LOG_INFO("Vulkan FSR FG: resolved {} through core {}", requested, core);
+        return function;
+    }
+    void Fail(std::string_view reason) {
+        if (!failed) LOG_ERROR("Vulkan FSR FG unavailable: {}", reason);
+        failed = true; active = false;
+    }
     bool Configure(bool enabled, std::string& reason) {
         if (!fgContext) return true;
         ffxConfigureDescFrameGeneration desc{};
@@ -96,35 +118,50 @@ struct Session::Impl {
         desc.frameGenerationCallback = Generate; desc.frameGenerationCallbackUserContext = this;
         desc.generationRect = {0, 0, int32_t(fgDescription.displaySize.width), int32_t(fgDescription.displaySize.height)};
         desc.frameID = frame;
-        return Check(configure(&fgContext, &desc.header), "configure", reason);
+        if (!Check(configure(&fgContext, &desc.header), "configure", reason)) return false;
+        generating = enabled;
+        return true;
     }
+    // Disabling only stops later SDK presents from interpolating. It retires no
+    // GPU work; a context that cannot be disabled is never prepared again.
     void Off() {
-        std::string reason;
-        Require(Configure(false, reason), reason.c_str());
         prepared = active = false; previousFrame = previousEpoch = 0;
+        if (!generating) return;
+        std::string reason;
+        if (!Configure(false, reason)) Fail(reason);
     }
-    // SDK wait retires interpolation and pacer submissions, then the checked
-    // native wait confirms completion. GetLastPresentCount is never a fence.
+    // Boundary drain: SDK presentation work, then every native queue. Never a
+    // per-frame wait; the SDK's waitForPresents also idles its own queues.
     VkResult WaitSdk() {
         if (swapContext) {
             ffxDispatchDescFrameGenerationSwapChainWaitForPresentsVK wait{};
             wait.header.type = FFX_API_DISPATCH_DESC_TYPE_FGSWAPCHAIN_WAIT_FOR_PRESENTS_VK;
             if (dispatch(&swapContext, &wait.header) != FFX_API_RETURN_OK) return VK_ERROR_UNKNOWN;
         }
-        return nativeIdle(device->vk);
+        return vkDeviceWaitIdle(device->vk);
     }
-    void Drain() {
-        Require(!hostUse.Pending() || hostUse.Serial(), "drain before submission/cancellation");
-        Require(WaitSdk() == VK_SUCCESS, "SDK and native queue completion");
-        Require(hostUse.Completed(), "host input completion");
-        retained.reset(); depth.ReleaseAfterInputDrain();
+    // Producer copies precede the host batch on the shared game queue.
+    VkResult WaitGameQueue() {
+        const std::scoped_lock lock(*queue->queue->mutex);
+        return vkQueueWaitIdle(queue->queue->vk);
+    }
+    void ReleaseInputs(bool executed) {
+        retained.reset();
+        // An unexecuted recording changed Plume's cached layout of its image.
+        if (executed) depth.ReleaseAfterInputDrain(); else depth.DiscardUnsubmitted();
+    }
+    void DrainBoundary() {
+        Off();
+        Require(Retired(WaitSdk()), "SDK and native queue completion");
+        if (!hostUse.Pending()) return;
+        Require(hostUse.Completed(), "boundary drain before host submission");
+        ReleaseInputs(true);
     }
     void DestroyFeature() {
-        Off(); Drain();
-        if (fgContext) {
-            Require(destroy(&fgContext, nullptr) == FFX_API_RETURN_OK, "destroy interpolation context");
-            fgContext = nullptr;
-        }
+        if (!fgContext) return;
+        DrainBoundary();
+        Require(destroy(&fgContext, nullptr) == FFX_API_RETURN_OK, "destroy interpolation context");
+        fgContext = nullptr; generating = false;
     }
     bool Reserve(VkSurfaceKHR surface, std::string& reason) {
         if (reserved) return true;
@@ -193,24 +230,26 @@ struct Session::Impl {
             if (Check(self.create(&self.swapContext, &create.header, nullptr), "swapchain context", reason) && self.swapchain) {
                 self.functions = {};
                 self.functions.header.type = FFX_API_QUERY_DESC_TYPE_FGSWAPCHAIN_FUNCTIONS_VK;
-                if (Check(self.query(&self.swapContext, &self.functions.header), "WSI functions", reason) &&
-                    self.functions.pOutGetSwapchainImagesKHR && self.functions.pOutAcquireNextImageKHR && self.functions.pOutQueuePresentKHR) {
-                    *output = self.swapchain; return VK_SUCCESS;
+                if (Check(self.query(&self.swapContext, &self.functions.header), "WSI functions", reason)) {
+                    if (self.functions.pOutGetSwapchainImagesKHR && self.functions.pOutAcquireNextImageKHR && self.functions.pOutQueuePresentKHR) {
+                        *output = self.swapchain; return VK_SUCCESS;
+                    }
+                    reason = "SDK returned incomplete WSI functions";
                 }
             }
             if (self.swapContext) {
-                Require(self.WaitSdk() == VK_SUCCESS, "failed swapchain drain");
+                Require(Retired(self.WaitSdk()), "failed swapchain drain");
                 Require(self.destroy(&self.swapContext, nullptr) == FFX_API_RETURN_OK, "failed swapchain cleanup");
                 self.swapContext = nullptr; self.swapchain = VK_NULL_HANDLE;
             }
         }
-        self.failed = true;
-        LOG_ERROR("Vulkan FSR FG unavailable: {}; creating ordinary swapchain", reason);
+        self.Fail(reason + "; creating ordinary swapchain");
         return self.nativeCreate(d, desc, allocator, output);
     }
     static void VKAPI_PTR DestroySwapchain(VkDevice d, VkSwapchainKHR swap, const VkAllocationCallbacks* allocator) {
         auto& self = *current;
         if (self.swapContext && swap == self.swapchain) {
+            self.DrainBoundary();
             self.DestroyFeature();
             Require(self.destroy(&self.swapContext, nullptr) == FFX_API_RETURN_OK, "destroy SDK swapchain");
             self.swapContext = nullptr; self.swapchain = VK_NULL_HANDLE;
@@ -232,10 +271,6 @@ struct Session::Impl {
         const std::scoped_lock lock(*s.queue->queue->mutex);
         return s.nativePresent(q, info);
     }
-    static VkResult VKAPI_PTR Idle(VkDevice d) {
-        auto& s = *current;
-        return d == s.device->vk ? s.WaitSdk() : s.nativeIdle(d);
-    }
     bool EnsureFeature(uint32_t width, uint32_t height, VkFormat format,
         uint32_t inputWidth, uint32_t inputHeight, std::string& reason) {
         if (fgContext && fgDescription.displaySize.width == width && fgDescription.displaySize.height == height &&
@@ -253,7 +288,7 @@ struct Session::Impl {
         fgDescription.backBufferFormat = ffxApiGetSurfaceFormatVK(format);
         fgDescription.flags = FFX_FRAMEGENERATION_ENABLE_DEPTH_INVERTED;
         backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
-        backend.vkDevice = device->vk; backend.vkPhysicalDevice = device->physicalDevice; backend.vkDeviceProcAddr = nativeProc;
+        backend.vkDevice = device->vk; backend.vkPhysicalDevice = device->physicalDevice; backend.vkDeviceProcAddr = DeviceProc;
         return Check(create(&fgContext, &fgDescription.header, nullptr), "interpolation context", reason);
     }
     ~Impl() {
@@ -261,13 +296,13 @@ struct Session::Impl {
             Require(!swapContext && !fgContext && !hostUse.Pending(), "shutdown before swapchain/input retirement");
             vkCreateSwapchainKHR = nativeCreate; vkDestroySwapchainKHR = nativeDestroy;
             vkGetSwapchainImagesKHR = nativeImages; vkAcquireNextImageKHR = nativeAcquire;
-            vkQueuePresentKHR = nativePresent; vkDeviceWaitIdle = nativeIdle;
+            vkQueuePresentKHR = nativePresent;
             device->externalSwapchainSynchronization = device->destroySwapchainBeforeResize = false;
             current = nullptr;
         }
         if (reserved)
             for (const auto& q : *reserved) device->queueFamilies[q.family].release(q.index);
-        if (module) Require(FreeLibrary(module), "runtime unload");
+        if (module && !FreeLibrary(module)) LOG_WARNING("Vulkan FSR FG: runtime unload failed error={}", GetLastError());
     }
 };
 Session::Session() : impl_(std::make_unique<Impl>()) {}
@@ -302,11 +337,13 @@ bool Session::Initialize(plume::VulkanDevice& device, plume::VulkanCommandQueue&
     if (!s.depth.Initialize(&device)) { reason = "FG depth conversion unavailable"; return false; }
     s.nativeCreate = vkCreateSwapchainKHR; s.nativeDestroy = vkDestroySwapchainKHR;
     s.nativeImages = vkGetSwapchainImagesKHR; s.nativeAcquire = vkAcquireNextImageKHR;
-    s.nativePresent = vkQueuePresentKHR; s.nativeIdle = vkDeviceWaitIdle; s.nativeProc = vkGetDeviceProcAddr;
+    s.nativePresent = vkQueuePresentKHR; s.nativeProc = vkGetDeviceProcAddr;
     Impl::current = &s;
+    // Only WSI entry points are replaced. Every other Vulkan caller, including
+    // vkDeviceWaitIdle, keeps native behavior; SDK drains are explicit.
     vkCreateSwapchainKHR = Impl::CreateSwapchain; vkDestroySwapchainKHR = Impl::DestroySwapchain;
     vkGetSwapchainImagesKHR = Impl::Images; vkAcquireNextImageKHR = Impl::Acquire;
-    vkQueuePresentKHR = Impl::Present; vkDeviceWaitIdle = Impl::Idle;
+    vkQueuePresentKHR = Impl::Present;
     device.externalSwapchainSynchronization = device.destroySwapchainBeforeResize = true;
     s.installed = true;
     return true;
@@ -328,7 +365,10 @@ bool Session::Reconfigure(const framegen::Config& config, std::string& reason) {
 void Session::PrepareAfterHostDrain(const frame_generation::CompositeHandoff& inputs,
     plume::VulkanSwapChain& swap, plume::VulkanCommandList& commands) {
     auto& s = *impl_;
-    s.Drain(); s.prepared = false;
+    // The host waited for its previous presentation batch before recording;
+    // AfterHostDrain, a failed submit, or cancellation ended that input lease.
+    Require(!s.hostUse.Pending(), "prepare before previous input retirement");
+    s.prepared = false;
     if (!Requested() || !inputs.ReadyForOrderedSubmission() || swap.vk != s.swapchain ||
         !dlss_fg::FullFramePresentation(inputs.outputWidth, inputs.outputHeight, swap.getWidth(), swap.getHeight())) { s.Off(); return; }
     const auto& in = inputs.producer->inputs;
@@ -341,7 +381,7 @@ void Session::PrepareAfterHostDrain(const frame_generation::CompositeHandoff& in
         reset ? nullptr : &s.previousRaster)) { s.Off(); return; }
     std::string reason;
     if (!s.EnsureFeature(swap.getWidth(), swap.getHeight(), swap.createInfo.imageFormat, in.depth.width, in.depth.height, reason)) {
-        LOG_ERROR("Vulkan FSR FG: {}", reason); s.failed = true; s.Off(); return;
+        s.Off(); s.Fail(reason); return;
     }
     Require(s.hostUse.Begin(&commands), "overlapping input recording");
     s.retained = inputs.producer;
@@ -365,51 +405,66 @@ void Session::PrepareAfterHostDrain(const frame_generation::CompositeHandoff& in
     std::copy(camera.up.begin(), camera.up.end(), cameraInfo.cameraUp);
     std::copy(camera.forward.begin(), camera.forward.end(), cameraInfo.cameraForward);
     prepare.header.pNext = &cameraInfo.header;
-    if (!s.Configure(true, reason)) { s.failed = true; s.Off(); LOG_ERROR("Vulkan FSR FG: {}", reason); return; }
+    if (!s.Configure(true, reason)) { s.Off(); s.Fail(reason); return; }
     prepare.commandList = reinterpret_cast<void*>(commands.beginExternalCommands());
     Require(prepare.commandList != nullptr, "native command scope");
     const auto result = s.dispatch(&s.fgContext, &prepare.header);
     commands.endExternalCommands();
-    if (!Check(result, "prepare", reason)) { s.failed = true; s.Off(); LOG_ERROR("Vulkan FSR FG: {}", reason); return; }
+    if (!Check(result, "prepare", reason)) { s.Off(); s.Fail(reason); return; }
     s.prepared = true;
     s.previousFrame = in.renderFrameId; s.previousEpoch = in.temporalEpoch;
     s.previousVP = in.cameraViewProjection; s.previousRaster = in.cameraRaster; s.previousPlan = in.plan;
 }
 void Session::SubmitStart() { Require(impl_->hostUse.SubmissionStarted(), "duplicate submit"); }
 void Session::HostSubmitted(bool success, uint64_t serial) {
-    if (impl_->hostUse.Pending()) Require(impl_->hostUse.Submitted(success, serial), "host submission");
+    auto& s = *impl_;
+    if (!s.hostUse.Pending()) return;
+    if (success) { Require(s.hostUse.Submitted(true, serial), "host submission serial"); return; }
+    // vkQueueSubmit failure leaves recorded resources unaffected (or the device
+    // is lost); only the producer copies before it may still be running.
+    s.Off();
+    Require(Retired(s.WaitGameQueue()), "failed submission producer completion");
+    Require(s.hostUse.SubmitFailed(), "failed submission lease");
+    s.ReleaseInputs(false);
 }
 void Session::Presented(bool accepted) {
     auto& s = *impl_;
-    if (!accepted && (s.hostUse.Pending() || s.prepared)) Require(false, "present rejected with retained input");
-    s.Drain();
-    s.active = accepted && s.prepared && s.callbackError.load(std::memory_order_acquire) == FFX_API_RETURN_OK;
-    if (s.callbackError.load(std::memory_order_acquire) != FFX_API_RETURN_OK) {
-        s.failed = true; s.Off(); LOG_ERROR("Vulkan FSR FG: generation callback failed");
-    }
-    if (!accepted) s.Off();
-    if (s.frame && s.frame % 120 == 0)
-        LOG_INFO("Vulkan FSR FG: source_frame={} active={} generation_dispatches={} scope=sdk_not_display",
-            s.previousFrame, s.active, s.generations.load(std::memory_order_relaxed));
+    const bool callbackFailed = s.callbackError.load(std::memory_order_acquire) != FFX_API_RETURN_OK;
+    if (++s.presents % 300 == 0)
+        LOG_INFO("Vulkan FSR FG: presents={} prepared_frames={} generation_dispatches={} active={} scope=sdk_not_display",
+            s.presents, s.frame, s.generations.load(std::memory_order_relaxed), s.prepared && accepted);
+    s.active = accepted && s.prepared && !callbackFailed;
+    // A rejected present still leaves Prepare in the submitted host batch; the
+    // host fence retires it. Only the interpolation history is lost.
+    if (!accepted || callbackFailed) s.Off();
+    if (callbackFailed) s.Fail("generation callback failed");
     s.prepared = false;
+}
+void Session::AfterHostDrain() {
+    auto& s = *impl_;
+    // Unsubmitted recordings belong to the current batch, not to this fence.
+    if (!s.hostUse.Pending() || !s.hostUse.Serial()) return;
+    // Prepare in that batch was the only reader; SDK presents use SDK images.
+    Require(s.hostUse.Completed(), "input completion");
+    s.ReleaseInputs(true);
 }
 void Session::CancelUnsubmitted(plume::RenderCommandList* list) {
     auto& s = *impl_;
-    if (!s.hostUse.Pending()) return;
+    if (!s.hostUse.Matches(list) || s.hostUse.Serial()) return;
     Require(s.hostUse.CanCancel(list), "cancellation after submit attempt");
     auto& commands = *static_cast<plume::VulkanCommandList*>(list);
     if (commands.recording) Require(submission::EndCommands(commands) == VK_SUCCESS, "cancel command end");
     Require(vkResetCommandBuffer(commands.vk, 0) == VK_SUCCESS, "cancel command reset");
     submission::ClearBindings(commands);
     s.Off();
-    Require(s.WaitSdk() == VK_SUCCESS, "cancel producer completion");
+    Require(Retired(s.WaitGameQueue()), "cancel producer completion");
     Require(s.hostUse.Canceled(list, true, true, true), "cancel input lease");
-    s.retained.reset(); s.depth.DiscardUnsubmitted();
+    s.ReleaseInputs(false);
 }
 void Session::Quiesce() {
     auto& s = *impl_;
     if (!s.installed) return;
-    s.Drain(); s.Off();
+    s.DrainBoundary();
 }
 } // namespace gpu::fsr_fg
 #endif

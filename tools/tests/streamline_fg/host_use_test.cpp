@@ -30,6 +30,10 @@ int main() {
         Check(!use.CanCancel(&list), "attempted submit is irreversible even before native result");
         Check(!use.Submitted(false, 2) && use.Serial() == 0, "failed submit publishes no host serial");
         Check(!use.Canceled(&list, true, true, true) && !use.Completed(), "failed/uncertain submit cannot be retired");
+        Check(use.SubmitFailed() && !use.Pending(), "failed submit never reached the GPU and ends its lease");
+        Check(!use.SubmitFailed(), "duplicate failed-submit release cannot end a later use");
+        HostInputUse recorded;
+        Check(recorded.Begin(&list) && !recorded.SubmitFailed(), "unattempted recording is released by cancellation only");
 
         HostInputUse submitted;
         Check(submitted.Begin(&list) && submitted.SubmissionStarted(), "new successful use");
@@ -38,6 +42,7 @@ int main() {
         Check(submitted.Submitted(true, 42) && submitted.Serial() == 42, "publish native successful serial");
         Check(!submitted.Submitted(true, 43) && submitted.Serial() == 42, "duplicate serial cannot overwrite use");
         Check(!submitted.Canceled(&list, true, true, true), "submitted commands never use cancellation path");
+        Check(!submitted.SubmitFailed(), "published serial is not a failed submit");
         // Production invokes Completed only after PresentQueueCompletion's
         // matching successful fence wait (covered separately by session test).
         Check(submitted.Completed() && !submitted.Pending(), "checked SDK drain retires submitted host use");

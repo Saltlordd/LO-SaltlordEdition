@@ -37,6 +37,13 @@ public:
         Clear();
         return true;
     }
+    // A failed vkQueueSubmit leaves recorded resources unaffected (or the device
+    // is lost), so the attempt never reached the GPU and its lease can end.
+    bool SubmitFailed() {
+        if (!commands_ || !attempted_ || serial_) return false;
+        Clear();
+        return true;
+    }
     bool Pending() const { return commands_ != nullptr; }
     uint64_t Serial() const { return serial_; }
 private:

@@ -665,6 +665,9 @@ namespace gpu::video
                 if (completed) LOG_INFO("video: FG diagnostic completed={} present_serial={} provider_ready=0 ui=unavailable",
                     completed, g_fgPresentSerial);
                 g_presentPending = false;
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+                if (g_fsrVulkanFg) g_fsrVulkanFg->AfterHostDrain();
+#endif
 #if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
                 if (g_metalFg) g_metalFg->AfterHostDrain();
 #endif
@@ -1791,6 +1794,18 @@ namespace gpu::video
                 LOG_INFO("DLSS FG: Vulkan immediate presentation enabled");
             }
 #endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg && g_fsrVulkanFg->UsesProxySwapchain()) {
+                // The FidelityFX Vulkan presenter paces real and generated frames
+                // itself. Under FIFO its image acquire and present waits stack on
+                // that pacing and hold the game at a quarter of the refresh rate.
+                g_swapChain->setVsyncEnabled(false);
+                if (g_swapChain->needsResize() && !g_swapChain->resize()) return "FSR FG immediate swapchain resize failed";
+                if (g_swapChain->isVsyncEnabled())
+                    LOG_WARNING("Vulkan FSR FG: immediate presentation unavailable; FIFO limits the real frame rate");
+                else LOG_INFO("Vulkan FSR FG: Vulkan immediate presentation enabled");
+            }
+#endif
             if (g_temporalUpscaler && settings::GetConfig().upscaler == upscaling::Upscaler::Dlss) {
                 const auto output = upscaling::ResolveOutputRegion({g_swapChain->getWidth(), g_swapChain->getHeight()});
                 const upscaling::SizingKey key{g_deviceEpoch.load(std::memory_order_acquire), output.width, output.height,
@@ -2765,6 +2780,10 @@ namespace gpu::video
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
         // Retain the existing Vulkan DLSS-G requirement at every native cap.
         forceImmediate = bool(g_fgSession);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        // The FidelityFX Vulkan presenter paces its own presents (see startup).
+        forceImmediate = forceImmediate || (g_fsrVulkanFg && g_fsrVulkanFg->UsesProxySwapchain());
 #endif
 #if LO_PLATFORM_MACOS
         // Metal keeps display sync: the compositor needs it and it never tears.
