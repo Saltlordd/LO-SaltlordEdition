@@ -13,6 +13,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Added experimental MetalFX frame generation (fixed 2×) to macOS source builds made with the macOS 26 SDK. It needs macOS 26 and a supported GPU, and the Graphics menu marks it experimental. It has not been run on Mac hardware. The Metal swap chain also now waits for outstanding presents (up to 10 seconds) before a resize or teardown, and a present that completes with an error is logged and does not stop later resizes or quitting.
 - Added experimental OptiScaler loading on Windows: in a build with DLSS/NGX, set `LO_OPTISCALER_PATH` to the absolute path of your own `OptiScaler.dll` (original file name) and start with `LO_FG_PROVIDER=off`. Loading the DLL does not show that an OptiScaler output is active; check OptiScaler's own overlay and log. Setup and limits are in the [technical note](docs/notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows). Only the loader was tested, with a stand-in DLL; OptiScaler output itself is unverified.
 - On Windows the DLSS, Streamline and FidelityFX runtime DLLs are now looked up beside the executable first, so starting the game with `--game` from another folder still finds them. In the Graphics menu, frame-generation help lists only the providers in the build, a restart prompt appears only when a save changes the frame-generation choice, and the new frame-generation texts are translated into Japanese, Korean and Simplified Chinese.
+- More Settings menu texts are now translated into Japanese, Korean and Simplified Chinese: the FSR status line, the render resolution and adaptive-sync rows, the Apple temporal upscaler help, the quality help (its new order had made it fall back to English) and the manual-restart dialogs outside Windows.
 
 ### 简体中文
 
@@ -21,6 +22,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - macOS 源码构建（使用 macOS 26 SDK）新增实验性的 MetalFX 插帧（固定 2×）。它需要 macOS 26 和受支持的 GPU，图形菜单将其标为实验性。尚未在 Mac 硬件上运行。Metal 交换链现在还会在调整大小或销毁前等待尚未完成的呈现（最多 10 秒），呈现以错误结束时会记入日志，不会妨碍之后的窗口缩放或退出。
 - 新增实验性的 Windows OptiScaler 加载：在包含 DLSS/NGX 的构建中，把 `LO_OPTISCALER_PATH` 设为自备 `OptiScaler.dll`（保持原文件名）的绝对路径，并以 `LO_FG_PROVIDER=off` 启动。加载 DLL 不代表 OptiScaler 的输出已生效，请查看 OptiScaler 自己的覆盖层和日志。配置方法与限制见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows)。目前只用替身 DLL 测试了加载器，OptiScaler 的实际输出未验证。
 - Windows 上现在优先在可执行文件旁查找 DLSS、Streamline 和 FidelityFX 运行库 DLL，因此从其他目录用 `--game` 启动游戏也能找到它们。图形菜单中，插帧帮助只列出当前构建包含的提供者；只有保存时改变了插帧选择才会弹出重启提示；新增的插帧文字已翻译为日语、韩语和简体中文。
+- 设置菜单又有一批文字翻译为日语、韩语和简体中文：FSR 状态行、渲染分辨率和自适应同步选项、Apple 时域超分辨率说明、质量说明（选项顺序调整后曾退回英文），以及 Windows 以外平台的手动重启对话框。
 
 ## [v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) — 2026-10-01
 
