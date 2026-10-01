@@ -51,7 +51,7 @@ This branch includes an experimental arm64 macOS path using Metal. Local Windows
 | Languages | English, Japanese, Korean, Traditional Chinese and Simplified Chinese interface options. Game languages depend on the installed edition. |
 | Display and image quality | 16:9 and 21:9 resolution presets, a Widescreen toggle, Off/FXAA/SMAA/experimental TAA, DLSS or FSR 3.1 upscaling, filtering and RGB Range options. |
 | Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR controls. Actual performance depends on the scene and hardware. |
-| Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. |
+| Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. Unreleased source also offers Off/DLSS with fixed 2×–6× on Windows Vulkan (enabling it after starting with it off, or switching providers, needs a restart), plus experimental Vulkan FSR 2× (source builds only) and experimental macOS MetalFX 2× (not run on Mac hardware); see the [technical note](docs/notes/vulkan-fg-fsr4-metalfx.md). |
 | Settings | Original game fonts, scrollable lists, and Save/apply controls. On the Graphics page, **Start/Enter** moves focus to **Save**; confirm that item to save. Options that require a restart offer **Now/Later**. |
 | Shader preparation | Bundled portable Vulkan shaders, parallel compilation, a skip option and cache reuse. The optional [v0.7.10 DX12 pack](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) belongs at `shaders/portable_dx12.lospd`; it is not a separate v0.7.25 asset. |
 | Mods | Mod API v1, LOTEX1/PNG tools, native-menu atlas and font-page replacements, and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md) for supported replacements and installation. |
@@ -185,7 +185,7 @@ Environment variables give more launch options. Each one overrides the saved set
 | :--- | :--- |
 | `LO_GRAPHICS_API` | `d3d12` or `vulkan` on Windows. Linux always uses Vulkan and macOS always uses Metal. |
 | `LO_FPS` | Frame-rate cap from 0 to 1000; `0` means uncapped. |
-| `LO_FG_PROVIDER`, `LO_FG_MODE`, `LO_FG_MULTIPLIER`, `LO_FG_TARGET_FPS` | Frame generation on Windows: `off`/`dlss`/`fsr`; `off`/`fixed`/`dynamic`; 2–6; target FPS. |
+| `LO_FG_PROVIDER`, `LO_FG_MODE`, `LO_FG_MULTIPLIER`, `LO_FG_TARGET_FPS` | Frame generation on Windows: `off`/`dlss`/`fsr`; `off`/`fixed`/`dynamic`; 2–6; target FPS. In unreleased source, Vulkan accepts DLSS fixed 2–6 and, in builds with `LO_ENABLE_VULKAN_FSR_FG`, FSR fixed 2; macOS accepts `metalfx` (fixed 2, experimental). Dynamic mode is D3D12 DLSS only. [Details](docs/notes/vulkan-fg-fsr4-metalfx.md). |
 | `LO_OPTISCALER_PATH` | Experimental Windows OptiScaler loading: absolute path to your `OptiScaler.dll`. Requires DLSS/NGX in the build and `LO_FG_PROVIDER=off`; select DLSS in-game. [Setup and limits](docs/notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows). |
 | `LO_NO_UPDATE` | Any value other than `0` skips the update check. |
 | `LO_PROFILE_DIR`, `LO_SHADER_CACHE_DIR`, `LO_MODS_DIR` | Use another profile, shader cache or mods folder. An empty `LO_SHADER_CACHE_DIR` disables the shader cache. |

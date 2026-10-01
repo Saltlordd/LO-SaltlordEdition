@@ -51,7 +51,7 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 | 语言 | 界面提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于安装的版本。 |
 | 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
-| 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。 |
+| 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。尚未发布的源码在 Windows Vulkan 上也提供关／DLSS（固定 2×–6×；启动时为关而之后开启，或切换提供者，需要重启），另有实验性的 Vulkan FSR 2×（仅限源码构建）和实验性的 macOS MetalFX 2×（尚未在 Mac 硬件上运行），见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |
 | 着色器预编译 | 内置便携式 Vulkan 着色器、多线程编译、跳过和缓存复用。[v0.7.10 的可选 DX12 包](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10)应放在 `shaders/portable_dx12.lospd`；v0.7.25 未单独提供该资产。 |
 | Mod | Mod API v1、LOTEX1／PNG 工具、原生菜单图集和字体纹理页替换，以及 PlayStation 按键提示。支持范围和安装方法见 [Mod 指南](docs/wiki/Modding.md)。 |
@@ -185,7 +185,7 @@ LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdysse
 | :--- | :--- |
 | `LO_GRAPHICS_API` | Windows 上为 `d3d12` 或 `vulkan`。Linux 始终使用 Vulkan，macOS 始终使用 Metal。 |
 | `LO_FPS` | 帧率上限，0 到 1000；`0` 表示不限制。 |
-| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | Windows 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率。 |
+| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | Windows 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率。尚未发布的源码中，Vulkan 支持 DLSS 固定 2–6 倍，用 `LO_ENABLE_VULKAN_FSR_FG` 构建时还支持 FSR 固定 2×；macOS 支持 `metalfx`（固定 2×，实验性）。动态模式仅限 D3D12 的 DLSS。[详情](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | `LO_OPTISCALER_PATH` | 实验性 Windows OptiScaler 接入：填写自备 `OptiScaler.dll` 的绝对路径。构建须包含 DLSS/NGX，并设置 `LO_FG_PROVIDER=off`；游戏内选择 DLSS。[配置方法与限制](docs/notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows)。 |
 | `LO_NO_UPDATE` | 设为 `0` 以外的任何值即跳过更新检查。 |
 | `LO_PROFILE_DIR`、`LO_SHADER_CACHE_DIR`、`LO_MODS_DIR` | 使用其他个人配置、着色器缓存或 Mod 目录。`LO_SHADER_CACHE_DIR` 设为空值会关闭着色器缓存。 |
