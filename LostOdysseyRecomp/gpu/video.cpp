@@ -46,6 +46,7 @@
 #include <kernel/memory.h>
 #include <os/main_thread.h>
 #include <os/platform.h>
+#include <os/runtime_libraries.h>
 #include <os/shader_log.h>
 #include <os/user_paths.h>
 #include <hid/hid.h>
@@ -637,32 +638,27 @@ namespace gpu::video
                 : os::user_paths::DataDir() / "cache" / "ngx";
         }
 
-        // Release packages ship NGX, Streamline and FidelityFX libraries beside the
-        // executable. Direct Windows launches already run there, but explicit
-        // --game launches keep the caller's working directory, where staged test
-        // runs place their copies. Prefer the executable's directory when it holds
-        // the requested library; other platforms keep the working directory.
-        std::filesystem::path RuntimeDirectory(const wchar_t* library)
+        // NGX, Streamline and FidelityFX libraries are searched from the executable
+        // (see os/runtime_libraries.h); LO_DLSS_RUNTIME_PATH overrides the search.
+        std::filesystem::path RuntimeDirectory(std::string_view library)
         {
             const char* override = std::getenv("LO_DLSS_RUNTIME_PATH");
             if (override && *override) return std::filesystem::path(override);
-#ifdef _WIN32
-            wchar_t executable[32768]{};
-            const DWORD length = GetModuleFileNameW(nullptr, executable, DWORD(std::size(executable)));
-            if (length && length < std::size(executable)) {
-                const auto directory = std::filesystem::path(executable).parent_path();
-                std::error_code error;
-                if (std::filesystem::is_regular_file(directory / library, error)) return directory;
-            }
-#else
-            (void)library;
-#endif
-            return std::filesystem::current_path();
+            std::error_code error;
+            return os::runtime_libraries::Find(library, os::user_paths::ExecutableDir(),
+                std::filesystem::current_path(error));
         }
 
-        std::filesystem::path DlssRuntimePath() { return RuntimeDirectory(L"nvngx_dlss.dll"); }
-        [[maybe_unused]] std::filesystem::path StreamlineRuntimePath() { return RuntimeDirectory(L"sl.interposer.dll"); }
-        [[maybe_unused]] std::filesystem::path FidelityFxRuntime(const char* overrideVariable, const wchar_t* library)
+        std::filesystem::path DlssRuntimePath()
+        {
+#ifdef _WIN32
+            return RuntimeDirectory("nvngx_dlss.dll");
+#else
+            return RuntimeDirectory("libnvidia-ngx-dlss.so");
+#endif
+        }
+        [[maybe_unused]] std::filesystem::path StreamlineRuntimePath() { return RuntimeDirectory("sl.interposer.dll"); }
+        [[maybe_unused]] std::filesystem::path FidelityFxRuntime(const char* overrideVariable, std::string_view library)
         {
             const char* override = std::getenv(overrideVariable);
             return override && *override ? std::filesystem::path(override) : RuntimeDirectory(library) / library;
@@ -1775,7 +1771,7 @@ namespace gpu::video
                 if (fg.Enabled()) {
                     auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
                     const auto runtime = fg.config.provider == framegen::Provider::Fsr
-                        ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", L"amd_fidelityfx_dx12.dll")
+                        ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll")
                         : StreamlineRuntimePath();
                     std::string reason;
                     if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), fg.config, runtime, reason)) {
@@ -1811,7 +1807,7 @@ namespace gpu::video
                     std::string reason;
                     if (session->Initialize(*static_cast<plume::VulkanDevice*>(g_device.get()),
                         *static_cast<plume::VulkanCommandQueue*>(g_queue.get()),
-                        FidelityFxRuntime("LO_FSR_VULKAN_FG_RUNTIME", L"amd_fidelityfx_vk.dll"), reason)) {
+                        FidelityFxRuntime("LO_FSR_VULKAN_FG_RUNTIME", "amd_fidelityfx_vk.dll"), reason)) {
                         g_fsrVulkanFg = std::move(session);
                         g_fgWindowSynchronization = true;
                         std::lock_guard lock(g_fgSettingsMutex);
@@ -2649,7 +2645,7 @@ namespace gpu::video
         if (desired.provider != framegen::Provider::Off) {
             auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
             const auto runtime = desired.provider == framegen::Provider::Fsr
-                ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", L"amd_fidelityfx_dx12.dll")
+                ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll")
                 : StreamlineRuntimePath();
             if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), desired, runtime, reason))
                 g_d3dFg = std::move(bridge);
