@@ -107,7 +107,11 @@ Differences from the GitHub release workflow:
   change with the XEX or the recompiler, and they took about 9 of the 11
   minutes of the first Linux build. The job log ends the build with
   `ccache --show-stats`. Translation units that use the runtime's precompiled
-  header fall back to the compiler.
+  header fall back to the compiler. ccache rejects CMake's clang-cl spelling of
+  C++23, `-clang:-std=c++23`, so the top-level `CMakeLists.txt` selects
+  `/std:c++23preview` for clang-cl 20 and later; on clang-cl 22 with `/Brepro`
+  both spellings produced byte-identical objects. Before that change 611 of
+  837 Windows compilations were uncacheable.
 - Runner caches: both release runners set `LO_CI_CACHE` (`D:\ci-cache` on
   T640; `/ci-cache` on the privileged runner, the `lo-release-cache` docker
   volume). `fetch_dlss_sdk.py` keeps a verified checkout of the pinned SDK in
