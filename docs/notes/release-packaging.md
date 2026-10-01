@@ -96,7 +96,8 @@ fetched from a pinned commit of `freefrank/LostOdysseyRecomp-build-inputs` with 
 `LO_GITHUB_TOKEN` Gitea secret, the same fine-grained GitHub token that creates and
 publishes the GitHub release. Pull-request workflows never access that repository.
 Each run produces downloadable Gitea artifacts; a version tag also creates a **draft**
-GitHub release, which is published once all three packages are uploaded.
+GitHub release. After both platforms have built, the publish job uploads the Gitea
+artifacts to the draft and publishes it once all three packages are present.
 
 `.github/workflows/release.yml` is the manual-only GitHub fallback. It uses hosted
 runners and the read-only deploy key in the `LO_BUILD_INPUT_KEY` Actions secret.

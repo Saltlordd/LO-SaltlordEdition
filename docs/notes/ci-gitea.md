@@ -66,13 +66,20 @@ git push zkx refs/tags/vX.Y.Z
 
 | Job | Runner |
 |---|---|
-| Create draft release, publish complete release | `docker-runner` |
+| Create draft release (before the builds, so a missing CHANGELOG section or tag fails early) | `docker-runner` |
 | FSR shader inputs, Windows build and ZIP | `win-t640` |
 | Linux build, AppImage and Flatpak | `docker-lo-release-privileged` |
+| Publish: upload the Gitea artifacts to the draft, verify the set, make it public and latest | `docker-runner` |
+
+The build jobs only produce Gitea artifacts. The publish job runs after both
+platforms have built, downloads the three package artifacts and uploads the
+ones the release does not have yet, so a failed platform leaves the draft
+without a partial package set. Unlike the GitHub workflow, the build jobs do
+not upload to the release themselves.
 
 The Gitea job token cannot reach GitHub, so every GitHub operation uses
 `LO_GITHUB_TOKEN` with `GH_REPO` pinned to `freefrank/LostOdysseyRecomp`:
-creating the draft, uploading assets, publishing, downloading the pinned
+creating the draft, uploading the packages, publishing, downloading the pinned
 Streamline SDK, and fetching the private `freefrank/LostOdysseyRecomp-build-inputs`
 commits (no deploy key on Gitea). A manual start without `release_tag` builds
 the selected branch and keeps the packages as Gitea artifacts; it writes

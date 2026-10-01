@@ -287,24 +287,6 @@ jobs:
           name: LostOdysseyRecomp-windows-x64
           path: out/releases/LostOdysseyRecomp-*.zip
           if-no-files-found: error
-      - name: Upload Windows assets to release
-        if: env.RELEASE_TAG != ''
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-        run: |
-          $assets = @(Get-ChildItem out/releases/LostOdysseyRecomp-*.zip | ForEach-Object FullName)
-          if ($assets.Count -eq 0) { throw 'No Windows release assets to upload.' }
-          $json = gh release view $env:RELEASE_TAG --json assets
-          if ($LASTEXITCODE -ne 0) { throw 'Release is missing.' }
-          $release = $json | ConvertFrom-Json
-          $existing = @($release.assets | ForEach-Object { $_.name })
-          $missing = @($assets | Where-Object { $existing -notcontains [IO.Path]::GetFileName($_) })
-          if ($missing.Count -eq 0) {
-            Write-Host 'Windows assets already on the release; preserving its reviewed assets.'
-            exit 0
-          }
-          gh release upload $env:RELEASE_TAG @missing
-          if ($LASTEXITCODE -ne 0) { throw 'Windows release asset upload failed.' }
 
   release-linux:
     name: Linux Release
@@ -492,34 +474,6 @@ jobs:
           name: LostOdysseyRecomp-linux-x64
           path: out/releases/LostOdysseyRecomp-*.AppImage
           if-no-files-found: error
-      - name: Upload Linux assets to release
-        if: env.RELEASE_TAG != ''
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          linux_assets=()
-          for file in out/releases/LostOdysseyRecomp-*.AppImage; do
-            if [ -f "$file" ]; then
-              linux_assets+=("$file")
-            fi
-          done
-          if [ ${#linux_assets[@]} -eq 0 ]; then
-            echo "No Linux release assets to upload." >&2
-            exit 1
-          fi
-          existing=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
-          missing=()
-          for file in "${linux_assets[@]}"; do
-            if ! grep -Fxq -- "$(basename "$file")" <<< "$existing"; then
-              missing+=("$file")
-            fi
-          done
-          if [ "${#missing[@]}" -eq 0 ]; then
-            echo "Linux assets already on the release; preserving its reviewed assets."
-            exit 0
-          fi
-          gh release upload "$RELEASE_TAG" "${missing[@]}"
       - name: Reuse published Flatpak asset when available
         id: flatpak-release
         env:
@@ -565,18 +519,15 @@ jobs:
             ${{ env.FLATPAK_OUTPUT }}/*.flatpak
             ${{ env.FLATPAK_OUTPUT }}/source.json
           if-no-files-found: error
-      - name: Upload Flatpak to release
-        if: steps.flatpak-release.outputs.build == 'true' && env.RELEASE_TAG != ''
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-        run: |
-          gh release upload "$RELEASE_TAG" "$FLATPAK_OUTPUT/LostOdysseyRecomp-linux-x64-${RELEASE_TAG}.flatpak"
 
+  # The build jobs only produce Gitea artifacts. Writing to the GitHub release
+  # happens here, after both platforms have built.
   publish-release:
     name: Publish complete release
     needs: [release-windows, release-linux]
     if: inputs.release_tag != '' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
     env:
       GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
     steps:
@@ -586,6 +537,45 @@ jobs:
           curl -fsSL https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_amd64.tar.gz | tar -xz -C /tmp
           echo /tmp/gh_2.63.2_linux_amd64/bin >> "$GITHUB_PATH"
           command -v jq >/dev/null || { SUDO=$(command -v sudo || true); $SUDO apt-get update && $SUDO apt-get install -y --no-install-recommends jq; }
+      - uses: actions/download-artifact@v3
+        with:
+          name: LostOdysseyRecomp-windows-x64
+          path: dist/LostOdysseyRecomp-windows-x64
+      - uses: actions/download-artifact@v3
+        with:
+          name: LostOdysseyRecomp-linux-x64
+          path: dist/LostOdysseyRecomp-linux-x64
+      # Absent when the release already has the Flatpak bundle (see release-linux).
+      - uses: actions/download-artifact@v3
+        continue-on-error: true
+        with:
+          name: LostOdysseyRecomp-linux-x64-flatpak
+          path: dist/LostOdysseyRecomp-linux-x64-flatpak
+      - name: Upload Gitea artifacts to the GitHub release
+        run: |
+          set -euo pipefail
+          packages=(
+            "dist/LostOdysseyRecomp-windows-x64/LostOdysseyRecomp-windows-x64-${RELEASE_TAG}.zip"
+            "dist/LostOdysseyRecomp-linux-x64/LostOdysseyRecomp-linux-x64-${RELEASE_TAG}.AppImage"
+            "dist/LostOdysseyRecomp-linux-x64-flatpak/LostOdysseyRecomp-linux-x64-${RELEASE_TAG}.flatpak"
+          )
+          existing=$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')
+          missing=()
+          for file in "${packages[@]}"; do
+            name=$(basename "$file")
+            if grep -Fxq -- "$name" <<< "$existing"; then
+              echo "$name is already on the release; preserving the reviewed asset."
+            elif [ -f "$file" ]; then
+              missing+=("$file")
+            else
+              echo "$name is neither on the release nor among the run's artifacts." >&2
+              exit 1
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            ls -l "${missing[@]}"
+            gh release upload "$RELEASE_TAG" "${missing[@]}"
+          fi
       - name: Verify package set and publish draft
         run: |
           gh release view "$RELEASE_TAG" --json assets,isDraft > release.json
