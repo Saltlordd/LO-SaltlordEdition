@@ -1,0 +1,23 @@
+description = "City of Numara with camera TAA (motion vectors on Metal)"
+save = "user17"
+timeout = 150
+# Swap-stamped (30 FPS until the city; TAA slows loading, which shifts wall-clock
+# timing). After loading, five Downs move from Ipsilon Mountains - North to City of Numara.
+buttons = "s@300,d@600,a@900,a@1200,a@1500,d@1900,d@1960,d@2020,d@2080,d@2140,a@2300,a@2500,a@2700"
+
+[[step]]
+wait_draws = 3000
+stick = [0, 28000]
+polls = 600
+hold_seconds = 20
+screenshot = true
+
+[checks]
+# Numara draws about 3,300 per frame; other destinations stay far below.
+min_draws = 3000
+# Motion-vector replay is batched on Metal (was ~13 FPS when interleaved).
+# An "mv:" init failure is an [error] line and fails the run.
+min_fps = 25
+
+[settings]
+antialiasing = 3

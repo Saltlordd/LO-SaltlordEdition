@@ -312,16 +312,21 @@ inline Result Scan(const fs::path& root, const fs::path& cacheDir,
         std::ostringstream identity;
         identity << (strict ? "resource-scanner-v5-cpx-strict\n" : "resource-scanner-v5-cpx-direct\n");
         uint64_t totalBytes = 0;
+        // file_time_type's rep is __int128 on libc++, which ostream cannot print;
+        // it is already a signed 64-bit count on MSVC STL and libstdc++.
+        const auto mtime = [](const fs::path& file) {
+            return int64_t(fs::last_write_time(file).time_since_epoch().count());
+        };
         for (const auto& file : files) {
             const auto size = fs::file_size(file); totalBytes += size;
             if (!sink) identity << fs::absolute(file).generic_string() << '\t' << size << '\t'
-                     << fs::last_write_time(file).time_since_epoch().count() << '\n';
+                     << mtime(file) << '\n';
         }
         // FPI changes also invalidate the discovery cache. Like FPD identity,
         // this is a size/mtime fingerprint, not a full game-integrity digest.
         if (!sink) for (const auto& file : indexes)
             identity << fs::absolute(file).generic_string() << '\t' << fs::file_size(file) << '\t'
-                     << fs::last_write_time(file).time_since_epoch().count() << '\n';
+                     << mtime(file) << '\n';
         const auto source = cacheDir / "source";
         if (!sink) fs::create_directories(source);
         const auto manifest = cacheDir / "resources.manifest";

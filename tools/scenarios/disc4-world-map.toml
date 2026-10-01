@@ -1,0 +1,13 @@
+description = "Disc 4 world map (slot 16): load; the disc switch happens here"
+save = "user17"
+timeout = 90
+# The world map opens with the cursor on Ipsilon Mountains - North; no confirm.
+buttons = "s@300,d@600,a@900,a@1200,a@1500"
+
+[[step]]
+wait_seconds = 70
+screenshot = true
+hold_seconds = 2
+
+[checks]
+min_fps = 25

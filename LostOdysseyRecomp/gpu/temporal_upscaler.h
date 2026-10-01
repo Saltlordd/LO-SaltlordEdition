@@ -7,7 +7,8 @@
 #include <optional>
 #include <memory>
 
-namespace plume { struct VulkanInterface; struct VulkanDevice; struct VulkanCommandList; struct VulkanTexture; struct D3D12Device; struct D3D12CommandList; struct D3D12Texture; }
+namespace plume { struct VulkanInterface; struct VulkanDevice; struct VulkanCommandList; struct VulkanTexture; struct D3D12Device; struct D3D12CommandList; struct D3D12Texture;
+    struct RenderDevice; struct RenderCommandList; struct RenderTexture; }
 namespace gpu::dlss { class Controller; struct EvaluateCapture; }
 namespace gpu::fsr { class Controller; }
 
@@ -76,13 +77,15 @@ inline bool ValidSrRequest(const SrRequest& request) {
         request.inputs.plan.consumer != plan.consumer ||
         !request.inputs.CompleteForConsumer()) return false;
     return plan.requestedUpscaler == upscaling::Upscaler::Dlss ? upscaling::KnownDlssQuality(plan.dlssQuality) :
-        plan.requestedUpscaler == upscaling::Upscaler::Fsr && upscaling::KnownFsrQuality(plan.fsrQuality);
+        upscaling::UsesFsrQuality(plan.requestedUpscaler) && upscaling::KnownFsrQuality(plan.fsrQuality);
 }
 
 // Borrows the NGX controller and owns the FSR adapter. Both use the caller's queue.
+// On Metal there is no NGX controller; MetalFX is recorded through plume.
 class TemporalUpscaler {
 public:
     explicit TemporalUpscaler(dlss::Controller& controller);
+    explicit TemporalUpscaler(dlss::Controller* controller);
     ~TemporalUpscaler();
     upscaling::OutputSizing QuerySizing(const plume::VulkanInterface& api, const plume::VulkanDevice& device,
         const upscaling::SizingKey& key);
@@ -95,6 +98,13 @@ public:
     SrResult RecordIsolated(plume::D3D12CommandList& commands, const SrRequest& request,
         plume::D3D12Texture& output, dlss::EvaluateCapture* capture = nullptr);
 #endif
+#if LO_PLATFORM_MACOS
+    // MetalFX on the Metal backend. Sizing needs no GPU work.
+    upscaling::OutputSizing QuerySizing(const plume::RenderDevice& device, const upscaling::SizingKey& key);
+    SrResult Prepare(plume::RenderDevice& device, const SrRequest& request);
+    SrResult RecordIsolated(plume::RenderCommandList& commands, const SrRequest& request,
+        plume::RenderTexture& output, dlss::EvaluateCapture* capture = nullptr);
+#endif
     void OnSubmitted(SrUseToken token, uint64_t checkedSerial);
     void OnDiscarded(SrUseToken token);
     void ReleaseCompleted(uint64_t completedSerial);
@@ -104,7 +114,8 @@ public:
     bool ShutdownComplete() const;
     void AbandonAfterDeviceLoss();
 private:
-    dlss::Controller& dlss_;
+    dlss::Controller* dlss_;
     std::unique_ptr<fsr::Controller> fsr_;
+    uint64_t metalFxLastFrame_ = 0; // Render frame of the last MetalFX dispatch; a gap resets history.
 };
 } // namespace gpu

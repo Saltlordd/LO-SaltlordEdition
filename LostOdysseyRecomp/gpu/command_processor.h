@@ -7,6 +7,7 @@
 #include <vector>
 #include "gpu/frame_plan.h"
 #include "gpu/indirect_buffer_guard.h"
+#include <os/guest_code_thread.h>
 
 // Minimal Xenos command processor: consumes the primary ring buffer, executes
 // the PM4 packets the CPU synchronises against (memory writes, fences, waits,
@@ -54,6 +55,16 @@ namespace gpu
         uint32_t ReadRegister(uint32_t index);
         // Same values as ordered ReadRegister calls, without a call per word.
         void ReadRegisters(uint32_t first, uint32_t count, uint32_t* destination);
+        // Capture a constant bank and the words whose zero register value makes
+        // direct MMIO stores visible. Recheck only those words between writes.
+        uint32_t ReadConstantBank(uint32_t bank, uint32_t* destination, uint16_t* fallbackOffsets);
+        bool RefreshConstantFallbacks(uint32_t bank, const uint16_t* fallbackOffsets,
+            uint32_t fallbackCount, uint32_t* snapshot, uint64_t& snapshotVersion);
+        // ALU constant banks (0: vertex 0x4000-0x43FF, 1: pixel 0x4400-0x47FF). The
+        // generation changes whenever command packets change a value in the bank.
+        // Direct MMIO stores are checked separately at zero-register fallback words.
+        static constexpr uint32_t kAluConstantBase = 0x4000, kAluConstantBankSize = 0x400;
+        uint64_t ConstantGeneration(uint32_t bank) const { return m_constantGeneration[bank & 1].load(std::memory_order_acquire); }
         // Microcode of the last IM_LOAD for the vertex (false) / pixel (true) stage.
         const uint32_t* GetActiveShader(bool pixel, uint32_t& dwordCount, uint64_t& commandHash) const;
         // Byte identity of the owned IM_LOAD snapshot; resolved once per change.
@@ -131,6 +142,7 @@ namespace gpu
         std::mutex m_writePtrMutex;
         std::condition_variable m_writePtrChanged;
         std::atomic<uint32_t> m_counter{ 0 };
+        std::atomic<uint64_t> m_constantGeneration[2]{};
         std::atomic<bool> m_running{ false };
 
         IndirectBufferGuard m_indirectGuard;
@@ -147,8 +159,8 @@ namespace gpu
         uint64_t m_binSelect = 0xFFFFFFFFFFFFFFFFull;
 
         std::thread m_worker;
-        std::thread m_vsync;
-        std::thread m_interruptThread;
+        os::GuestCodeThread m_vsync;
+        os::GuestCodeThread m_interruptThread;
     };
 
     extern CommandProcessor g_commandProcessor;

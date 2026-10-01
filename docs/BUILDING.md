@@ -213,6 +213,62 @@ flatpak run io.github.freefrank.LostOdysseyRecomp
 
 Standalone bundles installed directly from `.flatpak` files do not configure an OSTree remote repository and cannot receive updates via `flatpak update`. Upgrading a local installation requires installing a newly downloaded or generated `.flatpak` bundle. Automatic updates will be available once published via an OSTree remote or Flathub (submission pending).
 
+## Building on macOS
+
+Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). DLSS, FSR and frame generation are rejected at configure time on macOS. This branch has no published Mac package, and CI cannot link the complete runtime without private game data.
+
+### Prerequisites
+
+- macOS 14 or later on Apple Silicon
+- Xcode (Apple Clang and the Metal toolchain; set `DEVELOPER_DIR` to select a specific Xcode)
+- CMake 3.28+ and Ninja (`brew install cmake ninja`)
+- Python 3.11+
+
+### Dependencies and patches
+
+```bash
+git submodule update --init --recursive
+git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
+git -C thirdparty/plume apply ../../tools/patches/plume-lostodyssey.patch
+git -C thirdparty/plume apply ../../tools/patches/plume-macos.patch
+```
+
+`plume-macos.patch` applies after the upstream plume patch; see [tools/patches/README.md](../tools/patches/README.md#macos-plume-metal-patch).
+
+### Generate and build
+
+Place Disc 1 at `LostOdysseyRecompLib/private/disc1/`, then:
+
+```bash
+cmake -S tools/xexdump -B out/build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build out/build/tools --target XenonRecomp XenonAnalyse xexdump
+out/build/tools/xexdump LostOdysseyRecompLib/private/disc1/default.xex LostOdysseyRecompLib/private/image_disc1.bin
+python3 -B tools/ppc_codegen.py generate
+cmake -S . -B out/build/macos-gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+cmake --build out/build/macos-gpu --target LostOdysseyRecomp
+```
+
+The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 14.0; hardware validation is recorded separately in [development status](STATUS.md).
+
+### Run
+
+```bash
+cd out/build/macos-gpu/LostOdysseyRecomp
+./LostOdysseyRecomp --game ../../../../LostOdysseyRecompLib/private/disc1
+```
+
+A writable build folder uses the portable layout (settings, saves, cache and logs beside the executable). An `.app` bundle never does; it uses `~/Library/Application Support/LostOdysseyRecomp` and `~/Library/Logs/LostOdysseyRecomp`.
+
+### Package
+
+```bash
+python3 -B tools/package_macos.py   # out/releases/LostOdysseyRecomp-macos-arm64-<tag>.zip
+```
+
+The `.app` is ad-hoc signed and runs on the building Mac; distribution would need a Developer ID signature and notarization.
+
 ## Launch with a consistent working directory
 
 ```powershell

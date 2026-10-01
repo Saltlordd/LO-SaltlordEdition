@@ -4,8 +4,14 @@
 # Export compile commands for tooling inspection (compile_commands.json)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Export compile_commands.json" FORCE)
 
-# Target CPU architecture
-set(LO_TARGET_ARCH "sandybridge" CACHE STRING "Target CPU architecture (e.g. sandybridge, znver2)")
+# Target CPU architecture. Non-x86 ISAs default to the compiler's baseline CPU
+# for the target (all Apple Silicon on arm64 macOS); set LO_TARGET_ARCH to override.
+if(LO_TARGET_ISA MATCHES "^x86")
+    set(_lo_default_target_arch "sandybridge")
+else()
+    set(_lo_default_target_arch "")
+endif()
+set(LO_TARGET_ARCH "${_lo_default_target_arch}" CACHE STRING "Target CPU architecture (e.g. sandybridge, znver2; empty for the compiler baseline)")
 
 # Optimization level
 set(LO_OPT_LEVEL "" CACHE STRING "Explicit optimization level (2, 3, or empty to follow build type)")

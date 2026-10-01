@@ -287,8 +287,8 @@ void PromptFirstRun(uint32_t language){
     }
 #endif
 }
-void SetDevice(bool vk,const std::string& name,uint64_t version){auto& s=*state;std::lock_guard lock(s.mutex);
-    const std::string nextBackend=vk?"vulkan":"d3d12",nextDriver=std::to_string(version);std::string nextGpu;
+void SetDevice(const char* backend,const std::string& name,uint64_t version){auto& s=*state;std::lock_guard lock(s.mutex);
+    const std::string nextBackend=backend,nextDriver=std::to_string(version);std::string nextGpu;
     for(unsigned char c:name)if((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c==' '||c=='('||c==')'||c=='_'||c=='.'||c=='+'||c=='-') {if(nextGpu.size()<100)nextGpu+=char(c);}
     if(nextGpu.empty())nextGpu="Unknown";
     if(s.backend!=nextBackend||s.gpu!=nextGpu||s.driver!=nextDriver){

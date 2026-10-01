@@ -28,6 +28,42 @@ def require_outputs(output):
             raise ValueError(f"Missing generated file: {name}")
 
 
+# XenonRecomp emits PowerPC barriers as comments only. x86 keeps stores in order,
+# but AArch64 reorders them like PowerPC, so publication through a plain store
+# after lwsync (for example a job queue) can expose half-built objects. Each
+# barrier becomes a C++ fence: acq_rel emits no instruction on x86 (compiler
+# ordering only) and dmb on AArch64; sync is a full fence.
+BARRIERS = {
+    "\t// lwsync \n": "\tstd::atomic_thread_fence(std::memory_order_acq_rel);\n",
+    "\t// eieio \n": "\tstd::atomic_thread_fence(std::memory_order_acq_rel);\n",
+    "\t// sync \n": "\tstd::atomic_thread_fence(std::memory_order_seq_cst);\n",
+}
+SHARED_INCLUDE = '#include "ppc_recomp_shared.h"\n'
+
+
+def insert_barriers(output):
+    """Add the fences to generated sources; repeated runs change nothing."""
+    inserted = 0
+    for path in sorted(output.glob("ppc_recomp.*.cpp")):
+        lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+        result, changed = [], False
+        for index, line in enumerate(lines):
+            result.append(line)
+            fence = BARRIERS.get(line)
+            if fence and (index + 1 >= len(lines) or lines[index + 1] != fence):
+                result.append(fence)
+                changed = True
+                inserted += 1
+        if not changed:
+            continue
+        if "#include <atomic>\n" not in result:
+            if SHARED_INCLUDE not in result:
+                raise ValueError(f"Unexpected generated layout: {path.name}")
+            result.insert(result.index(SHARED_INCLUDE) + 1, "#include <atomic>\n")
+        path.write_text("".join(result), encoding="utf-8")
+    return inserted
+
+
 def generate(root, executable):
     config, output = layout(root)
     output.mkdir(parents=True, exist_ok=True)
@@ -49,6 +85,7 @@ def generate(root, executable):
                             str(root / "tools/XenonRecomp/XenonUtils/ppc_context.h")],
                            cwd=root, check=True)
             require_outputs(output)
+            insert_barriers(output)
         except BaseException:
             for path in generated_files(output):
                 path.unlink()
@@ -59,7 +96,8 @@ def generate(root, executable):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["generate"])
+    parser.add_argument("command", choices=["generate", "barriers"],
+                        help="barriers: only add fences to the existing generated sources")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--executable", type=Path)
     args = parser.parse_args()
@@ -67,6 +105,11 @@ def main():
     executable = args.executable or root / "out/build/tools/XenonRecomp/XenonRecomp" / (
         "XenonRecomp.exe" if sys.platform == "win32" else "XenonRecomp")
     try:
+        if args.command == "barriers":
+            _, output = layout(root)
+            require_outputs(output)
+            print(f"PPC barriers: {insert_barriers(output)} fences added")
+            return 0
         generate(root, executable.resolve())
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"PPC generation failed: {error}", file=sys.stderr)

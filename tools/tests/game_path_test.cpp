@@ -195,16 +195,19 @@ int main()
         };
         const auto savedDataHome = previousEnv("XDG_DATA_HOME");
         const auto savedConfigHome = previousEnv("XDG_CONFIG_HOME");
+        const auto savedHome = previousEnv("HOME");
         const auto dataHome = fixture.root / "xdg-data";
         const auto configHome = fixture.root / "xdg-config";
         setenv("XDG_DATA_HOME", dataHome.c_str(), 1);
         setenv("XDG_CONFIG_HOME", configHome.c_str(), 1);
-        const auto dataGame = dataHome / "lost-odyssey-recomp" / "game";
+        // macOS uses ~/Library instead of the XDG directories.
+        setenv("HOME", (fixture.root / "home").c_str(), 1);
+        const auto dataGame = os::user_paths::DataDir() / "game";
         const auto dataDisc = dataGame / "disc1";
         fixture.Marker(dataDisc);
         fixture.Marker(adjacentDisc);
         CheckRoot(Resolve(fixture.exe), dataDisc, Source::DefaultSearch,
-                  "non-portable XDG game did not take priority over adjacent game");
+                  "non-portable per-user game did not take priority over adjacent game");
 
         fs::remove_all(dataGame, error);
         CheckRoot(Resolve(fixture.exe), adjacentDisc, Source::DefaultSearch,
@@ -212,8 +215,8 @@ int main()
 
         fs::remove_all(adjacentGame, error);
         const auto nonPortable = Resolve(fixture.exe);
-        Check(nonPortable.root == (dataHome / "lost-odyssey-recomp" / "game").lexically_normal(),
-              "non-portable fallback did not use the XDG data game directory");
+        Check(nonPortable.root == dataGame.lexically_normal(),
+              "non-portable fallback did not use the per-user data game directory");
         Check(nonPortable.source == Source::Fallback && !nonPortable.valid,
               "non-portable missing default did not report fallback state");
         os::user_paths::g_usePortableLayout = previousPortable;
@@ -223,6 +226,7 @@ int main()
         };
         restoreEnv("XDG_DATA_HOME", savedDataHome);
         restoreEnv("XDG_CONFIG_HOME", savedConfigHome);
+        restoreEnv("HOME", savedHome);
     }
 #endif
 

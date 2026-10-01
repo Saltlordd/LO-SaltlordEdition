@@ -8,6 +8,7 @@
 #include "import_crypto.h"
 #include "../os/user_paths.h"
 #include "../settings/game_path.h"
+#include "../gpu/shader/resource_cpx_index_sha256.h"
 
 #include <algorithm>
 #include <array>
@@ -36,6 +37,7 @@
 #else
 #include <fcntl.h>
 #include <sys/file.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -130,6 +132,41 @@ void FinishDlcOutput(std::ofstream& out, const std::filesystem::path& path)
     CheckDlcOutput(out, path, "close");
 }
 
+// kernel/dlc_content.cpp only exposes a DLC whose .lo-dlc.json carries these digests.
+std::string FileSha256(const std::filesystem::path& path, const Cancelled& cancelled)
+{
+#ifdef LO_IMPORT_TESTING
+    if (path.filename().string() == g_testDlcFailureFile && g_testDlcFailureStage == "checksum")
+        throw Error("DLC checksum read failed: " + path.string());
+#endif
+    std::error_code ec;
+    const auto expectedSize = std::filesystem::file_size(path, ec);
+    if (ec) throw Error("DLC checksum read failed: " + path.string());
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw Error("DLC checksum read failed: " + path.string());
+    xenos::resources::Sha256Incremental hash;
+    std::array<uint8_t, 64 * 1024> bytes{};
+    uint64_t total = 0;
+    for (;;)
+    {
+        if (cancelled && cancelled()) throw Error("DLC import cancelled; source files were kept", true);
+        in.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+        const auto count = in.gcount();
+        if (count > 0)
+        {
+            hash.Update(std::span(bytes.data(), static_cast<size_t>(count)));
+            total += static_cast<uint64_t>(count);
+        }
+        if (in.bad()) throw Error("DLC checksum read failed: " + path.string());
+        if (in.eof()) break;
+        if (!in) throw Error("DLC checksum read failed: " + path.string());
+    }
+    if (total != expectedSize)
+        throw Error("DLC checksum read failed: " + path.string());
+    if (cancelled && cancelled()) throw Error("DLC import cancelled; source files were kept", true);
+    return xenos::resources::Sha256Hex(hash.Finalize());
+}
+
 std::string ToLower(std::string_view str)
 {
     std::string result(str);
@@ -171,6 +208,14 @@ std::string Trim(std::string value)
 bool IsSymlinkOrReparse(const std::filesystem::path& path)
 {
     std::error_code ec;
+#if LO_PLATFORM_MACOS
+    // macOS links /etc, /tmp and /var to /private. Root-owned links directly
+    // under / are part of the system layout, not a redirection.
+    struct stat status{};
+    if (path.has_root_path() && path.parent_path() == path.root_path() &&
+        lstat(path.c_str(), &status) == 0 && S_ISLNK(status.st_mode) && status.st_uid == 0)
+        return false;
+#endif
     if (std::filesystem::is_symlink(path, ec))
         return true;
 #ifdef _WIN32
@@ -1341,6 +1386,7 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
                     {
                         std::string path;
                         uint32_t size = 0;
+                        std::string sha256;
                     };
                     std::vector<ManifestFile> manifestFiles;
 
@@ -1383,7 +1429,8 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
                         if (remaining != 0)
                             throw Error("DLC file chain is shorter than its declared size");
 
-                        manifestFiles.push_back({entry.path, entry.size});
+                        // Hash the written file: the digest also covers the copy.
+                        manifestFiles.push_back({entry.path, entry.size, FileSha256(outPath, checkCancelled)});
                     }
                     if (pkg.extracted) for (const auto& entry : pkg.extracted->files)
                     {
@@ -1431,23 +1478,19 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
 
                     // 3. .lo-dlc.json
                     std::filesystem::path jsonPath = targetDir / ".lo-dlc.json";
+                    nlohmann::ordered_json manifest{
+                        {"schema", 1},
+                        {"title_id", "4D5307FA"},
+                        {"content_id", info.contentId},
+                        {"display_name", info.displayName},
+                        {"license_mask", info.licenseMask},
+                        {"source_sha256", FileSha256(info.path, checkCancelled)},
+                        {"files", nlohmann::ordered_json::array()}};
+                    for (const auto& file : manifestFiles)
+                        manifest["files"].push_back({{"path", file.path}, {"size", file.size}, {"sha256", file.sha256}});
                     std::ofstream jsonOut(jsonPath);
                     CheckDlcOutput(jsonOut, jsonPath, "open");
-                    jsonOut << "{\n"
-                            << "  \"schema\": 1,\n"
-                            << "  \"title_id\": \"4D5307FA\",\n"
-                            << "  \"content_id\": \"" << info.contentId << "\",\n"
-                            << "  \"display_name\": \"" << info.displayName << "\",\n"
-                            << "  \"license_mask\": " << info.licenseMask << ",\n"
-                            << "  \"files\": [\n";
-                    for (size_t i = 0; i < manifestFiles.size(); ++i)
-                    {
-                        jsonOut << "    {\"path\": \"" << manifestFiles[i].path << "\", \"size\": "
-                                << manifestFiles[i].size << "}";
-                        if (i + 1 < manifestFiles.size()) jsonOut << ",";
-                        jsonOut << "\n";
-                    }
-                    jsonOut << "  ]\n}\n";
+                    jsonOut << manifest.dump(2) << '\n';
                     FinishDlcOutput(jsonOut, jsonPath);
                 }
 

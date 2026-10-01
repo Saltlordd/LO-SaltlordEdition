@@ -35,6 +35,10 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 启动需要 Disc 1。请使用已核对的亚洲多语言版或 USA/Europe 四盘套装，不要混装不同版本。[安装指南](docs/INSTALLING.zh-CN.md)介绍光盘识别、Linux 安装、文件位置和更新方法。发布包不需要 Python 或 Visual Studio；更新时请保留存档和个人配置。
 
+### Apple Silicon macOS（实验性，需从源码构建）
+
+本分支加入了使用 Metal 的 arm64 macOS 实验性路径。Windows 和 Mac 的本地运行时已完成编译链接，有限的新游戏和首战测试也已通过，但目前没有已发布的 macOS 安装包。需要时请按[macOS 构建说明](docs/BUILDING.md#building-on-macos)自行构建；长时间游玩、更广场景、画质和性能验证仍待完成。
+
 ### 最新更新
 
 [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) 加载纹理 mip 链以配合各向异性过滤，将插帧请求上限设为 6×，修复 D3D12 退出死锁，并降低命令处理器和 D3D12 状态开销。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。

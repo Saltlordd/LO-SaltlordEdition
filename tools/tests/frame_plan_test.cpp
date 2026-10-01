@@ -88,8 +88,15 @@ int main()
             Require(Decode(wire::EncodePlan(candidate)) == candidate, "v3 consumer/FSR quality/FG roundtrip");
         }
     }
+    for (auto quality : {gpu::upscaling::FsrQuality::Quality, gpu::upscaling::FsrQuality::Performance}) {
+        auto candidate = full;
+        candidate.requestedUpscaler = gpu::upscaling::Upscaler::MetalFx;
+        candidate.consumer = gpu::upscaling::TemporalConsumer::MetalFxSr;
+        candidate.fsrQuality = quality;
+        Require(Decode(wire::EncodePlan(candidate)) == candidate, "v3 MetalFX consumer/quality roundtrip");
+    }
     for (auto provider : {gpu::upscaling::Upscaler::Off, gpu::upscaling::Upscaler::Dlss,
-             gpu::upscaling::Upscaler::Fsr}) {
+             gpu::upscaling::Upscaler::Fsr, gpu::upscaling::Upscaler::MetalFx}) {
         auto candidate = full;
         candidate.requestedUpscaler = provider;
         candidate.consumer = gpu::upscaling::TemporalConsumer::FsrSr;
@@ -99,8 +106,12 @@ int main()
     }
     auto malformed = words; malformed[1] = 4;
     Require(!Decode(malformed), "unknown version rejected");
+    // The two-bit provider field is full: 3 is MetalFX.
     malformed = words; malformed[22] = (malformed[22] & ~3u) | 3u;
-    Require(!Decode(malformed), "unknown provider rejected");
+    Require(Decode(malformed) && Decode(malformed)->requestedUpscaler == gpu::upscaling::Upscaler::MetalFx,
+        "provider 3 decodes as MetalFX");
+    malformed = v2; malformed[22] = (malformed[22] & ~3u) | 3u;
+    Require(!Decode(malformed), "v2 plans cannot carry MetalFX");
     malformed = words; malformed[22] |= (3u << 4) | (1u << 21);
     Require(!Decode(malformed), "unknown consumer rejected");
     malformed = words; malformed[22] |= 1u << 25;

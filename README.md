@@ -35,6 +35,10 @@ Choose a package from the [latest release](https://github.com/freefrank/LostOdys
 
 Disc 1 is required to start. Use one of the audited Asian multilingual or USA/Europe four-disc sets; do not mix editions. The [installation guide](docs/INSTALLING.md) covers disc identification, Linux setup, file locations and updates. Release packages need neither Python nor Visual Studio. Keep your saves and profiles when updating.
 
+### macOS Apple Silicon (experimental, build from source)
+
+This branch includes an experimental arm64 macOS path using Metal. Local Windows and Mac runtime builds now compile and link, and a limited new-game/first-battle test has passed. There is no published macOS package yet. Use the [macOS build instructions](docs/BUILDING.md#building-on-macos) to build it locally. Long play, broader scenes, image quality and performance validation are still pending.
+
 ### Latest changes
 
 [v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) adds guest texture mip chains for anisotropic filtering, caps frame-generation requests at 6×, fixes a D3D12 quit deadlock, and reduces command-processor and D3D12 state overhead. See the [changelog](CHANGELOG.md) for earlier releases and the [development status](docs/STATUS.md) for validation coverage.

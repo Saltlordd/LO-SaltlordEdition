@@ -3,6 +3,8 @@
 #include "audio_callback.h"
 #include <cpu/guest_thread.h>
 #include <kernel/memory.h>
+#include <os/guest_code_thread.h>
+#include <os/host_scheduling.h>
 #include <os/logger.h>
 #include <os/thread_name.h>
 #include <SDL.h>
@@ -14,7 +16,7 @@ namespace apu
     {
         detail::AudioCallback g_client;
         std::atomic<uint32_t> g_framesSubmitted{ 0 };
-        std::thread g_thread;
+        os::GuestCodeThread g_thread; // runs the guest audio callback
         std::atomic<bool> g_running{ false };
         SDL_AudioDeviceID g_device = 0;
         constexpr uint32_t kStereoFrameBytes = XAUDIO_NUM_SAMPLES * 2 * sizeof(float);
@@ -74,12 +76,13 @@ namespace apu
             while (g_running)
             {
                 next += framePeriod;
-                std::this_thread::sleep_until(next);
+                // Precise wakeups: a late one drains the few frames SDL has queued.
+                os::scheduling::PreciseSleepUntil(next);
                 // Avoid a burst of catch-up callbacks after a host stall.
                 if (std::chrono::steady_clock::now() - next > framePeriod * 4)
                     next = std::chrono::steady_clock::now();
                 while (g_device && SDL_GetQueuedAudioSize(g_device) >= kStereoFrameBytes * 4)
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    os::scheduling::PreciseSleepFor(std::chrono::milliseconds(1));
 
                 g_client.Dispatch([&](uint32_t callback, uint32_t param)
                 {
@@ -105,7 +108,7 @@ namespace apu
         if (!g_device) LOG_WARNING("audio device unavailable: {}", SDL_GetError());
         else LOG_INFO("audio output: 48000 Hz stereo float, SDL driver {}", SDL_GetCurrentAudioDriver());
         g_running = true;
-        g_thread = std::thread(DriverMain);
+        g_thread = os::GuestCodeThread(DriverMain);
         g_thread.detach();
     }
 

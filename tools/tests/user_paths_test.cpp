@@ -21,6 +21,27 @@ int main()
     Check(os::user_paths::ConfigDir(executable) == executable, "Windows config path is not beside executable");
     Check(os::user_paths::DataDir(executable) == executable, "Windows data path is not beside executable");
     Check(os::user_paths::StateDir(executable) == executable, "Windows state path is not beside executable");
+#elif LO_PLATFORM_MACOS
+    const fs::path root = fs::temp_directory_path() / "lo-user-paths-test";
+    std::error_code error;
+    fs::remove_all(root, error);
+    fs::create_directories(root / "Games");
+    fs::create_directories(root / "LostOdysseyRecomp.app/Contents/MacOS");
+    setenv("HOME", (root / "home").c_str(), 1);
+    unsetenv("LO_PROFILE_DIR");
+    const auto support = root / "home/Library/Application Support/LostOdysseyRecomp";
+    Check(os::user_paths::ConfigDir() == support, "macOS config path is not in Application Support");
+    Check(os::user_paths::DataDir() == support, "macOS data path is not in Application Support");
+    Check(os::user_paths::StateDir() == root / "home/Library/Logs/LostOdysseyRecomp", "macOS state path is not in Logs");
+    os::user_paths::Initialize(root / "Games");
+    Check(os::user_paths::ProfileDir() == "profile", "portable profile path changed");
+    // A writable app bundle is still not portable: writing there breaks its signature.
+    os::user_paths::Initialize(root / "LostOdysseyRecomp.app/Contents/MacOS");
+    Check(os::user_paths::ProfileDir() == support / "profile", "app bundle selected the portable layout");
+    setenv("LO_PROFILE_DIR", (root / "custom-profile").c_str(), 1);
+    Check(os::user_paths::ProfileDir() == root / "custom-profile", "profile override ignored");
+    unsetenv("LO_PROFILE_DIR");
+    fs::remove_all(root, error);
 #else
     const fs::path root = fs::temp_directory_path() / "lo-user-paths-test";
     std::error_code error;

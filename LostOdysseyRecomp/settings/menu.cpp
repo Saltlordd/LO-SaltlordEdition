@@ -266,6 +266,32 @@ std::wstring DlssNotice()
 {
     const auto running = gpu::frame_plan::CurrentDlssEffect();
     const auto execution = gpu::frame_plan::CurrentUpscalerExecution();
+    if (GetConfig().upscaler == gpu::upscaling::Upscaler::MetalFx) {
+        const bool matchingExecution = running.hasPlan && running.plannedRequest == gpu::upscaling::Upscaler::MetalFx &&
+            execution && execution->actualProvider == gpu::upscaling::Upscaler::MetalFx &&
+            execution->plan.deviceEpoch == running.device.deviceEpoch &&
+            execution->plan.requestSignature == running.requestSignature &&
+            execution->plan.geometryEpoch == running.geometryEpoch;
+        std::wstring text;
+        if (!running.device.deviceReady || running.device.gpuWorkStopped)
+            text = Tr(L"MetalFX: graphics device is not ready.", L"MetalFX：圖形裝置尚未就緒。");
+        else if (!running.device.metalFxAvailable)
+            text = Tr(L"MetalFX Temporal is unavailable on this Mac.", L"這台 Mac 無法使用 MetalFX Temporal。");
+        else if (running.hasPlan && running.failure)
+            text = Tr(L"MetalFX request failed. Change the upscaler setting or restart to retry.",
+                      L"MetalFX 請求失敗。請變更縮放設定或重新啟動後重試。");
+        else if (matchingExecution && execution->submissionSerial &&
+            execution->outcome == gpu::frame_plan::DlssExecutionOutcome::Submitted) {
+            const wchar_t* modes[] = {Tr(L"Quality", L"品質"), Tr(L"Balanced", L"平衡"), Tr(L"Performance", L"效能"), L"Native AA"};
+            text = std::wstring(L"MetalFX ") + modes[uint32_t(gpu::upscaling::NormalizeFsrQuality(execution->plan.fsrQuality))] +
+                Tr(L" output submitted.", L" 輸出已提交。") + ExecutionSizeSuffix(execution->plan);
+        } else
+            text = Tr(L"MetalFX: no upscaled scene in the latest frame. Menus and transitions use normal rendering.",
+                      L"MetalFX：最近一幀沒有縮放場景。選單和過場使用常規渲染。");
+        if (edit.upscaler != gpu::upscaling::Upscaler::MetalFx)
+            text += Tr(L" The selected upscaler is not applied yet.", L" 選取的縮放技術尚未套用。");
+        return text;
+    }
     if (GetConfig().upscaler == gpu::upscaling::Upscaler::Fsr ||
         (execution && execution->actualProvider == gpu::upscaling::Upscaler::Fsr)) {
         std::wstring fsrText;
@@ -333,6 +359,10 @@ std::wstring DlssNotice()
 }
 bool GraphicsRowHidden(int r)
 {
+#if LO_PLATFORM_MACOS
+    // Metal has no frame generation provider; keep the ids, hide the rows.
+    if (r == int(GraphicsRow::FrameGeneration)) return true;
+#endif
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -446,6 +476,8 @@ void Publish(uint8_t *base, uint32_t config)
 #ifdef _WIN32
         placeGraphics(GraphicsRow::Backend, makeChoices(L"Graphics backend", L"圖形後端", {L"Direct3D 12", L"Vulkan", Tr(L"Direct3D 11 (unsupported)", L"Direct3D 11（尚未支援）")},
                    uint32_t(edit.graphicsBackend)));
+#elif LO_PLATFORM_MACOS
+        placeGraphics(GraphicsRow::Backend, makeChoices(L"Graphics backend", L"圖形後端", {L"Metal"}, 0));
 #else
         placeGraphics(GraphicsRow::Backend, makeChoices(L"Graphics backend", L"圖形後端", {L"Vulkan"}, 0));
 #endif
@@ -476,11 +508,26 @@ void Publish(uint8_t *base, uint32_t config)
             }
         }
         placeGraphics(GraphicsRow::OutputResolution, makeChoices(L"Output resolution", L"輸出解析度", std::move(outputChoices), outputChoice));
+        std::vector<std::wstring> renderChoices;
+        for (const int height : graphics_menu::RenderResolutions)
+            renderChoices.push_back(height == 0 ? Tr(L"Follow output", L"跟隨輸出") :
+                height == InternalResolutionNative ? Tr(L"Native (Retina)", L"原生（Retina）") :
+                std::to_wstring(height) + L"p");
+        placeGraphics(GraphicsRow::RenderResolution, makeChoices(L"Render resolution", L"渲染解析度",
+                   std::move(renderChoices), graphics_menu::RenderResolutionChoice(edit)));
+#if LO_PLATFORM_MACOS
+        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"MetalFX Temporal"};
+#else
+        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1"};
+#endif
+        aaChoices.resize(graphics_menu::AaChoiceCount);
         placeGraphics(GraphicsRow::AntiAliasing, makeChoices(L"Anti-aliasing / Upscaling", L"抗鋸齒 / 超解析度",
-                   {Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1"},
-                   graphics_menu::AaChoice(edit)));
-        const bool savedFsr = edit.upscaler == gpu::upscaling::Upscaler::Fsr;
-        auto dlssQuality = makeChoices(savedFsr ? L"FSR quality" : L"DLSS quality", savedFsr ? L"FSR 品質" : L"DLSS 品質",
+                   std::move(aaChoices), std::min(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount - 1)));
+        // FSR and MetalFX share the FSR quality ratios and IDs.
+        const bool savedFsr = gpu::upscaling::UsesFsrQuality(edit.upscaler);
+        const bool savedMetalFx = edit.upscaler == gpu::upscaling::Upscaler::MetalFx;
+        auto dlssQuality = makeChoices(savedMetalFx ? L"MetalFX quality" : savedFsr ? L"FSR quality" : L"DLSS quality",
+                   savedMetalFx ? L"MetalFX 品質" : savedFsr ? L"FSR 品質" : L"DLSS 品質",
                    {Tr(L"Performance", L"效能"), Tr(L"Balanced", L"平衡"), Tr(L"Quality", L"品質"), savedFsr ? L"Native AA" : L"DLAA"},
                    QualityMenuIndex(savedFsr ? uint32_t(edit.fsrQuality) : uint32_t(edit.dlssQuality)));
         // Hidden instead of removed so this logical id stays stable for input, drawing and hit-testing.
@@ -501,9 +548,15 @@ void Publish(uint8_t *base, uint32_t config)
                                   edit.anisotropicFiltering == 4 ? 2 : edit.anisotropicFiltering == 2 ? 1 : 0;
         placeGraphics(GraphicsRow::AnisotropicFiltering, makeChoices(L"Anisotropic filtering", L"各向異性過濾",
                    {Tr(L"Off", L"關"), L"2×", L"4×", L"8×", L"16×"}, afChoice));
+#if LO_PLATFORM_MACOS
+        placeGraphics(GraphicsRow::ScalingQuality, makeChoices(L"Scaling filter", L"縮放濾鏡",
+                   {Tr(L"Standard", L"標準"), Tr(L"High", L"高"), L"MetalFX"},
+                   std::min(edit.scalingQuality, ScalingMetalFx)));
+#else
         placeGraphics(GraphicsRow::ScalingQuality, makeChoices(L"Scaling filter", L"縮放濾鏡",
                    {Tr(L"Standard", L"標準"), Tr(L"High", L"高")},
                    std::min(edit.scalingQuality, 1u)));
+#endif
         placeGraphics(GraphicsRow::RgbRange, makeChoices(L"RGB Range", L"RGB 範圍",
                    {Tr(L"Off", L"關"), Tr(L"Expanded", L"擴展")}, edit.expandRgbRange ? 1 : 0));
         std::vector<std::wstring> frameRates;
@@ -514,8 +567,13 @@ void Publish(uint8_t *base, uint32_t config)
         }
         placeGraphics(GraphicsRow::FrameRate, makeChoices(L"Frame rate", L"影格率",
                    std::move(frameRates), gpu::frame_rate::MenuIndex(edit.frameRate)));
+#if LO_PLATFORM_MACOS
+        placeGraphics(GraphicsRow::VariableRefreshRate, makeChoices(L"Adaptive sync (ProMotion)",
+            L"自適應同步（ProMotion）", onOff(), edit.variableRefreshRate ? 0 : 1));
+#else
         placeGraphics(GraphicsRow::VariableRefreshRate, makeChoices(L"FreeSync / G-SYNC Compatible",
             L"FreeSync / G-SYNC Compatible", onOff(), edit.variableRefreshRate ? 0 : 1));
+#endif
         std::vector<std::wstring> providers;
         uint32_t selected = 0;
         for (auto provider : FgProviders()) {
@@ -523,8 +581,9 @@ void Publish(uint8_t *base, uint32_t config)
             providers.emplace_back(provider == framegen::Provider::Off ? Tr(L"Off", L"關") :
                 provider == framegen::Provider::Dlss ? L"DLSS" : L"FSR");
         }
-        placeGraphics(GraphicsRow::FrameGeneration,
-            makeChoices(L"Frame generation", L"影格生成", std::move(providers), selected));
+        auto frameGeneration = makeChoices(L"Frame generation", L"影格生成", std::move(providers), selected);
+        frameGeneration.hidden = GraphicsRowHidden(int(GraphicsRow::FrameGeneration));
+        placeGraphics(GraphicsRow::FrameGeneration, std::move(frameGeneration));
         std::vector<std::wstring> multipliers;
         for (uint32_t multiplier = 2; multiplier <= framegen::kMaxMultiplier; ++multiplier)
             multipliers.push_back(std::to_wstring(multiplier) + L"×");
@@ -586,7 +645,8 @@ void Publish(uint8_t *base, uint32_t config)
             const auto selected = gpu::video::SelectedBackend();
             next.help += Tr(L" Running: ", L" 目前使用：");
             next.help += selected == gpu::backend::Backend::Vulkan ? L"Vulkan" :
-                selected == gpu::backend::Backend::D3D12 ? L"Direct3D 12" : L"-";
+                selected == gpu::backend::Backend::D3D12 ? L"Direct3D 12" :
+                selected == gpu::backend::Backend::Metal ? L"Metal" : L"-";
             break;
         }
         case GraphicsRow::Widescreen:
@@ -597,8 +657,20 @@ void Publish(uint8_t *base, uint32_t config)
             next.help = Tr(L"Sets the output size. Borderless fullscreen uses the desktop size.",
                            L"設定輸出尺寸；無邊框全螢幕使用桌面尺寸。");
             break;
+        case GraphicsRow::RenderResolution:
+#if LO_PLATFORM_MACOS
+            next.help = Tr(L"Scene resolution before scaling. Follow output uses the window size in points; Native uses every Retina pixel (4x the work).",
+                           L"縮放前的場景解析度。跟隨輸出使用視窗的點尺寸；原生使用全部 Retina 像素（4 倍工作量）。");
+#else
+            next.help = Tr(L"Scene resolution before scaling to the output. Follow output matches the output size.",
+                           L"縮放至輸出前的場景解析度。跟隨輸出與輸出尺寸相同。");
+#endif
+            break;
         case GraphicsRow::AntiAliasing:
-            if (edit.upscaler == gpu::upscaling::Upscaler::Fsr)
+            if (edit.upscaler == gpu::upscaling::Upscaler::MetalFx)
+                next.help = Tr(L"Apple's temporal upscaler: renders the scene below the output size and reconstructs detail. Menus and transitions use normal rendering.",
+                              L"Apple 的時間性縮放：以低於輸出的解析度渲染場景並重建細節。選單和過場使用常規渲染。");
+            else if (edit.upscaler == gpu::upscaling::Upscaler::Fsr)
                 next.help = Tr(L"FSR 3.1 needs D3D12 or Vulkan and an FSR-enabled build. Unsupported scenes use normal rendering.",
                               L"FSR 3.1 需要 D3D12 或 Vulkan 與包含 FSR 的版本。不支援的場景使用常規渲染。");
             else if (edit.upscaler == gpu::upscaling::Upscaler::Dlss)
@@ -609,7 +681,7 @@ void Publish(uint8_t *base, uint32_t config)
                               L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
             break;
         case GraphicsRow::DlssQuality:
-            next.help = edit.upscaler == gpu::upscaling::Upscaler::Fsr ?
+            next.help = gpu::upscaling::UsesFsrQuality(edit.upscaler) ?
                 Tr(L"Performance, Balanced, Quality, or Native AA. Native AA keeps the output resolution.", L"效能、平衡、品質或 Native AA。Native AA 維持輸出解析度。") : Tr(L"Performance, Balanced, Quality, or DLAA. The status line shows the submitted mode.",
                            L"效能、平衡、品質或 DLAA。狀態列顯示已提交的模式。");
             break;
@@ -622,8 +694,13 @@ void Publish(uint8_t *base, uint32_t config)
                            L"提升斜角觀看時的紋理清晰度。儲存後立即套用。");
             break;
         case GraphicsRow::ScalingQuality:
+#if LO_PLATFORM_MACOS
+            next.help = Tr(L"Controls filtering when upscaling is active. MetalFX uses Apple's spatial upscaler; pair it with a lower render resolution.",
+                           L"控制啟用縮放時的取樣濾鏡。MetalFX 使用 Apple 的空間放大器，建議搭配較低的渲染解析度。");
+#else
             next.help = Tr(L"Controls filtering when upscaling is active.",
                            L"控制啟用縮放時的取樣濾鏡。");
+#endif
             break;
         case GraphicsRow::RgbRange:
             next.help = Tr(L"Expands only the game image from RGB 16–235 to 0–255. Applies immediately after saving.",
@@ -637,8 +714,13 @@ void Publish(uint8_t *base, uint32_t config)
                      L"原生遊戲影格率，獨立於影格生成。儲存後套用。");
             break;
         case GraphicsRow::VariableRefreshRate:
+#if LO_PLATFORM_MACOS
+            next.help = Tr(L"Shows each frame for one game frame so ProMotion and adaptive-sync displays follow the game's frame rate. Display sync stays on.",
+                           L"每個影格至少顯示一個遊戲影格的時間，讓 ProMotion 與自適應同步螢幕跟隨遊戲影格率；顯示同步保持開啟。");
+#else
             next.help = Tr(L"VRR-friendly pacing. Enable adaptive sync in your display/driver. Actual VRR is not detected.",
                            L"VRR 友善限幀；請在螢幕與驅動程式啟用自適應同步。無法偵測實際 VRR 狀態。");
+#endif
             break;
         case GraphicsRow::FrameGeneration:
         case GraphicsRow::FrameGenerationMultiplier:
@@ -1232,6 +1314,8 @@ PPC_FUNC(sub_822F19B0)
             case GraphicsRow::Backend:
 #ifdef _WIN32
                 edit.graphicsBackend = GraphicsBackend(cycle(uint32_t(edit.graphicsBackend), 3));
+#elif LO_PLATFORM_MACOS
+                edit.graphicsBackend = GraphicsBackend::Metal;
 #else
                 edit.graphicsBackend = GraphicsBackend::Vulkan;
 #endif
@@ -1264,11 +1348,15 @@ PPC_FUNC(sub_822F19B0)
                 edit.height = list[index][1];
                 break;
             }
+            case GraphicsRow::RenderResolution:
+                edit.internalResolution = graphics_menu::RenderResolutions[
+                    cycle(graphics_menu::RenderResolutionChoice(edit), uint32_t(std::size(graphics_menu::RenderResolutions)))];
+                break;
             case GraphicsRow::AntiAliasing:
                 graphics_menu::SelectAa(edit, cycle(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount));
                 break;
             case GraphicsRow::DlssQuality:
-                if (edit.upscaler == gpu::upscaling::Upscaler::Fsr)
+                if (gpu::upscaling::UsesFsrQuality(edit.upscaler))
                     edit.fsrQuality = gpu::upscaling::FsrQuality(
                         qualityMenuIds[cycle(QualityMenuIndex(uint32_t(edit.fsrQuality)), std::size(qualityMenuIds))]);
                 else edit.dlssQuality = gpu::upscaling::DlssQuality(
@@ -1286,7 +1374,11 @@ PPC_FUNC(sub_822F19B0)
                 break;
             }
             case GraphicsRow::ScalingQuality:
+#if LO_PLATFORM_MACOS
+                edit.scalingQuality = cycle(edit.scalingQuality, ScalingMetalFx + 1);
+#else
                 edit.scalingQuality = cycle(edit.scalingQuality, 2);
+#endif
                 break;
             case GraphicsRow::RgbRange:
                 edit.expandRgbRange = !edit.expandRgbRange;

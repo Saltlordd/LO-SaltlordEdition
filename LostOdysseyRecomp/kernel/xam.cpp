@@ -247,6 +247,7 @@ bool XNotifyGetNext(uint32_t hNotification, uint32_t dwMsgFilter, be<uint32_t>* 
 uint32_t XamContentCreateEnumerator(uint32_t dwUserIndex, uint32_t DeviceID, uint32_t dwContentType,
     uint32_t dwContentFlags, uint32_t cItem, be<uint32_t>* pcbBuffer, be<uint32_t>* phEnum)
 {
+    LOG_KERNEL("user={:#x} device={:#x} type={} flags={:#x} items={}", dwUserIndex, DeviceID, dwContentType, dwContentFlags, cItem);
     std::lock_guard lock(g_contentMutex);
     if (dwUserIndex != 0 && !(dwContentType == XCONTENTTYPE_DLC && dwUserIndex == 0xFFFFFFFF))
     {

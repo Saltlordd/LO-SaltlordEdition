@@ -288,8 +288,14 @@ void Render(host_ui::Rasterizer &r)
         r.DrawString(122, 212 + (i - state.scroll) * 22, state.lines[i], white);
     if (MaxScroll())
         r.DrawString(112, 594, state.chinese ? "上下滚动查看全部内容" : "Scroll to read all changes", muted);
+#if defined(__APPLE__)
+    // macOS opens the release page; the signed app is replaced by the user.
+    host_ui::DrawButton(r, 866, 618, 140, 46,
+        state.chinese ? L"下载 (A)" : L"Download (A)", state.selected == 0);
+#else
     host_ui::DrawButton(r, 866, 618, 140, 46,
         state.chinese ? L"安装 (A)" : L"Install (A)", state.selected == 0);
+#endif
     host_ui::DrawButton(r, 1022, 618, 140, 46,
         state.chinese ? L"稍后 (B)" : L"Later (B)", state.selected == 1);
 }
