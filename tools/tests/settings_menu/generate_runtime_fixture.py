@@ -146,8 +146,9 @@ int main(int argc, char** argv) {
           settings::edit.fsrQuality==gpu::upscaling::FsrQuality::Balanced,"provider-specific qualities preserved");
     // The scroll origin depends on the rows a platform shows; moving from
     // quality to sharpness must never scroll.
+    settings::row=int(GraphicsRow::DlssQuality);tick();
     const int qualityScroll=settings::snapshot.scroll;
-    settings::row=int(GraphicsRow::DlssQuality);tick(2);
+    tick(2);
     Check(settings::row==int(GraphicsRow::FsrSharpness) && settings::snapshot.scroll==qualityScroll,"sharpness directly follows quality");
     settings::edit.fsrSharpnessPercent=0;tick(4);Check(!settings::edit.fsrSharpnessPercent,"sharpness lower bound");
     tick(8);Check(settings::edit.fsrSharpnessPercent==1,"sharpness increments");

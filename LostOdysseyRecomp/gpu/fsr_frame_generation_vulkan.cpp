@@ -249,8 +249,8 @@ struct Session::Impl {
     static void VKAPI_PTR DestroySwapchain(VkDevice d, VkSwapchainKHR swap, const VkAllocationCallbacks* allocator) {
         auto& self = *current;
         if (self.swapContext && swap == self.swapchain) {
-            self.DrainBoundary();
-            self.DestroyFeature();
+            if (self.fgContext) self.DestroyFeature(); // Drains first.
+            else self.DrainBoundary();
             Require(self.destroy(&self.swapContext, nullptr) == FFX_API_RETURN_OK, "destroy SDK swapchain");
             self.swapContext = nullptr; self.swapchain = VK_NULL_HANDLE;
         } else self.nativeDestroy(d, swap, allocator);

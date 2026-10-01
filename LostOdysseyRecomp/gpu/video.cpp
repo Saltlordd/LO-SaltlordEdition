@@ -676,6 +676,12 @@ namespace gpu::video
                 std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
                 std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
         }
+        [[maybe_unused]] framegen::EnvironmentSelection MetalFgRequest()
+        {
+            return frame_generation::ResolveSelection(backend::Backend::Metal, settings::GetConfig(),
+                std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
+                std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        }
 
         void LogDlssProbe(const dlss::ProbeReport& report)
         {
@@ -691,6 +697,20 @@ namespace gpu::video
                     optimal.maxWidth, optimal.maxHeight, optimal.sharpness, optimal.result.value_or(0));
         }
 
+        // The presentation fence completed. FG inputs recorded into that batch
+        // retire here; every wait that clears g_presentPending must call this,
+        // or the next FG recording would find its previous lease still open.
+        void PresentationFenceCompleted()
+        {
+            g_presentPending = false;
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg) g_fsrVulkanFg->AfterHostDrain();
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+            if (g_metalFg) g_metalFg->AfterHostDrain();
+#endif
+        }
+
         bool WaitForPresentGpuImpl()
         {
             if (g_presentPending) {
@@ -701,13 +721,7 @@ namespace gpu::video
                 const auto completed = g_fgPresent.Completed(g_deviceEpoch.load(), g_fgPresentSerial);
                 if (completed) LOG_INFO("video: FG diagnostic completed={} present_serial={} provider_ready=0 ui=unavailable",
                     completed, g_fgPresentSerial);
-                g_presentPending = false;
-#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
-                if (g_fsrVulkanFg) g_fsrVulkanFg->AfterHostDrain();
-#endif
-#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
-                if (g_metalFg) g_metalFg->AfterHostDrain();
-#endif
+                PresentationFenceCompleted();
             }
             return !GpuWorkStopped();
         }
@@ -827,8 +841,15 @@ namespace gpu::video
                 g_fsrVulkanFg->Presented(accepted);
                 if (g_fsrVulkanFg->Failed()) {
                     renderer::SetFrameGenerationInputCaptureEnabled(false);
-                    std::lock_guard lock(g_fgSettingsMutex);
-                    g_fgFailedRequest = g_fgAppliedConfig;
+                    // A failed session never recovers in this process. Mark the
+                    // current FSR request, not the applied config: that is Off when
+                    // the failure came first, and reconciliation would then retry
+                    // every frame. Other providers keep their own status.
+                    const auto request = VulkanFgRequest().config;
+                    if (request.provider == framegen::Provider::Fsr) {
+                        std::lock_guard lock(g_fgSettingsMutex);
+                        g_fgFailedRequest = request;
+                    }
                 }
             }
 #endif
@@ -932,7 +953,7 @@ namespace gpu::video
                     result->hasSubmissionSerial = true;
                     result->submissionSerial = serial;
                     g_fgPresent.Completed(g_deviceEpoch.load(), serial);
-                    g_presentPending = false;
+                    PresentationFenceCompleted();
                 }
             }
             else
@@ -943,7 +964,7 @@ namespace gpu::video
                 {
                     result->hasFenceValue = true;
                     result->fenceValue = g_captureCopy.d3dFenceValue;
-                    g_presentPending = false;
+                    PresentationFenceCompleted();
                 }
             }
             if (!complete)
@@ -952,9 +973,6 @@ namespace gpu::video
                 RetainPresentCapture();
                 return;
             }
-#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
-            if (g_metalFg) g_metalFg->AfterHostDrain();
-#endif
             auto *mapped = static_cast<const uint8_t *>(g_captureCopy.buffer->map());
             if (!mapped)
             {
@@ -2735,9 +2753,7 @@ namespace gpu::video
     static bool ReconcileMetalFrameGeneration()
     {
         if (!g_metal) return true;
-        const auto request = frame_generation::ResolveSelection(backend::Backend::Metal, settings::GetConfig(),
-            std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
-            std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        const auto request = MetalFgRequest();
         const auto desired = request.Enabled() ? request.config : framegen::Config{};
         {
             std::lock_guard lock(g_fgSettingsMutex);
@@ -3366,8 +3382,13 @@ namespace gpu::video
                     g_metalFg->FinishPresent(realPresented, metalGenerated);
                     if (g_metalFg->Failed()) {
                         renderer::SetFrameGenerationInputCaptureEnabled(false);
-                        std::lock_guard lock(g_fgSettingsMutex);
-                        g_fgFailedRequest = g_fgAppliedConfig;
+                        // As for Vulkan FSR: mark the current MetalFX request so a
+                        // failure before any apply does not make reconciliation loop.
+                        const auto request = MetalFgRequest().config;
+                        if (request.provider == framegen::Provider::MetalFx) {
+                            std::lock_guard lock(g_fgSettingsMutex);
+                            g_fgFailedRequest = request;
+                        }
                     }
                 }
                 completion.Complete(realPresented && !g_displayFailed.load());
