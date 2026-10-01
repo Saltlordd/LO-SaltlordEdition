@@ -144,8 +144,11 @@ int main(int argc, char** argv) {
     tick(4);Check(settings::edit.upscaler==Upscaler::Fsr,"left from Off selects FSR");
     Check(settings::edit.dlssQuality==gpu::upscaling::DlssQuality::Dlaa &&
           settings::edit.fsrQuality==gpu::upscaling::FsrQuality::Balanced,"provider-specific qualities preserved");
+    // The scroll origin depends on the rows a platform shows; moving from
+    // quality to sharpness must never scroll.
+    const int qualityScroll=settings::snapshot.scroll;
     settings::row=int(GraphicsRow::DlssQuality);tick(2);
-    Check(settings::row==int(GraphicsRow::FsrSharpness),"sharpness directly follows quality");
+    Check(settings::row==int(GraphicsRow::FsrSharpness) && settings::snapshot.scroll==qualityScroll,"sharpness directly follows quality");
     settings::edit.fsrSharpnessPercent=0;tick(4);Check(!settings::edit.fsrSharpnessPercent,"sharpness lower bound");
     tick(8);Check(settings::edit.fsrSharpnessPercent==1,"sharpness increments");
     settings::edit.fsrSharpnessPercent=100;tick(8);Check(settings::edit.fsrSharpnessPercent==100,"sharpness upper bound");
@@ -270,6 +273,11 @@ int main(int argc, char** argv) {
         settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
         Check(settings::restartPrompt && settings::snapshot.dialogMessage.find(L"Enabling or changing Vulkan frame generation")!=std::wstring::npos,
             "Save displays Vulkan restart reason");
+        settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(!settings::restartPrompt,"unchanged FG save after Later does not ask again");
+        settings::row=int(GraphicsRow::FrameGenerationMultiplier);tick();
+        Check(settings::snapshot.notice.find(L"Restart to enable Vulkan")!=std::wstring::npos,"FG notice still reports the pending restart");
         settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
         status.phase=gpu::video::FrameGenerationPhase::Ready;
         status.sessionProvider=status.applied=framegen::Provider::Dlss;

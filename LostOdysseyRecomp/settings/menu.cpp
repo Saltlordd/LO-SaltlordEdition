@@ -723,23 +723,39 @@ void Publish(uint8_t *base, uint32_t config)
             break;
         case GraphicsRow::FrameGeneration:
         case GraphicsRow::FrameGenerationMultiplier:
-            if (!gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::Dlss) &&
-                !gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::Fsr) &&
-                !gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::MetalFx))
-                next.help = Tr(L"Frame generation is unavailable for this backend in this build.", L"此版本的目前圖形後端未包含影格生成功能。");
+        {
+            const auto compiled = [](GraphicsBackend backend, framegen::Provider provider) {
+                return gpu::frame_generation::CompiledProvider(backend, provider);
+            };
+            const bool dlss = compiled(edit.graphicsBackend, framegen::Provider::Dlss);
+            const bool fsr = compiled(edit.graphicsBackend, framegen::Provider::Fsr);
+            const bool d3d12 = compiled(GraphicsBackend::D3D12, framegen::Provider::Dlss) ||
+                compiled(GraphicsBackend::D3D12, framegen::Provider::Fsr);
+            if (!dlss && !fsr && !compiled(edit.graphicsBackend, framegen::Provider::MetalFx))
+                next.help = edit.graphicsBackend != GraphicsBackend::D3D12 && d3d12
+                    ? Tr(L"FG requires Direct3D 12. Change the graphics backend and restart first.",
+                         L"影格生成需要 Direct3D 12。請先變更圖形後端並重新啟動。")
+                    : Tr(L"Frame generation is unavailable for this backend in this build.", L"此版本的目前圖形後端未包含影格生成功能。");
             else if (GraphicsRow(row) == GraphicsRow::FrameGenerationMultiplier)
                 next.help = Tr(L"Includes the rendered frame. Available multipliers depend on the GPU and driver.",
                                L"倍數包含原始渲染影格。可用倍數取決於顯示卡與驅動程式。");
             else if (edit.graphicsBackend == GraphicsBackend::Metal)
-                next.help = Tr(L"MetalFX frame generation uses 2x on supported GPUs with macOS 26 or later.",
-                               L"MetalFX 影格生成在 macOS 26 或更新版本及支援的 GPU 上使用 2x 倍數。");
+                next.help = Tr(L"Experimental MetalFX frame generation uses 2× on supported GPUs with macOS 26 or later.",
+                               L"實驗性 MetalFX 影格生成在 macOS 26 或更新版本及支援的 GPU 上使用 2×。");
             else if (edit.graphicsBackend == GraphicsBackend::Vulkan)
-                next.help = Tr(L"Vulkan supports DLSS fixed multipliers and FSR 2x. Enabling or changing the FG provider requires a restart.",
-                               L"Vulkan 支援 DLSS 固定倍數與 FSR 2x。啟用或切換影格生成提供者需重新啟動。");
+                next.help = dlss && fsr
+                    ? Tr(L"Vulkan supports DLSS fixed multipliers and FSR 2×. Enabling or changing the FG provider requires a restart.",
+                         L"Vulkan 支援 DLSS 固定倍數與 FSR 2×。啟用或切換影格生成提供者需重新啟動。")
+                    : dlss
+                    ? Tr(L"Vulkan supports DLSS fixed multipliers. Enabling or changing the FG provider requires a restart.",
+                         L"Vulkan 支援 DLSS 固定倍數。啟用或切換影格生成提供者需重新啟動。")
+                    : Tr(L"Vulkan supports FSR 2×. Enabling or changing the FG provider requires a restart.",
+                         L"Vulkan 支援 FSR 2×。啟用或切換影格生成提供者需重新啟動。");
             else
                 next.help = Tr(L"FG works independently of upscaling. FSR uses a fixed 2× multiplier.",
                                L"影格生成可獨立於超解析度使用。FSR 固定為 2×。");
             break;
+        }
         case GraphicsRow::DisplayMode:
         case GraphicsRow::Brightness:
         case GraphicsRow::Save:
@@ -1200,12 +1216,17 @@ PPC_FUNC(sub_822F19B0)
     auto graphicsSaved = [&] {
         status = Tr(L"Display settings saved.", L"顯示設定已儲存。");
         const auto running = gpu::video::GetFrameGenerationStatus();
-        restartForFgProvider = (edit.graphicsBackend == GraphicsBackend::D3D12 &&
+        // Ask only when this save changes the FG request. After "Later", the FG
+        // notice keeps reporting the pending restart on unrelated saves.
+        const bool fgChanged = edit.frameGenerationProvider != previousDisplay.frameGenerationProvider ||
+            edit.frameGenerationMode != previousDisplay.frameGenerationMode ||
+            edit.frameGenerationMultiplier != previousDisplay.frameGenerationMultiplier;
+        restartForFgProvider = fgChanged && ((edit.graphicsBackend == GraphicsBackend::D3D12 &&
             edit.frameGenerationProvider == framegen::Provider::Fsr &&
             (previousDisplay.frameGenerationProvider == framegen::Provider::Dlss ||
              running.sessionProvider == framegen::Provider::Dlss)) ||
             (edit.graphicsBackend == GraphicsBackend::Vulkan &&
-             running.phase == gpu::video::FrameGenerationPhase::RestartRequired);
+             running.phase == gpu::video::FrameGenerationPhase::RestartRequired));
         if (restart::Required(previousDisplay, edit) || restartForFgProvider)
         {
             restartPrompt = savedRestartPrompt = true;

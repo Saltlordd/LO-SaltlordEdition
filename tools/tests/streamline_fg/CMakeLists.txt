@@ -47,6 +47,7 @@ endforeach()
 set_tests_properties(vulkan_object_trace_disabled PROPERTIES ENVIRONMENT "LO_VK_OBJECT_TRACE=0")
 set_tests_properties(vulkan_object_trace_enabled PROPERTIES ENVIRONMENT "LO_VK_OBJECT_TRACE=1")
 lo_fg_cpu_contract(LoFgHostUseTest host_use_test.cpp streamline_host_input_use)
+lo_fg_cpu_contract(LoFgStatusPhaseTest frame_generation_status_test.cpp fg_status_phase)
 lo_fg_cpu_contract(LoFgContinuityPolicyTest continuity_policy_test.cpp streamline_continuity_policy)
 lo_fg_cpu_contract(LoFgP1OwnershipRegression ../temporal_upscaler_contract_test.cpp streamline_p1_ownership)
 lo_fg_cpu_contract(LoFgP1PlanRegression ../frame_plan_test.cpp streamline_p1_plan

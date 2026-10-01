@@ -309,6 +309,9 @@ namespace gpu::video
         framegen::Config g_fgAppliedConfig{};
         framegen::Provider g_fgSessionProvider = framegen::Provider::Off;
         std::optional<framegen::Config> g_fgFailedRequest;
+        // Vulkan provider whose startup failed on this device; kept across
+        // settings changes so returning to it is not offered as a restart.
+        framegen::Provider g_fgStartupFailure = framegen::Provider::Off;
 #endif
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
         std::unique_ptr<dlss_fg::Runtime> g_fgRuntime;
@@ -634,10 +637,44 @@ namespace gpu::video
                 : os::user_paths::DataDir() / "cache" / "ngx";
         }
 
-        std::filesystem::path DlssRuntimePath()
+        // Release packages ship NGX, Streamline and FidelityFX libraries beside the
+        // executable. Direct Windows launches already run there, but explicit
+        // --game launches keep the caller's working directory, where staged test
+        // runs place their copies. Prefer the executable's directory when it holds
+        // the requested library; other platforms keep the working directory.
+        std::filesystem::path RuntimeDirectory(const wchar_t* library)
         {
             const char* override = std::getenv("LO_DLSS_RUNTIME_PATH");
-            return override && *override ? std::filesystem::path(override) : std::filesystem::current_path();
+            if (override && *override) return std::filesystem::path(override);
+#ifdef _WIN32
+            wchar_t executable[32768]{};
+            const DWORD length = GetModuleFileNameW(nullptr, executable, DWORD(std::size(executable)));
+            if (length && length < std::size(executable)) {
+                const auto directory = std::filesystem::path(executable).parent_path();
+                std::error_code error;
+                if (std::filesystem::is_regular_file(directory / library, error)) return directory;
+            }
+#else
+            (void)library;
+#endif
+            return std::filesystem::current_path();
+        }
+
+        std::filesystem::path DlssRuntimePath() { return RuntimeDirectory(L"nvngx_dlss.dll"); }
+        [[maybe_unused]] std::filesystem::path StreamlineRuntimePath() { return RuntimeDirectory(L"sl.interposer.dll"); }
+        [[maybe_unused]] std::filesystem::path FidelityFxRuntime(const char* overrideVariable, const wchar_t* library)
+        {
+            const char* override = std::getenv(overrideVariable);
+            return override && *override ? std::filesystem::path(override) : RuntimeDirectory(library) / library;
+        }
+
+        // One parser for every Vulkan FG decision, so device features, SDK
+        // sessions, reconciliation and status always see the same request.
+        [[maybe_unused]] framegen::EnvironmentSelection VulkanFgRequest()
+        {
+            return frame_generation::ResolveVulkanSelection(settings::GetConfig(), std::getenv("LO_FG_PROVIDER"),
+                std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
+                std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
         }
 
         void LogDlssProbe(const dlss::ProbeReport& report)
@@ -1387,6 +1424,7 @@ namespace gpu::video
             g_fgAppliedConfig = {};
             g_fgSessionProvider = framegen::Provider::Off;
             g_fgFailedRequest.reset();
+            g_fgStartupFailure = framegen::Provider::Off;
         }
 #endif
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
@@ -1641,15 +1679,15 @@ namespace gpu::video
             if (g_vulkan) {
                 g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
                 g_temporalUpscaler = std::make_unique<TemporalUpscaler>(*g_dlssController);
+#if defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG)
+                const auto fg = VulkanFgRequest();
+                if (fg.error) LOG_ERROR("Vulkan FG: {}", fg.error);
+#endif
 #if defined(LO_ENABLE_STREAMLINE_FG)
-                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(), std::getenv("LO_FG_PROVIDER"),
-                    std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
-                    std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
-                if (fg.error) LOG_ERROR("FG: {}", fg.error);
                 if (fg.Enabled() && fg.config.provider == framegen::Provider::Dlss) {
                     std::string reason;
                     g_fgRuntime = std::make_unique<dlss_fg::Runtime>();
-                    if (!g_fgRuntime->Initialize(DlssRuntimePath(), reason)) {
+                    if (!g_fgRuntime->Initialize(StreamlineRuntimePath(), reason)) {
                         LOG_ERROR("DLSS FG: initialization unavailable: {}", reason);
                         g_fgRuntime.reset();
                     } else {
@@ -1678,9 +1716,7 @@ namespace gpu::video
             if (!g_interface) return "API/loader initialization failed";
 #if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
             if (g_vulkan) {
-                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
-                    std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
-                    std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+                const auto fg = VulkanFgRequest();
                 static_cast<plume::VulkanInterface*>(g_interface.get())->enableFrameInterpolationFeatures =
                     fg.Enabled() && fg.config.provider == framegen::Provider::Fsr;
             }
@@ -1720,10 +1756,9 @@ namespace gpu::video
                 if (fg.error) LOG_ERROR("D3D12 FG: {}", fg.error);
                 if (fg.Enabled()) {
                     auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
-                    const char* fsrPath = std::getenv("LO_FSR_FG_RUNTIME");
                     const auto runtime = fg.config.provider == framegen::Provider::Fsr
-                        ? (fsrPath && *fsrPath ? std::filesystem::path(fsrPath) : DlssRuntimePath() / "amd_fidelityfx_dx12.dll")
-                        : DlssRuntimePath();
+                        ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", L"amd_fidelityfx_dx12.dll")
+                        : StreamlineRuntimePath();
                     std::string reason;
                     if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), fg.config, runtime, reason)) {
                         g_d3dFg = std::move(bridge);
@@ -1752,17 +1787,13 @@ namespace gpu::video
 #endif
 #if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
             if (g_vulkan) {
-                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
-                    std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
-                    std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
-                if (fg.error) LOG_ERROR("Vulkan FSR FG: {}", fg.error);
+                const auto fg = VulkanFgRequest();
                 if (fg.Enabled() && fg.config.provider == framegen::Provider::Fsr) {
                     auto session = std::make_unique<fsr_fg::Session>();
-                    const char* runtime = std::getenv("LO_FSR_VULKAN_FG_RUNTIME");
                     std::string reason;
                     if (session->Initialize(*static_cast<plume::VulkanDevice*>(g_device.get()),
                         *static_cast<plume::VulkanCommandQueue*>(g_queue.get()),
-                        runtime && *runtime ? std::filesystem::path(runtime) : DlssRuntimePath() / "amd_fidelityfx_vk.dll", reason)) {
+                        FidelityFxRuntime("LO_FSR_VULKAN_FG_RUNTIME", L"amd_fidelityfx_vk.dll"), reason)) {
                         g_fsrVulkanFg = std::move(session);
                         g_fgWindowSynchronization = true;
                         std::lock_guard lock(g_fgSettingsMutex);
@@ -1846,14 +1877,13 @@ namespace gpu::video
             g_available = true; g_initializing = false;
 #if (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG)) && defined(_WIN32)
             if (*selection.selected == backend::Backend::Vulkan) {
-                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
-                    std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
-                    std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+                const auto fg = VulkanFgRequest();
                 // A failed startup is unavailable, not a request to restart
                 // endlessly. Starting Off can be enabled after a restart.
                 std::lock_guard lock(g_fgSettingsMutex);
                 if (fg.Enabled() && g_fgSessionProvider == framegen::Provider::Off) {
                     g_fgFailedRequest = fg.config;
+                    g_fgStartupFailure = fg.config.provider;
                 }
             }
 #endif
@@ -1954,8 +1984,11 @@ namespace gpu::video
 #endif
 #if defined(LO_GPU_PLUME) && defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
         // Availability is a last-frame runtime observation, not evidence that
-        // the monitor is using VRR.
-        if (requested && !hostOverlay && g_fgSession && g_fgSession->Available()) multiplier = g_fgSession->Multiplier();
+        // the monitor is using VRR. The multiplier is the applied request.
+        if (requested && !hostOverlay && g_fgSession && g_fgSession->Available()) {
+            std::lock_guard lock(g_fgSettingsMutex);
+            multiplier = g_fgAppliedConfig.generatedFrames + 1;
+        }
 #endif
 #if defined(LO_GPU_PLUME) && defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
         if (requested && !hostOverlay && g_fsrVulkanFg && g_fsrVulkanFg->Available()) multiplier = 2;
@@ -2022,19 +2055,16 @@ namespace gpu::video
             status.applied = g_fgAppliedConfig.provider;
             status.sessionProvider = g_fgSessionProvider;
             status.appliedMultiplier = g_fgAppliedConfig.generatedFrames + 1;
-            if (request.error ||
-                (g_fgFailedRequest && *g_fgFailedRequest == request.config))
-                status.phase = request.config.provider == framegen::Provider::Off && !request.error
-                    ? FrameGenerationPhase::Off : FrameGenerationPhase::Unavailable;
-            else if (backend == backend::Backend::Vulkan && request.Enabled() &&
-                g_fgSessionProvider != request.config.provider)
-                status.phase = FrameGenerationPhase::RestartRequired;
-            else if (!backend || request.config != g_fgAppliedConfig)
-                status.phase = request.config.provider == framegen::Provider::Off && !backend
-                    ? FrameGenerationPhase::Off : FrameGenerationPhase::Pending;
-            else
-                status.phase = status.applied == framegen::Provider::Off
-                    ? FrameGenerationPhase::Off : FrameGenerationPhase::Ready;
+            status.phase = DeriveFrameGenerationPhase({
+                .backendSelected = backend.has_value(),
+                .providerFixedAtStartup = backend == backend::Backend::Vulkan,
+                .request = request.config,
+                .requestError = request.error != nullptr,
+                .applied = g_fgAppliedConfig,
+                .sessionProvider = g_fgSessionProvider,
+                .failedRequest = g_fgFailedRequest,
+                .startupFailure = g_fgStartupFailure,
+            });
         }
 #else
         status.phase = status.requested == framegen::Provider::Off && !request.error
@@ -2600,10 +2630,9 @@ namespace gpu::video
         std::string reason;
         if (desired.provider != framegen::Provider::Off) {
             auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
-            const char* fsrPath = std::getenv("LO_FSR_FG_RUNTIME");
             const auto runtime = desired.provider == framegen::Provider::Fsr
-                ? (fsrPath && *fsrPath ? std::filesystem::path(fsrPath) : DlssRuntimePath() / "amd_fidelityfx_dx12.dll")
-                : DlssRuntimePath();
+                ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", L"amd_fidelityfx_dx12.dll")
+                : StreamlineRuntimePath();
             if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), desired, runtime, reason))
                 g_d3dFg = std::move(bridge);
             else LOG_ERROR("D3D12 FG: provider switch unavailable: {}", reason);
@@ -2662,9 +2691,7 @@ namespace gpu::video
     static bool ReconcileVulkanFrameGeneration()
     {
         if (!g_vulkan || g_fgWindowChange.load() != 0) return true;
-        const auto request = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
-            std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
-            std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        const auto request = VulkanFgRequest();
         auto desired = request.Enabled() ? request.config : framegen::Config{};
         {
             std::lock_guard lock(g_fgSettingsMutex);
