@@ -96,6 +96,21 @@ tea api --login zkx -X POST -d '{"ref":"main","inputs":{"release_tag":"vX.Y.Z"}}
 As on GitHub, an existing release keeps its reviewed notes and assets; only
 missing assets are uploaded, and a public release stays as it is.
 
+First release through this workflow, 2026-10-01: v0.7.25 (PR #115 merged as
+`e3ad1b9`; tag commit `2c65f0b`) was the first release built and published by
+it. Pushing the tag to `zkx` started [run 67](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/67),
+and all five jobs succeeded: create draft 0.2 min, FSR inputs 1.9 min, Windows
+8.8 min (`win-t640`), Linux AppImage and Flatpak 13.6 min (privileged docker
+runner) and publish 2.9 min, which downloaded the Gitea artifacts, uploaded
+them to the GitHub draft, verified the set and published it. About 19 minutes
+passed from the tag push to publication at 2026-10-01T08:04:23Z. It was also
+the first real GitHub write (draft creation, upload, publication) through
+`LO_GITHUB_TOKEN`; earlier runs were build-only or the read-only v0.7.20
+rehearsal (run 55). A separate check of the published Windows ZIP found its
+SHA-256 equal to GitHub's digest and a manifest with version `v0.7.25`; see
+[STATUS](../STATUS.md#v0725-published--2026-10-01). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the

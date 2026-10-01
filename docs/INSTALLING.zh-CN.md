@@ -2,13 +2,13 @@
 
 [English](INSTALLING.md)
 
-本文说明已发布的 v0.7.20 安装包和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
+本文说明已发布的 v0.7.25 安装包和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
 
 ## Windows 快速开始
 
 需要 Windows x64 和支持 AVX 的 CPU。Windows 默认使用 Direct3D 12。发布包已经包含导入器、更新器、DXC v1.8.2407 DLL 对及依赖许可证；游玩发布包不需要安装 Python 或 Visual Studio。
 
-1. 从 [v0.7.20 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20)下载 `LostOdysseyRecomp-windows-x64-v0.7.20.zip`。
+1. 从 [v0.7.25 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25)下载 `LostOdysseyRecomp-windows-x64-v0.7.25.zip`。
 2. 将完整 ZIP 解压到可写目录，避免放在 `Program Files` 下。
 3. 运行 `LostOdysseyRecomp.exe`。未找到可用的游戏安装时，会打开内置导入器。
 4. 首次设置中选择界面语言、游戏语言和图形选项，完成着色器准备后进入游戏。
@@ -56,21 +56,21 @@ DLC 可以直接选择，也可以放在扫描目录中。支持的包需要包�
 
 ## Linux 安装包
 
-Linux 只使用 Vulkan。 [v0.7.20 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。
+Linux 只使用 Vulkan。 [v0.7.25 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。
 
 ### AppImage
 
-下载 `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage` 后运行：
+下载 `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage` 后运行：
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.7.20.AppImage
-./LostOdysseyRecomp-linux-x64-v0.7.20.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
+./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
 ```
 
 可以直接使用图形导入器。若要指定路径启动，可传入游戏目录、`disc1` 或 `default.xex`：
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.7.20.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game /path/to/game
 ```
 
 正常挂载运行的 AppImage 会把存档和设置放在 Linux 用户目录，见[文件位置](#file-locations)。`--game` 只选择游戏数据，不会切换为便携存储；把 `game-path.txt` 放在外层 `.AppImage` 文件旁不能配置这种运行方式。
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 再安装并运行下载的 bundle：
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.20.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.25.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 

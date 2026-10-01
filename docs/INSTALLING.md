@@ -2,13 +2,13 @@
 
 [简体中文](INSTALLING.zh-CN.md)
 
-This guide covers the published v0.7.20 packages and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
+This guide covers the published v0.7.25 packages and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
 
 ## Windows quick start
 
 Windows x64 and an AVX-capable CPU are required. Direct3D 12 is the default graphics backend. The release package already contains the importer, updater, DXC v1.8.2407 DLL pair and dependency licenses; Python and Visual Studio are not required to play.
 
-1. Download `LostOdysseyRecomp-windows-x64-v0.7.20.zip` from the [v0.7.20 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20).
+1. Download `LostOdysseyRecomp-windows-x64-v0.7.25.zip` from the [v0.7.25 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25).
 2. Extract the complete ZIP to a writable folder outside `Program Files`.
 3. Run `LostOdysseyRecomp.exe`. If no usable game installation is found, the built-in importer opens.
 4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation.
@@ -56,21 +56,21 @@ Game data normally goes under `game/disc1` through `game/disc4`, with DLC under 
 
 ## Linux packages
 
-Linux runs through Vulkan. The [v0.7.20 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated.
+Linux runs through Vulkan. The [v0.7.25 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated.
 
 ### AppImage
 
-Download `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage`, then run:
+Download `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage`, then run:
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.7.20.AppImage
-./LostOdysseyRecomp-linux-x64-v0.7.20.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
+./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
 ```
 
 You can import game data from the graphical importer. For a direct launch, pass the game directory, `disc1`, or `default.xex`:
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.7.20.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game /path/to/game
 ```
 
 A normally mounted AppImage stores saves and settings in your Linux user directories; see [file locations](#file-locations). `--game` chooses the game data and does not switch to portable storage. Putting `game-path.txt` beside the outer `.AppImage` file does not configure this mode.
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 Then install and run the downloaded bundle:
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.20.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.25.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 

@@ -53,7 +53,7 @@ This branch includes an experimental arm64 macOS path using Metal. Local Windows
 | Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR controls. Actual performance depends on the scene and hardware. |
 | Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. |
 | Settings | Original game fonts, scrollable lists, and Save/apply controls. On the Graphics page, **Start/Enter** moves focus to **Save**; confirm that item to save. Options that require a restart offer **Now/Later**. |
-| Shader preparation | Bundled portable Vulkan shaders, parallel compilation, a skip option and cache reuse. The optional [v0.7.10 DX12 pack](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) belongs at `shaders/portable_dx12.lospd`; it is not a separate v0.7.20 asset. |
+| Shader preparation | Bundled portable Vulkan shaders, parallel compilation, a skip option and cache reuse. The optional [v0.7.10 DX12 pack](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) belongs at `shaders/portable_dx12.lospd`; it is not a separate v0.7.25 asset. |
 | Mods | Mod API v1, LOTEX1/PNG tools, native-menu atlas and font-page replacements, and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md) for supported replacements and installation. |
 | Input and tools | SDL-mapped controllers, keyboard input and rumble; an English/Simplified Chinese [Debug Menu](#debug-menu) for captures, same-map teleport, speed controls and game-data editing. |
 
@@ -97,7 +97,7 @@ To record a rendering problem, select **Capture render state**, confirm, then **
 **Save Anywhere** enables the original game's **System → Save** action. Close the Debug Menu and reopen the game's System menu to use it. It does not create a separate quicksave.
 
 > [!WARNING]
-> **Save Anywhere has a known party-state limitation.** Loading a save made after the party splits can lose RB character switching ([#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)). Keep a separate normal save. The on-screen warning was added after v0.7.20, so that package may not display it.
+> **Save Anywhere has a known party-state limitation.** Loading a save made after the party splits can lose RB character switching ([#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)). Keep a separate normal save. Since v0.7.25, Save Anywhere stays off while the party is split, and the F1 menu's **Force RB Party Switch** button turns switching back on after loading an older save of this kind.
 
 ### Teleport: positions within the current map
 

@@ -53,7 +53,7 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
 | 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。 |
 | 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |
-| 着色器预编译 | 内置便携式 Vulkan 着色器、多线程编译、跳过和缓存复用。[v0.7.10 的可选 DX12 包](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10)应放在 `shaders/portable_dx12.lospd`；v0.7.20 未单独提供该资产。 |
+| 着色器预编译 | 内置便携式 Vulkan 着色器、多线程编译、跳过和缓存复用。[v0.7.10 的可选 DX12 包](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10)应放在 `shaders/portable_dx12.lospd`；v0.7.25 未单独提供该资产。 |
 | Mod | Mod API v1、LOTEX1／PNG 工具、原生菜单图集和字体纹理页替换，以及 PlayStation 按键提示。支持范围和安装方法见 [Mod 指南](docs/wiki/Modding.md)。 |
 | 输入与工具 | SDL 已映射手柄、键盘输入和震动；英文／简体中文[调试菜单](#调试菜单)，提供画面捕获、同地图传送、快进和游戏数据修改。 |
 
@@ -97,7 +97,7 @@ Ring 操作用手柄**右扳机**或键盘 **R**。震动默认开启，设置 `
 **Save Anywhere** 会开放原作 **System → Save（系统 → 存档）** 操作。关闭调试菜单后，重新打开游戏的 System 菜单再存档。它不会另建一套快速存档。
 
 > [!WARNING]
-> **随时存档存在已知的队伍状态问题。** 分队探索后存档再读档，可能丢失 RB 切换角色的功能（[#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)）。请另外保留一份正常存档。屏幕警告是在 v0.7.20 之后加入的，该发布包可能不会显示提示。
+> **随时存档存在已知的队伍状态问题。** 分队探索后存档再读档，可能丢失 RB 切换角色的功能（[#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)）。请另外保留一份正常存档。自 v0.7.25 起，分队期间随时存档保持关闭；读取以前这类存档后，可用 F1 菜单中的“强制开启 RB 换人”按钮恢复换人。
 
 ### Teleport：当前地图内移动
 
