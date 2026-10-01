@@ -122,6 +122,76 @@ Memory editing is off by default. To change game data, first back up your save a
 
 The menu language and Save Anywhere option are written to `settings.ini`. Fast-forward settings and memory-edit permission reset when the program restarts. Changes to game values can become part of a normal game save.
 
+## Files and folders
+
+The Windows ZIP is **portable**: everything stays in the folder you extracted it to. A Linux build whose own folder is writable, such as a source build or an extracted AppImage, is portable too. The AppImage, the Flatpak and a macOS `.app` cannot write next to the program, so they keep your files in per-user folders.
+
+| Package | Config folder | Data folder | Log folder |
+| :--- | :--- | :--- | :--- |
+| Windows ZIP | folder with `LostOdysseyRecomp.exe` | same | same |
+| Linux, writable program folder | program folder | same | same |
+| Linux AppImage | `~/.config/lost-odyssey-recomp/` | `~/.local/share/lost-odyssey-recomp/` | `~/.local/state/lost-odyssey-recomp/` |
+| Linux Flatpak | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/config/lost-odyssey-recomp/` | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/data/` (`/var/data` inside the sandbox) | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/.local/state/lost-odyssey-recomp/` |
+| macOS `.app` (experimental) | `~/Library/Application Support/LostOdysseyRecomp/` | same | `~/Library/Logs/LostOdysseyRecomp/` |
+
+On Linux, set `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` to move the AppImage folders.
+
+| Content | Location | Notes |
+| :--- | :--- | :--- |
+| Imported game data | data folder: `game/` with `disc1/`–`disc4/` and `dlc/` | The importer's default destination. You can import elsewhere. |
+| Chosen game folder | `game-path.txt`: beside the program when portable, otherwise in the config folder | Written by the importer. |
+| Settings | config folder: `settings.ini` and `taa-collection.ini` | Without `settings.ini`, the first-launch setup runs. |
+| Saves | data folder: `save/` | Keep when updating. |
+| Profiles | data folder: `profile/` | Keep when updating. `LO_PROFILE_DIR` overrides it. |
+| Shader and pipeline cache | data folder: `cache/shaders/` | Rebuilt if deleted. `LO_SHADER_CACHE_DIR` overrides it. |
+| Logs | log folder: `logs/runtime-*.log` and `logs/shader-*.jsonl` | The current run and the two previous runs are kept. |
+| F1 render captures | config folder: `captures/` | `.zip` on Windows, `.tar.gz` on Linux and macOS. |
+| Mods | `mods/`: beside the program when portable, otherwise in the data folder | `LO_MODS_DIR` overrides it. |
+| Bundled shader packs | program folder: `shaders/portable_vk.lospv` | Place the optional DX12 pack at `shaders/portable_dx12.lospd`. |
+| Updater work files | Windows: `.update\` beside the program. AppImage: log folder `.update/` | Flatpak and macOS packages are updated manually. |
+
+**How the game is found** when `--game` is not given:
+
+1. The program reads `game-path.txt`.
+2. If that file is absent, it looks for `default.xex` in the data folder's `game/` (per-user packages only).
+3. Then it checks `game/`, the program folder and `../game` next to the program.
+4. If nothing is found, the importer opens.
+
+Launching with `--game` keeps the current working directory. In a portable layout, settings, saves, profiles, cache, logs and captures then follow the folder you start from. In per-user packages only `captures/` does.
+
+## Command-line options
+
+| Option | Effect |
+| :--- | :--- |
+| `--game <path>` | Uses this game: a folder that contains `default.xex` or `disc1/`, or the `default.xex` file itself. Skips `game-path.txt`, the search and the automatic importer, and exits with an error if no `default.xex` is found. |
+| `--install` | Opens the importer even when a game is already set up, then exits: 0 after a successful import, 1 if cancelled or failed. **Gameplay → Import discs & DLC** relaunches with this option. |
+| `--setup` | Runs the first-launch setup again, then starts the game. On Windows this is the setup dialog. Linux and macOS have no setup screen yet, so it only saves the current settings. |
+| `--setup-only` | Like `--setup`, then exits. |
+| `--prepare-shaders-only` | Loads the game data, prepares shaders and pipelines, then exits without starting the game: 0 on success, 1 on failure. Use it to warm the shader cache. |
+| `--quiet-kernel` | Leaves kernel trace lines out of the log. |
+
+Options must be spelled exactly. Write `--game <path>` as two arguments; `--game=<path>` is ignored, along with any other unknown argument. There is no `--help` or `--version`. The updater and restart logic use internal arguments (`--apply-plan`, `--wait-process`, `--restart-ready`, `--restart-parent-fd`, `--restart-ready-fd`); do not pass them yourself. `LostOdysseyRecomp.exe` is a GUI program and prints nothing to a console; check the log instead.
+
+```bash
+LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
+./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game ~/Games/LostOdyssey
+flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
+LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdyssey
+```
+
+Environment variables give more launch options. Each one overrides the saved setting for that run.
+
+| Variable | Effect |
+| :--- | :--- |
+| `LO_GRAPHICS_API` | `d3d12` or `vulkan` on Windows. Linux always uses Vulkan and macOS always uses Metal. |
+| `LO_FPS` | Frame-rate cap from 0 to 1000; `0` means uncapped. |
+| `LO_FG_PROVIDER`, `LO_FG_MODE`, `LO_FG_MULTIPLIER`, `LO_FG_TARGET_FPS` | Frame generation on Windows: `off`/`dlss`/`fsr`; `off`/`fixed`/`dynamic`; 2–6; target FPS. |
+| `LO_NO_UPDATE` | Any value other than `0` skips the update check. |
+| `LO_PROFILE_DIR`, `LO_SHADER_CACHE_DIR`, `LO_MODS_DIR` | Use another profile, shader cache or mods folder. An empty `LO_SHADER_CACHE_DIR` disables the shader cache. |
+| `LO_MODS` | `0` or `false` disables mods. |
+| `LO_LOG_FILE` | Write the log to this path, or `0` for no log file. |
+| `LO_AUDIO_MUTE`, `LO_CONTROLLER_RUMBLE` | `LO_AUDIO_MUTE=1` mutes audio; `LO_CONTROLLER_RUMBLE=0` turns rumble off. |
+
 ## Reporting a problem
 
 Include the exact package or source version, operating system, graphics backend, GPU/driver, game edition and disc, and the steps or scene that reproduce the problem. Attach the complete current `logs/runtime-<timestamp>.log`; it records startup and graphics details. `LO_LOG_FILE=<path>` selects another log path, and `LO_LOG_FILE=0` disables the duplicate file sink.

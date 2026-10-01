@@ -122,6 +122,76 @@ Ring 操作用手柄**右扳机**或键盘 **R**。震动默认开启，设置 `
 
 菜单语言和 Save Anywhere 选项写入 `settings.ini`；快进设置和内存修改许可在程序重启后重置。对游戏数值的修改可能随正常存档保存。
 
+## 文件与目录
+
+Windows ZIP 是**便携式**的，所有文件都留在解压目录里。Linux 下，如果程序所在目录可写（例如源码构建或解压后的 AppImage），同样按便携方式存放。AppImage、Flatpak 和 macOS `.app` 不能在程序旁写文件，因此使用当前用户的目录。
+
+| 安装包 | 配置目录 | 数据目录 | 日志目录 |
+| :--- | :--- | :--- | :--- |
+| Windows ZIP | `LostOdysseyRecomp.exe` 所在目录 | 同左 | 同左 |
+| Linux，程序目录可写 | 程序所在目录 | 同左 | 同左 |
+| Linux AppImage | `~/.config/lost-odyssey-recomp/` | `~/.local/share/lost-odyssey-recomp/` | `~/.local/state/lost-odyssey-recomp/` |
+| Linux Flatpak | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/config/lost-odyssey-recomp/` | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/data/`（沙盒内为 `/var/data`） | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/.local/state/lost-odyssey-recomp/` |
+| macOS `.app`（实验性） | `~/Library/Application Support/LostOdysseyRecomp/` | 同左 | `~/Library/Logs/LostOdysseyRecomp/` |
+
+Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 改变 AppImage 使用的目录。
+
+| 内容 | 位置 | 说明 |
+| :--- | :--- | :--- |
+| 导入的游戏数据 | 数据目录的 `game/`，内含 `disc1/`–`disc4/` 和 `dlc/` | 导入器的默认目标，也可以导入到其他位置。 |
+| 所选游戏目录 | `game-path.txt`：便携方式在程序旁，否则在配置目录 | 由导入器写入。 |
+| 设置 | 配置目录的 `settings.ini` 和 `taa-collection.ini` | 没有 `settings.ini` 时会运行首次启动设置。 |
+| 存档 | 数据目录的 `save/` | 更新时保留。 |
+| 个人配置（profile） | 数据目录的 `profile/` | 更新时保留。可用 `LO_PROFILE_DIR` 改变位置。 |
+| 着色器与管线缓存 | 数据目录的 `cache/shaders/` | 删除后会重新生成。可用 `LO_SHADER_CACHE_DIR` 改变位置。 |
+| 日志 | 日志目录的 `logs/runtime-*.log` 和 `logs/shader-*.jsonl` | 保留本次和之前两次运行的日志。 |
+| F1 渲染捕获 | 配置目录的 `captures/` | Windows 为 `.zip`，Linux 和 macOS 为 `.tar.gz`。 |
+| Mod | `mods/`：便携方式在程序旁，否则在数据目录 | 可用 `LO_MODS_DIR` 改变位置。 |
+| 内置着色器包 | 程序目录的 `shaders/portable_vk.lospv` | 可选的 DX12 包放在 `shaders/portable_dx12.lospd`。 |
+| 更新程序临时文件 | Windows：程序旁的 `.update\`；AppImage：日志目录的 `.update/` | Flatpak 和 macOS 安装包需要手动更新。 |
+
+未指定 `--game` 时，**游戏目录的查找顺序**是：
+
+1. 读取 `game-path.txt`。
+2. 没有这个文件时，在数据目录的 `game/` 中查找 `default.xex`（仅限按用户目录存放的安装包）。
+3. 再依次检查程序旁的 `game/`、程序所在目录和上一级的 `../game`。
+4. 都找不到时打开导入器。
+
+使用 `--game` 启动时不会切换工作目录。便携方式下，设置、存档、个人配置、缓存、日志和捕获都会跟随启动时所在的目录；按用户目录存放的安装包只有 `captures/` 会这样。
+
+## 命令行参数
+
+| 参数 | 作用 |
+| :--- | :--- |
+| `--game <路径>` | 使用指定的游戏：包含 `default.xex` 或 `disc1/` 的文件夹，或 `default.xex` 文件本身。跳过 `game-path.txt`、自动查找和自动导入；找不到 `default.xex` 时报错退出。 |
+| `--install` | 即使已经设置好游戏也打开导入器，完成后退出：导入成功返回 0，取消或失败返回 1。**Gameplay → Import discs & DLC** 就是用这个参数重新启动的。 |
+| `--setup` | 重新运行首次启动设置，然后进入游戏。Windows 上是设置对话框；Linux 和 macOS 还没有设置界面，只会保存当前设置。 |
+| `--setup-only` | 同 `--setup`，完成后退出。 |
+| `--prepare-shaders-only` | 加载游戏数据并准备着色器和管线，然后不启动游戏直接退出：成功返回 0，失败返回 1。可用于预热着色器缓存。 |
+| `--quiet-kernel` | 日志中不记录内核跟踪行。 |
+
+参数必须完全一致：`--game <路径>` 要写成两个参数，`--game=<路径>` 和其他无法识别的参数都会被忽略。没有 `--help` 或 `--version`。更新程序和重启逻辑会使用内部参数（`--apply-plan`、`--wait-process`、`--restart-ready`、`--restart-parent-fd`、`--restart-ready-fd`），请不要手动传入。`LostOdysseyRecomp.exe` 是图形界面程序，不会向控制台输出内容，请查看日志。
+
+```bash
+LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
+./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game ~/Games/LostOdyssey
+flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
+LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdyssey
+```
+
+环境变量提供更多启动选项，每个变量都只在本次运行中覆盖已保存的设置。
+
+| 变量 | 作用 |
+| :--- | :--- |
+| `LO_GRAPHICS_API` | Windows 上为 `d3d12` 或 `vulkan`。Linux 始终使用 Vulkan，macOS 始终使用 Metal。 |
+| `LO_FPS` | 帧率上限，0 到 1000；`0` 表示不限制。 |
+| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | Windows 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率。 |
+| `LO_NO_UPDATE` | 设为 `0` 以外的任何值即跳过更新检查。 |
+| `LO_PROFILE_DIR`、`LO_SHADER_CACHE_DIR`、`LO_MODS_DIR` | 使用其他个人配置、着色器缓存或 Mod 目录。`LO_SHADER_CACHE_DIR` 设为空值会关闭着色器缓存。 |
+| `LO_MODS` | `0` 或 `false` 关闭 Mod。 |
+| `LO_LOG_FILE` | 把日志写到指定路径；设为 `0` 则不写日志文件。 |
+| `LO_AUDIO_MUTE`、`LO_CONTROLLER_RUMBLE` | `LO_AUDIO_MUTE=1` 静音；`LO_CONTROLLER_RUMBLE=0` 关闭震动。 |
+
 ## 反馈问题
 
 请提供确切的安装包或源码版本、操作系统、图形后端、GPU／驱动、游戏版本和光盘，以及复现步骤或场景。附上本次 `logs/runtime-<timestamp>.log` 的完整日志，其中包含启动和图形信息。`LO_LOG_FILE=<path>` 可指定其他日志路径，`LO_LOG_FILE=0` 可关闭重复文件输出。

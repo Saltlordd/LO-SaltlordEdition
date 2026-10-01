@@ -105,7 +105,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## 首次设置和普通设置
 
-首次设置页面会在游戏初始化前保存界面语言、游戏语言和图形选项。已有设置时会跳过该页面。运行 `LostOdysseyRecomp.exe --setup` 或 `LostOdysseyRecomp --setup` 可以重新打开。游戏内设置页面会提示哪些改动需要重启。
+Windows 上，首次设置页面会在游戏初始化前保存界面语言、游戏语言和图形选项。已有设置时会跳过该页面；运行 `LostOdysseyRecomp.exe --setup` 可以重新打开。Linux 和 macOS 还没有首次设置页面：首次运行会保存默认设置，之后在游戏内设置页面修改。游戏内设置页面会提示哪些改动需要重启。
 
 界面语言和游戏语言是两套选项。USA/Europe 数据提供英、日、德、法、西、意语言；已核对的亚洲版提供英、日、韩、繁中、简中。当前版本没有的游戏语言会回退到英语。
 
@@ -120,10 +120,13 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 | Windows 便携包；位于可写目录的 Linux 原生 ELF | 正常启动时，`save/`、`profile/`、`cache/`、`logs/`、`settings.ini` 和 `game-path.txt` 位于可执行文件旁；游戏数据默认导入到 `game/`。 |
 | AppImage；位于只读目录的 Linux 原生 ELF | 存档、档案、缓存和游戏数据：`~/.local/share/lost-odyssey-recomp/`。设置与游戏路径：`~/.config/lost-odyssey-recomp/`。日志：`~/.local/state/lost-odyssey-recomp/logs/`。 |
 | Flatpak | 主机目录为 `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`：存档、档案、缓存和游戏数据在 `data/`；设置与游戏路径在 `config/lost-odyssey-recomp/`；日志在 `.local/state/lost-odyssey-recomp/logs/`。 |
+| macOS `.app`（实验性，需从源码构建） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
+
+F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 列出了全部文件、目录和[命令行参数](../README.zh-CN.md#命令行参数)。
 
 Flatpak 的主机 `data/` 目录在沙盒内显示为 `/var/data`，因此默认游戏目录是 `/var/data/game`。本程序的着色器缓存使用 `data/cache/`。主机路径遵循 [Flatpak 的 XDG 目录约定](https://docs.flatpak.org/en/latest/conventions.html#xdg-base-directories)。
 
-Linux 根据实际 ELF 所在目录是否可写来选择便携存储，否则使用上方 XDG 目录；自定义 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 会改变对应根目录。便携 Windows 或原生 ELF 显式使用 `--game` 启动时，相对用户数据路径按调用者的工作目录计算；请保持启动目录一致，以免读到另一套存档。`--game` 只选择游戏来源，不改变非便携安装的数据布局。
+Linux 根据实际 ELF 所在目录是否可写来选择便携存储，否则使用上方 XDG 目录；自定义 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 会改变对应根目录。便携 Windows 或原生 ELF 显式使用 `--game` 启动时，相对用户数据路径按调用者的工作目录计算；请保持启动目录一致，以免读到另一套存档。`--game` 只选择游戏来源，不改变非便携安装的数据布局；此时只有 F1 捕获会跟随工作目录。
 
 ## 更新和保留个人数据
 
@@ -141,7 +144,7 @@ Linux 根据实际 ELF 所在目录是否可写来选择便携存储，否则使
 
 附上 `logs/runtime-<timestamp>.log` 的完整当前日志，并提供启动日志附近记录的 executable/source version、backend、GPU 和 driver 信息。设置 `LO_LOG_FILE=<path>` 可指定日志路径；设置 `LO_LOG_FILE=0` 可关闭重复文件输出。
 
-遇到画面问题时，打开 **F1 → 常规 → 捕获渲染状态**，确认后**关闭 F1** 恢复渲染。程序捕获接下来的三个帧并在后台归档。重新打开菜单查看结果，附上所示路径的归档文件。Windows 为 `.zip`，Linux 为 `.tar.gz`；归档失败时会保留原始目录。归档包含截图和渲染／着色器数据，分享前请检查内容。
+遇到画面问题时，打开 **F1 → 常规 → 捕获渲染状态**，确认后**关闭 F1** 恢复渲染。程序捕获接下来的三个帧并在后台归档。重新打开菜单查看结果，附上所示路径的归档文件。Windows 为 `.zip`，Linux 和 macOS 为 `.tar.gz`；归档失败时会保留原始目录。归档包含截图和渲染／着色器数据，分享前请检查内容。
 
 报告时请写明场景、游戏版本、光盘、设置和确切安装包版本，方便复现。
 

@@ -259,7 +259,7 @@ cd out/build/macos-gpu/LostOdysseyRecomp
 ./LostOdysseyRecomp --game ../../../../LostOdysseyRecompLib/private/disc1
 ```
 
-A writable build folder uses the portable layout (settings, saves, cache and logs beside the executable). An `.app` bundle never does; it uses `~/Library/Application Support/LostOdysseyRecomp` and `~/Library/Logs/LostOdysseyRecomp`.
+A writable build folder uses the portable layout (settings, saves, cache and logs beside the executable). An `.app` bundle never does; it uses `~/Library/Application Support/LostOdysseyRecomp` and writes logs to `~/Library/Logs/LostOdysseyRecomp/logs/`.
 
 ### Package
 
@@ -292,12 +292,11 @@ and logs.
 |---|---|
 | `LO_LOG_FILE=<path>` | Append logs to a selected file; `0` disables the duplicate file sink. Default: a separate timestamped file under `logs/`. |
 | `LO_BACKGROUND=1` | Hidden rendering window; background audio is muted by default. |
-| `LO_DEBUG_MENU_OPEN=1` | Open the Windows debug panel at startup for UI validation; default is closed. |
 | `LO_HEADLESS=1` | No video device/window; not equivalent to hidden rendering. |
 | `LO_AUDIO_MUTE=1` | Mute device output. |
 | `LO_AUDIO_CAPTURE=<path>` | Up to 60 seconds of raw 48kHz stereo float PCM before mute. |
 | `LO_CONTROLLER_RUMBLE=0` | Disable host controller rumble; it is enabled by default. Physical device support remains driver/controller dependent. |
-| `LO_GRAPHICS_API=d3d12\|vulkan` | Override the persisted `graphics_backend` choice for one launch; unset/`auto` uses the saved choice. |
+| `LO_GRAPHICS_API=d3d12\|vulkan` | Override the persisted `graphics_backend` choice for one launch on Windows (`dx12` is accepted for `d3d12`); unset/`auto` uses the saved choice. Linux always uses Vulkan and macOS Metal. |
 
 Clear test-only environment variables before manual play. Do not treat a window staying open, a heartbeat, or nonzero PCM as proof a scene is correct.
 

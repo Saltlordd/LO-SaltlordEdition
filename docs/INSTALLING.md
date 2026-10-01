@@ -105,7 +105,7 @@ Keep the ELF directory as the working directory when you want portable `save/`, 
 
 ## First launch and settings
 
-The first-launch page sets the interface language, game language and graphics options before game initialization. Existing settings skip that page. Run `LostOdysseyRecomp.exe --setup` or `LostOdysseyRecomp --setup` to open it again. The in-game Settings page offers a controlled restart for options that need a new process.
+On Windows, the first-launch page sets the interface language, game language and graphics options before game initialization. Existing settings skip that page; run `LostOdysseyRecomp.exe --setup` to open it again. Linux and macOS have no first-launch page yet: the first run saves default settings, which you change on the in-game Settings page. The in-game Settings page offers a controlled restart for options that need a new process.
 
 The interface language and game language are separate. USA/Europe data provides English, Japanese, German, French, Spanish and Italian; the audited Asian set provides English, Japanese, Korean, Traditional Chinese and Simplified Chinese. A game-language choice unavailable in the installed edition falls back to English.
 
@@ -118,10 +118,13 @@ Press **F1** or **LB+RB** to open the Debug Menu; opening it pauses the game. It
 | Windows portable package; writable native Linux ELF directory | `save/`, `profile/`, `cache/`, `logs/`, `settings.ini` and `game-path.txt` beside the executable when launched normally. Imported data defaults to `game/`. |
 | AppImage; native Linux ELF in a read-only directory | Saves, profiles, cache and game data: `~/.local/share/lost-odyssey-recomp/`. Settings and game path: `~/.config/lost-odyssey-recomp/`. Logs: `~/.local/state/lost-odyssey-recomp/logs/`. |
 | Flatpak | Under `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`: saves, profiles, cache and game files use `data/`; settings and game path use `config/lost-odyssey-recomp/`; logs use `.local/state/lost-odyssey-recomp/logs/`. |
+| macOS `.app` (experimental, built from source) | Saves, profiles, cache, game data, settings and game path: `~/Library/Application Support/LostOdysseyRecomp/`. Logs: `~/Library/Logs/LostOdysseyRecomp/logs/`. |
+
+F1 render captures go to `captures/` and mods to `mods/`. In a portable layout both sit beside the executable. Otherwise captures use the settings folder and mods the data folder. The [README](../README.md#files-and-folders) lists every file and folder and the [command-line options](../README.md#command-line-options).
 
 In Flatpak, the host's `data/` folder appears as `/var/data` inside the sandbox; the default game directory is `/var/data/game`. This program's shader cache uses `data/cache/`. The host paths follow [Flatpak's XDG directory conventions](https://docs.flatpak.org/en/latest/conventions.html#xdg-base-directories).
 
-Linux uses portable storage when the actual ELF directory is writable. Otherwise it uses the XDG directories above; custom `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` values change their roots. For portable Windows or native ELF launches with explicit `--game`, relative user-data paths follow the calling working directory, so launch from the same directory to keep using the same saves. `--game` selects the game source and does not change a non-portable installation's data layout.
+Linux uses portable storage when the actual ELF directory is writable. Otherwise it uses the XDG directories above; custom `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` values change their roots. For portable Windows or native ELF launches with explicit `--game`, relative user-data paths follow the calling working directory, so launch from the same directory to keep using the same saves. `--game` selects the game source and does not change a non-portable installation's data layout; only F1 captures then follow the working directory.
 
 ## Updating and keeping user data
 
@@ -139,7 +142,7 @@ For a manual update, close the game before replacing program files. Keep a copy 
 
 Attach the complete current runtime log from `logs/runtime-<timestamp>.log` and include the executable or source version, backend, GPU and driver details shown near startup. Set `LO_LOG_FILE=<path>` to choose another log path, or `LO_LOG_FILE=0` to disable the duplicate file sink.
 
-For a visible rendering issue, open **F1 → Overview → Capture Render State**, confirm, then **close F1** so rendering resumes. The next three frames are captured and archived in the background. Reopen the menu to read the result, then attach the archive at the displayed path. Windows produces a `.zip`; Linux produces a `.tar.gz`. If archiving fails, the raw capture directory remains. Capture archives include screenshots and rendering/shader data; review their contents before sharing.
+For a visible rendering issue, open **F1 → Overview → Capture Render State**, confirm, then **close F1** so rendering resumes. The next three frames are captured and archived in the background. Reopen the menu to read the result, then attach the archive at the displayed path. Windows produces a `.zip`; Linux and macOS produce a `.tar.gz`. If archiving fails, the raw capture directory remains. Capture archives include screenshots and rendering/shader data; review their contents before sharing.
 
 Include the scene, edition, disc, settings and exact package version in a report so the result can be reproduced.
 
