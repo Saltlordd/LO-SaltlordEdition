@@ -78,6 +78,12 @@ inline int PositionVPSlot(uint64_t shader) {
     // f2548-f2550: matched static depth geometry; c8-c11 position/o2 only,
     // leaving the independent c7 UV transform and c12 lighting untouched.
     case 0xff769ec7b88e575full:
+    // f6814 paused cutscene: depth writer e9b8 (PS afd8 reads only the o2 W)
+    // and later material d31e use the 52e4 scene camera bits at c8-c11 for
+    // oPos and its o2/o5 copy only; c7 UV and c12/c13 light/eye stay intact.
+    // PS 4907455386b2b291 samples a same-frame resolve of jittered slot-0
+    // passes through o5.xy/w, so that lookup must follow the raster jitter.
+    case 0xe9b8dd7e7c5a3425ull:case 0xd31e2122a3b51434ull:
     // f6131-f6133: late additive floor lighting matches the f7fd depth and
     // ff769 material geometry. c8-c11 feed oPos and o5; PS 4013372b6413788f
     // samples the current scene light resolve through o5.xy/w, so the lookup
