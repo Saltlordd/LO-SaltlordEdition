@@ -32,7 +32,7 @@ parser, interrupt dispatch and exit bodies with guest/driver stubs. CTest gives
 each run fresh output under the build directory's `fixtures/` folder, so repeat
 runs are supported. These tests verify local contracts and error paths; they
 do not establish gameplay, Windows CRT behavior, GPU rendering or frame times.
-The Linux CI entry is `.github/workflows/review-regressions.yml`.
+The Linux CI entry is `.gitea/workflows/review-regressions.yml` on git.zkx.ca, which runs on branch pushes; the GitHub copy only runs when started manually.
 
 For a separate ThreadSanitizer check of the changed callbacks:
 

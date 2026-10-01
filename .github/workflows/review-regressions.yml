@@ -1,23 +1,9 @@
 name: Runtime review regressions
 
+# Pull request checks run on Gitea (.gitea/workflows/review-regressions.yml).
+# This copy only runs when started manually.
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/review-regressions.yml'
-      - 'LostOdysseyRecomp/apu/audio*'
-      - 'LostOdysseyRecomp/gpu/command_processor.*'
-      - 'LostOdysseyRecomp/gpu/indirect_buffer_guard.h'
-      - 'LostOdysseyRecomp/gpu/renderer.cpp'
-      - 'LostOdysseyRecomp/gpu/texture*.h'
-      - 'LostOdysseyRecomp/kernel/imports.cpp'
-      - 'LostOdysseyRecomp/kernel/memory.*'
-      - 'LostOdysseyRecomp/kernel/io/file_system.cpp'
-      - 'LostOdysseyRecomp/main.cpp'
-      - 'LostOdysseyRecomp/os/user_paths.h'
-      - 'LostOdysseyRecomp/settings/config.cpp'
-      - 'LostOdysseyRecomp/updater/**'
-      - 'tools/tests/**'
 
 permissions:
   contents: read
