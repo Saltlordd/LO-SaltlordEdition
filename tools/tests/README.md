@@ -33,6 +33,17 @@ each run fresh output under the build directory's `fixtures/` folder, so repeat
 runs are supported. These tests verify local contracts and error paths; they
 do not establish gameplay, Windows CRT behavior, GPU rendering or frame times.
 
+On Linux, `updater_appimage_cleanup_test.py` (CTest name
+`updater_appimage_cleanup`) builds the unmodified updater apply mode
+(`updater/apply_mode.cpp`, `updater/update.cpp`) with the configured compiler
+and runs it as an AppImage. It checks that the running AppImage removes its
+`.previous` backup (also one left by older updaters) but leaves symlinks,
+directories and non-AppImage launches alone, that an apply plan replaces and
+restarts the AppImage, and that the previous image comes back when the new one
+fails to execute. It needs `tools/XenonRecomp` and its
+`thirdparty/tomlplusplus` submodule (`update.cpp` includes its `json.hpp`);
+run it directly with `python3 tools/tests/updater_appimage_cleanup_test.py --cxx g++`.
+
 CTest also runs the packaging script tests `package_appimage_test.py` and
 `package_flatpak_test.py` (CTest names `package_appimage` and
 `package_flatpak`). They replace linuxdeploy, flatpak and the compiler,

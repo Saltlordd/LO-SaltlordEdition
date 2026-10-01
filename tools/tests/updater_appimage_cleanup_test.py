@@ -1,4 +1,5 @@
 """Linux regression: compile the real apply entry point and exercise restart/rollback."""
+import argparse
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,9 @@ import tempfile
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cxx", default="g++", help="C++20 compiler for the probe")
+    args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
     source = repo / "LostOdysseyRecomp"
     with tempfile.TemporaryDirectory(prefix="lo-appimage-cleanup-") as temporary:
@@ -19,7 +23,7 @@ def main():
         )
         probe = root / "probe"
         subprocess.run([
-            "g++", "-std=c++20", "-I", str(source), str(probe_source),
+            args.cxx, "-std=c++20", "-I", str(source), str(probe_source),
             str(source / "updater/apply_mode.cpp"),
             str(source / "updater/update.cpp"),
             "-o", str(probe),
