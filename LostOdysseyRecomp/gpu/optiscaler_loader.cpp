@@ -61,10 +61,16 @@ LoadResult Load(bool ngxCompiled) {
     // OptiScaler attaches its API hooks in DllMain. Do not unload it after a
     // backend reset or on a later error: live dispatch pointers may target it.
     static HMODULE processModule = nullptr;
+    // A file that is not a valid DLL would make Windows show a modal "Bad Image"
+    // dialog and block startup. Fail the load instead, for this thread only.
+    DWORD previousMode = 0;
+    const BOOL quiet = SetThreadErrorMode(GetThreadErrorMode() | SEM_FAILCRITICALERRORS, &previousMode);
     processModule = LoadLibraryExW(result.path.c_str(), nullptr,
         LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    const DWORD loadError = GetLastError();
+    if (quiet) SetThreadErrorMode(previousMode, nullptr);
     if (!processModule) {
-        result.systemError = GetLastError();
+        result.systemError = loadError;
         result.reason = "OptiScaler DLL loading failed";
         return result;
     }
