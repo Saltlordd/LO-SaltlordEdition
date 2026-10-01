@@ -1,24 +1,8 @@
 name: FG game integration compile
+# Pull request checks run on Gitea (.gitea/workflows/fg-game-integration.yml).
+# This copy only runs when started manually.
 on:
-  push:
-    branches: [feature/reusable-fg-fsr-d3d12-mfg]
-    paths:
-      - LostOdysseyRecomp/gpu/**
-      - shared/frame_generation/**
-      - cmake/LoFrameGeneration.cmake
-      - tools/patches/plume-lostodyssey.patch
-      - tools/tests/frame_generation/**
-      - tools/tests/motion_replay/CMakeLists.txt
-      - .github/workflows/fg-game-integration.yml
-  pull_request:
-    paths:
-      - LostOdysseyRecomp/gpu/**
-      - shared/frame_generation/**
-      - cmake/LoFrameGeneration.cmake
-      - tools/patches/plume-lostodyssey.patch
-      - tools/tests/frame_generation/**
-      - tools/tests/motion_replay/CMakeLists.txt
-      - .github/workflows/fg-game-integration.yml
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
