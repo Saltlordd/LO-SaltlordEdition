@@ -21,13 +21,13 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 ## 开始游戏
 
-从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.7.20**。
+从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.7.25**。
 
 | 平台 | 安装包 | 首次启动 |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.20.zip` | 将完整 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU；默认使用 Direct3D 12，也可选择 Vulkan。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.25.zip` | 将完整 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU；默认使用 Direct3D 12，也可选择 Vulkan。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
 
 1. **导入游戏数据。** 未找到可用的游戏安装时会打开内置导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、XDVDFS ISO 或 GOD 数据。
 2. **选择界面语言、游戏语言和图形设置。** 完成设置和着色器预编译后进入游戏，后续启动会复用着色器缓存。
@@ -41,7 +41,7 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 ### 最新更新
 
-[v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) 加载纹理 mip 链以配合各向异性过滤，将插帧请求上限设为 6×，修复 D3D12 退出死锁，并降低命令处理器和 D3D12 状态开销。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。
+[v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) 在 F1 调试菜单加入按钮，可在分队期间随时存档再读档后恢复 RB 换人（#74）；修复“东方部族的遗产”区域开启 TAA 或 FSR 时的天空闪烁（#102），并在日志中记录类似的闪烁嫌疑；加固运行时对异常游戏请求的处理；Windows ZIP 清单为旧版 updater 写入 SHA-256 值（#105）；并用全部界面语言说明 Flatpak 的更新方法。源码还包含上文实验性的 Apple Silicon macOS 路径，但不发布 macOS 安装包。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。
 
 ## 当前功能
 

@@ -21,13 +21,13 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 ## Start playing
 
-Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.7.20**.
+Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.7.25**.
 
 | Platform | Package | First launch |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.20.zip` | Extract the complete ZIP to a writable folder, then run `LostOdysseyRecomp.exe`. Requires an AVX-capable CPU; Direct3D 12 is the default backend, with Vulkan available. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.AppImage` | Make the file executable with `chmod +x`, then run it. Uses Vulkan. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.20.flatpak` | Install the Freedesktop 26.08 runtime, then the downloaded bundle. See the [Flatpak commands](docs/INSTALLING.md#flatpak). Uses Vulkan. |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.25.zip` | Extract the complete ZIP to a writable folder, then run `LostOdysseyRecomp.exe`. Requires an AVX-capable CPU; Direct3D 12 is the default backend, with Vulkan available. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage` | Make the file executable with `chmod +x`, then run it. Uses Vulkan. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.flatpak` | Install the Freedesktop 26.08 runtime, then the downloaded bundle. See the [Flatpak commands](docs/INSTALLING.md#flatpak). Uses Vulkan. |
 
 1. **Import your game data.** The built-in importer opens when no usable game installation is found. Use **Files** or **Folder** to select an extracted game folder, `default.xex`, an XDVDFS ISO or GOD data.
 2. **Choose the interface language, game language and graphics options.** The game starts after setup and shader preparation. Later launches reuse the shader cache.
@@ -41,7 +41,7 @@ This branch includes an experimental arm64 macOS path using Metal. Local Windows
 
 ### Latest changes
 
-[v0.7.20](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.20) adds guest texture mip chains for anisotropic filtering, caps frame-generation requests at 6×, fixes a D3D12 quit deadlock, and reduces command-processor and D3D12 state overhead. See the [changelog](CHANGELOG.md) for earlier releases and the [development status](docs/STATUS.md) for validation coverage.
+[v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) adds an F1 button that restores RB party switching after a split-party Save Anywhere load (#74), fixes the Legacy of the Eastern Tribe sky flicker with TAA or FSR (#102) and logs similar flicker suspects, hardens the runtime against malformed game requests, writes SHA-256 values into Windows ZIP manifests for older updaters (#105), and explains Flatpak updates in every interface language. The source also gains the experimental Apple Silicon macOS path above; no macOS package is published. See the [changelog](CHANGELOG.md) for earlier releases and the [development status](docs/STATUS.md) for validation coverage.
 
 ## Current features
 
