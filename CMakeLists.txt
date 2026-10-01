@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.28)
 # Minimum macOS version; ignored elsewhere. Must precede project(), and keeps
 # plume from falling back to its own 10.15 default.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
-project(LostOdysseyRecomp VERSION 0.7.20 LANGUAGES C CXX)
+project(LostOdysseyRecomp VERSION 0.7.25 LANGUAGES C CXX)
 include(GNUInstallDirs)
 # Source version, not a release/commit or clean-checkout assertion.
 # Capture before nested projects can replace PROJECT_VERSION in their scope.
