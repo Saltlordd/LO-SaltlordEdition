@@ -42,11 +42,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 thirdparty/plume tools/XenosRecomp tools/XenonRecomp thirdparty/unordered_dense thirdparty/SDL
+          # win-t640 sets LO_GIT_REFERENCE to a local mirror of these upstreams;
+          # objects missing from it are still fetched from GitHub.
+          if [ -n "${LO_GIT_REFERENCE:-}" ]; then fetch=(--reference "$LO_GIT_REFERENCE"); else fetch=(--depth 1); fi
+          git submodule update --init "${fetch[@]}" thirdparty/plume tools/XenosRecomp tools/XenonRecomp thirdparty/unordered_dense thirdparty/SDL
           git -C thirdparty/plume apply ../../tools/patches/plume-lostodyssey.patch
-          git -C thirdparty/plume submodule update --init --depth 1 contrib/volk contrib/Vulkan-Headers contrib/VulkanMemoryAllocator contrib/D3D12MemoryAllocator
-          git -C tools/XenosRecomp submodule update --init --recursive --depth 1
-          git -C tools/XenonRecomp submodule update --init --depth 1 thirdparty/tomlplusplus
+          git -C thirdparty/plume submodule update --init "${fetch[@]}" contrib/volk contrib/Vulkan-Headers contrib/VulkanMemoryAllocator contrib/D3D12MemoryAllocator
+          git -C tools/XenosRecomp submodule update --init --recursive "${fetch[@]}"
+          git -C tools/XenonRecomp submodule update --init "${fetch[@]}" thirdparty/tomlplusplus
       # actions/checkout would send the Gitea job token to github.com, which
       # rejects it; fetch the pinned public SDK headers without credentials.
       - name: Fetch pinned SDK headers
