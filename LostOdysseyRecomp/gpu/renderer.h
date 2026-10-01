@@ -63,6 +63,16 @@ namespace gpu::renderer
     // Called for every DRAW_INDX / DRAW_INDX_2 after the registers were updated.
     void Draw(const DrawInfo& info);
 
+    // PM4 EVENT_WRITE_ZPD for the guest occlusion query record at
+    // physicalAddress. False when host queries are off; the command processor
+    // then writes its fake counts.
+    bool OcclusionQueryEvent(uint32_t physicalAddress);
+    // A guest waits in GetData for a query result. Any thread.
+    void NoteOcclusionWait();
+    // Command processor thread, when it has nothing to execute or is about to
+    // block: completes the queries a waiting guest needs.
+    void ServiceOcclusionQueries();
+
     // Called on XE_SWAP before the frontbuffer is presented: finishes all work.
     void Flush();
     // Drain renderer submissions before replacing the D3D12 presentation queue.
