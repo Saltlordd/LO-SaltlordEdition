@@ -6,18 +6,22 @@ find_package(Python3 COMPONENTS Interpreter REQUIRED)
 find_package(Threads REQUIRED)
 include(CTest)
 option(LO_MENU_SANITIZE "Enable Address/UndefinedBehavior sanitizers" OFF)
-set(FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/menu_fixture.cpp")
-add_custom_command(OUTPUT "${FIXTURE}"
-    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/generate_runtime_fixture.py"
-        --root "${REPO_ROOT}" --output "${FIXTURE}"
-    DEPENDS generate_runtime_fixture.py "${RUNTIME}/settings/menu.cpp"
-    VERBATIM)
-add_executable(LoSettingsInteraction "${FIXTURE}" "${RUNTIME}/settings/menu_render.cpp")
-target_compile_definitions(LoSettingsInteraction PRIVATE LO_ENABLE_STREAMLINE_FG=1)
-add_executable(LoSettingsInteractionFsr "${FIXTURE}" "${RUNTIME}/settings/menu_render.cpp")
-target_compile_definitions(LoSettingsInteractionFsr PRIVATE LO_ENABLE_VULKAN_FSR_FG=1)
-add_executable(LoSettingsInteractionBoth "${FIXTURE}" "${RUNTIME}/settings/menu_render.cpp")
-target_compile_definitions(LoSettingsInteractionBoth PRIVATE LO_ENABLE_VULKAN_FSR_FG=1 LO_ENABLE_STREAMLINE_FG=1)
+# One generated fixture per executable. Visual Studio generators attach a shared
+# custom command to every consumer project and MSBuild runs them in parallel,
+# so three targets writing one file race ("Permission denied").
+function(lo_settings_interaction target)
+    set(fixture "${CMAKE_CURRENT_BINARY_DIR}/${target}_fixture.cpp")
+    add_custom_command(OUTPUT "${fixture}"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_LIST_DIR}/generate_runtime_fixture.py"
+            --root "${REPO_ROOT}" --output "${fixture}"
+        DEPENDS generate_runtime_fixture.py "${RUNTIME}/settings/menu.cpp"
+        VERBATIM)
+    add_executable(${target} "${fixture}" "${RUNTIME}/settings/menu_render.cpp")
+    target_compile_definitions(${target} PRIVATE ${ARGN})
+endfunction()
+lo_settings_interaction(LoSettingsInteraction LO_ENABLE_STREAMLINE_FG=1)
+lo_settings_interaction(LoSettingsInteractionFsr LO_ENABLE_VULKAN_FSR_FG=1)
+lo_settings_interaction(LoSettingsInteractionBoth LO_ENABLE_VULKAN_FSR_FG=1 LO_ENABLE_STREAMLINE_FG=1)
 add_executable(LoSettingsRaster raster_test.cpp "${RUNTIME}/settings/menu_render.cpp")
 foreach(target IN ITEMS LoSettingsInteraction LoSettingsInteractionFsr LoSettingsInteractionBoth LoSettingsRaster)
     target_include_directories(${target} PRIVATE "${RUNTIME}")
