@@ -56,9 +56,10 @@ T640 toolchain:
 - CMake 3.31.6 and PowerShell 7.4.6
 - Git for Windows, Node.js, and aria2 in `C:\tools\aria2`
 
-The VS-bundled clang component did not finish installing, so
-`start-runner.cmd` sets `LLVMInstallDir` and `LLVMToolsVersion=22`, and
-`-T ClangCL` uses the standalone LLVM. It also puts Git Bash first on `PATH`;
+The VS-bundled clang package stalled for half an hour during setup (it
+completed later), so `start-runner.cmd` sets `LLVMInstallDir` and
+`LLVMToolsVersion=22`, and `-T ClangCL` uses the standalone LLVM 22, the same
+version as the development machine. It also puts Git Bash first on `PATH`;
 otherwise `shell: bash` resolves to the WSL `bash.exe` in System32.
 
 ### Submodule mirror
