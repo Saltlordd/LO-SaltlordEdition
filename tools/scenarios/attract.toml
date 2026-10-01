@@ -1,0 +1,7 @@
+description = "Boot, title screen and attract sequence without input"
+timeout = 90
+
+[checks]
+min_fps = 25
+# The attract sequence lands on a different moment each run.
+compare_image = false

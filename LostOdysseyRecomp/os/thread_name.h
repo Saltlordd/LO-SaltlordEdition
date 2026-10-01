@@ -9,7 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__APPLE__)
 #include <pthread.h>
 #endif
 
@@ -28,6 +28,12 @@ inline void SetCurrentThreadName(const char* name) noexcept
     for (unsigned i = 0; i < 15 && name[i]; ++i)
         truncated[i] = name[i];
     (void)pthread_setname_np(pthread_self(), truncated);
+#elif defined(__APPLE__)
+    // macOS names only the calling thread; names are limited to 63 bytes.
+    char truncated[64]{};
+    for (unsigned i = 0; i < 63 && name[i]; ++i)
+        truncated[i] = name[i];
+    (void)pthread_setname_np(truncated);
 #else
     (void)name;
 #endif

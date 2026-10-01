@@ -1,0 +1,16 @@
+description = "Disc 2 Crimson Forest shrine (slot 15): load, walk"
+save = "user16"
+timeout = 150
+# Title: START, Down to Continue, Continue, Last Saved Game (the only save).
+buttons = "s@300,d@600,a@900,a@1200,a@1500,a@1800"
+
+[[step]]
+wait_draws = 700
+stick = [0, 28000]
+polls = 600
+hold_seconds = 20
+screenshot = true
+
+[checks]
+min_draws = 700
+min_fps = 25

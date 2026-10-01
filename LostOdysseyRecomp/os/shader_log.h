@@ -192,7 +192,8 @@ namespace os::shaderlog
             if (ec) return ec;
             if (target == path_ || std::filesystem::equivalent(path_, target, ec))
                 return std::make_error_code(std::errc::invalid_argument);
-            if (ec && ec != std::errc::no_such_file_or_directory) return ec;
+            // libc++ reports a missing destination as not_supported.
+            if (ec && ec != std::errc::no_such_file_or_directory && ec != std::errc::not_supported) return ec;
             if (const auto flush = FlushLocked()) return flush;
             ec.clear();
             const bool copied = std::filesystem::copy_file(path_, target, std::filesystem::copy_options::overwrite_existing, ec);

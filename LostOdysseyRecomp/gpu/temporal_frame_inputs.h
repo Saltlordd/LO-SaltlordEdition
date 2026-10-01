@@ -78,6 +78,7 @@ inline constexpr ConsumerRoute RouteConsumer(const frame_plan::FramePlan& plan, 
         route.dlssInputs=route.sr;route.dlssSr=route.sr;
         if (route.sr) route.effectiveAA=0;break;
     case upscaling::TemporalConsumer::FsrSr:
+    case upscaling::TemporalConsumer::MetalFxSr:
         if (route.sr) route.effectiveAA=0;break;
     case upscaling::TemporalConsumer::None:
         route.spatialAA=plan.effectiveAA==1||plan.effectiveAA==2;break;

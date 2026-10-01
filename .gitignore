@@ -5,6 +5,7 @@ cmake-build-*/
 .vs/
 .idea/
 *.user
+*.DS_Store
 
 # 游戏数据：永远不入库
 LostOdysseyRecompLib/private/*
@@ -151,3 +152,9 @@ CLAUDE.md
 /.opencode/
 /.lo-portable-backup/
 .slim/deepwork/
+
+# Local macOS port notes (not published)
+docs/MACOS_PORT_TODO.md
+docs/MACOS_PORT_WORKLOG.md
+/saves/
+/dlc-packages/

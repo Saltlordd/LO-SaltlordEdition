@@ -69,14 +69,36 @@ namespace gpu::frame_plan
     {
         if (width && height) drawable.store((uint64_t(width) << 32) | height, std::memory_order_release);
     }
+#if LO_PLATFORM_MACOS
+    // On Retina displays the drawable is a multiple of the window's point size.
+    // "Follow output" means the window's logical size, as it does on Windows,
+    // where the window size is the pixel size: a 1280x720 output renders the
+    // scene at 720p. Presentation still uses the full drawable.
+    uint32_t InternalResolutionMode(uint32_t configured)
+    {
+        if (configured == uint32_t(settings::InternalResolutionNative)) return 0;
+        if (configured != 0) return configured;
+        const uint32_t logical = video::LogicalOutputHeight();
+        if (!logical) return configured;
+        for (const uint32_t height : { 2160u, 1440u, 1080u })
+            if (logical >= height) return height;
+        return 720;
+    }
+#endif
+
     void BeginCpuFrame()
     {
         const uint64_t extent = drawable.load(std::memory_order_acquire);
-        const auto config = settings::GetConfig();
+        auto config = settings::GetConfig();
+#if LO_PLATFORM_MACOS
+        config.internalResolution = int(InternalResolutionMode(uint32_t(config.internalResolution)));
+#else
+        if (config.internalResolution == settings::InternalResolutionNative) config.internalResolution = 0;
+#endif
         const auto output = upscaling::ResolveOutputRegion({uint32_t(extent >> 32), uint32_t(extent)});
         const auto device = video::BackendDeviceState();
         std::optional<upscaling::OutputSizing> sizing;
-        if ((config.upscaler == upscaling::Upscaler::Dlss || config.upscaler == upscaling::Upscaler::Fsr) && device.deviceReady)
+        if (config.upscaler != upscaling::Upscaler::Off && device.deviceReady)
             sizing = sizingCache.LookupOrRequestSizing({device.deviceEpoch, output.width, output.height,
                 config.upscaler, output.x, output.y});
         cpuPlan = planner.Begin({uint32_t(config.internalResolution), config.antialiasing, config.scalingQuality,

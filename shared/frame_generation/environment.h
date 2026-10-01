@@ -1,6 +1,11 @@
 #pragma once
 #include "core.h"
 #include <charconv>
+#if defined(__APPLE__)
+#include <cerrno>
+#include <cstdlib>
+#include <xlocale.h>
+#endif
 #include <string_view>
 
 namespace framegen {
@@ -35,8 +40,18 @@ inline EnvironmentSelection ParseEnvironment(const char* provider, const char* m
     }
     if (target) {
         const std::string_view text(target);
+#if defined(__APPLE__)
+        // libc++ provides floating-point from_chars only from macOS 26. strtof_l
+        // with the C locale parses the same text independently of the user locale.
+        char* end = nullptr;
+        errno = 0;
+        out.config.targetFrameRate = strtof_l(target, &end, LC_C_LOCALE);
+        const bool parsed = errno == 0 && end != target && end == text.data()+text.size();
+#else
         const auto result = std::from_chars(text.data(), text.data()+text.size(), out.config.targetFrameRate);
-        if (result.ec != std::errc{} || result.ptr != text.data()+text.size() ||
+        const bool parsed = result.ec == std::errc{} && result.ptr == text.data()+text.size();
+#endif
+        if (!parsed ||
             !std::isfinite(out.config.targetFrameRate) || out.config.targetFrameRate < 0) {
             out.error = "LO_FG_TARGET_FPS must be finite and non-negative"; return out;
         }

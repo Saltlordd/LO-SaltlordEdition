@@ -35,7 +35,7 @@ Reusable investigation methods and constraints may also be summarized in Basic M
 | [Engineering principles](LORecomp_ENGINEERING_PRINCIPLES.zh-CN.md) | Correctness, performance, supported data and proportionate validation |
 | [Portable shader packs](PORTABLE_SHADER_PACK.md) | Vulkan/DX12 distribution, tools and historical pack measurements |
 | [Repository synchronization](PUBLISHING.md) | Remote selection and publication workflow |
-| [Release packaging](../tools/release/README.md) | Package assembly and release-note extraction; release workflows stay on GitHub Actions |
+| [Release packaging](../tools/release/README.md) | Package assembly and release-note extraction; the release workflow runs on Gitea Actions and publishes to GitHub |
 | [Pull request checks and releases](notes/ci-gitea.md) | Gitea Actions workflows (PR checks and release packaging), runners and the `gitea/<workflow>` status reported back to GitHub |
 | [AppImage compatibility](../packaging/linux/APPIMAGE_COMPATIBILITY.md) | ABI baseline, packaging evidence and hardware limits |
 | [Project synchronization](project-management/README.md) | Manifest ownership, conflict handling and live state reconciliation |

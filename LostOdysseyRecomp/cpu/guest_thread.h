@@ -1,6 +1,7 @@
 #pragma once
 
 #include <kernel/xdm.h>
+#include <os/guest_code_thread.h>
 
 #define CURRENT_THREAD_HANDLE uint32_t(-2)
 
@@ -34,7 +35,7 @@ struct GuestThreadHandle : KernelObject
         explicit Control(const GuestThreadParams& p) : params(p), suspended((p.flags & 1) != 0) {}
     };
     std::shared_ptr<Control> control;
-    std::thread thread;
+    os::GuestCodeThread thread;
 
     GuestThreadHandle(const GuestThreadParams& params);
     ~GuestThreadHandle() override;

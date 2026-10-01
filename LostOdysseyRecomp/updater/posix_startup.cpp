@@ -9,6 +9,11 @@
 #if defined(__linux__) && !defined(_WIN32)
 #include <unistd.h>
 #endif
+#if defined(__APPLE__)
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
+#endif
 
 namespace updater
 {
@@ -104,6 +109,60 @@ StartupResult PrepareAtStartup(const StartupOptions &options)
     result.status = StartupStatus::Ready;
     result.detail = release->tag;
     result.update = std::move(update);
+    return result;
+}
+#elif defined(__APPLE__)
+// macOS: the app bundle is signed and notarized, so it is never patched in place.
+// A newer release that carries a macOS asset is offered, and accepting opens its
+// download page; the game, saves and caches live outside the bundle.
+StartupResult PrepareAtStartup(const StartupOptions &options)
+{
+    StartupResult result;
+    const char *disabled = std::getenv("LO_NO_UPDATE");
+    if (!options.automaticUpdates || (disabled && std::string_view(disabled) != "0"))
+    {
+        result.status = StartupStatus::Disabled;
+        result.detail = !options.automaticUpdates ? "automatic_updates=0" : "LO_NO_UPDATE";
+        return result;
+    }
+    std::string error;
+    const auto current = ParseVersion(options.currentVersion).value_or(*ParseVersion("0.0.0"));
+    std::string releaseText;
+    if (!ReadResponse(options.releaseApiUrl, 2 * 1024 * 1024, releaseText, error))
+    {
+        result.status = StartupStatus::Offline; result.detail = error; return result;
+    }
+    auto release = ParseGitHubRelease(releaseText, error);
+    if (!release)
+    {
+        result.status = StartupStatus::InvalidRelease; result.detail = error; return result;
+    }
+    auto remote = ParseVersion(release->tag);
+    if (!remote || !ShouldUpdateToLatest(current, *remote))
+    {
+        result.status = StartupStatus::UpToDate; result.detail = release->tag; return result;
+    }
+    if (!SelectAsset(*release, "macos", "arm64", error))
+    {
+        result.status = StartupStatus::NoCompatibleAsset; result.detail = error; return result;
+    }
+    const auto changelog = ReleaseChangelog(*release, options.uiLanguage);
+    if (!options.confirmUpdate || !options.confirmUpdate(release->tag, changelog, options.uiLanguage))
+    {
+        result.status = StartupStatus::Cancelled; result.detail = "user declined update"; return result;
+    }
+    const std::string page = std::string("https://github.com/") + kReleaseRepository + "/releases/tag/" + release->tag;
+    char open[] = "/usr/bin/open";
+    std::string url = page;
+    char *arguments[] = {open, url.data(), nullptr};
+    pid_t pid = 0;
+    if (posix_spawn(&pid, open, nullptr, nullptr, arguments, environ) == 0)
+    {
+        int status = 0;
+        waitpid(pid, &status, 0);
+    }
+    result.status = StartupStatus::ExternalUpdateAvailable;
+    result.detail = "opened " + page;
     return result;
 }
 #endif

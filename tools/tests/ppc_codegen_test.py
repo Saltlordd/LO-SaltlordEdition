@@ -52,6 +52,37 @@ class CodegenTest(unittest.TestCase):
                     codegen.generate(self.root, self.root / "tool")
                 self.assertEqual({p.name: p.read_bytes() for p in self.output.iterdir()}, self.previous)
 
+    def test_barriers_keep_order_and_are_idempotent(self):
+        source = self.output / "ppc_recomp.0.cpp"
+        source.write_text(
+            '#include "ppc_recomp_shared.h"\n'
+            'void publish() {\n'
+            '\t// lwsync \n\tstore_payload();\n'
+            '\t// eieio \n\tstore_mmio();\n'
+            '\t// sync \n\tload_result();\n'
+            '\t// isync \n}\n', encoding="utf-8")
+        self.assertEqual(codegen.insert_barriers(self.output), 3)
+        updated = source.read_text(encoding="utf-8")
+        self.assertEqual(updated.count("#include <atomic>"), 1)
+        self.assertIn('std::atomic_thread_fence(std::memory_order_acq_rel);\n\tstore_payload();', updated)
+        self.assertIn('std::atomic_thread_fence(std::memory_order_acq_rel);\n\tstore_mmio();', updated)
+        self.assertIn('std::atomic_thread_fence(std::memory_order_seq_cst);\n\tload_result();', updated)
+        self.assertIn('\t// isync \n}', updated)
+        baseline = source.read_bytes()
+        self.assertEqual(codegen.insert_barriers(self.output), 0)
+        self.assertEqual(source.read_bytes(), baseline)
+
+    def test_barrier_failure_restores_previous_set(self):
+        def invalid_layout(*args, **kwargs):
+            for name in self.previous:
+                if name.endswith((".cpp", ".h")):
+                    (self.output / name).write_text("\t// sync \n", encoding="utf-8")
+        with patch.object(codegen.subprocess, "run", side_effect=invalid_layout), self.assertRaisesRegex(
+            ValueError, "Unexpected generated layout"
+        ):
+            codegen.generate(self.root, self.root / "tool")
+        self.assertEqual({p.name: p.read_bytes() for p in self.output.iterdir()}, self.previous)
+
 
 if __name__ == "__main__":
     unittest.main()

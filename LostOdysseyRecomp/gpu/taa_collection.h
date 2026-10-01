@@ -17,7 +17,8 @@ bool SetConsent(bool enabled);
 const wchar_t* Message(uint32_t language);
 const wchar_t* Label(uint32_t language);
 void PromptFirstRun(uint32_t language);
-void SetDevice(bool vulkan, const std::string& name, uint64_t driver);
+// backend: "d3d12", "vulkan" or "metal".
+void SetDevice(const char* backend, const std::string& name, uint64_t driver);
 bool Enabled();
 uint64_t ConsentEpoch() noexcept;
 bool WantBinding() noexcept;

@@ -8,6 +8,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- Added an experimental Apple Silicon macOS arm64/Metal integration path, including source-build and packaging workflows. Local Windows and Mac runtime builds compile and link, and a limited new-game/first-battle test passed; long play, broader scenes, image quality, performance validation and package publication remain pending.
 - Future Windows ZIPs now write SHA-256 string values for every payload in `manifest.files`, so legacy v0.7.0–v0.7.3 updaters can consume the new manifest shape. The current updater still consumes paths only; this does not restore runtime hash validation.
 - Added a Force RB Party Switch button next to Save Anywhere in the F1 debug menu (#74). A save made with Save Anywhere during a split-party section loses RB character switching after loading, because the event script keeps that permission in memory only. The button turns it back on: with the reporter's save in Astral Square, the Change Character prompt returned and RB switched between the two groups in both directions. It only has an effect in areas whose script offers party switching. Save Anywhere now also stays off while the party is split, so the System menu's Save follows the game's own rule there and new saves can no longer lose switching.
 - Fixed the sky flickering with TAA and FSR in the disc 4 Legacy of the Eastern Tribe area (#102). The sky's depth pass was jittered but its colour pass was not, so on some jitter phases the whole sky failed the depth test and showed a dark fallback. The colour pass now gets the same jitter. Its draw also no longer disables object motion vectors for the whole frame in this area, a likely cause of the reported smearing on the rest of the image. With the reporter's save on D3D12 at 3840x2160, the dark sky appeared in 41 of 134 screenshots with TAA and 38 of 102 with FSR 3.1 Quality before the fix, and in none of 98 and 90 after it. Reporter confirmation is pending.
@@ -17,6 +18,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### 简体中文
 
+- 加入 Apple Silicon macOS arm64／Metal 实验性整合路径，并提供源码构建和打包流程。Windows 和 Mac 本地运行时已完成编译链接，有限的新游戏和首战测试已通过；长时间游玩、更广场景、画质、性能验证和安装包发布仍待完成。
 - 后续 Windows ZIP 会在 `manifest.files` 中为每个 payload 写入 SHA-256 字符串，使 v0.7.0–v0.7.3 的旧版 updater 能读取新的清单格式。当前 updater 仍只使用路径；这不会恢复运行时 hash 校验。
 - F1 调试菜单在随时存档旁新增“强制开启 RB 换人”按钮（#74）。分队探索期间用随时存档保存后，读档会失去 RB 换人，因为事件脚本只在内存里保留这项权限。该按钮会重新打开它：用报告者在 Astral Square 的存档测试，"Change Character" 提示恢复，按 RB 能在两组之间来回切换。它只在脚本提供换人的区域生效。随时存档在分队期间也不再生效，System 菜单的 Save 按原作规则处理，新存档不会再丢失换人。
 - 修复第四张光盘“东方部族的遗产”区域开启 TAA 或 FSR 时天空闪烁的问题（#102）。天空的深度预通道加了 jitter，颜色通道却没有加，部分 jitter 相位下整片天空无法通过深度测试，只剩暗色底色。现在颜色通道使用相同的 jitter。该 draw 也不再让这一区域整帧的物体运动向量失效，这很可能是报告中其余画面拖影的原因。用报告者存档在 D3D12、3840x2160 下测试：修复前 TAA 的 134 张截图中有 41 张天空变暗，FSR 3.1 Quality 的 102 张中有 38 张；修复后分别为 98 张和 90 张中 0 张。报告者复测待完成。

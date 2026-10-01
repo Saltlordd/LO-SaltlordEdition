@@ -258,6 +258,7 @@ namespace gpu
     bool CommandProcessor::Init()
     {
         m_registers.assign(REGISTER_COUNT, 0);
+        for (auto& generation : m_constantGeneration) generation.fetch_add(1, std::memory_order_release);
 
         // Registers the guest reads back through plain loads: keep the MMIO
         // window populated with big-endian values (Xenia ReadRegister defaults).
@@ -298,8 +299,8 @@ namespace gpu
             return false;
         }
         try {
-            m_vsync = std::thread([this] { VsyncMain(); });
-            m_interruptThread = std::thread([this] { InterruptMain(); });
+            m_vsync = os::GuestCodeThread([this] { VsyncMain(); });
+            m_interruptThread = os::GuestCodeThread([this] { InterruptMain(); });
         } catch (const std::exception& e) {
             LOG_ERROR("graphics worker creation failed: {}", e.what());
             Shutdown();
@@ -330,9 +331,11 @@ namespace gpu
         }
         m_interruptCv.notify_all();
         m_waitProgress.notify_all();
-        for (auto* t : { &m_worker, &m_vsync, &m_interruptThread })
-            if (t->joinable())
-                t->join();
+        // m_vsync and m_interruptThread run guest callbacks (os::GuestCodeThread).
+        auto join = [](auto& thread) { if (thread.joinable()) thread.join(); };
+        join(m_worker);
+        join(m_vsync);
+        join(m_interruptThread);
     }
 
     void CommandProcessor::InitializeRingBuffer(uint32_t physicalAddress, uint32_t sizeLog2)
@@ -443,7 +446,10 @@ namespace gpu
             break;
         }
 
+        const bool constantChanged = index - kAluConstantBase < 2 * kAluConstantBankSize && m_registers[index] != value;
         m_registers[index] = value;
+        if (constantChanged)
+            m_constantGeneration[(index - kAluConstantBase) / kAluConstantBankSize].fetch_add(1, std::memory_order_release);
 
         // Guest code reads registers back with plain loads from the MMIO
         // window (the D3D interrupt handler inspects the scratch registers),
@@ -489,6 +495,8 @@ namespace gpu
     {
         if (index >= kPlainRegisterFirst && index < REGISTER_COUNT)
         {
+            if (index - kAluConstantBase < 2 * kAluConstantBankSize && m_registers[index] != value)
+                m_constantGeneration[(index - kAluConstantBase) / kAluConstantBankSize].fetch_add(1, std::memory_order_release);
             m_registers[index] = value;
             reinterpret_cast<be<uint32_t>*>(g_memory.Translate(MMIO_BASE))[index] = value;
             return;
@@ -506,8 +514,17 @@ namespace gpu
             return false;
         std::memcpy(static_cast<uint8_t*>(g_memory.Translate(MMIO_BASE)) + size_t(first) * 4, guestWords, size_t(count) * 4);
         uint32_t* registers = m_registers.data() + first;
+        bool changed[2]{};
         for (uint32_t i = 0; i < count; ++i)
-            registers[i] = ByteSwap(guestWords[i]);
+        {
+            const uint32_t value = ByteSwap(guestWords[i]);
+            const uint32_t index = first + i;
+            if (index - kAluConstantBase < 2 * kAluConstantBankSize && registers[i] != value)
+                changed[(index - kAluConstantBase) / kAluConstantBankSize] = true;
+            registers[i] = value;
+        }
+        for (uint32_t bank = 0; bank < 2; ++bank)
+            if (changed[bank]) m_constantGeneration[bank].fetch_add(1, std::memory_order_release);
         return true;
     }
 
@@ -526,6 +543,25 @@ namespace gpu
             ? reinterpret_cast<const be<uint32_t>*>(g_memory.Translate(MMIO_BASE + first * 4)) : nullptr;
         CopyRegisterSnapshot(std::span<const uint32_t>(m_registers), first,
             std::span<uint32_t>(destination, count), mmio);
+    }
+
+    uint32_t CommandProcessor::ReadConstantBank(uint32_t bank, uint32_t* destination, uint16_t* fallbackOffsets)
+    {
+        const uint32_t first = kAluConstantBase + (bank & 1) * kAluConstantBankSize;
+        ReadRegisters(first, kAluConstantBankSize, destination);
+        return static_cast<uint32_t>(CollectRegisterFallbackOffsets(
+            std::span<const uint32_t>(m_registers).subspan(first, kAluConstantBankSize),
+            std::span<uint16_t>(fallbackOffsets, kAluConstantBankSize)));
+    }
+
+    bool CommandProcessor::RefreshConstantFallbacks(uint32_t bank, const uint16_t* fallbackOffsets,
+        uint32_t fallbackCount, uint32_t* snapshot, uint64_t& snapshotVersion)
+    {
+        const uint32_t first = kAluConstantBase + (bank & 1) * kAluConstantBankSize;
+        const auto* mmio = reinterpret_cast<const be<uint32_t>*>(g_memory.Translate(MMIO_BASE + first * 4));
+        return RefreshRegisterSnapshotFallbacks(
+            std::span<const uint16_t>(fallbackOffsets, fallbackCount),
+            std::span<uint32_t>(snapshot, kAluConstantBankSize), mmio, snapshotVersion);
     }
 
     void CommandProcessor::MmioWrite32(uint32_t address, uint32_t value)

@@ -1,4 +1,5 @@
-#include "guest_address_space.h"
+#include "guest_address_space_layout.h"
+#include <os/platform.h>
 #include <cstddef>
 #include <cerrno>
 
@@ -13,14 +14,10 @@
 
 namespace GuestAddressSpace
 {
-static constexpr size_t kSize = 0x100000000ull;
-static constexpr size_t kBackingSize = 0xC0001000ull;
-static constexpr size_t kStarts[] = {0, 0xA0000000, 0xC0000000, 0xE0000000};
-static constexpr size_t kSizes[] = {0xA0000000, 0x20000000, 0x20000000, 0x20000000};
-static constexpr size_t kOffsets[] = {0, 0xA0000000, 0xA0000000, 0xA0001000};
 static constinit FailureInfo failure{};
 
 FailureInfo GetFailureInfo() { return failure; }
+void ClearFailure() { failure = {}; }
 
 const char* FailureOperationName(FailureOperation operation)
 {
@@ -50,6 +47,12 @@ const char* FailureApiName(FailureOperation operation)
     case FailureOperation::CreateBacking: return "CreateFileMappingW";
     case FailureOperation::MapView: return "MapViewOfFile3";
     case FailureOperation::ProtectNull: return "VirtualProtect";
+#elif LO_PLATFORM_MACOS
+    case FailureOperation::ReservePreferred:
+    case FailureOperation::ReserveAny:
+    case FailureOperation::CreateBacking: return "mmap";
+    case FailureOperation::MapView: return "mach_vm_remap";
+    case FailureOperation::ProtectNull: return "mprotect";
 #else
     case FailureOperation::ReservePreferred:
     case FailureOperation::ReserveAny:
@@ -62,9 +65,9 @@ const char* FailureApiName(FailureOperation operation)
     }
 }
 
-static void RecordFailure(FailureOperation operation, uint32_t error, int32_t viewIndex,
-                          const void* address, size_t size, size_t offset = 0,
-                          uint32_t preferredReservationError = 0, uintptr_t backingHandle = 0)
+void RecordFailure(FailureOperation operation, uint32_t error, int32_t viewIndex,
+                   const void* address, size_t size, size_t offset,
+                   uint32_t preferredReservationError, uintptr_t backingHandle)
 {
     failure = {operation, error, preferredReservationError, viewIndex,
                reinterpret_cast<uintptr_t>(address), size, offset};
@@ -118,6 +121,9 @@ static void RecordFailure(FailureOperation operation, uint32_t error, int32_t vi
 #endif
 }
 
+// macOS: 16 KiB host pages cannot express the E view's 4 KiB offset; see
+// guest_address_space_macos.cpp.
+#if !LO_PLATFORM_MACOS
 uint8_t* Allocate()
 {
     failure = {};
@@ -254,4 +260,5 @@ void Release(uint8_t* base)
     munmap(base, kSize);
 #endif
 }
+#endif
 }

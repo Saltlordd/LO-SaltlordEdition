@@ -5,6 +5,10 @@
 #include <cstdint>
 #ifdef _WIN32
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <mach/mach.h>
+#include <string>
+#include <sys/sysctl.h>
 #endif
 #if __has_include(<lo_build_revision.h>)
 #include <lo_build_revision.h>
@@ -14,8 +18,41 @@ namespace os::diagnostics
 {
 // Called once after the runtime sink opens. Failure snapshots are captured at
 // the failing API instead; this baseline is deliberately labelled separately.
+#ifdef __APPLE__
+inline std::string SysctlString(const char* name)
+{
+    size_t size = 0;
+    if (sysctlbyname(name, nullptr, &size, nullptr, 0) != 0 || size == 0) return "unavailable";
+    std::string value(size, '\0');
+    if (sysctlbyname(name, value.data(), &size, nullptr, 0) != 0) return "unavailable";
+    value.resize(value.find('\0') == std::string::npos ? size : value.find('\0'));
+    return value;
+}
+
+inline int64_t SysctlInteger(const char* name)
+{
+    int64_t value = 0;
+    size_t size = sizeof(value);
+    if (sysctlbyname(name, &value, &size, nullptr, 0) != 0) return -1;
+    // Some keys are 32-bit; sysctl then writes only the low bytes.
+    return size == sizeof(int32_t) ? int64_t(int32_t(value)) : value;
+}
+#endif
+
 inline void LogHostMemory(const char* stage)
 {
+#ifdef __APPLE__
+    // Free and inactive pages are immediately reusable; macOS keeps little memory "free".
+    vm_statistics64_data_t vm{};
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    const int64_t page = SysctlInteger("hw.pagesize");
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, reinterpret_cast<host_info64_t>(&vm), &count) == KERN_SUCCESS)
+        LOG_INFO("host memory: stage={} bytes total_physical={} free={} inactive={} compressed={} page_size={}",
+            stage, SysctlInteger("hw.memsize"), int64_t(vm.free_count) * page, int64_t(vm.inactive_count) * page,
+            int64_t(vm.compressor_page_count) * page, page);
+    else
+        LOG_WARNING("host memory: stage={} api=host_statistics64 unavailable", stage);
+#endif
 #ifdef _WIN32
     MEMORYSTATUSEX status{sizeof(status)};
     if (GlobalMemoryStatusEx(&status))
@@ -90,6 +127,16 @@ inline void LogStartupEnvironment()
                     nt->FileHeader.TimeDateStamp, nt->OptionalHeader.SizeOfImage, nt->FileHeader.Machine);
         }
     }
+#endif
+#ifdef __APPLE__
+    LOG_INFO("host OS: macOS version={} build={} kernel={}", SysctlString("kern.osproductversion"),
+        SysctlString("kern.osversion"), SysctlString("kern.osrelease"));
+    // sysctl.proc_translated is 1 under Rosetta 2 (an x86_64 build on Apple Silicon).
+    LOG_INFO("host architecture: machine={} arm64={} rosetta={}", SysctlString("hw.machine"),
+        SysctlInteger("hw.optional.arm64") == 1, SysctlInteger("sysctl.proc_translated") == 1);
+    LOG_INFO("host CPU: {} performance_cores={} efficiency_cores={} logical={} page_size={}",
+        SysctlString("machdep.cpu.brand_string"), SysctlInteger("hw.perflevel0.physicalcpu"),
+        SysctlInteger("hw.perflevel1.physicalcpu"), SysctlInteger("hw.logicalcpu"), SysctlInteger("hw.pagesize"));
 #endif
     LogHostMemory("startup");
 }

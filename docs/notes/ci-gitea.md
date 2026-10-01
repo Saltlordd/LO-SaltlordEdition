@@ -1,11 +1,15 @@
 # Pull request checks and releases on Gitea
 
-Since 2026-09-30 the pull request checks run on Gitea Actions at
-`git.zkx.ca` instead of GitHub Actions. GitHub queues were too slow for these
-short jobs. Release packaging followed on 2026-10-01 (see [Releases](#releases)).
-The GitHub copies under `.github/workflows/` keep only `workflow_dispatch`, so
-they can still be started manually. The Mod Wiki publication and issue triage
-stay on GitHub.
+Since 2026-09-30 the four short Windows/Linux pull request checks below run on
+Gitea Actions at `git.zkx.ca`; GitHub queues were too slow for these short
+jobs. Windows and Linux release packaging followed on 2026-10-01 (see
+[Releases](#releases)). The GitHub copies of those workflows keep only
+`workflow_dispatch`, so they can still be started manually. The macOS arm64
+workflow is an explicit exception: on `macos-26`, pushes to `main` and pull
+requests targeting `main` build libraries and tests without game data; it does
+not link the complete game runtime. Full ARM64 runtime and gameplay evidence
+is recorded in [development status](../STATUS.md). The Mod Wiki publication
+and issue triage stay on GitHub.
 
 | Workflow (`.gitea/workflows/`) | Jobs | Runner |
 |---|---|---|

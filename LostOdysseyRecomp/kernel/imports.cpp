@@ -7,6 +7,7 @@
 #include <cpu/ppc_context.h>
 #include <cpu/guest_thread.h>
 #include <cpu/poll_wait.h>
+#include "time_fields.h"
 #include <notified_wait.h>
 #include "function.h"
 #include "xbox.h"
@@ -873,26 +874,41 @@ static void ExFreePool(uint32_t address)
 }
 
 // Interlocked singly linked lists (SLIST_HEADER: Next.Next, Depth:16, Sequence:16).
+// Guest code pushes inline with ldarx/stdcx. on the whole 8-byte header, which
+// XenonRecomp turns into a 64-bit compare-and-swap. Pop and flush must update the
+// header with the same CAS; a host lock would not exclude a concurrent guest push.
+static uint64_t SListHeaderValue(uint64_t stored) { return std::byteswap(stored); }
+
 static uint32_t InterlockedPopEntrySList_x(be<uint32_t>* header)
 {
-    std::lock_guard lock(g_kernelLock);
-    uint32_t first = header[0];
-    if (first == 0)
-        return 0;
-    auto* entry = reinterpret_cast<be<uint32_t>*>(g_memory.Translate(first));
-    header[0] = entry[0];
-    uint32_t depthSeq = header[1];
-    header[1] = ((depthSeq - 1) & 0xFFFF) | ((depthSeq + 0x10000) & 0xFFFF0000);
-    return first;
+    std::atomic_ref<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
+    uint64_t stored = ref.load();
+    for (;;)
+    {
+        const uint64_t value = SListHeaderValue(stored);
+        const uint32_t first = uint32_t(value >> 32);
+        if (first == 0)
+            return 0;
+        auto* entry = reinterpret_cast<be<uint32_t>*>(g_memory.Translate(first));
+        const uint32_t next = entry[0];
+        const uint32_t depthSeq = uint32_t(value);
+        const uint32_t nextDepthSeq = ((depthSeq - 1) & 0xFFFF) | ((depthSeq + 0x10000) & 0xFFFF0000);
+        if (ref.compare_exchange_weak(stored, SListHeaderValue((uint64_t(next) << 32) | nextDepthSeq)))
+            return first;
+    }
 }
 
 static uint32_t InterlockedFlushSList_x(be<uint32_t>* header)
 {
-    std::lock_guard lock(g_kernelLock);
-    uint32_t first = header[0];
-    header[0] = 0;
-    header[1] = (uint32_t(header[1]) + 0x10000) & 0xFFFF0000;
-    return first;
+    std::atomic_ref<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
+    uint64_t stored = ref.load();
+    for (;;)
+    {
+        const uint64_t value = SListHeaderValue(stored);
+        const uint32_t nextDepthSeq = (uint32_t(value) + 0x10000) & 0xFFFF0000;
+        if (ref.compare_exchange_weak(stored, SListHeaderValue(nextDepthSeq)))
+            return uint32_t(value >> 32);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -915,40 +931,26 @@ static uint64_t KeQueryPerformanceFrequency()
 static void RtlTimeToTimeFields(be<uint64_t>* time, XTIME_FIELDS* fields)
 {
     constexpr int64_t FILETIME_EPOCH_DIFFERENCE = 116444736000000000LL;
-    int64_t unix100ns = int64_t(uint64_t(*time)) - FILETIME_EPOCH_DIFFERENCE;
-    time_t seconds = unix100ns / 10000000;
-    tm t{};
-#ifdef _WIN32
-    gmtime_s(&t, &seconds);
-#else
-    gmtime_r(&seconds, &t);
-#endif
-    fields->Year = uint16_t(t.tm_year + 1900);
-    fields->Month = uint16_t(t.tm_mon + 1);
-    fields->Day = uint16_t(t.tm_mday);
-    fields->Hour = uint16_t(t.tm_hour);
-    fields->Minute = uint16_t(t.tm_min);
-    fields->Second = uint16_t(t.tm_sec);
-    fields->Milliseconds = uint16_t((unix100ns / 10000) % 1000);
-    fields->Weekday = uint16_t(t.tm_wday);
+    const int64_t unix100ns = int64_t(uint64_t(*time)) - FILETIME_EPOCH_DIFFERENCE;
+    const int64_t seconds = time_fields::FloorDiv(unix100ns, 10000000);
+    const auto t = time_fields::FieldsFromSeconds(seconds);
+    fields->Year = uint16_t(t.year);
+    fields->Month = uint16_t(t.month);
+    fields->Day = uint16_t(t.day);
+    fields->Hour = uint16_t(t.hour);
+    fields->Minute = uint16_t(t.minute);
+    fields->Second = uint16_t(t.second);
+    fields->Milliseconds = uint16_t((unix100ns - seconds * 10000000) / 10000);
+    fields->Weekday = uint16_t(t.weekday);
 }
 
+// Integer arithmetic instead of timegm/_mkgmtime: see kernel/time_fields.h.
 static uint32_t RtlTimeFieldsToTime(XTIME_FIELDS* fields, be<uint64_t>* time)
 {
-    tm t{};
-    t.tm_year = fields->Year - 1900;
-    t.tm_mon = fields->Month - 1;
-    t.tm_mday = fields->Day;
-    t.tm_hour = fields->Hour;
-    t.tm_min = fields->Minute;
-    t.tm_sec = fields->Second;
-#ifdef _WIN32
-    time_t seconds = _mkgmtime(&t);
-#else
-    time_t seconds = timegm(&t);
-#endif
+    const int64_t seconds = time_fields::SecondsFromFields(fields->Year, fields->Month, fields->Day,
+        fields->Hour, fields->Minute, fields->Second);
     constexpr int64_t FILETIME_EPOCH_DIFFERENCE = 116444736000000000LL;
-    *time = uint64_t(int64_t(seconds) * 10000000 + int64_t(fields->Milliseconds) * 10000 + FILETIME_EPOCH_DIFFERENCE);
+    *time = uint64_t(seconds * 10000000 + int64_t(fields->Milliseconds) * 10000 + FILETIME_EPOCH_DIFFERENCE);
     return TRUE;
 }
 

@@ -22,7 +22,9 @@ inline Capabilities Inspect(Backend backend, plume::RenderDevice* device) {
             c.bindingTier = options.ResourceBindingTier;
     } else
 #endif
-    if (backend == Backend::Vulkan) {
+    if (backend == Backend::Metal) {
+        c.bufferDeviceAddress = device->getCapabilities().bufferDeviceAddress;
+    } else if (backend == Backend::Vulkan) {
         const auto* native = static_cast<plume::VulkanDevice*>(device);
         const auto& limits = native->physicalDeviceProperties.limits;
         c.apiVersion = native->physicalDeviceProperties.apiVersion;

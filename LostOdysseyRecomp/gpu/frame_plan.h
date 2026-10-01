@@ -101,7 +101,7 @@ namespace gpu::frame_plan
         value = mix(value, plan.output.drawable.width); value = mix(value, plan.output.drawable.height);
         value = mix(value, plan.output.x); value = mix(value, plan.output.y); value = mix(value, plan.output.width); value = mix(value, plan.output.height);
         value = mix(value, plan.deviceEpoch); value = mix(value, plan.requiresReadback);
-        if (plan.requestedUpscaler == upscaling::Upscaler::Fsr) value = mix(value, uint32_t(plan.fsrQuality));
+        if (upscaling::UsesFsrQuality(plan.requestedUpscaler)) value = mix(value, uint32_t(plan.fsrQuality));
         if (plan.frameGeneration != upscaling::FrameGeneration::Off) value = mix(value, uint32_t(plan.frameGeneration));
         value = mix(value, recommendedInput.width); return mix(value, recommendedInput.height);
     }
@@ -145,9 +145,9 @@ namespace gpu::frame_plan
             if (upscaling::ModeReadyForOutput(mode, request.dlssQuality, {input.output.width, input.output.height}))
                 recommended = mode.optimal;
         }
-        if (input.upscaler == upscaling::Upscaler::Fsr && input.sizing &&
+        if (upscaling::UsesFsrQuality(input.upscaler) && input.sizing &&
             input.sizing->key == upscaling::SizingKey{input.device.deviceEpoch, input.output.width,
-                input.output.height, upscaling::Upscaler::Fsr, input.output.x, input.output.y}) {
+                input.output.height, input.upscaler, input.output.x, input.output.y}) {
             const auto& mode = input.sizing->modes[uint32_t(request.fsrQuality)];
             if (mode.state == upscaling::SizingState::Ready && mode.optimal.width && mode.optimal.height &&
                 mode.optimal.width <= input.output.width && mode.optimal.height <= input.output.height &&
@@ -257,9 +257,9 @@ namespace gpu::frame_plan
                     p.consumer = upscaling::TemporalConsumer::DlssSr;
                 }
             }
-            if (input.upscaler == upscaling::Upscaler::Fsr && input.sizing &&
+            if (upscaling::UsesFsrQuality(input.upscaler) && input.sizing &&
                 input.sizing->key == upscaling::SizingKey{input.device.deviceEpoch, input.output.width,
-                    input.output.height, upscaling::Upscaler::Fsr, input.output.x, input.output.y}) {
+                    input.output.height, input.upscaler, input.output.x, input.output.y}) {
                 const auto& mode = input.sizing->modes[uint32_t(input.fsrQuality)];
                 p.sizingRevision = input.sizing->revision;
                 const bool ready = mode.state == upscaling::SizingState::Ready &&
@@ -268,11 +268,11 @@ namespace gpu::frame_plan
                     (input.fsrQuality != upscaling::FsrQuality::NativeAA ||
                         mode.optimal == resolution::Size{input.output.width, input.output.height});
                 if (ready) recommended = mode.optimal;
-                if (ready && !input.readback && input.device.Available(upscaling::Upscaler::Fsr)) {
+                if (ready && !input.readback && input.device.Available(input.upscaler)) {
                     p.width = mode.optimal.width;
                     p.height = mode.optimal.height;
                     p.effectiveAA = 0;
-                    p.consumer = upscaling::TemporalConsumer::FsrSr;
+                    p.consumer = upscaling::FsrQualityConsumer(input.upscaler);
                 }
             }
             p.requestSignature = FullRequestSignature(p, input.internalResolution, recommended);
@@ -630,7 +630,7 @@ namespace gpu::frame_plan
                 plan.frameGeneration = upscaling::FrameGeneration((flags >> 24) & 1u);
             }
             return upscaling::KnownUpscaler(plan.requestedUpscaler) &&
-                (version != 2 || plan.requestedUpscaler != upscaling::Upscaler::Fsr) &&
+                (version != 2 || !upscaling::UsesFsrQuality(plan.requestedUpscaler)) &&
                 upscaling::KnownDlssQuality(plan.dlssQuality) &&
                 upscaling::KnownFsrQuality(plan.fsrQuality) &&
                 upscaling::KnownFrameGeneration(plan.frameGeneration) && upscaling::KnownTemporalConsumer(plan.consumer);

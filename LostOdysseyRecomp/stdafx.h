@@ -5,11 +5,13 @@
 
 #define NOMINMAX
 
-#if defined(_WIN32)
+#include <os/platform.h>
+
+#if LO_PLATFORM_WINDOWS
 #include <windows.h>
 #include <wrl/client.h>
 using Microsoft::WRL::ComPtr;
-#elif defined(__linux__)
+#elif LO_PLATFORM_POSIX
 #include <unistd.h>
 #include <sys/mman.h>
 #include <strings.h>

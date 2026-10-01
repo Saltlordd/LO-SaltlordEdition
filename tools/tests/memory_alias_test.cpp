@@ -1,4 +1,5 @@
 #include <kernel/guest_address_space.h>
+#include <os/platform.h>
 #include <cstdio>
 #include <cstdint>
 #include <initializer_list>
@@ -27,17 +28,21 @@ int main()
             ok &= word(0xC0000000u + offset) == 0x12345678;
             word(0xC0000000u + offset) = 0;
             ok &= word(0xA0000000u + offset) == 0;
-            if (offset >= 0x1000)
+            // macOS leaves E inaccessible: 16 KiB pages cannot express its
+            // 4 KiB offset (see guest_address_space_macos.cpp).
+            if (!LO_PLATFORM_MACOS && offset >= 0x1000)
             {
                 word(0xE0000000u + offset - 0x1000) = 0xABCDEF01;
                 ok &= word(0xA0000000u + offset) == 0xABCDEF01;
                 ok &= word(0xC0000000u + offset) == 0xABCDEF01;
             }
         }
-        // A virtual page must not accidentally alias the physical page.
-        word(0x1000) = 0x87654321;
-        word(0xA0001000) = 0xDEADBEEF;
-        ok &= word(0x1000) == 0x87654321;
+        // A virtual page must not accidentally alias the physical page. Use the
+        // first page past the null guard, which is one 16 KiB host page on macOS.
+        constexpr uint32_t page = LO_PLATFORM_MACOS ? 0x4000 : 0x1000;
+        word(page) = 0x87654321;
+        word(0xA0000000 + page) = 0xDEADBEEF;
+        ok &= word(page) == 0x87654321;
 
         // Occlusion-query round trip: CPU initializes through C, GPU writes
         // END through A, CPU subtracts BEGIN from END through C.

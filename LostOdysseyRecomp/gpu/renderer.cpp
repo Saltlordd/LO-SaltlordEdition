@@ -1,4 +1,5 @@
 #include "taa_collection.h"
+#include <source_location>
 #include "taa_binding_producer.h"
 #include "temporal_evidence.h"
 #include "scene_aa_provenance.h"
@@ -12,6 +13,7 @@
 #include "movie_clear.h"
 #include "video.h"
 #include "command_processor.h"
+#include "register_snapshot.h"
 #include "shader_source_capture.h"
 #include "position_evidence_collection.h"
 #include "geometry_prepare.h"
@@ -55,6 +57,7 @@
 #include "shader/binary_cache.h"
 #include "shader/preparation_queue.h"
 #include "shader/retry_state.h"
+#include "shader/rect_list_hlsl.h"
 #include "shader/startup_cache.h"
 #include "shader/portable_shader_pack.h"
 #include "shader/portable_shader_contract.h"
@@ -82,6 +85,13 @@
 #include <plume_vulkan.h>
 #ifdef _WIN32
 #include <plume_d3d12.h>
+#endif
+#if LO_PLATFORM_MACOS
+namespace plume {
+    // Orders the scene-copy SR command lists; plume resources are untracked on Metal.
+    void EncodeMetalQueueSignal(RenderCommandList* commandList);
+    void EncodeMetalQueueWait(RenderCommandList* commandList);
+}
 #endif
 #include "sampler_description.h"
 #include "dlss_ngx.h"
@@ -382,6 +392,9 @@ namespace gpu::renderer
             position_evidence::Summary position;
             bool positionReady = false;
             xenos::retry::State retry;
+            // Rect-list variant (shader/rect_list_hlsl.h), built on first use.
+            std::unique_ptr<RenderShader> rectList;
+            bool rectListFailed = false;
         };
 
         using PipelineKey = gpu::pipeline_cache::Key;
@@ -390,7 +403,12 @@ namespace gpu::renderer
         struct Renderer
         {
             RenderDevice* device = nullptr;
+            // vulkan: SPIR-V shaders and the Vulkan descriptor layout (Vulkan and
+            // Metal). nativeVulkan: code that calls Vulkan APIs or casts to plume
+            // Vulkan types, which Metal must never reach.
             bool vulkan = false;
+            bool nativeVulkan = false;
+            const char* BackendLabel() const { return nativeVulkan ? "Vulkan" : vulkan ? "Metal" : "D3D12"; }
             xenos::ShaderBinaryFormat binaryFormat = xenos::ShaderBinaryFormat::Dxil;
             RenderShaderFormat renderFormat = RenderShaderFormat::DXIL;
             float pointSizeLimit = 1.0e9f;
@@ -565,6 +583,10 @@ namespace gpu::renderer
             std::unique_ptr<RenderBuffer> dummyBuffer;
             HostTexture dummyTexture2D, dummyTexture3D, dummyTextureCube;
             std::unique_ptr<RenderShader> rectListGs;
+            // Rect lists expand in the vertex stage on every backend; LO_RECT_LIST_GS
+            // keeps the geometry shader path where the device supports one.
+            bool rectListExpansion = true;
+            uint32_t rectListSkipped = 0;
 
             std::unordered_map<uint64_t, Shader> shaders[2];
             std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> pipelines;
@@ -1310,7 +1332,7 @@ namespace gpu::renderer
                     taaTiming.samples, taaTiming.totalMilliseconds, taaTiming.lastMilliseconds,
                     replayTiming.samples, replayTiming.totalMilliseconds, replayTiming.lastMilliseconds,
                     maskTiming.samples, maskTiming.totalMilliseconds, maskTiming.lastMilliseconds,
-                    temporal::LiveJsonString(vulkan ? "Vulkan" : "D3D12"),
+                    temporal::LiveJsonString(BackendLabel()),
                     temporal::LiveJsonString(lo_version::Source), temporal::LiveJsonString(taaLiveError));
                 state.close();
                 if (state.fail()) return;
@@ -1639,23 +1661,45 @@ namespace gpu::renderer
                 uint64_t vsOffset = UINT64_MAX;
                 uint64_t psOffset = UINT64_MAX;
                 uint64_t sharedOffset = UINT64_MAX;
+                // Snapshot version each uploaded ALU bank came from; 0 when
+                // unknown or when the draw modified its copy (jitter).
+                uint64_t vsGeneration = 0, psGeneration = 0;
             };
             UploadedConstants uploadedConstants[kGpuSlots];
 
-            uint64_t UploadUnchanged(int bank, const void* data, size_t size)
+            // ALU banks are rebuilt when command writes advance their generation;
+            // zero-register MMIO fallbacks are checked on reuse. drawConstants is
+            // the copy a draw may modify (TAA jitter).
+            uint32_t constantSnapshot[2][256 * 4]{};
+            uint64_t constantSnapshotGeneration[2]{UINT64_MAX, UINT64_MAX};
+            uint64_t constantSnapshotVersion[2]{};
+            uint16_t constantFallbackOffsets[2][256 * 4]{};
+            uint32_t constantFallbackCount[2]{};
+            uint32_t drawConstants[2][256 * 4]{};
+            bool drawConstantsModified[2]{true, true};
+
+            // version: content version when data is the unmodified snapshot,
+            // else 0. A matching version skips the compare.
+            uint64_t UploadUnchanged(int bank, const void* data, size_t size, uint64_t generation = 0)
             {
                 auto& before = uploadedConstants[gpuSlot];
                 uint64_t lastOffset = bank == 0 ? before.vsOffset : bank == 1 ? before.psOffset : before.sharedOffset;
+                const uint64_t lastGeneration = bank == 0 ? before.vsGeneration : bank == 1 ? before.psGeneration : 0;
+                if (CanReuseUploadedConstants(lastOffset, lastGeneration, generation))
+                    return lastOffset;
                 const void* last = bank == 0 ? static_cast<const void*>(before.vs) :
                     bank == 1 ? static_cast<const void*>(before.ps) : static_cast<const void*>(&before.shared);
-                if (lastOffset != UINT64_MAX && std::memcmp(last, data, size) == 0)
+                if (lastOffset != UINT64_MAX && std::memcmp(last, data, size) == 0) {
+                    if (bank == 0) before.vsGeneration = generation;
+                    else if (bank == 1) before.psGeneration = generation;
                     return lastOffset;
+                }
                 const uint64_t offset = Upload(data, size);
                 auto& after = uploadedConstants[gpuSlot];
                 if (offset != UINT64_MAX)
                 {
-                    if (bank == 0) { std::memcpy(after.vs, data, size); after.vsOffset = offset; }
-                    else if (bank == 1) { std::memcpy(after.ps, data, size); after.psOffset = offset; }
+                    if (bank == 0) { std::memcpy(after.vs, data, size); after.vsOffset = offset; after.vsGeneration = generation; }
+                    else if (bank == 1) { std::memcpy(after.ps, data, size); after.psOffset = offset; after.psGeneration = generation; }
                     else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
                 }
                 return offset;
@@ -1668,13 +1712,13 @@ namespace gpu::renderer
             {
                 try {
                     LOG_ERROR("renderer init failed: backend={} stage={} bytes={} slot={}",
-                        vulkan ? "Vulkan" : "D3D12", stage, bytes, slot);
+                        BackendLabel(), stage, bytes, slot);
                     os::diagnostics::LogHostMemory("renderer initialization failure");
                 } catch (...) {
                     char line[384];
                     const int size = std::snprintf(line, sizeof(line),
                         "[error] renderer init failed: backend=%s stage=%s bytes=%llu slot=%d\n",
-                        vulkan ? "Vulkan" : "D3D12", stage, static_cast<unsigned long long>(bytes), slot);
+                        BackendLabel(), stage, static_cast<unsigned long long>(bytes), slot);
                     if (size > 0) os::logger::EmergencyWrite(line, size_t(size) < sizeof(line) ? size_t(size) : sizeof(line) - 1);
                 }
                 return false;
@@ -1683,7 +1727,8 @@ namespace gpu::renderer
             {
                 device = video::GetDevice();
                 queue = video::GetQueue();
-                vulkan = video::IsVulkan();
+                vulkan = video::UsesSpirv();
+                nativeVulkan = video::IsVulkan();
 #if defined(LO_GPU_PLUME)
                 dlssController = video::GetDlssController();
 #if !defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -1693,12 +1738,17 @@ namespace gpu::renderer
                 const char* batchOverride = getenv("LO_VK_DESCRIPTOR_BATCH_LIMIT");
                 descriptorBatchLimit = render_batch::DescriptorLimit(vulkan, batchOverride ? batchOverride : "");
                 LOG_INFO("renderer: descriptor reuse={} backend={} limit={} gpu_slots={} (LO_DESCRIPTOR_REUSE=0 disables reuse)",
-                    descriptorReuse, vulkan ? "Vulkan" : "D3D12", descriptorBatchLimit, kGpuSlots);
+                    descriptorReuse, nativeVulkan ? "Vulkan" : vulkan ? "Metal" : "D3D12", descriptorBatchLimit, kGpuSlots);
                 binaryFormat = vulkan ? xenos::ShaderBinaryFormat::Spirv : xenos::ShaderBinaryFormat::Dxil;
                 renderFormat = vulkan ? RenderShaderFormat::SPIRV : RenderShaderFormat::DXIL;
                 if (!device || !queue)
                     return InitFailure("device_or_queue");
                 cacheIdentity = xenos::cache::MakeIdentity(vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12, xenos::DxcIdentity());
+                if (vulkan && !nativeVulkan) {
+                    // Metal re-optimizes translated MSL; see SetSpirvOptimizationLevel.
+                    xenos::SetSpirvOptimizationLevel(1);
+                    cacheIdentity.options = xenos::cache::MetalOptions();
+                }
 
                 // Optional collection resources are prepared before the game loop.
                 // Enabling collection later never compiles or maps on a draw; an
@@ -1709,7 +1759,8 @@ namespace gpu::renderer
                         if(collector->Prepare(device))sparseCollector=std::move(collector);
                         else LOG_WARNING("renderer: sparse GPU collection unavailable; VS/PS and summary collection remain available");
                     } else if(taa_collection::Enabled()&&vulkan) {
-                        LOG_INFO("renderer: Vulkan sparse GPU collection skipped: coherent nonblocking readback unavailable; VS/PS and summary collection remain available");
+                        LOG_INFO("renderer: {} sparse GPU collection skipped: coherent nonblocking readback unavailable; VS/PS and summary collection remain available",
+                            nativeVulkan ? "Vulkan" : "Metal");
                     }
                 } catch(const std::exception& error) {
                     sparseCollector.reset();
@@ -1732,7 +1783,7 @@ namespace gpu::renderer
                     auto& g = gpuSlots[i];
                     g.list = queue->createCommandList();
                     if (!g.list) return InitFailure("command_list.create", 0, i);
-                    if (dlssController) {
+                    if (dlssController || temporalUpscaler) {
                         g.srIsolated = queue->createCommandList();
                         g.srContinuation = queue->createCommandList();
                         if (!g.srIsolated || !g.srContinuation)
@@ -1824,7 +1875,7 @@ namespace gpu::renderer
                     [&](const auto& handles) { return CreateSamplerTable(handles); }))
                     return InitFailure("guest_sampler_table.create");
                 maximumAnisotropy = 16; // D3D12's supported anisotropy range.
-                if (vulkan) {
+                if (nativeVulkan) {
                     const auto* native = static_cast<const VulkanDevice*>(device);
                     VkPhysicalDeviceFeatures features{};
                     vkGetPhysicalDeviceFeatures(native->physicalDevice, &features);
@@ -1861,17 +1912,18 @@ namespace gpu::renderer
                     } else LOG_INFO("renderer: shader cache {}", shaderCacheDir);
                 }
 
-                CompileRectListGs();
+                rectListExpansion = !(getenv("LO_RECT_LIST_GS") && device->getCapabilities().geometryShader);
+                if (!rectListExpansion) CompileRectListGs();
                 CompileBlitShaders();
                 CompileSceneCopyPromotionShaders();
                 CompileTransferShader();
-                if (!rectListGs) return InitFailure("rect_list_shader.create");
+                if (!rectListExpansion && !rectListGs) return InitFailure("rect_list_shader.create");
                 if (!blitVs || !blitPs) return InitFailure("blit_shader.create");
                 if (!transferPs) return InitFailure("transfer_shader.create");
                 PrepareKnownShaders();
                 if (initializationModuleFailure) return InitFailure("known_shaders.prepare");
                 PrepareKnownPipelines();
-                taa_collection::SetDevice(vulkan, device->getDescription().name, device->getDescription().driverVersion);
+                taa_collection::SetDevice(nativeVulkan ? "vulkan" : vulkan ? "metal" : "d3d12", device->getDescription().name, device->getDescription().driverVersion);
                 const auto dxcStats = xenos::GetDxcStatistics();
                 LOG_INFO("renderer: startup DXC actual calls {}, succeeded {}, deterministic rejections {}, infrastructure failures {}",
                     dxcStats.calls, dxcStats.succeeded, dxcStats.rejected, dxcStats.infrastructureFailed);
@@ -2007,6 +2059,7 @@ namespace gpu::renderer
 
             void TransferRegion(HostTexture& src, HostTexture& dst, uint32_t srcClass, uint32_t dstClass)
             {
+                FlushMotionReplayQueue();
                 dst.sdrProducerFrame = ~0ull;
                 consecutiveResolveCopies.Invalidate();
                 // Only the 32-bit classes share a word layout; wider ones are left alone.
@@ -2144,8 +2197,11 @@ namespace gpu::renderer
                 scratch->guestWidth = scratch->width = std::max(1u, output.width);
                 scratch->guestHeight = scratch->height = std::max(1u, output.height);
                 scratch->resolutionSize = output;
+                // MetalFX writes its output as a render target.
+                const auto scratchFlags = RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS |
+                    (activePlan.requestedUpscaler == upscaling::Upscaler::MetalFx ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE);
                 scratch->texture = device->createTexture(RenderTextureDesc::Texture2D(scratch->width, scratch->height, 1,
-                    scratch->format, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
+                    scratch->format, scratchFlags));
                 scratch->layout = RenderTextureLayout::UNKNOWN;
                 if (!scratch->texture) return nullptr;
                 return scratch;
@@ -2592,14 +2648,14 @@ namespace gpu::renderer
                 config.colorSpace = promotion.inputs.colorEncoding == temporal::ColorEncoding::Sdr ?
                     dlss::SrColorSpace::DisplayEncoded : dlss::SrColorSpace::Linear;
                 std::shared_ptr<dlss::EvaluateCapture> evidence;
-                if (vulkan && activePlan.requestedUpscaler == upscaling::Upscaler::Dlss && evaluatePage && evaluatePage->frame == frame && promotion.inputs.color.texture && promotion.scratch) {
+                if (nativeVulkan && activePlan.requestedUpscaler == upscaling::Upscaler::Dlss && evaluatePage && evaluatePage->frame == frame && promotion.inputs.color.texture && promotion.scratch) {
                     try {
                         evidence = evaluatePage->NewAttempt(*device, promotion.inputs, config,
                             *static_cast<plume::VulkanTexture*>(promotion.inputs.color.texture),
                             *static_cast<plume::VulkanTexture*>(promotion.scratch->texture.get()),
                             temporalScene.Color().ordinal, drawsThisFrame);
                     } catch (const std::exception&) { evaluatePage->captureFailed = true; }
-                } else if (vulkan && activePlan.requestedUpscaler == upscaling::Upscaler::Fsr && evaluatePage &&
+                } else if (nativeVulkan && activePlan.requestedUpscaler == upscaling::Upscaler::Fsr && evaluatePage &&
                     evaluatePage->frame == frame && temporalHistory && promotion.inputs.color.texture &&
                     promotion.inputs.depth.texture && promotion.inputs.motion.texture &&
                     promotion.inputs.motionInvalidity.texture && promotion.scratch) {
@@ -2624,6 +2680,8 @@ namespace gpu::renderer
 #ifdef _WIN32
                     !vulkan ? controller.Prepare(*static_cast<plume::D3D12Device*>(device),
                         {activePlan, promotion.inputs, promotion.srOptions}) :
+#elif LO_PLATFORM_MACOS
+                    !nativeVulkan ? controller.Prepare(*device, {activePlan, promotion.inputs, promotion.srOptions}) :
 #endif
                     controller.Prepare(*static_cast<plume::VulkanDevice*>(device),
                     {activePlan, promotion.inputs, promotion.srOptions});
@@ -2646,6 +2704,11 @@ namespace gpu::renderer
 #endif
                 if (!sessionReady) {
                     if (evidence) { evidence->stage = "ensure_session"; evidence->reason = "session_unavailable"; }
+#if !defined(LO_RENDERER_P2_EMBEDDED_TEST)
+                    LOG_WARNING("renderer: SR prepare rejected frame={} provider={} status={} input={}x{} output={}x{}",
+                        frame, uint32_t(activePlan.requestedUpscaler), uint32_t(prepared.status),
+                        promotion.inputs.color.width, promotion.inputs.color.height, activePlan.output.width, activePlan.output.height);
+#endif
                     DisableDlssRequest(frame_plan::FailureReason::DlssUnavailable);
                     return false;
                 }
@@ -2658,7 +2721,7 @@ namespace gpu::renderer
                 std::vector<RenderTextureBarrier> barriers;
                 for (auto* image : {promotion.inputs.color.texture, promotion.inputs.depth.texture,
                                     promotion.inputs.motion.texture, promotion.inputs.motionInvalidity.texture})
-                    if (image) barriers.emplace_back(image, (!vulkan || activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) ?
+                    if (image) barriers.emplace_back(image, (!nativeVulkan || activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) ?
                         RenderTextureLayout::SHADER_READ : RenderTextureLayout::GENERAL);
                 barriers.emplace_back(promotion.scratch->texture.get(), activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ?
                     RenderTextureLayout::COPY_DEST : RenderTextureLayout::GENERAL);
@@ -2685,6 +2748,9 @@ namespace gpu::renderer
                             RenderFormat::R32_FLOAT, depth.width, depth.height, 4, RenderTextureLayout::SHADER_READ);
                 }
                 Gpu().drawProbe.End(commandList);
+#if LO_PLATFORM_MACOS
+                if (!nativeVulkan) plume::EncodeMetalQueueSignal(commandList);
+#endif
                 if (!video::EndGpuCommands(commandList)) {
                     if (evidence) { evidence->stage = "prefix_end"; evidence->reason = "prefix_end_failed"; }
                     listOpen = false; return false;
@@ -2705,6 +2771,9 @@ namespace gpu::renderer
                     !vulkan ? controller.RecordIsolated(*static_cast<plume::D3D12CommandList*>(Gpu().srIsolated.get()),
                         {activePlan, promotion.inputs, promotion.srOptions},
                         *static_cast<plume::D3D12Texture*>(promotion.scratch->texture.get()), evidence.get()) :
+#elif LO_PLATFORM_MACOS
+                    !nativeVulkan ? controller.RecordIsolated(*Gpu().srIsolated,
+                        {activePlan, promotion.inputs, promotion.srOptions}, *promotion.scratch->texture, evidence.get()) :
 #endif
                     controller.RecordIsolated(*static_cast<plume::VulkanCommandList*>(Gpu().srIsolated.get()),
                     {activePlan, promotion.inputs, promotion.srOptions},
@@ -2767,6 +2836,9 @@ namespace gpu::renderer
                 }
                 Gpu().srIsolatedAccepted = accepted;
                 commandList = Gpu().srContinuation.get(); if (!video::BeginGpuCommands(commandList)) return false;
+#if LO_PLATFORM_MACOS
+                if (!nativeVulkan) plume::EncodeMetalQueueWait(commandList);
+#endif
 #if defined(LO_GPU_PLUME) && defined(_WIN32)
                 if (!vulkan) static_cast<plume::D3D12CommandList*>(commandList)->captureRootBindingStats = render_timing::Enabled();
 #endif
@@ -2795,8 +2867,12 @@ namespace gpu::renderer
                         // the normal continuation layouts restored. Keep the
                         // request alive; the next real FSR frame resets on a gap.
                         NoteDlssFrameFallback(frame_plan::DlssEffectReason::NoEligibleScene);
-                    } else
+                    } else {
+                        LOG_WARNING("renderer: SR record rejected frame={} provider={} input={}x{} output={}x{}",
+                            frame, uint32_t(activePlan.requestedUpscaler), promotion.inputs.color.width,
+                            promotion.inputs.color.height, activePlan.output.width, activePlan.output.height);
                         DisableDlssRequest(frame_plan::FailureReason::DlssUnavailable);
+                    }
                     return false;
                 }
                 Transition(*promotion.active, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
@@ -3030,6 +3106,7 @@ namespace gpu::renderer
             // converting formats along the way.
             bool BlitRegion(HostTexture& src, HostTexture& dst, uint32_t x0, uint32_t y0, uint32_t w, uint32_t h)
             {
+                FlushMotionReplayQueue();
                 dst.sdrProducerFrame = ~0ull;
                 consecutiveResolveCopies.Invalidate();
                 RenderPipeline* pipeline = GetBlitPipeline(dst.format);
@@ -3466,7 +3543,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     motionReplay->ReleaseCompletedThrough(s.motionSerial);
                 }
                 for (const auto& texture : s.retiredTextures) {
-                    if (vulkan && texture && texture->texture && vk_object_trace::Permit()) {
+                    if (nativeVulkan && texture && texture->texture && vk_object_trace::Permit()) {
                         const auto& image = *static_cast<const VulkanTexture*>(texture->texture.get());
                         std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer_retired event=fence_completed_release slot=%u allocation=%llu image=0x%llx view=0x%llx temporal_serial=%llu sr_serial=%llu\n",
                             i, vk_object_trace::Id(texture->allocationSerial), vk_object_trace::Id(image.vk),
@@ -3557,8 +3634,16 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return true;
             }
 
+            // Records queued motion-vector replay draws (Metal) before work that
+            // submits the command list or changes the scene depth they test.
+            void FlushMotionReplayQueue()
+            {
+                if (motionReplay) motionReplay->FlushQueued(commandList);
+            }
+
             bool Flush()
             {
+                FlushMotionReplayQueue();
                 consecutiveResolveCopies.Invalidate();
                 if (video::GpuWorkStopped()) {
 #if defined(LO_GPU_PLUME)
@@ -4011,7 +4096,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     for (const auto& key : loaded.keys) {
                         CheckPreparationCancel();
                         const auto vs = shaders[0].find(key.vs), ps = shaders[1].find(key.ps);
+                        // Rect-list variants are built from guest microcode at the first draw.
                         if (vs == shaders[0].end() || !vs->second.valid ||
+                            (key.prim == 8 && rectListExpansion && !vs->second.rectList) ||
                             (key.ps && (ps == shaders[1].end() || !ps->second.valid))) { ++missingShaders; continue; }
                         jobs.push_back({key, &vs->second, key.ps ? &ps->second : nullptr, {}});
                     }
@@ -4105,10 +4192,68 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (reuseBundle) {
                     uint32_t modules = 0, cachedFailures = 0;
                     double moduleMs = 0;
+                    // Metal module creation (SPIR-V to MSL plus the Metal compiler)
+                    // dominates a warm start, so records are collected in bounded
+                    // batches and each batch is built in parallel; MTLDevice is
+                    // thread-safe. Other backends create modules inline.
+                    struct PendingModule { bool pixel; uint64_t hash; std::vector<uint8_t> binary; std::unique_ptr<RenderShader> shader; };
+                    std::vector<PendingModule> pendingModules;
+                    const bool parallelModules = video::IsMetal();
+                    constexpr size_t kModuleBatch = 256;
+                    // Metal builds only shaders used by recorded pipeline recipes at
+                    // a warm start; GetShader builds the rest from the SPIR-V cache on
+                    // first use. Building all ~28k takes ~10 s and keeps every library
+                    // resident. The first launch still builds all of them, warming
+                    // Metal's own compiler cache for later first uses.
+                    // LO_SHADER_EAGER_MODULES=1 restores eager creation.
+                    const bool lazyModules = parallelModules && !getenv("LO_SHADER_EAGER_MODULES");
+                    std::unordered_set<uint64_t> wantedModules[2];
+                    if (lazyModules && !getenv("LO_NO_PIPELINE_CACHE")) {
+                        const auto recipes = gpu::pipeline_cache::Load(
+                            std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin"),
+                            xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
+                        for (const auto& key : recipes.keys) {
+                            wantedModules[0].insert(key.vs);
+                            if (key.ps) wantedModules[1].insert(key.ps);
+                        }
+                    }
+                    uint32_t deferredModules = 0;
+                    auto flushModules = [&] {
+                        if (pendingModules.empty()) return;
+                        const auto begin = std::chrono::steady_clock::now();
+                        std::atomic<size_t> next{0};
+                        auto work = [&] {
+                            for (size_t i; (i = next.fetch_add(1)) < pendingModules.size();) {
+                                auto& module = pendingModules[i];
+                                try { module.shader = device->createShader(module.binary.data(), module.binary.size(), "main", renderFormat); }
+                                catch (const std::exception&) { module.shader.reset(); }
+                            }
+                        };
+                        const size_t workers = std::min<size_t>(pendingModules.size(),
+                            std::max(1u, std::thread::hardware_concurrency()));
+                        std::vector<std::thread> threads;
+                        for (size_t t = 1; t < workers; ++t) threads.emplace_back(work);
+                        work();
+                        for (auto& thread : threads) thread.join();
+                        moduleMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+                        for (auto& module : pendingModules) {
+                            auto& entry = shaders[module.pixel ? 1 : 0][module.hash];
+                            entry.shader = std::move(module.shader);
+                            entry.valid = entry.shader != nullptr;
+                            if (!entry.valid) throw std::runtime_error("cached shader device module creation failed");
+                            ++modules;
+                        }
+                        pendingModules.clear();
+                    };
                     try {
                         auto loaded = startup::LoadTransactional(bundlePath, bundleIdentity, cacheIdentity, [&](startup::Record&& record) {
                             ExportPortableShader(record.hash, record.info, record.binary, record.failure, true);
                             std::string{}.swap(record.info.hlsl); // Export counts source text, but the renderer does not retain it.
+                            if (lazyModules && record.failure.empty() &&
+                                !wantedModules[record.info.isPixelShader ? 1 : 0].contains(record.hash)) {
+                                ++deferredModules;
+                                return;
+                            }
                             auto& entry = shaders[record.info.isPixelShader ? 1 : 0][record.hash];
                             entry.info = std::move(record.info);
                             if (!record.failure.empty()) {
@@ -4119,23 +4264,32 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     record.failure.substr(0, record.failure.find('\n')));
                                 return;
                             }
+                            if (parallelModules) {
+                                pendingModules.push_back({entry.info.isPixelShader, record.hash, std::move(record.binary), nullptr});
+                                if (pendingModules.size() >= kModuleBatch) flushModules();
+                                return;
+                            }
                             const auto begin = std::chrono::steady_clock::now();
                             entry.shader = device->createShader(record.binary.data(), record.binary.size(), "main", renderFormat);
                             moduleMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-begin).count();
                             entry.valid = entry.shader != nullptr;
                             if (!entry.valid) throw std::runtime_error("cached shader device module creation failed");
                             ++modules;
-                        }, [&] { shaders[0].clear(); shaders[1].clear(); }, [] {},
+                        }, [&] { pendingModules.clear(); deferredModules = 0; shaders[0].clear(); shaders[1].clear(); }, [] {},
                         [] { CheckPreparationCancel(); }, [](uint32_t done, uint32_t total) {
                             video::SetShaderPreparationProgress(done, total, video::PreparationStage::CachedShaders,
                                 video::PreparationUnit::Shaders);
                         }, PortableExportRequested()); // Reconstruct one record at a time only for export size accounting.
+                        if (loaded.ok) flushModules();
+                        else pendingModules.clear();
                         video::SetShaderPreparationProgress(0, 0);
                         if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
                         if (!loaded.ok) throw std::runtime_error(loaded.reason);
                         FinishPortableShaderExport();
                         LOG_INFO("renderer: startup bundle hit: {} records, {} modules ready, {} cached failures; 0 source content reads, 0 translations, 0 DXC attempts, {} bytes verified/read",
                             loaded.records, modules, cachedFailures, loaded.bytesRead);
+                        if (lazyModules)
+                            LOG_INFO("renderer: {} shader modules deferred to first use (Metal)", deferredModules);
                         LOG_INFO("renderer: startup bundle elapsed {:.0f} ms including {:.0f} ms device module creation; source discovery/expansion skipped",
                             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-wholeStarted).count(), moduleMs);
                         ResetTimers();
@@ -4258,7 +4412,16 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bool compiled = false;
                     bool deterministicFailure = false;
                     bool cachedFailure = false;
+                    // Device module built on the worker (Metal only, see below).
+                    std::unique_ptr<RenderShader> module;
+                    uint64_t moduleUs = 0;
+                    bool moduleCreated = false;
                 };
+                // Metal module creation translates SPIR-V to MSL and runs the Metal
+                // compiler; on the single install thread it starves the DXC workers.
+                // MTLDevice is thread-safe, so Metal modules are built in parallel on
+                // the workers. Vulkan and D3D12 keep creating them at install.
+                const bool modulesInWorkers = video::IsMetal();
                 const unsigned logicalThreads = std::thread::hardware_concurrency();
                 const auto workerCap = xenos::preparation::HostWorkerCap(logicalThreads);
                 const auto workerCount = xenos::preparation::WorkerCount(logicalThreads, jobs.size(),
@@ -4332,6 +4495,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     item.bytecode, &item.cacheWriteError);
                             }
                         }
+                        if (modulesInWorkers && item.error.empty() && !item.bytecode.empty()) {
+                            const auto moduleStarted = std::chrono::steady_clock::now();
+                            try {
+                                item.module = device->createShader(item.bytecode.data(), item.bytecode.size(), "main", renderFormat);
+                            } catch (const std::exception& e) {
+                                LOG_WARNING("renderer: shader device module creation failed: {}", e.what());
+                            }
+                            item.moduleCreated = true;
+                            item.moduleUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - moduleStarted).count();
+                        }
                     } catch (const std::bad_alloc&) { throw; }
                     catch (const std::exception& e) { item.error = e.what(); }
                     return item;
@@ -4386,14 +4560,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         Shader& entry = cache[item.hash];
                         entry.info = std::move(item.info);
                         const auto moduleStarted = std::chrono::steady_clock::now();
-                        try {
-                            entry.shader = device->createShader(item.bytecode.data(), item.bytecode.size(), "main", renderFormat);
-                        } catch (const std::exception& e) {
-                            LOG_WARNING("renderer: shader device module creation failed: {}", e.what());
-                            entry.shader.reset();
+                        if (item.moduleCreated) {
+                            entry.shader = std::move(item.module);
+                            moduleUs += item.moduleUs;
+                        } else {
+                            try {
+                                entry.shader = device->createShader(item.bytecode.data(), item.bytecode.size(), "main", renderFormat);
+                            } catch (const std::exception& e) {
+                                LOG_WARNING("renderer: shader device module creation failed: {}", e.what());
+                                entry.shader.reset();
+                            }
+                            moduleUs += std::chrono::duration_cast<std::chrono::microseconds>(
+                                std::chrono::steady_clock::now() - moduleStarted).count();
                         }
-                        moduleUs += std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now() - moduleStarted).count();
                         entry.valid = entry.shader != nullptr;
                         if (!entry.info.errors.empty())
                             SHADER_LOG_WARNING("translation-notes", RendererByteFnv, "renderer: {} shader {:016x} notes: {}",
@@ -4576,6 +4755,36 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     SHADER_LOG_WARNING("translation-notes", RendererByteFnv, "renderer: {} shader {:016x} notes: {}", pixel ? "pixel" : "vertex", hash, entry.info.errors);
                 if(!pixel)PreparePositionEvidence(entry,words,count,hash);
                 return entry.valid ? &entry : nullptr;
+            }
+
+            bool PrepareRectListShader(Shader& vs, const uint32_t* words, uint32_t count, uint64_t hash)
+            {
+                if (vs.rectList) return true;
+                if (vs.rectListFailed) return false;
+                vs.rectListFailed = true;
+                std::vector<uint32_t> swapped(count);
+                for (uint32_t i = 0; i < count; i++)
+                    swapped[i] = ByteSwap(words[i]);
+                const std::string source = xenos::rect_list::Vertex(xenos::TranslateShader(swapped.data(), count, false));
+                if (source.empty())
+                {
+                    SHADER_LOG_WARNING("rect-list-failed", RendererByteFnv, "renderer: vertex shader {:016x} has no rect-list entry point", hash);
+                    return false;
+                }
+                xenos::CompiledShader compiled = xenos::CompileCachedHlsl(source, "main", "vs_6_0", binaryFormat);
+                if (!compiled.ok)
+                {
+                    SHADER_LOG_WARNING("rect-list-failed", RendererByteFnv, "renderer: rect-list vertex shader {:016x} failed to compile:\n{}", hash, compiled.errors);
+                    return false;
+                }
+                try {
+                    vs.rectList = device->createShader(compiled.bytecode.data(), compiled.bytecode.size(), "main", renderFormat);
+                } catch (const std::exception& e) {
+                    SHADER_LOG_WARNING("rect-list-failed", RendererByteFnv, "renderer: rect-list shader module creation failed: {}", e.what());
+                    return false;
+                }
+                vs.rectListFailed = vs.rectList == nullptr;
+                return !vs.rectListFailed;
             }
 
             // ---- render targets ------------------------------------------------------
@@ -4807,11 +5016,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // SR execution errors retain this frame's spatial/legacy result and
             // disable only the matching DLSS request on the next CPU plan. They
             // are not allocation failures and must never enter failedPlanEpochs.
-            void DisableDlssRequest(frame_plan::FailureReason reason)
+            void DisableDlssRequest(frame_plan::FailureReason reason,
+                std::source_location caller = std::source_location::current())
             {
                 if ((!upscaling::IsDlssConsumer(activePlan.consumer) && !upscaling::IsSrConsumer(activePlan.consumer)) || !activePlan.cpuSerial ||
                     dlssDisableReportedEpoch == activePlan.geometryEpoch) return;
                 dlssDisableReportedEpoch = activePlan.geometryEpoch;
+                LOG_WARNING("renderer: SR request disabled frame={} provider={} reason={} at renderer.cpp:{}",
+                    frame, uint32_t(activePlan.requestedUpscaler), uint32_t(reason), caller.line());
                 if (evaluatePage && evaluatePage->frame == frame)
                     evaluatePage->fallbackReason = fmt::format("request_failure_{}", uint32_t(reason));
                 frame_plan::ReportPlanFailure({activePlan.geometryEpoch, activePlan.requestSignature,
@@ -4947,7 +5159,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 auto it = framebuffers.find(key);
                 if (it != framebuffers.end())
                     return it->second.get();
-                if (vulkan && vk_object_trace::Permit()) {
+                if (nativeVulkan && vk_object_trace::Permit()) {
                     const auto* c = static_cast<const VulkanTexture*>(key.first);
                     const auto* d = static_cast<const VulkanTexture*>(key.second);
                     std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer event=framebuffer_mapping color_image=0x%llx color_view=0x%llx color_extent=%ux%u depth_image=0x%llx depth_view=0x%llx depth_extent=%ux%u\n",
@@ -5497,7 +5709,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
             std::unique_ptr<RenderPipeline> CreatePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace)
             {
-                if (vulkan && key.prim == 1 && vs && vs->shader && vk_object_trace::Permit())
+                if (nativeVulkan && key.prim == 1 && vs && vs->shader && vk_object_trace::Permit())
                     std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer event=point_pipeline vs_hash=0x%llx module=0x%llx uses_point_size_metadata=%u color_mask=%u depth_format=%u\n",
                         vk_object_trace::Id(key.vs), vk_object_trace::Id(static_cast<const VulkanShader*>(vs->shader.get())->vk),
                         unsigned(vs->info.usesPointSize), key.colorMask, key.depthFormat);
@@ -5510,7 +5722,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 RenderGraphicsPipelineDesc desc;
                 desc.pipelineLayout = pipelineLayout.get();
-                desc.vertexShader = vs->shader.get();
+                desc.vertexShader = key.prim == 8 && rectListExpansion ? vs->rectList.get() : vs->shader.get();
                 desc.pixelShader = ps ? ps->shader.get() : nullptr;
                 if (key.prim == 8 && rectListGs)
                     desc.geometryShader = rectListGs.get();
@@ -5819,7 +6031,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 Shader* ps = modeControl == 4 && psWords && psCount ? GetShader(true, psWords, psCount, psHash) : nullptr;
                 if (debugShaderSources && !debugCaptureDir.empty() && !(modeControl == 4 && psWords && psCount))
                     debugShaderSources->NotePixelNotBound();
-                if (!vs)
+                if (!vs || (info.primitiveType == 8 && rectListExpansion && !PrepareRectListShader(*vs, vsWords, vsCount, vsHash)))
                 {
                     drops.shader++;
                     return;
@@ -5967,16 +6179,53 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // for either stage. Uploading fewer left the tail reading back
                 // as zero, which zeroed the light terms of every character
                 // material - they index c[253..255].
-                uint32_t vsConstants[256 * 4], psConstants[256 * 4];
+                auto& vsConstants = drawConstants[0];
+                auto& psConstants = drawConstants[1];
+                uint64_t constantGeneration[2]{};
                 // Preserve the full banks and zero-register MMIO fallback. The
                 // diagnostic switch provides a same-binary performance control.
                 static const bool legacyConstants = getenv("LO_LEGACY_CONSTANT_READS") != nullptr;
+                // Optional full comparison catches future paths outside the known
+                // zero-register MMIO fallback.
+                static const bool verifyConstants = getenv("LO_CONSTANT_SNAPSHOT_VERIFY") != nullptr;
                 if (legacyConstants) {
                     for (uint32_t i = 0; i < 256 * 4; i++) vsConstants[i] = Reg(REG_ALU_CONSTANTS + i);
                     for (uint32_t i = 0; i < 256 * 4; i++) psConstants[i] = Reg(REG_ALU_CONSTANTS + 256 * 4 + i);
+                    drawConstantsModified[0] = drawConstantsModified[1] = true;
                 } else {
-                    g_commandProcessor.ReadRegisters(REG_ALU_CONSTANTS, 256 * 4, vsConstants);
-                    g_commandProcessor.ReadRegisters(REG_ALU_CONSTANTS + 256 * 4, 256 * 4, psConstants);
+                    for (uint32_t bank = 0; bank < 2; ++bank) {
+                        const uint64_t generation = g_commandProcessor.ConstantGeneration(bank);
+                        const bool refresh = generation != constantSnapshotGeneration[bank];
+                        bool snapshotChanged = refresh;
+                        if (refresh) {
+                            constantFallbackCount[bank] = g_commandProcessor.ReadConstantBank(
+                                bank, constantSnapshot[bank], constantFallbackOffsets[bank]);
+                            constantSnapshotGeneration[bank] = generation;
+                            ++constantSnapshotVersion[bank];
+                        } else if (g_commandProcessor.RefreshConstantFallbacks(bank,
+                            constantFallbackOffsets[bank], constantFallbackCount[bank],
+                            constantSnapshot[bank], constantSnapshotVersion[bank])) {
+                            snapshotChanged = true;
+                        }
+                        if (!refresh && verifyConstants) {
+                            uint32_t check[256 * 4];
+                            g_commandProcessor.ReadRegisters(REG_ALU_CONSTANTS + bank * 256 * 4, 256 * 4, check);
+                            if (std::memcmp(check, constantSnapshot[bank], sizeof(check)) != 0) {
+                                static uint32_t reported = 0;
+                                if (reported++ < 16)
+                                    LOG_ERROR("renderer: {} constants changed without a generation change (frame {})",
+                                        bank ? "pixel" : "vertex", frame);
+                                std::memcpy(constantSnapshot[bank], check, sizeof(check));
+                                ++constantSnapshotVersion[bank];
+                                snapshotChanged = true;
+                            }
+                        }
+                        if (snapshotChanged || drawConstantsModified[bank]) {
+                            std::memcpy(drawConstants[bank], constantSnapshot[bank], sizeof(drawConstants[bank]));
+                            drawConstantsModified[bank] = false;
+                        }
+                        constantGeneration[bank] = constantSnapshotVersion[bank];
+                    }
                 }
                 // Diagnostic selection uses only GPU draw constants, not the CPU
                 // presented-swap counter. Shader/layout recognition is deliberately
@@ -6104,6 +6353,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             if (!motionReplay->Init(device, setBuilders, vulkan ? 5 : 4)) {
                                 LOG_ERROR("mv: initialization failed; requested geometric history rejected: {}", motionReplay->LastError());
                                 motionReplay.reset(); motionInitFailed = true;
+                            } else {
+                                // Tile-based GPUs pay a render pass per switch between the scene
+                                // and MV targets; LO_MV_IMMEDIATE=1 records each draw in place.
+                                motionReplay->SetQueueDraws(video::IsMetal() && !getenv("LO_MV_IMMEDIATE"));
                             }
                         }
                         if (motionReplay) {motionReplay->EnableGpuTiming(gpuTiming);motionReplay->BeginFrame(frame, temporalEpoch);}
@@ -6231,7 +6484,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 // Motion follows the proven main scene allocation. The same shader
                 // hash in a shadow/offscreen view never authorizes replay.
-                const bool motionScene = motionOptions.enabled && (!motionOptions.replay || motionReplay) && temporalActive && jitterAnchor && temporalViewport && depth &&
+                // MetalFX uses camera/depth motion only unless LO_METALFX_OBJECT_MV=1:
+                // replaying the scene for object vectors costs ~6 ms of vertex work
+                // per frame on Apple GPUs (Numara, M1 Pro), about twice MetalFX itself.
+                static const bool metalFxObjectMotion = [] {
+                    const char* value = getenv("LO_METALFX_OBJECT_MV"); return value && strcmp(value, "1") == 0; }();
+                const bool cameraMotionOnly = activePlan.consumer == upscaling::TemporalConsumer::MetalFxSr && !metalFxObjectMotion;
+                const bool motionScene = motionOptions.enabled && !cameraMotionOnly && (!motionOptions.replay || motionReplay) && temporalActive && jitterAnchor && temporalViewport && depth &&
                     depth->allocationSerial == jitterAnchor->depthAllocation && rasterViewport.x == 0 && rasterViewport.y == 0 &&
                     rasterViewport.width == jitterAnchor->viewport.width && rasterViewport.height == jitterAnchor->viewport.height;
                 const bool motionDepthWrite = motionScene && (depthControl & 6) == 6;
@@ -6281,6 +6540,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     vsConstants, psConstants, &temporalScene.Depth(), jitterSampledDepth ? &*jitterSampledDepth : nullptr,
                     ActiveTaaOptions().jitter_scale, dlssSrRequested ? &frameRasterJitter : nullptr,
                     constantScreenSample);
+                // Jitter writes the draw's constant copy; the next draw restores it.
+                if (drawJitter.applied) {
+                    drawConstantsModified[0] = true;
+                    if (drawJitter.shadowCompensated) drawConstantsModified[1] = true;
+                }
                 if (temporalActive && drawJitter.applied) {
                     if (!actualRasterJitterCaptured) {
                         actualRasterJitter = drawJitter.sample;
@@ -7207,8 +7471,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 tBind0.AddTo(tBind);
                 render_batch::CpuTimer<> tIndex0(cpuTimingEnabled);
 
-                uint64_t vsOffset = UploadUnchanged(0, vsConstants, sizeof(vsConstants));
-                uint64_t psOffset = UploadUnchanged(1, psConstants, sizeof(psConstants));
+                uint64_t vsOffset = UploadUnchanged(0, vsConstants, sizeof(vsConstants),
+                    drawConstantsModified[0] ? 0 : constantGeneration[0]);
+                uint64_t psOffset = UploadUnchanged(1, psConstants, sizeof(psConstants),
+                    drawConstantsModified[1] ? 0 : constantGeneration[1]);
                 uint64_t sharedOffset = UploadUnchanged(2, &shared, sizeof(shared));
                 if (vsOffset == UINT64_MAX || psOffset == UINT64_MAX || sharedOffset == UINT64_MAX)
                 {
@@ -7272,6 +7538,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     geometry_prepare::ExpandQuadList(indices, primitiveScratch, useIndices, info.indexCount);
                     break;
                 }
+                case 8: // rect list -> six encoded corners per rectangle
+                {
+                    if (!rectListExpansion) break;
+                    const uint32_t skipped = xenos::rect_list::ExpandIndices(indices, primitiveScratch, useIndices,
+                        info.indexCount, Reg(REG_VGT_INDX_OFFSET));
+                    if (skipped && rectListSkipped++ < 8)
+                        LOG_WARNING("renderer: rect list skipped {} rectangle(s) (non-consecutive indices or vertex range)", skipped);
+                    break;
+                }
                 case 5: // triangle fan -> list
                 {
                     auto& out = primitiveScratch;
@@ -7290,7 +7565,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 default:
                     break;
                 }
-                if (info.indexed && !indexCached && indexSrcCount >= geometry_prepare::IndexCache::kMinCount)
+                // Expanded rect lists fold VGT_INDX_OFFSET into the indices, which
+                // the cache key does not cover.
+                if (info.indexed && !indexCached && indexSrcCount >= geometry_prepare::IndexCache::kMinCount &&
+                    !(info.primitiveType == 8 && rectListExpansion))
                 {
                     // Store the post-expansion result against the exact source
                     // bytes; a later identical draw copies it verbatim.
@@ -7336,7 +7614,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 bool scenePromotionActivated = false;
                 if (dlssSrRequested && dlssSceneCopyInputs && fullSceneCopy && !depth
 #if defined(LO_GPU_PLUME)
-                    && dlssController
+                    && (dlssController || temporalUpscaler)
 #else
                     && false
 #endif
@@ -7506,7 +7784,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 commandList->setGraphicsDescriptorSet(set3, 3);
                 if(vulkan) commandList->setGraphicsDescriptorSet(set4,4);
 
-                int32_t baseVertex = int32_t(Reg(REG_VGT_INDX_OFFSET));
+                // Expanded rect-list indices already include the offset.
+                int32_t baseVertex = info.primitiveType == 8 && rectListExpansion ? 0 : int32_t(Reg(REG_VGT_INDX_OFFSET));
                 static uint32_t drawLogs = 0;
                 if (psTraceRemaining && ps && key.ps == psTraceHash)
                 {
@@ -7747,7 +8026,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     const auto alphaDesc = DescribePipeline(key, vs, ps, false);
                     if (alphaDesc.depthEnabled && !alphaDesc.depthWriteEnabled &&
                         alphaDesc.depthFunction == RenderComparisonFunction::GREATER_EQUAL &&
-                        !alphaDesc.stencilEnabled && !alphaDesc.geometryShader) {
+                        !alphaDesc.stencilEnabled && !alphaDesc.geometryShader && key.prim != 8) {
                         auto* alphaPipeline = fsrAlphaReplay->Prepare(key, alphaDesc, vs->info, ps->info,
                             vsWords, vsCount, psWords, psCount);
                         if (alphaPipeline) {
@@ -8480,8 +8759,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     const RenderBufferReference cb[4] = {{uploadRing, vsOffset}, {uploadRing, sharedOffset},
                                         {uploadRing, psOffset}, {uploadRing, mvOffset}};
                                     RenderDescriptorSet* sets[] = {set0, set1, set2, set3, set4};
+                                    const RenderIndexBufferView replayIndices(RenderBufferReference(uploadRing, preparedIndexOffset),
+                                        uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
                                     if (!motionReplay->Draw(commandList, prepared.pipeline, cb, sets, vulkan ? 5 : 4,
-                                        rasterViewport, scissor, useIndices, indexCount, baseVertex)) {
+                                        rasterViewport, scissor, useIndices, indexCount, baseVertex, useIndices ? &replayIndices : nullptr)) {
                                         logFirstMotionFailure("replay_draw_failed", 5);
                                         motionReplay->AbortFrame("MV draw record failed");
                                     }
@@ -8928,6 +9209,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 static const bool traceClearCall = getenv("LO_TRACE_CLEAR_CALL") != nullptr;
                                 if (traceClearCall)
                                     LOG_INFO("clear begin f{} base={} pitch={} size={}x{} count={} z={}", frame, k.base, k.pitch, target->width, target->height, clearRects.size(), rectZ);
+                                FlushMotionReplayQueue();
                                 commandList->clearDepthStencil(true, false, rectZ, 0, clearRects.data(), uint32_t(clearRects.size()));
                                 if (trackBinding) {
                                     const bool full = clearRects.size() == 1 && clearRects[0].left == 0 && clearRects[0].top == 0 &&
@@ -8963,7 +9245,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         commandList->setViewports(&stretched, 1);
                         RenderRect fullRect{ 0, 0, int32_t(target->width), int32_t(mappedRows) };
                         commandList->setScissors(&fullRect, 1);
-                        commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
+                        if (useIndices) {
+                            // Expanded rect list: replay its encoded corners.
+                            RenderIndexBufferView view(RenderBufferReference(uploadRing, preparedIndexOffset),
+                                uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
+                            commandList->setIndexBuffer(&view);
+                            commandList->drawIndexedInstanced(indexCount, 1, 0, baseVertex, 0);
+                        } else commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
 #if defined(LO_GPU_PLUME)
                         if (key.colorMask & 7) HandleFsrAlphaRgbWriter(*target,
                             "color_clear_rect", drawsThisFrame, key.vs, key.ps, key.blend, key.colorMask);
@@ -9612,6 +9900,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
             void Resolve()
             {
+                FlushMotionReplayQueue();
                 ScopedTimer timer{ tResolve, cpuTimingEnabled };
                 nResolve++;
                 consecutiveResolveCopies.BeginResolve();
@@ -9822,6 +10111,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
             void ClearDepthTarget(uint32_t pitch, uint32_t rtHeight)
             {
+                FlushMotionReplayQueue();
                 consecutiveResolveCopies.Invalidate();
                 uint32_t depthInfo = Reg(REG_RB_DEPTH_INFO);
                 HostTexture* depth = GetRenderTarget(depthInfo & 0xFFF, (depthInfo >> 16) & 1, pitch, rtHeight, true);

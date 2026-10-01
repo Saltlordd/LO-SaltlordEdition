@@ -4,6 +4,12 @@
 #include <memory>
 #include <stdexcept>
 using namespace gpu::backend;
+// The one backend a non-Windows platform attempts.
+#if LO_PLATFORM_MACOS
+constexpr auto kPlatformBackend = Backend::Metal;
+#else
+constexpr auto kPlatformBackend = Backend::Vulkan;
+#endif
 int main() {
     assert(Parse("DX11") == Backend::D3D11 && Parse("d3d11") == Backend::D3D11);
     assert(Parse("VULKAN") == Backend::Vulkan && Parse("DX12") == Backend::D3D12);
@@ -17,7 +23,8 @@ int main() {
     c.boundSets = 5; c.samplers = 32; c.sampledImages = 96; c.storageBuffers = 1; c.pushConstants = 24;
     assert(Missing(Backend::D3D12, c).empty() && Missing(Backend::Vulkan, c).empty());
     assert(Missing(Backend::D3D11, c).starts_with("Unsupported"));
-    for (auto member : {&Capabilities::device, &Capabilities::geometryShader, &Capabilities::bufferDeviceAddress,
+    { auto noGeometry = c; noGeometry.geometryShader = false; assert(Missing(Backend::D3D12, noGeometry).empty() && Missing(Backend::Vulkan, noGeometry).empty()); }
+    for (auto member : {&Capabilities::device, &Capabilities::bufferDeviceAddress,
                        &Capabilities::shaderInt64, &Capabilities::scalarBlockLayout}) {
         auto bad = c; bad.*member = false; assert(!Missing(Backend::Vulkan, bad).empty());
     }
@@ -50,8 +57,8 @@ int main() {
             assert(*result.selected == (first == Backend::Vulkan ? Backend::D3D12 : Backend::Vulkan));
 #else
             assert(!result.selected && attempts == 1 && resets == 1 && children.empty());
-            assert(result.requested == first && result.attempts.size() == (first == Backend::Vulkan ? 1 : 2));
-            assert(result.attempts.back().backend == Backend::Vulkan);
+            assert(result.requested == first && result.attempts.size() == (first == kPlatformBackend ? 1 : 2));
+            assert(result.attempts.back().backend == kPlatformBackend);
 #endif
         }
     }
@@ -67,7 +74,7 @@ int main() {
 #ifdef _WIN32
     constexpr auto supported=Backend::D3D12;
 #else
-    constexpr auto supported=Backend::Vulkan;
+    constexpr auto supported=kPlatformBackend;
 #endif
     auto ready = Select(Backend::D3D11, [&](Backend b) { ++attempts; assert(b == supported); return std::string{}; }, [&] { ++resets; });
     assert(ready.selected == supported && attempts == 1 && resets == 0);

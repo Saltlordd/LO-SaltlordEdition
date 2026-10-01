@@ -112,7 +112,10 @@ void Present(uint32_t swap, uint32_t fps, double flushMs, double waitMs, double 
     slept = over1ms = paired = 0;
     // Every-frame present timing already records this window. The 1s summary
     // is extra file I/O on the swap thread and has stalled city presents 200ms+.
-    if (gpu::render_timing::Enabled()) return;
+    // LO_FRAME_TIMING_SUMMARY=1 keeps it anyway (scenario runs that check game time).
+    static const bool forceSummary = [] {
+        const char* value = std::getenv("LO_FRAME_TIMING_SUMMARY"); return value && value[0] == '1'; }();
+    if (gpu::render_timing::Enabled() && !forceSummary) return;
     LOG_INFO("frame timing completed={} target={} window={:.6f}s presents={} rate={:.3f} flush={:.3f}ms pace={:.3f}ms present={:.3f}ms engine_ticks={} delta_sum={:.6f} intervals={} last_interval={:#x}->{:#x} source=guest_swap engine_rate={:.3f} game_time_ratio={:.6f}",
         swap, fps, seconds, snapCount, snapCount / seconds, snapFlush / snapCount, snapWait / snapCount, snapPresent / snapCount,
         snapTicks, snapDelta, snapIntervals, snapRequested, snapEncoded, snapTicks / seconds, snapDelta / seconds);
