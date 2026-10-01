@@ -1,5 +1,6 @@
 """Embed the exact production selection + invalidation methods into a CPU mock."""
 import argparse
+import re
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
@@ -29,12 +30,15 @@ assert get.count('return SelectControllerAtlas(cached, bindingInfo, bindingEpoch
 assert 'return SelectControllerAtlas(result, bindingInfo, bindingEpoch);' in get
 assert 'controller_atlas::Candidate(dimension, format, originalWidth, originalHeight,' in get
 assert 'controller_atlas::Identify(rgba)' in get
-assert get.index('SampleHash(src, tex->guestBytes)') < get.index('controller_atlas::Identify(rgba)')
+# A rebuilt atlas must carry its content hash into the cache, or a guest rewrite never re-identifies it.
+guestHash = re.search(r'tex->guestHash = \w*GuestHash\(\*tex\);', get)
+assert guestHash and guestHash.start() < get.index('textures.emplace(key, std::move(tex));')
 assert get.count('controller_atlas::Identify(rgba)') == 1
 assert get.index('auto it = textures.find(key)') < get.index('controller_atlas::Identify(rgba)')
 assert 'Gpu().retiredTextures.push_back(std::move(it->second));' in get
 recycle = source[source.index('            bool RecycleSlot('):source.index('            bool WaitForGpu(')]
-assert recycle.index('if (!video::WaitForGpuFence(s.fence.get())) return false;') < recycle.index('s.retiredTextures.clear();')
+fenceWait = recycle.index('if (!video::WaitForGpuFence(s.fence.get()))')
+assert recycle.index('return false;', fenceWait) < recycle.index('s.retiredTextures.clear();')
 bind = source[source.index('                auto bindTextures = '):source.index('                const auto samplerVersion = ')]
 assert 'if (PlanSuppressed())' in bind and 'failedPlan = true;' in bind
 assert bind.index('textureBindings[bank][slot] = temporalDisplay ?') < bind.index('controllerAtlasCandidates.push_back(')
