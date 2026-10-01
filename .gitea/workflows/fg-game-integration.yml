@@ -1,8 +1,30 @@
 name: FG game integration compile
-# Pull request checks run on Gitea (.gitea/workflows/fg-game-integration.yml).
-# This copy only runs when started manually.
+
+# Gitea copy of .github/workflows/fg-game-integration.yml. Pull request checks
+# run on git.zkx.ca; the GitHub workflow is manual-only.
 on:
   workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - LostOdysseyRecomp/gpu/**
+      - shared/frame_generation/**
+      - cmake/LoFrameGeneration.cmake
+      - tools/patches/plume-lostodyssey.patch
+      - tools/tests/frame_generation/**
+      - tools/tests/motion_replay/**
+      - tools/tests/native_dlss_renderer_gpu_test.cpp
+      - .gitea/workflows/fg-game-integration.yml
+  pull_request:
+    paths:
+      - LostOdysseyRecomp/gpu/**
+      - shared/frame_generation/**
+      - cmake/LoFrameGeneration.cmake
+      - tools/patches/plume-lostodyssey.patch
+      - tools/tests/frame_generation/**
+      - tools/tests/motion_replay/**
+      - tools/tests/native_dlss_renderer_gpu_test.cpp
+      - .gitea/workflows/fg-game-integration.yml
 permissions:
   contents: read
 jobs:
@@ -27,6 +49,7 @@ jobs:
           git -C tools/XenonRecomp submodule update --init --depth 1 thirdparty/tomlplusplus
       - uses: actions/checkout@v4
         with:
+          github-server-url: https://github.com
           repository: NVIDIA-RTX/Streamline
           ref: 2122257e0fce486f91b385aa63b9a09b0a34b363
           path: out/deps/streamline
@@ -34,6 +57,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@v4
         with:
+          github-server-url: https://github.com
           repository: GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
           ref: c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
           path: out/deps/fidelityfx
@@ -47,7 +71,7 @@ jobs:
       - name: Compile production renderer, video, bridge and link selected adapters
         shell: pwsh
         run: |
-          cmake --build out/fg-game --config Release --target motion_renderer_compile p2_video_compile LoFgGameBridgeLink LoFgGameInputTest --parallel 2 2>&1 | Tee-Object out/fg-game-build.log
+          cmake --build out/fg-game --config Release --target motion_renderer_compile p2_video_compile LoFgGameBridgeLink LoFgGameInputTest --parallel 8 2>&1 | Tee-Object out/fg-game-build.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           & out/fg-game/Release/LoFgGameBridgeLink.exe
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

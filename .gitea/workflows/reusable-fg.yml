@@ -1,8 +1,13 @@
 name: Reusable frame generation
-# Pull request checks run on Gitea (.gitea/workflows/reusable-fg.yml).
-# This copy only runs when started manually.
+# Gitea copy of .github/workflows/reusable-fg.yml. Pull request checks run on
+# git.zkx.ca; the GitHub workflow is manual-only.
 on:
   workflow_dispatch:
+  push:
+    branches: ['**']
+    paths: [shared/frame_generation/**, tools/tests/frame_generation/**, .gitea/workflows/reusable-fg.yml]
+  pull_request:
+    paths: [shared/frame_generation/**, tools/tests/frame_generation/**, .gitea/workflows/reusable-fg.yml]
 permissions:
   contents: read
 jobs:
@@ -15,8 +20,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Install build tools
+        if: runner.os == 'Linux'
+        run: |
+          SUDO=$(command -v sudo || true)
+          $SUDO apt-get update
+          $SUDO apt-get install -y --no-install-recommends cmake g++
       - run: cmake -S tools/tests/frame_generation -B out/fg-core
-      - run: cmake --build out/fg-core --config Release
+      - run: cmake --build out/fg-core --config Release --parallel 4
       - run: ctest --test-dir out/fg-core -C Release --output-on-failure
   native:
     runs-on: windows-2022
@@ -31,6 +42,7 @@ jobs:
       - uses: actions/checkout@v4
         if: matrix.provider != 'FSR'
         with:
+          github-server-url: https://github.com
           repository: NVIDIA-RTX/Streamline
           ref: 2122257e0fce486f91b385aa63b9a09b0a34b363
           path: out/deps/streamline
@@ -39,6 +51,7 @@ jobs:
       - uses: actions/checkout@v4
         if: matrix.provider != 'DLSS'
         with:
+          github-server-url: https://github.com
           repository: GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
           ref: c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
           path: out/deps/fidelityfx
@@ -51,5 +64,5 @@ jobs:
           $fsr = if ('${{ matrix.provider }}' -ne 'DLSS') { 'ON' } else { 'OFF' }
           cmake -S tools/tests/frame_generation -B out/fg-native -A x64 "-DFRAMEGEN_WITH_DLSS=$dlss" "-DFRAMEGEN_WITH_FSR=$fsr" -DFRAMEGEN_STREAMLINE_INCLUDE="$pwd/out/deps/streamline/include" -DFRAMEGEN_FIDELITYFX_INCLUDE="$pwd/out/deps/fidelityfx/ffx-api/include"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - run: cmake --build out/fg-native --config Release --parallel 2
+      - run: cmake --build out/fg-native --config Release --parallel 4
       - run: ctest --test-dir out/fg-native -C Release --output-on-failure
