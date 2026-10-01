@@ -38,7 +38,7 @@
 
 ## 2026-09-06 当前交接
 
-> 2026-09-30 补充：下文关于关闭 Gitea Actions、CI 使用 GitHub 的叙述属于 2026-09-06 的决定。现在拉取请求检查已迁到 Gitea Actions（`git.zkx.ca`），发布打包、Mod Wiki 发布和 Issue 分析仍在 GitHub Actions，见 [Pull request checks on Gitea](ci-gitea.md)。
+> 2026-09-30 补充：下文关于关闭 Gitea Actions、CI 使用 GitHub 的叙述属于 2026-09-06 的决定。现在拉取请求检查已迁到 Gitea Actions（`git.zkx.ca`），2026-10-01 起发布打包也在 Gitea 上运行；Mod Wiki 发布和 Issue 分析仍在 GitHub Actions，见 [Pull request checks and releases on Gitea](ci-gitea.md)。
 
 [v0.2.1 已正式发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.2.1)，包含 F1 渲染捕获自动 ZIP 与多手柄／键盘 E/R 输入；托管 CI、正式包验证及隔离启动／捕获均通过。参见[捕获](render-state-capture.md)与[输入](controller-input.md)，不代表 AMD 缺陷已修复；文本补丁仍暂停。
 

@@ -191,7 +191,7 @@
 
 | 文档 | 类型 |
 |---|---|
-| [Pull request checks on Gitea](ci-gitea.md) | 参考 |
+| [Pull request checks and releases on Gitea](ci-gitea.md) | 参考 |
 | [Developer-tool recovery record — 2026-09-24](developer-tool-recovery-2026-09-24.md) | 历史 |
 | [Linux 移植评估与首可玩裁定（2026-09-13）](linux-port-evaluation-2026-09-13.md) | 历史 |
 | [Switch 移植评估与 PC Vulkan 后端交接（2026-09-07）](switch-vulkan-handoff.md) | 历史 |

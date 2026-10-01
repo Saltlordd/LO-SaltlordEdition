@@ -44,9 +44,12 @@ asset. Users place it at
 Release workflow design: the Linux job compiles once, creates a persistent
 AppImage AppDir, and exports the stable Flatpak by reusing that AppDir's
 `usr` tree. It does not perform a second source compilation for Flatpak.
-The workflow exports a stable Flatpak directly and uploads it alongside the
-Windows ZIP and AppImage. After both platform jobs succeed, the publication
-job checks that the three base packages are uploaded and nonempty; optional
+The workflow exports a stable Flatpak directly as a CI artifact next to the
+Windows ZIP and AppImage. Since 2026-10-01 the workflow runs on Gitea
+(`.gitea/workflows/release.yml`, see [Pull request checks and releases on
+Gitea](../../docs/notes/ci-gitea.md)): after both platform jobs succeed, the
+publication job uploads the three Gitea artifacts to the GitHub release, then
+checks that the three base packages are uploaded and nonempty; optional
 shader assets are validated separately before publication. Re-runs validate an
 existing public release without changing its publication state.
 The v0.7.9 Release CI [36378342125](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36378342125)

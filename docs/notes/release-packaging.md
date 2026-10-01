@@ -68,8 +68,8 @@ out/release-venv/Scripts/python.exe tools/package_release.py
 ```
 
 The dedicated `out/build/release` directory uses clang-cl, Release and static CRT.
-`LO_BUILD_JOBS` defaults to 4; the hosted workflow uses 2 to limit memory pressure from the
-generated C++ files. Existing development builds are not overwritten.
+`LO_BUILD_JOBS` defaults to 4. The Gitea release workflow uses 24 on T640 (64 threads,
+128 GB, shared with the Linux release VM) and ccache; the GitHub fallback uses 2 to limit memory pressure from the generated C++ files. Existing development builds are not overwritten.
 
 Packaging uses the pinned Microsoft DXC v1.8.2407 x64 `dxcompiler.dll` and `dxil.dll` pair
 already staged beside the tested build. The pair is byte-checked against the official archive
@@ -86,14 +86,21 @@ SHA256 file. Dependency license texts accompany the binaries, including
 `licenses/FONT-PROVENANCE.md` and the complete SDL-sourced `licenses/Unifont-OFL-1.1.txt` notice for
 the embedded installer font.
 
-## GitHub Actions
+## Release CI
 
-Pull request checks run on Gitea; see [Pull request checks on Gitea](ci-gitea.md).
-`release.yml` builds when dispatched manually or when a `v*` tag is pushed.
-It uses hosted Windows 2022. Private inputs are checked out from a pinned commit of
-`freefrank/LostOdysseyRecomp-build-inputs` using a read-only deploy key stored in the
-`LO_BUILD_INPUT_KEY` Actions secret. Pull-request tests never access this key or repository.
-It produces a downloadable Actions artifact; a version tag also creates a **draft** GitHub release.
+Pull request checks and release packaging run on Gitea; see
+[Pull request checks and releases on Gitea](ci-gitea.md). `.gitea/workflows/release.yml`
+builds when a `v*` tag is pushed to `zkx` or when started manually. Windows jobs run on
+T640 and the Linux AppImage and Flatpak on a privileged docker runner. Private inputs are
+fetched from a pinned commit of `freefrank/LostOdysseyRecomp-build-inputs` with the
+`LO_GITHUB_TOKEN` Gitea secret, the same fine-grained GitHub token that creates and
+publishes the GitHub release. Pull-request workflows never access that repository.
+Each run produces downloadable Gitea artifacts; a version tag also creates a **draft**
+GitHub release. After both platforms have built, the publish job uploads the Gitea
+artifacts to the draft and publishes it once all three packages are present.
+
+`.github/workflows/release.yml` is the manual-only GitHub fallback. It uses hosted
+runners and the read-only deploy key in the `LO_BUILD_INPUT_KEY` Actions secret.
 
 Draft release notes come from the matching version section in the tagged `CHANGELOG.md`.
 `tools/release/extract_release_notes.py` accepts a linked or plain version heading (for example,
