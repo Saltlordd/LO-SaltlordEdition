@@ -61,6 +61,25 @@ The VS-bundled clang component did not finish installing, so
 `-T ClangCL` uses the standalone LLVM. It also puts Git Bash first on `PATH`;
 otherwise `shell: bash` resolves to the WSL `bash.exe` in System32.
 
+### Submodule mirror
+
+`D:\ci-cache\git\deps.git` is a bare repository holding the 15 upstreams that
+the FG compile job clones: plume and its contrib libraries, XenosRecomp with
+dxc-bin and its other dependencies, XenonRecomp with tomlplusplus,
+unordered_dense, and SDL. Each upstream's tags live under `refs/rtags/<name>/`
+so that equal tag names do not collide. The mirror was 518 MB on 2026-09-30.
+The `gitea-git-cache-refresh` scheduled task fetches it every 6 hours
+(`C:\act_runner\refresh-git-cache.cmd`, log `C:\act_runner\git-cache.log`).
+
+`start-runner.cmd` exports `LO_GIT_REFERENCE=D:/ci-cache/git/deps.git`.
+When it is set, the workflow passes `--reference` to `git submodule update`,
+so objects come from the mirror and only newer ones from GitHub. A stale
+mirror makes a job slower but does not break it. Runners without the
+variable keep `--depth 1`. The mirror is owned by the setup account, so
+`safe.directory` lists it in the system git configuration for the SYSTEM runner.
+To add an upstream, add a remote with the same two fetch refspecs and
+`tagOpt --no-tags`, then fetch.
+
 ## Differences from the GitHub workflows
 
 - `actions/upload-artifact@v3`: Gitea rejects v4 as an unsupported GHES server.
@@ -79,8 +98,8 @@ First green run, 2026-09-30, measured from job start to end:
 | FG CPU contracts, Linux / Windows | 26 s / 80 s |
 | Reusable FG core, Linux / Windows; native DLSS, FSR, both | 24 s / 26 s; 36–43 s |
 | Review regressions (Linux) | 69 s |
-| FG game integration compile (Windows) | 366 s |
+| FG game integration compile (Windows) | 366 s; 167 s with the submodule mirror |
 
-About three minutes of the FG compile job clone submodules from GitHub
-(`tools/XenosRecomp` includes `dxc-bin`). Reusing local mirrors on T640 would
-remove most of that time.
+Without the mirror, the FG compile job spent about three minutes cloning
+submodules from GitHub. With it, submodules and SDK headers took 25 s, CMake
+configuration 25 s, and the build and tests 1 min 48 s.
