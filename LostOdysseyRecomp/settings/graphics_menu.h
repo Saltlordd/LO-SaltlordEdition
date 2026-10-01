@@ -1,17 +1,29 @@
 #pragma once
 #include "config.h"
 #include "menu.h"
+#include <os/platform.h>
 #include <algorithm>
+#include <iterator>
 
 namespace settings::graphics_menu
 {
 // UI indices only. Keep the persisted AA/provider/quality IDs independent.
+// macOS offers no DLSS/FSR (Metal); its fifth choice is MetalFX Temporal.
+#if LO_PLATFORM_MACOS
+inline constexpr uint32_t AaChoiceCount = 5;
+#else
 inline constexpr uint32_t AaChoiceCount = 6;
+#endif
 inline uint32_t AaChoice(const Config& config)
 {
     using gpu::upscaling::Upscaler;
+#if LO_PLATFORM_MACOS
+    // A DLSS/FSR value from another platform's settings shows the AA it falls back to.
+    if (config.upscaler == Upscaler::MetalFx) return 4;
+#else
     if (config.upscaler == Upscaler::Dlss) return 4;
     if (config.upscaler == Upscaler::Fsr) return 5;
+#endif
     return std::min(config.antialiasing, 3u);
 }
 inline void SelectAa(Config& config, uint32_t choice)
@@ -23,10 +35,26 @@ inline void SelectAa(Config& config, uint32_t choice)
         config.antialiasing = choice;
         config.fxaa = choice == 1;
     } else {
+#if LO_PLATFORM_MACOS
+        config.upscaler = Upscaler::MetalFx;
+#else
         config.upscaler = choice == 4 ? Upscaler::Dlss : Upscaler::Fsr;
+#endif
         // Retain legacy AA as the renderer's unsupported-scene fallback.
         // The existing frame plan selects one temporal consumer, not both.
     }
+}
+// Render resolution choices, in menu order (Config::internalResolution values).
+#if LO_PLATFORM_MACOS
+inline constexpr int RenderResolutions[] = {0, 720, 1080, 1440, 2160, InternalResolutionNative};
+#else
+inline constexpr int RenderResolutions[] = {0, 720, 1080, 1440, 2160};
+#endif
+inline uint32_t RenderResolutionChoice(const Config& config)
+{
+    for (uint32_t i = 0; i < std::size(RenderResolutions); ++i)
+        if (RenderResolutions[i] == config.internalResolution) return i;
+    return 0;
 }
 inline bool IsAction(int tab, int row)
 {

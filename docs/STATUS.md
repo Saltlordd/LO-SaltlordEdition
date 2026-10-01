@@ -2,6 +2,35 @@
 
 [Documentation](README.md) · [Roadmap](ROADMAP.md) / [路线图](ROADMAP.zh-CN.md) · [Changelog](../CHANGELOG.md)
 
+## macOS integration branch — 2026-10-01
+
+`trail/macos-integration` combines MikeRavenelle's `arm64-macos` work from
+commit `b7951cd` with `main` commit `ca0d8fa`. It has not been merged to `main`,
+pushed or published.
+The changes cover Apple Silicon memory and threading, Metal/MetalFX, packaging
+and test workflow support. The integration also includes the independent shader
+predicate, constant-cache, DLC hashing and updater identity fixes recorded in
+the current branch.
+
+Recorded local checks include a complete Windows clang-cl runtime build and link
+with D3D12/Vulkan/DLSS/FSR/FG enabled, nine focused Windows test targets, and a
+complete ARM64 Mac runtime build and link with eight focused Mac test targets.
+The Windows production-build receipt is `fffbd56`; the final Mac validation
+source tree is `fe7131f` (the later changes select pinned zstd on Mac and adjust
+focused test staging/diagnostics without changing Windows runtime behavior).
+The Mac build also passes the pinned-zstd portable-shader-pack checks after
+matching zstd to the deployment target. On an M1 Max with 32 GiB running macOS
+26.6.2, cold `--prepare-shaders-only` compiled 28,484 shaders with zero failures
+and exited successfully in about 319 seconds. The 300-second new-game/first-battle
+script passed in 302.2 seconds including shutdown (`passed=true`,
+`unfinished_steps=0`, zero error lines, no crash reports). Four 1280×720 captures
+show the opening, battle menu, attack and return to the menu. Local evidence is
+retained under `out/macos-integration/mac-validation/` (`result.json`,
+`runtime.log` and the captures).
+This is not long-play, broad-scene, image-quality or performance acceptance;
+the mixed cutscene/battle frame window is not a standalone benchmark. The
+branch remains an experimental source integration, with no public Mac release.
+
 ## Current source and release — 2026-09-30
 
 GitHub release and Issue states were read on 2026-09-30 at 06:49 UTC. Project items were subsequently reconciled and read back; the [reconciliation record](project-management/reconciliation-2026-09-30.md) gives the final scope and totals. The latest release, the open Issue list and the merged source after the tag were re-read with `gh` on 2026-10-01 at 05:16 UTC, after PR #110 merged. These are checked snapshots. Historical build results retain the executable, scene and platform limits of their original records.

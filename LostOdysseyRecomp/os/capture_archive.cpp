@@ -1,4 +1,5 @@
 #include "capture_archive.h"
+#include <os/platform.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -6,7 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#elif defined(__linux__)
+#elif LO_PLATFORM_POSIX
 #include <cerrno>
 #include <fcntl.h>
 #include <spawn.h>
@@ -41,7 +42,7 @@ namespace os
             CaptureArchiveResult result;
             result.directory = std::move(directory);
             result.archive = result.directory;
-#ifdef __linux__
+#if LO_PLATFORM_POSIX
             result.archive += ".tar.gz";
 #else
             result.archive += ".zip";
@@ -131,7 +132,7 @@ namespace os
                 std::error_code ignored;
                 std::filesystem::remove(temporary, ignored);
             }
-#elif defined(__linux__)
+#elif LO_PLATFORM_POSIX
             auto temporary = result.archive;
             temporary += ".partial";
             bool ownsTemporary = false;

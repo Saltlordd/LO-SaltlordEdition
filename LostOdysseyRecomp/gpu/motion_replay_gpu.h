@@ -1,4 +1,5 @@
 #pragma once
+#include "shader/target_format.h"
 #include "temporal_gpu_timing.h"
 #include "motion_vector.h"
 #include "motion_frame.h"
@@ -91,6 +92,23 @@ class MotionReplayGPU {
     static constexpr size_t kMaxBatches = 16;
     std::string error_;
     uint32_t drawCount_ = 0, failedDraws_ = 0;
+    // Queued replay draws (SetQueueDraws). On tile-based GPUs each switch between
+    // the scene target and the MV target ends a render pass; queuing records the
+    // replay draws together in one pass at the next FlushQueued.
+    struct QueuedDraw {
+        plume::RenderPipeline* pipeline = nullptr;
+        plume::RenderBufferReference constants[4];
+        plume::RenderDescriptorSet* sets[5]{};
+        uint32_t setCount = 0;
+        plume::RenderViewport viewport;
+        plume::RenderRect scissor;
+        bool indexed = false;
+        plume::RenderIndexBufferView indexView{};
+        uint32_t count = 0;
+        int32_t baseVertex = 0;
+    };
+    std::vector<QueuedDraw> queued_;
+    bool queueDraws_ = false;
     GpuPassTimer<128> drawTimer_;
     GpuPassTimer<> maskTimer_;
     uint64_t maskBatchAllocations_ = 0;
@@ -201,7 +219,7 @@ public:
     }
     bool Init(plume::RenderDevice* device, const plume::RenderDescriptorSetBuilder* originalSets, uint32_t setCount) {
         if (!device || !originalSets || (setCount != 4 && setCount != 5)) return false;
-        device_ = device; vulkan_ = device->getCapabilities().shaderFormat == plume::RenderShaderFormat::SPIRV;
+        device_ = device; vulkan_ = gpu::shader::UsesSpirv(device); // Metal consumes SPIR-V too.
         plume::RenderPipelineLayoutBuilder b; b.begin(false, false);
         if (vulkan_) b.addPushConstant(0, 0, 4 * sizeof(uint64_t), plume::RenderShaderStageFlag::VERTEX | plume::RenderShaderStageFlag::PIXEL);
         else for (unsigned i = 0; i < 4; ++i) b.addRootDescriptor(i, 0, plume::RenderRootDescriptorType::CONSTANT_BUFFER);
@@ -257,10 +275,36 @@ public:
         error_.clear();
         injectPreparePending_ = false;
         drawCount_ = failedDraws_ = 0;
+        queued_.clear();
     }
     void AbortFrame(std::string_view reason = {}) {
         if (!aborted_ && !reason.empty()) error_ = std::string(reason);
         aborted_ = true;
+        queued_.clear();
+    }
+    // Metal (tile-based GPUs): queue replay draws instead of recording each one
+    // between scene draws. The caller must FlushQueued before submitting the
+    // command list, before the scene depth is cleared or resolved, and before
+    // other work reads the MV targets (Finish flushes itself).
+    void SetQueueDraws(bool queue) { queueDraws_ = queue; }
+    void FlushQueued(plume::RenderCommandList* commands) {
+        if (queued_.empty() || !commands) return;
+        if (aborted_ || finalized_) { queued_.clear(); return; }
+        const bool timed = drawTimer_.Begin(device_, commands);
+        commands->setFramebuffer(drawFramebuffer_.get());
+        commands->setGraphicsPipelineLayout(layout_.get());
+        for (const auto& draw : queued_) {
+            commands->setViewports(&draw.viewport, 1); commands->setScissors(&draw.scissor, 1);
+            commands->setPipeline(draw.pipeline);
+            BindConstants(commands, draw.constants);
+            for (uint32_t i = 0; i < draw.setCount; ++i) commands->setGraphicsDescriptorSet(draw.sets[i], i);
+            if (draw.indexed) {
+                commands->setIndexBuffer(&draw.indexView);
+                commands->drawIndexedInstanced(draw.count, 1, 0, draw.baseVertex, 0);
+            } else commands->drawInstanced(draw.count, 1, uint32_t(draw.baseVertex), 0);
+        }
+        queued_.clear();
+        if (timed) drawTimer_.End(commands, serial_);
     }
     // Whole-frame fallback is used for unsupported visibility writes (stencil,
     // PS depth, unknown scene view), never fabricated stationary vectors.
@@ -268,6 +312,7 @@ public:
         uint32_t width, uint32_t height) {
         if (!initialized_ || aborted_ || finalized_ || !commands || !depth || !width || !height || width > 7680 || height > 4320) return false;
         if (cleared_) return allocation_ == allocation && width_ == width && height_ == height && boundDepth_ == depth;
+        FlushQueued(commands);
         if (width_ != width || height_ != height) {
             ++targetGeneration_;
             free_.clear(); // release cached framebuffers before retiring their attachments
@@ -357,17 +402,34 @@ public:
         prepared.pipeline = PreparePipeline(key, desc, vsWords, vsCount, psWords, psCount, wait, &prepared.status);
         return prepared;
     }
-    bool Draw(plume::RenderCommandList* commands, plume::RenderPipeline* pipeline,
-        const plume::RenderBufferReference (&constants)[4], plume::RenderDescriptorSet* const* sets, uint32_t setCount,
-        const plume::RenderViewport& viewport, const plume::RenderRect& scissor, bool indexed, uint32_t count, int32_t baseVertex) {
-        if (!cleared_ || aborted_ || finalized_ || !pipeline || !commands) return false;
-        const bool timed = drawTimer_.Begin(device_, commands);
-        commands->setFramebuffer(drawFramebuffer_.get()); commands->setViewports(&viewport, 1); commands->setScissors(&scissor, 1);
-        commands->setGraphicsPipelineLayout(layout_.get()); commands->setPipeline(pipeline);
+    void BindConstants(plume::RenderCommandList* commands, const plume::RenderBufferReference (&constants)[4]) {
         if (vulkan_) {
             uint64_t addresses[4]; for (unsigned i = 0; i < 4; ++i) addresses[i] = constants[i].ref->getDeviceAddress() + constants[i].offset;
             commands->setGraphicsPushConstants(0, addresses);
         } else for (unsigned i = 0; i < 4; ++i) commands->setGraphicsRootDescriptor(constants[i], i);
+    }
+    // indexView is the index buffer the guest draw bound; queued draws rebind it.
+    bool Draw(plume::RenderCommandList* commands, plume::RenderPipeline* pipeline,
+        const plume::RenderBufferReference (&constants)[4], plume::RenderDescriptorSet* const* sets, uint32_t setCount,
+        const plume::RenderViewport& viewport, const plume::RenderRect& scissor, bool indexed, uint32_t count, int32_t baseVertex,
+        const plume::RenderIndexBufferView* indexView = nullptr) {
+        if (!cleared_ || aborted_ || finalized_ || !pipeline || !commands) return false;
+        if (queueDraws_ && setCount <= 5 && (!indexed || indexView)) {
+            QueuedDraw draw;
+            draw.pipeline = pipeline;
+            for (unsigned i = 0; i < 4; ++i) draw.constants[i] = constants[i];
+            for (uint32_t i = 0; i < setCount; ++i) draw.sets[i] = sets[i];
+            draw.setCount = setCount; draw.viewport = viewport; draw.scissor = scissor;
+            draw.indexed = indexed; if (indexed) draw.indexView = *indexView;
+            draw.count = count; draw.baseVertex = baseVertex;
+            queued_.push_back(draw);
+            ++drawCount_; ++serial_;
+            return true;
+        }
+        const bool timed = drawTimer_.Begin(device_, commands);
+        commands->setFramebuffer(drawFramebuffer_.get()); commands->setViewports(&viewport, 1); commands->setScissors(&scissor, 1);
+        commands->setGraphicsPipelineLayout(layout_.get()); commands->setPipeline(pipeline);
+        BindConstants(commands, constants);
         for (uint32_t i = 0; i < setCount; ++i) commands->setGraphicsDescriptorSet(sets[i], i);
         if (indexed) commands->drawIndexedInstanced(count, 1, 0, baseVertex, 0);
         else commands->drawInstanced(count, 1, uint32_t(baseVertex), 0);
@@ -378,6 +440,7 @@ public:
     MotionFrameView Finish(plume::RenderCommandList* commands, plume::RenderTexture* currentDepth,
         const std::vector<uint32_t>& validity, bool resetInitialization = false) {
         MotionFrameView result;
+        FlushQueued(commands);
         if (!cleared_ || aborted_ || finalized_ || !currentDepth || !commands || validity.empty() || validity.size() > DrawTemporalTracker::kMaxDraws + 1) return result;
         if (pendingThisFrame_) { finalized_ = true; return result; }
         finalized_ = true;

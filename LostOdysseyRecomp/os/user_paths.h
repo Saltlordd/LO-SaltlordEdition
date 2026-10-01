@@ -1,7 +1,9 @@
 #pragma once
 
+#include <os/platform.h>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
 
 #ifdef _WIN32
 #include <io.h>
@@ -17,6 +19,12 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         g_usePortableLayout = true;
+#elif LO_PLATFORM_MACOS
+        // Never write into an app bundle: it may be user-writable, but changing
+        // its contents breaks the code signature. Plain folders stay portable.
+        const auto directory = executableDirectory.generic_string();
+        g_usePortableLayout = directory.find(".app/Contents/") == std::string::npos &&
+            IsExecutableDirWritable(executableDirectory);
 #else
         g_usePortableLayout = IsExecutableDirWritable(executableDirectory);
 #endif
@@ -29,12 +37,21 @@ namespace os::user_paths
             const char* value = std::getenv(name);
             return value != nullptr && *value != '\0' ? std::filesystem::path(value) : fallback;
         }
+#if LO_PLATFORM_MACOS
+        // macOS keeps per-user app files under ~/Library, not the XDG directories.
+        inline std::filesystem::path LibraryPath(const char* folder)
+        {
+            return EnvironmentPath("HOME", std::filesystem::path{}) / "Library" / folder / "LostOdysseyRecomp";
+        }
+#endif
     }
 
     inline std::filesystem::path ConfigDir(const std::filesystem::path& executableDirectory = {})
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_MACOS
+        return detail::LibraryPath("Application Support");
 #else
         const auto home = detail::EnvironmentPath("HOME", std::filesystem::path{});
         return detail::EnvironmentPath("XDG_CONFIG_HOME", home / ".config") / "lost-odyssey-recomp";
@@ -45,6 +62,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_MACOS
+        return detail::LibraryPath("Application Support");
 #else
         if (std::getenv("FLATPAK_ID") != nullptr || std::filesystem::exists("/.flatpak-info"))
             return "/var/data";
@@ -57,6 +76,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_MACOS
+        return detail::LibraryPath("Logs");
 #else
         const auto home = detail::EnvironmentPath("HOME", std::filesystem::path{});
         return detail::EnvironmentPath("XDG_STATE_HOME", home / ".local/state") / "lost-odyssey-recomp";

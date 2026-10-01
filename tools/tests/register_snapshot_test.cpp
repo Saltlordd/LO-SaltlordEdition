@@ -54,5 +54,28 @@ int main() {
         gpu::CopyRegisterSnapshot(std::span<const uint32_t>(registers), 0, std::span<uint32_t>(output), mmio.data());
         Check(output[0] == value && output[1] == (value ? value : ~value)); ++checked;
     }
-    std::printf("register snapshot: %u ordered values and MMIO/bounds checks passed\n", checked);
+    // A bypass MMIO write leaves the command generation alone. The tracked
+    // zero-register word still changes the snapshot and rejects the old GPU upload.
+    registers[0] = 0; registers[1] = 0x12345678; registers[2] = 0;
+    mmio[0].Set(0x01020304); mmio[1].Set(0xffffffff); mmio[2].Set(0);
+    gpu::CopyRegisterSnapshot(std::span<const uint32_t>(registers), 0,
+        std::span<uint32_t>(output), mmio.data());
+    std::array<uint16_t, 3> offsets{};
+    size_t fallbackCount = gpu::CollectRegisterFallbackOffsets(
+        std::span<const uint32_t>(registers).first(3), std::span<uint16_t>(offsets));
+    Check(fallbackCount == 2 && offsets[0] == 0 && offsets[1] == 2);
+    uint64_t version = 1;
+    const uint64_t uploadedVersion = version, uploadedOffset = 64;
+    Check(gpu::CanReuseUploadedConstants(uploadedOffset, uploadedVersion, version));
+    mmio[0].Set(0x55667788); mmio[1].Set(0xaaaaaaaa);
+    Check(gpu::RefreshRegisterSnapshotFallbacks(
+        std::span<const uint16_t>(offsets).first(fallbackCount),
+        std::span<uint32_t>(output), mmio.data(), version));
+    Check(output[0] == 0x55667788 && output[1] == registers[1] && version == 2);
+    Check(!gpu::CanReuseUploadedConstants(uploadedOffset, uploadedVersion, version));
+    Check(!gpu::RefreshRegisterSnapshotFallbacks(
+        std::span<const uint16_t>(offsets).first(fallbackCount),
+        std::span<uint32_t>(output), mmio.data(), version) && version == 2);
+    ++checked;
+    std::printf("register snapshot: %u values, MMIO fallback and upload reuse checks passed\n", checked);
 }

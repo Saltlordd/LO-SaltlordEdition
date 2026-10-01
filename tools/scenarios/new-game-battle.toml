@@ -1,0 +1,30 @@
+description = "New Game: opening movie, then the first battle (Wohl Highlands) with one attack"
+timeout = 300
+# Seconds since launch. START opens the title menu, A picks New Game, which opens
+# the settings screen: B answers the first-run TAA collection prompt, B closes it.
+timeline = "s@10,a@20,b@26,b@32"
+
+[[step]]
+# The opening movie is playing (about 120 draws per frame until the battle).
+wait_seconds = 100
+screenshot = true
+hold_seconds = 1
+
+[[step]]
+# The battle command menu waits for input (1,100-1,700 draws per frame).
+wait_draws = 1000
+screenshot = true
+hold_seconds = 3
+
+[[step]]
+press = "a"          # Attack
+hold_seconds = 2
+
+[[step]]
+press = "a"          # confirm the target; the attack animation plays
+hold_seconds = 15
+screenshot = true
+
+[checks]
+min_draws = 1000
+min_fps = 25

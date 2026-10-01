@@ -1,0 +1,21 @@
+description = "City of Numara, 30 FPS with adaptive sync (ProMotion)"
+
+save = "user17"
+timeout = 150
+# Seconds since launch. After loading, five Downs move from Ipsilon Mountains - North to City of Numara.
+timeline = "s@10,d@20,a@30,a@40,a@50,d@63.3333,d@65.3333,d@67.3333,d@69.3333,d@71.3333,a@76.6667,a@83.3333,a@90"
+
+[[step]]
+wait_draws = 3000
+stick = [0, 28000]
+polls = 600
+hold_seconds = 20
+screenshot = true
+
+[settings]
+variable_refresh_rate = 1
+
+[checks]
+# Numara draws about 3,300 per frame; other destinations stay far below.
+min_draws = 3000
+min_fps = 28

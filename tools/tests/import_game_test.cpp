@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "install/import_game.h"
+#include "gpu/shader/resource_cpx_index_sha256.h"
 
 namespace
 {
@@ -27,7 +28,7 @@ std::vector<uint8_t> ReadBytes(const std::filesystem::path& path)
 // One STFS directory block and one payload block, with allocation-chain metadata.
 void WriteTinyStfs(const std::filesystem::path& path)
 {
-    std::vector<uint8_t> bytes(0xd000, 0);
+    std::vector<uint8_t> bytes(0x20000, 0);
     auto be32 = [&](size_t offset, uint32_t value) {
         for (int i = 0; i < 4; ++i) bytes[offset + i] = static_cast<uint8_t>(value >> (24 - i * 8));
     };
@@ -41,6 +42,9 @@ void WriteTinyStfs(const std::filesystem::path& path)
     bytes[0x37c] = 1; // one directory block, starting at block zero
     be32(0x395, 2);
     bytes[0x412] = 'T';
+    bytes[0x414] = '"';
+    bytes[0x416] = '\\';
+    bytes[0x418] = 'N';
     const size_t directory = 0xb000;
     std::memcpy(bytes.data() + directory, "payload.bin", 11);
     bytes[directory + 40] = 11;
@@ -61,6 +65,19 @@ void WriteTinyStfs(const std::filesystem::path& path)
 
 void RunDlcIoTest()
 {
+    const std::string millionA(1000000, 'a');
+    xenos::resources::Sha256Incremental incremental;
+    const auto message = std::span(reinterpret_cast<const uint8_t*>(millionA.data()), millionA.size());
+    for (size_t offset = 0; offset < message.size();)
+    {
+        const auto take = std::min<size_t>(1 + offset % 65537, message.size() - offset);
+        incremental.Update(message.subspan(offset, take));
+        offset += take;
+    }
+    Require(xenos::resources::Sha256Hex(incremental.Finalize()) ==
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0",
+            "incremental SHA256 changed a known multi-block digest");
+
     const auto root = std::filesystem::temp_directory_path() /
         ("lo-dlc-io-test-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     struct Cleanup {
@@ -94,9 +111,49 @@ void RunDlcIoTest()
                 Require(entry.path().filename().string().find(".dlc-import-") != 0, "I/O failure retained staging");
         }
     }
+    for (const auto* filename : {"payload.bin", "source.stfs"})
+    {
+        install::SetTestDlcWriteFailure(filename, "checksum");
+        bool failed = false;
+        try { install::InstallContent(scan, destination); }
+        catch (const install::Error& error) {
+            failed = std::string(error.what()).find("DLC checksum read failed") != std::string::npos;
+        }
+        Require(failed, std::string(filename) + " checksum failure was not reported");
+        Require(!std::filesystem::exists(installed), "checksum failure published DLC");
+        Require(!std::filesystem::exists(destination / ".import.lock"), "checksum failure retained lock");
+        for (const auto& entry : std::filesystem::directory_iterator(destination))
+            Require(entry.path().filename().string().find(".import-staging-") != 0,
+                    "checksum failure retained staging");
+    }
     install::SetTestDlcWriteFailure({}, {});
+    bool hashingStarted = false, cancelled = false;
+    try {
+        install::InstallContent(scan, destination,
+            [&](uint64_t, uint64_t, std::string_view label) { if (label == "payload.bin") hashingStarted = true; },
+            [&] { return hashingStarted; });
+    }
+    catch (const install::Error& error) { cancelled = error.cancelled(); }
+    Require(cancelled && !std::filesystem::exists(installed), "checksum cancellation published DLC");
+    Require(!std::filesystem::exists(destination / ".import.lock"), "checksum cancellation retained lock");
+    for (const auto& entry : std::filesystem::directory_iterator(destination))
+        Require(entry.path().filename().string().find(".import-staging-") != 0,
+                "checksum cancellation retained staging");
     Require(install::InstallContent(scan, destination).dlcImported.size() == 1, "retry after I/O failures did not succeed");
     Require(ReadBytes(installed / "payload.bin") == std::vector<uint8_t>({'d', 'a', 't', 'a'}), "installed payload changed");
+    // The runtime (kernel/dlc_content.cpp) ignores a DLC without these digests.
+    {
+        const auto bytes = ReadBytes(installed / ".lo-dlc.json");
+        const std::string manifest(bytes.begin(), bytes.end());
+        const auto source = ReadBytes(root / "source.stfs");
+        const auto sourceDigest = xenos::resources::Sha256Hex(xenos::resources::Sha256(source));
+        Require(manifest.find("\"source_sha256\": \"" + sourceDigest + "\"") != std::string::npos,
+                "DLC manifest source digest is missing or wrong");
+        Require(manifest.find(R"("display_name": "T\"\\N")") != std::string::npos,
+                "DLC manifest display name was not escaped");
+        Require(manifest.find(R"("sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7")") != std::string::npos,
+                "DLC manifest payload digest is missing or wrong");
+    }
     // lexically_normal retains the final separator; scanning must still terminate.
     const auto trailingPath = installed / "";
     const auto extracted = install::ScanContent(trailingPath);

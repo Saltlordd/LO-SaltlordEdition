@@ -263,7 +263,7 @@ std::optional<Release> ParseGitHubRelease(std::string_view text, std::string &er
                 !asset["browser_download_url"].is_string() || !asset.contains("size") ||
                 !asset["size"].is_number_unsigned()) continue;
             const auto url = asset["browser_download_url"].get<std::string>();
-            if (!url.starts_with("https://github.com/freefrank/LostOdysseyRecomp/releases/download/")) continue;
+            if (!url.starts_with(std::string("https://github.com/") + kReleaseRepository + "/releases/download/")) continue;
             const auto size = asset["size"].get<uint64_t>();
             if (!size) continue;
             result.assets.push_back({asset["name"].get<std::string>(), url, size});

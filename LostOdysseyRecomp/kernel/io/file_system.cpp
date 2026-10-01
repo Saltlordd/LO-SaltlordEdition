@@ -201,7 +201,13 @@ namespace
 
     uint64_t ToFileTime(std::filesystem::file_time_type t)
     {
+        // libc++ lacks clock_cast (__cpp_lib_chrono < 201907) but provides
+        // file_clock::to_sys; MSVC STL provides only clock_cast.
+#if __cpp_lib_chrono >= 201907L
         auto sys = std::chrono::clock_cast<std::chrono::system_clock>(t);
+#else
+        auto sys = std::chrono::file_clock::to_sys(t);
+#endif
         constexpr int64_t EPOCH = 116444736000000000LL;
         return std::chrono::duration_cast<std::chrono::duration<int64_t, std::ratio<1, 10000000>>>(sys.time_since_epoch()).count() + EPOCH;
     }

@@ -2,6 +2,7 @@
 #include "sr_hybrid_motion.h"
 #ifdef LO_GPU_PLUME
 #include "shader/dxc_compiler.h"
+#include "shader/target_format.h"
 #include <plume_vulkan.h>
 #ifdef _WIN32
 #include <plume_d3d12.h>
@@ -51,6 +52,10 @@ class SrHybridMotionGPU {
                 image.layout == plume::RenderTextureLayout::SHADER_READ;
         }
 #endif
+        // Metal textures are opaque here (plume_metal.h pulls in metal-cpp). The
+        // callers pass HistoryOwner's depth and the replay's velocity/reactive
+        // images, which are created with exactly these extents and formats.
+        if (device->getCapabilities().shaderFormat == plume::RenderShaderFormat::METAL) return true;
         if (device->getCapabilities().shaderFormat != plume::RenderShaderFormat::SPIRV) return false;
         const auto& image = *static_cast<const plume::VulkanTexture*>(texture);
         return image.device == device && image.vk && image.imageView && image.allocation &&
@@ -66,9 +71,11 @@ class SrHybridMotionGPU {
         if (initAttempted_) return device == device_ && bool(pipeline_);
         initAttempted_ = true; device_ = device;
         if (!device) return false;
-        const auto format = device->getCapabilities().shaderFormat;
-        if (format != plume::RenderShaderFormat::SPIRV && format != plume::RenderShaderFormat::DXIL) return false;
-        const auto binary = format == plume::RenderShaderFormat::SPIRV ? xenos::ShaderBinaryFormat::Spirv : xenos::ShaderBinaryFormat::Dxil;
+        // Metal consumes SPIR-V too (translated to MSL by plume).
+        const bool spirv = gpu::shader::UsesSpirv(device);
+        if (!spirv && device->getCapabilities().shaderFormat != plume::RenderShaderFormat::DXIL) return false;
+        const auto format = spirv ? plume::RenderShaderFormat::SPIRV : plume::RenderShaderFormat::DXIL;
+        const auto binary = spirv ? xenos::ShaderBinaryFormat::Spirv : xenos::ShaderBinaryFormat::Dxil;
         plume::RenderDescriptorSetBuilder set; Describe(set);
         plume::RenderPipelineLayoutBuilder b;
         b.begin(false,false); b.addDescriptorSet(set); b.end(); layout_ = b.create(device);

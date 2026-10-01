@@ -1,5 +1,6 @@
 #include "presentation.h"
 #include "shader/dxc_compiler.h"
+#include "shader/target_format.h"
 #include <os/logger.h>
 #include <stdafx.h>
 #include <cmath>
@@ -53,7 +54,7 @@ bool Presentation::Init(RenderDevice *device, RenderFormat swapchainFormat)
     auto &p = *impl;
     p.initialized = false;
     p.device = device;
-    p.vulkan = device->getCapabilities().shaderFormat == RenderShaderFormat::SPIRV;
+    p.vulkan = gpu::shader::UsesSpirv(device);
     p.swapchainFormat = swapchainFormat;
     p.uiPresentPipeline.reset();
     p.uiPipeline.reset();

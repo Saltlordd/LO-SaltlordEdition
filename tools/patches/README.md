@@ -35,3 +35,36 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 2026-09-29 D3D12 冗余状态过滤：D3D12 命令列表在管线与已绑定的相同时跳过 `SetPipelineState`，单个 viewport 或 scissor 与已绑定值逐位相同时跳过 `RSSetViewports`、`RSSetScissorRects`，再次绑定同一个 framebuffer 对象（按每个对象的创建序号识别）时跳过 `OMSetRenderTargets`；`invalidateCachedNativeState()` 会清除这些记录，命令列表开始录制以及 DLSS、插帧、FSR 和 `video.cpp` 的原生路径都已调用它。新补丁在固定 HEAD `d890ac8` 的临时干净 worktree 上依次应用原补丁和该过滤后生成，另一个干净 worktree 应用新补丁后的 index tree 与之相同，只有 `plume_d3d12.cpp`、`plume_d3d12.h` 两段变化。Vulkan 不受影响。
 
 2026-09-27 Issue #70 状态缓存改动：Plume 的 D3D12 graphics/compute root signature 与 root descriptor table 去重，以及 descriptor heap、原生 root signature 变化、native `Reset`/`Close` 和外部状态失效路径已同步到本项目补丁。runtime、NGX/FSR D3D12 fixture、AF measurement fixture 和 root binding fixture 验证通过；独立临时 index 从固定干净 Plume 基线应用补丁并与本地依赖修改一致。未进行补丁发布或目标游戏性能验收。
+
+## macOS: plume Metal patch
+
+`plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes only `plume_metal.cpp` and `plume_metal.h`:
+
+- `MetalShader` also accepts SPIR-V and translates it to MSL with SPIRV-Cross (`thirdparty/SPIRV-Cross`), using the options of plume's reference converter (`examples/cmake/tools/spirv_cross_msl.cpp`) so the output matches the backend's binding model. MSL 2.3 is used instead of 2.1 because the runtime's SPIR-V reads 64-bit device addresses. Fast math is disabled to match DXC.
+- `MetalDevice::createShader` returns null when translation or compilation fails, as failed Vulkan and D3D12 shader creation does.
+- The Metal device reports `RenderShaderFormat::METAL` in its device capabilities, as the patched Vulkan and D3D12 devices do.
+- Translated vertex shaders may write point size for every topology, which Vulkan ignores outside point lists. Metal rejects that unless the pipeline's input topology class is point or unspecified, so such pipelines leave the class unspecified.
+- `copyTextureRegion` supports texture-to-buffer copies (readback into a placed footprint), which the Metal backend lacked; the runtime uses them for screenshots and captures. The source may be a swap-chain drawable, and the `CAMetalLayer` is created with `framebufferOnly = false` so presented images can be read back.
+- `setFramebuffer` keeps the active render pass when the framebuffer is unchanged, as `plume-lostodyssey.patch` already does for Vulkan. The renderer rebinds its target between draws, and on Apple's tile-based GPUs every pass break stores and reloads the attachments.
+- Clears with more than `MAX_CLEAR_RECTS` rectangles are split into batches, matching the D3D12 and Vulkan changes in `plume-lostodyssey.patch`; the quad clear otherwise overruns fixed-size arrays.
+- `plume::SetMetalMinimumPresentDuration` makes the swap chain present each drawable with `presentAfterMinimumDuration`, so ProMotion displays follow the game's frame rate (the runtime's "Adaptive sync (ProMotion)" setting and targets above 60 FPS).
+- `plume::EncodeMetalFxSpatialScale` encodes MetalFX's spatial scaler into the command list's buffer (the "MetalFX" scaling filter). The runtime links `MetalFX.framework` to plume in `thirdparty/CMakeLists.txt`.
+
+Apply it after the upstream patch, from the repository root:
+
+```sh
+git -C thirdparty/plume apply ../../tools/patches/plume-lostodyssey.patch
+git -C thirdparty/plume apply ../../tools/patches/plume-macos.patch
+```
+
+After changing either file, regenerate it against a copy of plume with only the upstream patch applied, so it stays independent of that patch:
+
+```sh
+ref=$(mktemp -d)/plume
+git -C thirdparty/plume worktree add --detach "$ref" HEAD
+git -C "$ref" apply "$PWD/tools/patches/plume-lostodyssey.patch"
+git -C "$ref" add -A && git -C "$ref" -c user.name=ref -c user.email=ref@local commit -qm ref
+cp thirdparty/plume/plume_metal.cpp thirdparty/plume/plume_metal.h "$ref/"
+git -C "$ref" diff > tools/patches/plume-macos.patch
+git -C thirdparty/plume worktree remove --force "$ref"
+```

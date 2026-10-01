@@ -1,6 +1,26 @@
 #pragma once
 #include "config.h"
 #include <atomic>
+#include <os/platform.h>
+#if LO_PLATFORM_MACOS
+#include <algorithm>
+#include <cerrno>
+#include <chrono>
+#include <climits>
+#include <crt_externs.h>
+#include <fcntl.h>
+#include <mach-o/dyld.h>
+#include <poll.h>
+#include <signal.h>
+#include <spawn.h>
+#include <string>
+#include <string_view>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <vector>
+extern char **environ;
+#endif
 #if defined(__linux__) && !defined(_WIN32)
 #include <algorithm>
 #include <cerrno>
@@ -424,6 +444,177 @@ inline ChildHandshake WaitForParentIfRestartChild(int argc, char *const argv[])
         close(parent);
         return result > 0 && (parentPoll.revents & POLLIN) ? ChildHandshake::Waited
                                                              : ChildHandshake::Invalid;
+    }
+}
+#endif
+
+#if LO_PLATFORM_MACOS
+// macOS has no pidfd. The parent instead keeps the write end of a lifeline pipe
+// (close-on-exec, so no other process inherits it) and the child receives the
+// read end: the child sees end-of-file exactly when the parent has exited, with
+// no PID reuse involved. The ready pipe and its 'R' acknowledgement match Linux.
+inline constexpr int ParentFd = 100;
+inline constexpr int ReadyFd = 101;
+
+inline bool CloexecPipe(int descriptors[2])
+{
+    if (pipe(descriptors) != 0) return false;
+    if (fcntl(descriptors[0], F_SETFD, FD_CLOEXEC) == 0 && fcntl(descriptors[1], F_SETFD, FD_CLOEXEC) == 0)
+        return true;
+    close(descriptors[0]);
+    close(descriptors[1]);
+    return false;
+}
+
+inline std::vector<std::string> LaunchArguments(bool install)
+{
+    const int count = *_NSGetArgc();
+    char **values = *_NSGetArgv();
+    if (count < 1 || !values) return {};
+    std::vector<std::string> result{values[0]};
+    bool hasInstall = false;
+    for (int i = 1; i < count; ++i)
+    {
+        const std::string_view current(values[i]);
+        if (current == "--restart-parent-fd" || current == "--restart-ready-fd" ||
+            current == "--wait-process" || current == "--restart-ready")
+        {
+            if (i + 1 < count) ++i;
+            continue;
+        }
+        if (current == "--install") { hasInstall = true; continue; }
+        result.emplace_back(current);
+    }
+    if (install || hasInstall) result.emplace_back("--install");
+    return result;
+}
+
+inline bool LaunchWaitingProcess(const std::string &executable, std::vector<std::string> arguments,
+                                 uint32_t readyTimeoutMs = 10000)
+{
+    auto fail = [] { ReportLaunchFailure(); return false; };
+    if (executable.empty() || arguments.empty()) return fail();
+    int lifeline[2], ready[2];
+    if (!CloexecPipe(lifeline)) return fail();
+    if (!CloexecPipe(ready)) { close(lifeline[0]); close(lifeline[1]); return fail(); }
+
+    // Sources above the child destinations, so the dup2 actions cannot collide.
+    const int lifelineSource = fcntl(lifeline[0], F_DUPFD_CLOEXEC, ReadyFd + 1);
+    const int readySource = fcntl(ready[1], F_DUPFD_CLOEXEC, ReadyFd + 1);
+    close(lifeline[0]);
+    close(ready[1]);
+    if (lifelineSource < 0 || readySource < 0)
+    {
+        if (lifelineSource >= 0) close(lifelineSource);
+        if (readySource >= 0) close(readySource);
+        close(lifeline[1]);
+        close(ready[0]);
+        return fail();
+    }
+
+    arguments[0] = executable;
+    arguments.emplace_back("--restart-parent-fd");
+    arguments.push_back(std::to_string(ParentFd));
+    arguments.emplace_back("--restart-ready-fd");
+    arguments.push_back(std::to_string(ReadyFd));
+    std::vector<char *> argv;
+    for (auto &argument : arguments) argv.push_back(argument.data());
+    argv.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    posix_spawnattr_t attributes;
+    const bool actionsReady = posix_spawn_file_actions_init(&actions) == 0;
+    const bool attributesReady = posix_spawnattr_init(&attributes) == 0;
+    bool configured = actionsReady && attributesReady;
+    if (configured)
+        configured = posix_spawn_file_actions_adddup2(&actions, lifelineSource, ParentFd) == 0 &&
+                     posix_spawn_file_actions_adddup2(&actions, readySource, ReadyFd) == 0 &&
+                     posix_spawnattr_setflags(&attributes, POSIX_SPAWN_SETPGROUP) == 0 &&
+                     posix_spawnattr_setpgroup(&attributes, 0) == 0;
+    pid_t child = -1;
+    const int spawnError = configured
+        ? posix_spawn(&child, executable.c_str(), &actions, &attributes, argv.data(), environ)
+        : EINVAL;
+    if (actionsReady) posix_spawn_file_actions_destroy(&actions);
+    if (attributesReady) posix_spawnattr_destroy(&attributes);
+    close(lifelineSource);
+    close(readySource);
+    if (spawnError != 0) { close(lifeline[1]); close(ready[0]); return fail(); }
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(readyTimeoutMs);
+    bool acknowledged = false;
+    while (true)
+    {
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        pollfd fd{ready[0], POLLIN, 0};
+        const int result = poll(&fd, 1, remaining > 0 ? static_cast<int>(std::min<long long>(remaining, INT_MAX)) : 0);
+        if (result < 0 && errno == EINTR) continue;
+        if (result > 0 && (fd.revents & POLLIN))
+        {
+            char token = 0;
+            acknowledged = read(ready[0], &token, 1) == 1 && token == 'R';
+        }
+        break;
+    }
+    close(ready[0]);
+    // The lifeline's write end stays open in this process until it exits.
+    if (acknowledged) return true;
+
+    close(lifeline[1]);
+    kill(-child, SIGKILL);
+    int status;
+    while (waitpid(child, &status, 0) < 0 && errno == EINTR) {}
+    return fail();
+}
+
+inline bool LaunchWaitingChild(uint32_t readyTimeoutMs = 10000)
+{
+    auto arguments = LaunchArguments(InstallRequested());
+    char path[4096]{};
+    uint32_t size = sizeof(path);
+    const std::string executable = _NSGetExecutablePath(path, &size) == 0 ? std::string(path) : std::string{};
+    return LaunchWaitingProcess(executable, std::move(arguments), readyTimeoutMs);
+}
+
+enum class ChildHandshake { NotChild, Waited, Invalid };
+
+inline ChildHandshake WaitForParentIfRestartChild(int argc, char *const argv[])
+{
+    bool sawParent = false, sawReady = false;
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string_view flag(argv[i]);
+        if (flag != "--restart-parent-fd" && flag != "--restart-ready-fd") continue;
+        if (++i >= argc) return ChildHandshake::Invalid;
+        const int expected = flag == "--restart-parent-fd" ? ParentFd : ReadyFd;
+        if (std::string_view(argv[i]) != std::to_string(expected)) return ChildHandshake::Invalid;
+        bool &seen = flag == "--restart-parent-fd" ? sawParent : sawReady;
+        if (seen) return ChildHandshake::Invalid;
+        seen = true;
+    }
+    if (!sawParent && !sawReady) return ChildHandshake::NotChild;
+    if (!sawParent || !sawReady) return ChildHandshake::Invalid;
+    struct stat info{};
+    if (fstat(ParentFd, &info) != 0 || !S_ISFIFO(info.st_mode) || (fcntl(ParentFd, F_GETFL) & O_ACCMODE) != O_RDONLY ||
+        fstat(ReadyFd, &info) != 0 || !S_ISFIFO(info.st_mode) || (fcntl(ReadyFd, F_GETFL) & O_ACCMODE) != O_WRONLY)
+        return ChildHandshake::Invalid;
+    // Before acknowledging, the parent must still be alive: its lifeline open.
+    pollfd parentPoll{ParentFd, POLLIN, 0};
+    if (poll(&parentPoll, 1, 0) != 0) return ChildHandshake::Invalid;
+    const char token = 'R';
+    if (write(ReadyFd, &token, 1) != 1) return ChildHandshake::Invalid;
+    close(ReadyFd);
+    while (true)
+    {
+        parentPoll = {ParentFd, POLLIN, 0};
+        const int result = poll(&parentPoll, 1, -1);
+        if (result < 0 && errno == EINTR) continue;
+        char unused = 0;
+        const bool exited = result > 0 && (parentPoll.revents & (POLLIN | POLLHUP)) &&
+                            read(ParentFd, &unused, 1) == 0;
+        close(ParentFd);
+        return exited ? ChildHandshake::Waited : ChildHandshake::Invalid;
     }
 }
 #endif

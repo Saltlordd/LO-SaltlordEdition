@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Linux port of .omo/cpu-perf/drive-city-3c6t.ps1 — reusable Uhra-city benchmark.
+"""Linux/macOS port of .omo/cpu-perf/drive-city-3c6t.ps1 — reusable Uhra-city benchmark.
 
 Replicates the proven Windows flow instead of the fixed-frame-only
 run_city_bench.sh approach:
@@ -19,6 +19,12 @@ Usage:
                               [--game /var/home/freefrank/Games/LO/]
                               [--bin /home/freefrank/build/lo/c0/.../LostOdysseyRecomp]
                               [--taskset 0x3F] [--dry-run]
+
+On macOS the defaults follow docs/BUILDING.md (out/build/macos-gpu, the game in
+LostOdysseyRecompLib/private/disc1, runs under out/drive-city/). The Continue
+path needs a save: pass --save-src with a folder holding user00/user01.
+settings.ini is seeded from the binary's folder when the run folder has none,
+so the run skips first-launch setup.
 """
 
 from __future__ import annotations
@@ -48,6 +54,9 @@ FULL_TIMING_RE = re.compile(
     r"nested_flush_ms=([0-9.]+).*?shader_lookup_ms=([0-9.]+).*?"
     r"pipeline_lookup_ms=([0-9.]+).*?scene_copy_ms=([0-9.]+).*?"
     r"gpu_queue_batches_elapsed_ms=([0-9.unknown]+).*?gpu_batches=(\d+)")
+
+IS_LINUX = sys.platform.startswith("linux")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SHOT_MARKS = (200, 400, 600, 800, 1000)
 CITY_DRAWS = 800
@@ -123,10 +132,14 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--walk-refresh", type=float, default=20.0,
                     help="re-send walk pulse every N seconds during hold")
     ap.add_argument("--deadline", type=float, default=300.0)
-    ap.add_argument("--run-dir", default="/home/freefrank/perf/lo/run")
-    ap.add_argument("--game", default="/var/home/freefrank/Games/LO/")
+    local_runs = REPO_ROOT / "out" / "drive-city"
+    ap.add_argument("--run-dir", default="/home/freefrank/perf/lo/run" if IS_LINUX
+                    else str(local_runs / "run"))
+    ap.add_argument("--game", default="/var/home/freefrank/Games/LO/" if IS_LINUX
+                    else str(REPO_ROOT / "LostOdysseyRecompLib" / "private" / "disc1"))
     ap.add_argument("--bin", default=None)
-    ap.add_argument("--save-src", default="/home/freefrank/Downloads/save")
+    ap.add_argument("--save-src", default="/home/freefrank/Downloads/save" if IS_LINUX
+                    else str(local_runs / "save"))
     ap.add_argument("--taskset", default=None,
                     help="e.g. 0x3F to pin like the 3c6t run; default none")
     ap.add_argument("--auto-buttons",
@@ -134,18 +147,30 @@ def parse_args() -> argparse.Namespace:
                     help="proven path: START, Down->Continue, Continue, "
                          "Last Saved Game (=latest user01), spares")
     ap.add_argument("--auto-pulse", default="6")
-    ap.add_argument("--log-dir", default="/tmp/lo-city-logs")
+    ap.add_argument("--log-dir", default="/tmp/lo-city-logs" if IS_LINUX
+                    else str(local_runs / "logs"))
     ap.add_argument("--foreground", action="store_true",
                     help="show the game window (omit LO_BACKGROUND) for watching")
+    ap.add_argument("--city-draws", type=int, default=CITY_DRAWS,
+                    help="draw count that marks the loaded scene (800 fits the Uhra save)")
     ap.add_argument("--dry-run", action="store_true")
     return ap.parse_args()
 
 
 def main() -> int:
     args = parse_args()
+    # The game runs from run_dir, so every path it receives must be absolute.
+    for name in ("run_dir", "save_src", "log_dir", "game"):
+        setattr(args, name, str(Path(getattr(args, name)).resolve()))
+    if args.bin:
+        args.bin = str(Path(args.bin).resolve())
     run_dir = Path(args.run_dir)
-    bin_path = Path(args.bin) if args.bin else Path(
-        f"/home/freefrank/build/lo/{args.variant}/LostOdysseyRecomp/LostOdysseyRecomp")
+    if args.bin:
+        bin_path = Path(args.bin)
+    elif IS_LINUX:
+        bin_path = Path(f"/home/freefrank/build/lo/{args.variant}/LostOdysseyRecomp/LostOdysseyRecomp")
+    else:
+        bin_path = REPO_ROOT / "out" / "build" / "macos-gpu" / "LostOdysseyRecomp" / "LostOdysseyRecomp"
     save_root = run_dir / "save"
     save_src = Path(args.save_src)
     if save_paths_overlap(save_src, save_root):
@@ -156,6 +181,9 @@ def main() -> int:
     session_log = log_dir / f"runtime-{stamp}.log"
     cmd = [str(bin_path), "--game", args.game, "--quiet-kernel"]
     if args.taskset:
+        if not IS_LINUX:
+            print("error: --taskset is Linux only", file=sys.stderr)
+            return 2
         cmd = ["taskset", args.taskset, *cmd]
     print(f"bin={bin_path}\nrun={run_dir}\nlog={session_log}")
     print("cmd=" + " ".join(cmd))
@@ -174,6 +202,11 @@ def main() -> int:
 
     # Restore saves with timestamps intact (user01 must stay newer than user00),
     # then snapshot — the restore itself must not count as a game modification.
+    # Explicit --game runs read settings.ini from the run folder.
+    settings = run_dir / "settings.ini"
+    if not settings.exists() and (bin_path.parent / "settings.ini").exists():
+        shutil.copy2(bin_path.parent / "settings.ini", settings)
+
     backup = prepare_saves(save_src, save_root, stamp)
     if backup:
         print(f"previous run save preserved at {backup}")
@@ -195,29 +228,34 @@ def main() -> int:
         # NOTE: no LO_AUTO_STICK here — walk input is sent only on city entry,
         # an always-on stick skews menu selection (observed Settings trap).
     })
+    if not IS_LINUX:
+        # Reuse the binary's warm shader cache instead of rebuilding it per run folder.
+        env.setdefault("LO_SHADER_CACHE_DIR", str(bin_path.parent / "cache" / "shaders"))
     if not args.foreground:
         env["LO_BACKGROUND"] = "1"
     env.pop("LO_SCREENSHOT_EVERY", None)
     env.pop("LO_SCREENSHOT_SWAP", None)
-    for k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"):
-        if k in os.environ and k not in env:
-            env[k] = os.environ[k]
-    env.setdefault("DISPLAY", ":0")
-    env.setdefault("WAYLAND_DISPLAY", "wayland-0")
-    env.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
-    # Foreground needs Xwayland auth; non-interactive ssh usually lacks it.
-    env.setdefault("XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.IN3BV3")
+    if IS_LINUX:
+        for k in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY"):
+            if k in os.environ and k not in env:
+                env[k] = os.environ[k]
+        env.setdefault("DISPLAY", ":0")
+        env.setdefault("WAYLAND_DISPLAY", "wayland-0")
+        env.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
+        # Foreground needs Xwayland auth; non-interactive ssh usually lacks it.
+        env.setdefault("XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.IN3BV3")
 
     print(f"control={control_dir}")
 
     started = time.time()
-    try:
-        sudo = subprocess.run(["sudo", "-n", "ryzenadj", "-a", "15000",
-                               "-b", "15000", "-c", "15000"],
-                              capture_output=True, timeout=20)
-        print(f"ryzenadj rc={sudo.returncode}")
-    except Exception as e:  # noqa: BLE001 — best effort TDP lock
-        print(f"ryzenadj skipped: {e}")
+    if IS_LINUX:
+        try:
+            sudo = subprocess.run(["sudo", "-n", "ryzenadj", "-a", "15000",
+                                   "-b", "15000", "-c", "15000"],
+                                  capture_output=True, timeout=20)
+            print(f"ryzenadj rc={sudo.returncode}")
+        except Exception as e:  # noqa: BLE001 — best effort TDP lock
+            print(f"ryzenadj skipped: {e}")
 
     try:
         proc = subprocess.Popen(cmd, cwd=str(run_dir), env=env,
@@ -306,7 +344,7 @@ def main() -> int:
             for mark in SHOT_MARKS:
                 if last_swap >= mark > last_shot_swap:
                     request_shot(last_swap)
-            streak = streak + 1 if last_draws >= CITY_DRAWS else 0
+            streak = streak + 1 if last_draws >= args.city_draws else 0
             if phase == "boot" and last_swap >= 1:
                 phase = "load"
             if streak >= CITY_STREAK and phase not in ("city_hold", "done"):
@@ -346,7 +384,7 @@ def main() -> int:
                    "fence_wait_ms": float(m.group(7)),
                    "rt_acquire_ms": float(m.group(8)), "taa_ms": float(m.group(9)),
                    "gpu_batches": int(m.group(15))}
-            (city if row["draws"] >= CITY_DRAWS else
+            (city if row["draws"] >= args.city_draws else
              menu if 70 <= row["draws"] <= 250 else []).append(row)
 
     def avg(rows: list[dict], k: str) -> float | None:

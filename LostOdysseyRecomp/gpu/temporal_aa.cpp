@@ -1,5 +1,6 @@
 #include "temporal_aa.h"
 #include "shader/dxc_compiler.h"
+#include "shader/target_format.h"
 #include <array>
 #include <vector>
 #include <limits>
@@ -370,7 +371,7 @@ bool TemporalAA::Init(RenderDevice* device,bool hdrColor)
 {
     if(!device || impl->device) { impl->error="Init requires a non-null device and a fresh component";return false; }
     auto& p=*impl;p.device=device;p.defaultFp16=hdrColor;
-    p.vulkan=device->getCapabilities().shaderFormat==RenderShaderFormat::SPIRV;
+    p.vulkan=gpu::shader::UsesSpirv(device);
     const auto binaryFormat=p.vulkan?xenos::ShaderBinaryFormat::Spirv:xenos::ShaderBinaryFormat::Dxil;
     const auto renderFormat=p.vulkan?RenderShaderFormat::SPIRV:RenderShaderFormat::DXIL;
     auto vs=xenos::CompileCachedHlsl(source,"vertex","vs_6_0",binaryFormat),ps=xenos::CompileCachedHlsl(source,"pixel","ps_6_0",binaryFormat),displayPs=xenos::CompileCachedHlsl(source,"displayPixel","ps_6_0",binaryFormat);

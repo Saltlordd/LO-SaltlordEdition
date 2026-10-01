@@ -176,7 +176,8 @@ static void Bundles(const fs::path& root) {
     const auto valid=load();
     Check(valid.ok && consumed==2 && pumps>=3 && progress.front()==0 && progress.back()==2,"warm load did not pump progress");
     Check(valid.bytesRead==sc::Encode(record,common).size()+sc::Encode(second,common).size(),"bundle payload read more than once");
-    auto damaged=original;damaged.back()^=1;Write(path,damaged);
+    // The footer is a completion marker followed by a reserved (unchecked) slot.
+    auto damaged=original;damaged[damaged.size()-sc::Digest{}.size()-1]^=1;Write(path,damaged);
     consumed=0;const auto failed=load();Check(!failed.ok && !consumed,"late footer error left installed shaders");
     Write(path,original);
     {sc::Writer writer(path,common);writer.Add(record);}

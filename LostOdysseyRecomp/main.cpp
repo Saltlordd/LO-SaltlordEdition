@@ -39,10 +39,16 @@
 #include <timeapi.h>
 #include <shellapi.h>
 #endif
-#if defined(__linux__) && !defined(_WIN32)
+#include <os/host_scheduling.h>
+#include <os/main_thread.h>
+#include <os/platform.h>
+#if LO_PLATFORM_POSIX
 #include <spawn.h>
 #include <unistd.h>
 extern char** environ;
+#endif
+#if LO_PLATFORM_MACOS
+#include <mach-o/dyld.h>
 #endif
 
 // Runtime entry: set up guest memory, load default.xex and run its entry point
@@ -63,6 +69,16 @@ static std::filesystem::path ExecutableDirectory()
         path[n] = '\0';
         return std::filesystem::path(path).parent_path();
     }
+#elif LO_PLATFORM_MACOS
+    // The dyld path may name a symlink; resolve it as /proc/self/exe does on Linux.
+    char path[4096]{};
+    uint32_t size = sizeof(path);
+    if (_NSGetExecutablePath(path, &size) == 0)
+    {
+        std::error_code error;
+        const auto resolved = std::filesystem::canonical(path, error);
+        return (error ? std::filesystem::path(path) : resolved).parent_path();
+    }
 #endif
     return std::filesystem::current_path();
 }
@@ -76,9 +92,38 @@ static settings::game_path::Resolution FindGameRoot(
 
 void InstallPhysicalWatchpoint();
 
+static int RunGuest(uint32_t entry)
+{
+    if (!gpu::g_commandProcessor.Init()) {
+        LOG_ERROR("graphics initialization failed; guest not started (see backend selection errors above)");
+        return 1;
+    }
+    XexLoader::StartTimeStampThread();
+    apu::Init();
+    apu::xma::Init();
+    if (getenv("LO_HEADLESS"))
+        hid::Init(); // otherwise the video thread initialises it
+
+    LOG_INFO("starting guest at {:#x}", entry);
+    os::SetCurrentThreadName("Guest Main");
+    GuestThread::Start({ entry, 0, 0 });
+
+    LOG_INFO("guest main thread returned");
+    // Other guest threads may still be running: closing their handles is not
+    // cancellation. Use the same GPU-owner cleanup and process-exit policy as
+    // the window's quit action rather than destructing shared runtime state.
+    gpu::video::RequestExit();
+    gpu::g_commandProcessor.Shutdown();
+    // The GPU owner normally exits the process after cleanup. If it had
+    // already stopped, still avoid global teardown while guest threads survive.
+    os::shaderlog::CloseForExit();
+    std::fflush(nullptr);
+    std::_Exit(EXIT_SUCCESS);
+}
+
 int main(int argc, char* argv[])
 {
-#if defined(__linux__) && !defined(_WIN32)
+#if LO_PLATFORM_POSIX
     // Park a restart child before even the updater's startup cleanup runs.
     if (settings::restart::WaitForParentIfRestartChild(argc, argv) == settings::restart::ChildHandshake::Invalid)
         return 1;
@@ -146,13 +191,18 @@ int main(int argc, char* argv[])
         ? executableDirectory / "mods"
         : os::user_paths::DataDir() / "mods";
     modding::Initialize(modsRoot);
-#if defined(_WIN32) || defined(__linux__)
     // Direct launches keep all portable data beside the executable. Explicit
     // --game launches retain their caller's working directory for isolated tests.
     if(!explicitGame && os::user_paths::UsePortableLayout()) {
         std::filesystem::current_path(executableDirectory);
+    } else if(!explicitGame) {
+        // Installed layouts (a macOS .app, Linux packages) start in the config
+        // directory: a Finder launch begins in "/", where files saved by
+        // relative name (e.g. taa-collection.ini) cannot be written.
+        std::error_code ec;
+        std::filesystem::create_directories(os::user_paths::ConfigDir(), ec);
+        std::filesystem::current_path(os::user_paths::ConfigDir(), ec);
     }
-#endif
     // Keep each run separately, including launches without a terminal. Tests
     // can select a path or disable the duplicate sink with LO_LOG_FILE=0.
     const char* logOverride = getenv("LO_LOG_FILE");
@@ -181,6 +231,8 @@ int main(int argc, char* argv[])
 #ifdef _WIN32
     timeBeginPeriod(1);
 #endif
+    // macOS counterpart: opt out of App Nap and timer coalescing.
+    os::scheduling::BeginLatencyCriticalActivity();
 
     for (int i = 1; i < argc; i++)
     {
@@ -211,7 +263,7 @@ int main(int argc, char* argv[])
     }
     os::diagnostics::LogStartupEnvironment();
 
-#if defined(_WIN32) || defined(__linux__)
+#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
     // Check for a newer runtime before opening the content importer or setup.
     if (!getenv("LO_HEADLESS") && !getenv("LO_BACKGROUND"))
     {
@@ -360,29 +412,9 @@ int main(int argc, char* argv[])
         (os::shaderlog::CloseForExit(), std::_Exit(prepared ? 0 : 1));
     }
 
-    if (!gpu::g_commandProcessor.Init()) {
-        LOG_ERROR("graphics initialization failed; guest not started (see backend selection errors above)");
-        return 1;
-    }
-    XexLoader::StartTimeStampThread();
-    apu::Init();
-    apu::xma::Init();
-    if (getenv("LO_HEADLESS"))
-        hid::Init(); // otherwise the video thread initialises it
-
-    LOG_INFO("starting guest at {:#x}", entry);
-    os::SetCurrentThreadName("Guest Main");
-    GuestThread::Start({ entry, 0, 0 });
-
-    LOG_INFO("guest main thread returned");
-    // Other guest threads may still be running: closing their handles is not
-    // cancellation. Use the same GPU-owner cleanup and process-exit policy as
-    // the window's quit action rather than destructing shared runtime state.
-    gpu::video::RequestExit();
-    gpu::g_commandProcessor.Shutdown();
-    // The GPU owner normally exits the process after cleanup. If it had
-    // already stopped, still avoid global teardown while guest threads survive.
-    os::shaderlog::CloseForExit();
-    std::fflush(nullptr);
-    std::_Exit(EXIT_SUCCESS);
+    // macOS: AppKit accepts window work only on the process main thread, so the
+    // guest runs on its own thread while this one serves the video thread's
+    // window requests. Other platforms run RunGuest inline, as before.
+    return os::main_thread::RunServing([entry] { return RunGuest(entry); },
+                                       gpu::video::PumpIdleEvents);
 }

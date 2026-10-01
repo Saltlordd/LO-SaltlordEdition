@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <thread>
+#include <os/host_scheduling.h>
 #ifdef _WIN32
 #include <Windows.h>
 #endif
@@ -58,7 +59,8 @@ namespace gpu
                     return;
             }
 #endif
-            std::this_thread::sleep_until(deadline);
+            // macOS: without a real-time policy, timer coalescing wakes this late.
+            os::scheduling::PreciseSleepUntil(deadline);
         }
     };
 }

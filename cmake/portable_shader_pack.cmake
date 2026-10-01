@@ -1,7 +1,11 @@
 include_guard(GLOBAL)
 get_filename_component(LO_PACK_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 option(LO_PACK_FETCH_ZSTD "Fetch pinned Zstandard if no static package is installed" ON)
-find_package(zstd 1.5 CONFIG QUIET)
+# Homebrew's static library may require a newer macOS than our deployment
+# target. Build the pinned source with this toolchain for default macOS builds.
+if(NOT APPLE OR NOT LO_PACK_FETCH_ZSTD)
+    find_package(zstd 1.5 CONFIG QUIET)
+endif()
 if(TARGET zstd::libzstd_static)
     set(LO_PACK_ZSTD_TARGET zstd::libzstd_static)
 else()

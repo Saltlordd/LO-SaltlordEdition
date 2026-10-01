@@ -27,6 +27,13 @@ namespace gpu::video
     // Shared with the draw backend (nullptr when no device is available).
     plume::RenderDevice* GetDevice();
     bool IsVulkan();
+    bool IsMetal();
+    // SPIR-V shaders and the Vulkan descriptor layout: Vulkan, and Metal (whose
+    // plume backend translates SPIR-V to MSL).
+    bool UsesSpirv();
+    // The game window's height in points (logical pixels), or 0 when no window
+    // exists. On Retina displays the drawable is larger than this.
+    uint32_t LogicalOutputHeight();
     // Actual committed backend; absent before readiness or after shutdown.
     std::optional<backend::Backend> SelectedBackend();
     // Latest committed device capability. Callers receive a copy and do not
@@ -92,6 +99,8 @@ namespace gpu::video
 
     // Drains messages on non-Windows hosts; Windows pumps on its window thread.
     void PumpEvents();
+    // macOS main-thread idle pump while the video thread owns event handling.
+    void PumpIdleEvents();
     bool DisplayModeFailed();
     // Alt+Enter is session-only; saving Display settings takes precedence.
     bool WindowModeOverridden();

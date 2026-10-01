@@ -1,0 +1,32 @@
+description = "New Game at 60 FPS: game time must follow real time through the movie and the first battle"
+timeout = 300
+# Same route as new-game-battle: START, New Game, B for the TAA prompt, B to close settings.
+timeline = "s@10,a@20,b@26,b@32"
+
+[[step]]
+# The battle command menu (1,100-1,700 draws per frame).
+wait_draws = 1000
+screenshot = true
+hold_seconds = 3
+
+[[step]]
+press = "a"          # Attack
+hold_seconds = 2
+
+[[step]]
+press = "a"          # confirm the target
+hold_seconds = 15
+screenshot = true
+
+[settings]
+frame_rate = 60
+
+[env]
+LO_FRAME_TIMING_SUMMARY = "1"
+
+[checks]
+min_draws = 1000
+# Battles are GPU-bound near 53 FPS at 720p on an M1 Pro.
+min_fps = 45
+# 30, 60 and 120 FPS all measured 1.00 (2026-09-29).
+game_time_ratio = [0.95, 1.05]

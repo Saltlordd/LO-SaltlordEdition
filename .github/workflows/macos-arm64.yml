@@ -1,0 +1,84 @@
+name: macOS arm64
+
+# Builds and tests everything that does not need game data. The runtime itself
+# links the recompiled game code, which is generated from a private default.xex;
+# game data never enters CI, so the runtime link is not attempted here.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, trail/macos-integration]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and test (no game data)
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install build tools
+        run: |
+          brew install ninja
+          python -m pip install numpy pillow
+      - name: Apply dependency patches
+        run: |
+          git -C tools/XenonRecomp apply --reverse --check ../patches/XenonRecomp-lostodyssey.patch >/dev/null 2>&1 || git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
+          git -C thirdparty/plume apply --reverse --check ../../tools/patches/plume-lostodyssey.patch >/dev/null 2>&1 || git -C thirdparty/plume apply ../../tools/patches/plume-lostodyssey.patch
+          git -C thirdparty/plume apply --reverse --check ../../tools/patches/plume-macos.patch >/dev/null 2>&1 || git -C thirdparty/plume apply ../../tools/patches/plume-macos.patch
+      - name: Build recompiler tools
+        run: |
+          cmake -S tools/xexdump -B out/build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build out/build/tools --target XenonRecomp XenonAnalyse xexdump
+      - name: Configure
+        run: |
+          cmake -S . -B out/build/macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DLO_BUILD_RECOMP_LIB=OFF \
+            -DLO_BUILD_MOD_TESTS=ON
+      - name: Build libraries and tests
+        run: |
+          # Tests that compile runtime sources or generated PPC headers need game data.
+          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoQuitActionHookTest)$'
+          ninja -C out/build/macos -t targets all | grep -oE '^Lo[A-Za-z0-9]+(Test|Probe|Tool):' | tr -d ':' | sort -u |
+            grep -vE "$excluded" > out/build/macos/ci-targets.txt
+          ninja -C out/build/macos plume spirv-cross-msl SDL2-static XenonUtils lo_portable_shader_pack lo_menu_lzo \
+            lo_avcodec lo_avutil o1heap $(cat out/build/macos/ci-targets.txt)
+      - name: Run tests
+        run: |
+          scratch="$RUNNER_TEMP/lo-tests"
+          mkdir -p "$scratch/home"
+          export HOME="$scratch/home"
+          failed=0
+          while read -r test; do
+            [ "$test" = LoShaderPackTool ] || [ "$test" = LoShaderTool ] || [ "$test" = LoImportPayloadProbe ] && continue
+            binary=$(find out/build/macos -type f -perm -u+x -name "$test" | head -n 1)
+            case "$test" in
+              LoPipelineCacheTest|LoShaderPrebuildIoTest|LoShaderPreparationQueueTest|LoPortableShaderContractTest) args="$scratch/$test" ;;
+              LoShaderResourceVariantsTest) mkdir -p "$scratch/$test"; args="$scratch/$test" ;;
+              *) args="" ;;
+            esac
+            echo "::group::$test"
+            if ! "$binary" $args; then echo "::error::$test failed"; failed=1; fi
+            echo "::endgroup::"
+          done < out/build/macos/ci-targets.txt
+          exit $failed
+      - name: Run Python tests
+        run: |
+          python -m unittest discover -s tools/tests -p 'test_*.py'
+          python tools/tests/ppc_codegen_test.py

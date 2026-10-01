@@ -110,6 +110,12 @@ enum class StartupStatus
     Ready
 };
 
+// GitHub repository whose releases the updater reads; a build may override it.
+#ifndef LO_UPDATE_REPOSITORY
+#define LO_UPDATE_REPOSITORY "freefrank/LostOdysseyRecomp"
+#endif
+inline constexpr const char* kReleaseRepository = LO_UPDATE_REPOSITORY;
+
 struct StartupResult
 {
     StartupStatus status = StartupStatus::UnmanagedBuild;
@@ -127,7 +133,7 @@ struct StartupOptions
     std::vector<std::wstring> launchArguments;
     bool automaticUpdates = true;
     uint32_t uiLanguage = 0;
-    std::string releaseApiUrl = "https://api.github.com/repos/freefrank/LostOdysseyRecomp/releases/latest";
+    std::string releaseApiUrl = std::string("https://api.github.com/repos/") + kReleaseRepository + "/releases/latest";
     bool (*confirmUpdate)(std::string_view version, std::string_view changelog, uint32_t uiLanguage) = nullptr;
 };
 

@@ -11,7 +11,7 @@
 
 namespace xenos::cache {
 // Shared by the runtime and offline compiler. Bump for translation changes.
-inline constexpr unsigned Version = 24;
+inline constexpr unsigned Version = 26;
 using Backend = gpu::backend::Backend;
 enum class Format { Dxil, Spirv, Dxbc };
 struct Identity {
@@ -31,6 +31,12 @@ inline std::string DefaultOptions(Backend backend) {
     case Backend::D3D11: return "reserved-dxbc-sm5-no-compiler";
     }
     return {};
+}
+// Metal consumes the Vulkan SPIR-V contract compiled at -O1 (SetSpirvOptimizationLevel).
+inline std::string MetalOptions() {
+    auto options = DefaultOptions(Backend::Vulkan);
+    options.replace(options.find(";O3;"), 4, ";O1;");
+    return options;
 }
 inline Identity MakeIdentity(Backend backend, std::string_view compiler) {
     Identity result;

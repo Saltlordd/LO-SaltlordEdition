@@ -1,4 +1,5 @@
 #include "dxc_compiler.h"
+#include <os/platform.h>
 #include "cache.h"
 #include "binary_cache.h"
 #include "resource_cpx_index_sha256.h"
@@ -43,6 +44,9 @@ namespace xenos
         HMODULE g_module = nullptr;
 #else
         void* g_module = nullptr;
+        // The last dlopen error, reported with "not available" (e.g. a code
+        // signature rejected by the hardened runtime's library validation).
+        std::string g_loadError;
 #endif
         std::atomic<uint64_t> g_calls{0}, g_succeeded{0}, g_rejected{0}, g_infrastructureFailed{0};
         std::once_flag g_loadOnce;
@@ -91,8 +95,13 @@ namespace xenos
 #else
         void LoadDxc()
         {
+#if LO_PLATFORM_MACOS
+            constexpr const char* kLibrary = "libdxcompiler.dylib";
+#else
+            constexpr const char* kLibrary = "libdxcompiler.so";
+#endif
             std::vector<std::filesystem::path> candidates;
-            candidates.push_back("libdxcompiler.so");
+            candidates.push_back(kLibrary);
             if (const char* envPath = std::getenv("LO_DXC_PATH"); envPath && *envPath)
             {
                 candidates.push_back(envPath);
@@ -101,8 +110,13 @@ namespace xenos
             const auto cwd = std::filesystem::current_path(ec);
             if (!ec)
             {
-                candidates.push_back(cwd / "libdxcompiler.so");
+                candidates.push_back(cwd / kLibrary);
             }
+#if LO_PLATFORM_MACOS
+            // dyld resolves this beside the running executable.
+            candidates.push_back(std::string("@executable_path/") + kLibrary);
+            const std::filesystem::path relativeDxc = "tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64/libdxcompiler.dylib";
+#else
             char selfPath[4096]{};
             const ssize_t n = readlink("/proc/self/exe", selfPath, sizeof(selfPath) - 1);
             if (n > 0)
@@ -111,6 +125,7 @@ namespace xenos
                 candidates.push_back(std::filesystem::path(selfPath).parent_path() / "libdxcompiler.so");
             }
             const std::filesystem::path relativeDxc = "tools/XenosRecomp/thirdparty/dxc-bin/lib/x64/libdxcompiler.so";
+#endif
             if (std::filesystem::exists(relativeDxc, ec))
             {
                 candidates.push_back(relativeDxc);
@@ -122,6 +137,8 @@ namespace xenos
                 if (candidate.empty())
                     continue;
                 module = dlopen(candidate.c_str(), RTLD_NOW | RTLD_LOCAL);
+                if (!module)
+                    if (const char* error = dlerror()) g_loadError = error;
                 if (module)
                 {
                     auto proc = reinterpret_cast<DxcCreateInstanceProc>(dlsym(module, "DxcCreateInstance"));
@@ -178,6 +195,8 @@ namespace xenos
         return {g_calls.load(), g_succeeded.load(), g_rejected.load(), g_infrastructureFailed.load()};
     }
 
+    static std::atomic<int> g_spirvOptimization{3};
+
     static CompiledShader CompileHlslImpl(const std::string& source, const char* entryPoint, const char* profile, ShaderBinaryFormat format, bool debugInfo)
     {
         CompiledShader result;
@@ -187,7 +206,7 @@ namespace xenos
 #ifdef _WIN32
             result.errors = "dxcompiler.dll not available";
 #else
-            result.errors = "dxcompiler library not available";
+            result.errors = "dxcompiler library not available" + (g_loadError.empty() ? "" : ": " + g_loadError);
 #endif
             return result;
         }
@@ -224,7 +243,7 @@ namespace xenos
         }
         else
         {
-            args.push_back(L"-O3");
+            args.push_back(format == ShaderBinaryFormat::Spirv && g_spirvOptimization.load() == 1 ? L"-O1" : L"-O3");
             args.push_back(L"-Qstrip_debug");
             if (format == ShaderBinaryFormat::Dxil) args.push_back(L"-Qstrip_reflect");
         }
@@ -306,6 +325,11 @@ namespace xenos
         return CompileHlsl(source, entry, profile, ShaderBinaryFormat::Dxil, debugInfo);
     }
 
+    void SetSpirvOptimizationLevel(int level)
+    {
+        g_spirvOptimization = level == 1 ? 1 : 3;
+    }
+
     CompiledShader CompileCachedHlsl(const std::string& source, const char* entry, const char* profile, ShaderBinaryFormat format)
     {
         const std::string key = source + '\0' + entry + '\0' + profile + "lo-dxc-vulkan12-dx-layout-v1";
@@ -313,6 +337,7 @@ namespace xenos
         for (uint8_t byte : key) { hash ^= byte; hash *= 0x100000001b3ull; }
         const bool spirv = format == ShaderBinaryFormat::Spirv;
         auto identity = cache::MakeIdentity(spirv ? cache::Backend::Vulkan : cache::Backend::D3D12, DxcIdentity());
+        if (spirv && g_spirvOptimization.load() == 1) identity.options = cache::MetalOptions();
         identity.variant = "builtin:" + std::to_string(std::strlen(entry)) + ":" + entry +
             ":" + std::to_string(std::strlen(profile)) + ":" + profile;
         const bool pixel = std::string_view(profile).starts_with("ps_");

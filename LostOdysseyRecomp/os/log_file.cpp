@@ -284,9 +284,11 @@ namespace os::logger
 
         // copy_file(overwrite_existing) does not reliably reject a source alias
         // on every implementation. Check file identity before allowing a write.
+        // A missing destination is the normal case; libc++ reports it as
+        // not_supported rather than no_such_file_or_directory.
         if (std::filesystem::equivalent(g_filePath, absoluteDestination, ec))
             return std::make_error_code(std::errc::invalid_argument);
-        if (ec && ec != std::errc::no_such_file_or_directory)
+        if (ec && ec != std::errc::no_such_file_or_directory && ec != std::errc::not_supported)
             return ec;
 
         errno = 0;
