@@ -68,27 +68,20 @@ jobs:
         with:
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
           persist-credentials: false
+      # On the Windows host runner a second actions/checkout in the same job
+      # fails: act re-fetches its cached copy of the action and Windows denies
+      # access to the replaced pack file. Other repositories use plain git.
       - name: Checkout pinned FidelityFX SDK
-        uses: actions/checkout@v4
-        with:
-          github-server-url: https://github.com
-          token: ${{ secrets.LO_GITHUB_TOKEN }}
-          repository: GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
-          ref: c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
-          path: out/deps/fidelityfx-sdk
-          sparse-checkout: |
-            /LICENSE.txt
-            /ffx-api/include/
-            /PrebuiltSignedDLL/amd_fidelityfx_dx12.dll
-            /sdk/include/
-            /sdk/src/shared/
-            /sdk/src/components/fsr3upscaler/
-            /sdk/src/backends/shared/
-            /sdk/src/backends/vk/
-            /sdk/src/backends/dx12/
-            /sdk/tools/binary_store/
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
+        run: |
+          $dir = 'out/deps/fidelityfx-sdk'
+          if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+          git init -q $dir
+          git -C $dir remote add origin https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
+          git -C $dir sparse-checkout set --no-cone /LICENSE.txt /ffx-api/include/ /PrebuiltSignedDLL/amd_fidelityfx_dx12.dll /sdk/include/ /sdk/src/shared/ /sdk/src/components/fsr3upscaler/ /sdk/src/backends/shared/ /sdk/src/backends/vk/ /sdk/src/backends/dx12/ /sdk/tools/binary_store/
+          git -C $dir fetch -q --depth 1 --filter=blob:none origin c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
+          if ($LASTEXITCODE -ne 0) { throw 'FidelityFX SDK fetch failed.' }
+          git -C $dir checkout -q FETCH_HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'FidelityFX SDK checkout failed.' }
       - name: Generate FSR Vulkan shaders
         shell: cmd
         run: |
@@ -139,34 +132,33 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value (Resolve-Path out/venv/Scripts).Path
           out/venv/Scripts/python -m pip install -r tools/release/requirements.txt
           if ($LASTEXITCODE -ne 0) { throw 'pip install failed.' }
-      - name: Retrieve private build input
-        uses: actions/checkout@v4
-        with:
-          github-server-url: https://github.com
-          token: ${{ secrets.LO_GITHUB_TOKEN }}
-          repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 77f076e0e03966736cbf8919ce793bafadce82d9
-          path: out/build-input
-          sparse-checkout: |
-            /default.xex
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
+      # Plain git instead of a second actions/checkout (see prepare-fsr). The
+      # token reaches git through GIT_CONFIG_* variables, so it is neither on a
+      # command line nor written to .git/config.
+      - name: Retrieve private build inputs
+        env:
+          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
+        run: |
+          $basic = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("x-access-token:$env:GH_TOKEN"))
+          $env:GIT_CONFIG_COUNT = '1'
+          $env:GIT_CONFIG_KEY_0 = 'http.https://github.com/.extraheader'
+          $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
+          foreach ($item in @(
+              @{ Path = 'out/build-input'; Ref = '77f076e0e03966736cbf8919ce793bafadce82d9'; Pattern = '/default.xex' },
+              @{ Path = 'out/shader-input'; Ref = '54538f7fd0f47d0f0383c2091c0a483598432706'; Pattern = 'shaders/' })) {
+            if (Test-Path $item.Path) { Remove-Item -Recurse -Force $item.Path }
+            git init -q $item.Path
+            git -C $item.Path remote add origin https://github.com/freefrank/LostOdysseyRecomp-build-inputs.git
+            git -C $item.Path sparse-checkout set --no-cone $item.Pattern
+            git -C $item.Path fetch -q --depth 1 --filter=blob:none origin $item.Ref
+            if ($LASTEXITCODE -ne 0) { throw "Private build input fetch failed: $($item.Path)" }
+            git -C $item.Path checkout -q FETCH_HEAD
+            if ($LASTEXITCODE -ne 0) { throw "Private build input checkout failed: $($item.Path)" }
+          }
       - name: Verify private build input
         env:
           LO_BUILD_XEX_PATH: out/build-input/default.xex
         run: python tools/release/fetch_build_input.py
-      - name: Retrieve pinned portable shader pack input
-        uses: actions/checkout@v4
-        with:
-          github-server-url: https://github.com
-          token: ${{ secrets.LO_GITHUB_TOKEN }}
-          repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 54538f7fd0f47d0f0383c2091c0a483598432706
-          path: out/shader-input
-          sparse-checkout: |
-            shaders/
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
       - name: Fetch NVIDIA DLSS SDK
         run: python tools/release/fetch_dlss_sdk.py --dest out/deps/nvidia-dlss
       - name: Fetch pinned NVIDIA Streamline SDK
