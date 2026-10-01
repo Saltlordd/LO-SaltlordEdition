@@ -49,8 +49,10 @@ using Microsoft::WRL::ComPtr;
 #include <unordered_map>
 #include <vector>
 
-// No guest program is linked by this compile-only boundary fixture.
-extern "C" unsigned long long XXH3_64bits(const void*, size_t);
+// No guest program is linked by this compile-only boundary fixture. The
+// renderer includes xxhash.h itself (texture_content.h), so declare it from the
+// real header like the production stdafx.h.
+#include <xxhash.h>
 #include <ankerl/unordered_dense.h>
 // Only the unreferenced inline Memory helpers need generated guest ABI names.
 // This does NOT test the generated PPC program or constitute a full-game build.

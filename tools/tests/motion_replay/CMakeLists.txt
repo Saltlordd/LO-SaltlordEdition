@@ -15,7 +15,8 @@ add_library(mv_runtime STATIC
  "${ROOT}/LostOdysseyRecomp/gpu/temporal_aa.cpp")
 target_include_directories(mv_runtime PUBLIC "${ROOT}/LostOdysseyRecomp"
  "${ROOT}/tools/XenosRecomp/thirdparty/dxc-bin/inc"
- "${ROOT}/tools/XenosRecomp/XenosRecomp")
+ "${ROOT}/tools/XenosRecomp/XenosRecomp"
+ "${ROOT}/tools/XenosRecomp/thirdparty/xxHash")
 target_compile_definitions(mv_runtime PUBLIC LO_GPU_PLUME NOMINMAX)
 target_link_libraries(mv_runtime PUBLIC plume fmt::fmt ${CMAKE_DL_LIBS})
 if(WIN32)
