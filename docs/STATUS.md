@@ -4,9 +4,9 @@
 
 ## macOS integration branch — 2026-10-01
 
-`trail/macos-integration` combines MikeRavenelle's `arm64-macos` work from
-commit `b7951cd` with `main` commit `ca0d8fa`. It has not been merged to `main`,
-pushed or published.
+The integration combines MikeRavenelle's `arm64-macos` work from commit
+`b7951cd` with `main` commit `ca0d8fa`; the local integration validation uses
+commit `e7b45b6`. It remains experimental and has no public Mac release.
 The changes cover Apple Silicon memory and threading, Metal/MetalFX, packaging
 and test workflow support. The integration also includes the independent shader
 predicate, constant-cache, DLC hashing and updater identity fixes recorded in
@@ -29,7 +29,10 @@ retained under `out/macos-integration/mac-validation/` (`result.json`,
 `runtime.log` and the captures).
 This is not long-play, broad-scene, image-quality or performance acceptance;
 the mixed cutscene/battle frame window is not a standalone benchmark. The
-branch remains an experimental source integration, with no public Mac release.
+branch remains an experimental source integration. The local ad-hoc package was
+signature-checked; an installed app reused the shader cache with 28,504 valid,
+zero missing/invalid shaders and zero DXC attempts. This is cache-reuse evidence
+and adds no new gameplay coverage.
 
 ## Current source and release — 2026-09-30
 
