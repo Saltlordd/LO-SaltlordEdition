@@ -88,6 +88,7 @@ the embedded installer font.
 
 ## GitHub Actions
 
+Pull request checks run on Gitea; see [Pull request checks on Gitea](ci-gitea.md).
 `release.yml` builds when dispatched manually or when a `v*` tag is pushed.
 It uses hosted Windows 2022. Private inputs are checked out from a pinned commit of
 `freefrank/LostOdysseyRecomp-build-inputs` using a read-only deploy key stored in the
