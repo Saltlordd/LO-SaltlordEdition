@@ -19,6 +19,14 @@ static Bytes Binary() {
     for (auto word : words) for (unsigned i=0; i<4; ++i) bytes.push_back(uint8_t(word >> (8*i)));
     return bytes;
 }
+// DXIL container framing only, as in portable_shader_pack_test.cpp.
+static Bytes Dxil() {
+    const uint32_t words[] = {0x43425844, 0, 0, 0, 0, 0, 72, 1, 36,
+        0x4c495844, 28, 0x10060, 7, 0x4c495844, 0x100, 16, 4, 0xdec04342};
+    Bytes bytes;
+    for (auto word : words) for (unsigned i=0; i<4; ++i) bytes.push_back(uint8_t(word >> (8*i)));
+    return bytes;
+}
 int main(int argc, char** argv) try {
     if (argc != 2) throw std::runtime_error("expected fixture directory");
     const fs::path root = reinterpret_cast<const char8_t*>(argv[1]);
@@ -30,6 +38,13 @@ int main(int argc, char** argv) try {
     const auto direct = pack::Contract(identity.translatorVersion, identity.options, identity.variant,
         xenos::kShaderCommonHlsl, xenos::resources::variants::DiscoveryIdentity, image);
     if (contract != direct) throw std::runtime_error("shared contract drift");
+    const auto dxilContract = pack::RuntimeContract(image,
+        xenos::cache::MakeIdentity(xenos::cache::Backend::D3D12, ""), pack::PackFormat::Dxil);
+    if (dxilContract == contract) throw std::runtime_error("DXIL and SPIR-V contracts collide");
+    bool shortRejected = false;
+    try { (void)pack::RuntimeContract(Bytes(pack::RuntimeXexBytes - 1, 0)); }
+    catch (const std::runtime_error&) { shortRejected = true; }
+    if (!shortRejected) throw std::runtime_error("contract accepted a short executable prefix");
     Write(root / "image.bin", image);
     // A source whose renderer-byte FNV key is already in the synthetic pack,
     // allowing the merge CLI to exercise source/hash validation without DXC.
@@ -43,6 +58,8 @@ int main(int argc, char** argv) try {
         pack::Writer writer(root / (std::string(producer) + ".lospv"), contract, producer);
         writer.Add(1, shader, Binary()); writer.Add(sourceHash, shader, Binary()); writer.Finish();
     }
+    { pack::Writer writer(root / "matching.lospd", dxilContract, "matching-dxil", pack::PackFormat::Dxil);
+      writer.Add(1, shader, Dxil()); writer.Finish(); }
     image[600] ^= 1;
     Write(root / "wrong-image.bin", image);
     { pack::Writer writer(root / "wrong-contract.lospv", pack::RuntimeContract(image), "incompatible");

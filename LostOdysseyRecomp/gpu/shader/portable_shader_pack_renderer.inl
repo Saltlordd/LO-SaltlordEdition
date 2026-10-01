@@ -16,10 +16,7 @@ xenos::portable_pack::PackFormat PortablePackFormat() const
 
 xenos::portable_pack::Digest PortableShaderContract(std::span<const uint8_t> xex) const
 {
-    const auto format = PortablePackFormat();
-    return xenos::portable_pack::Contract(cacheIdentity.translatorVersion, cacheIdentity.options,
-        cacheIdentity.variant, xenos::kShaderCommonHlsl,
-        xenos::resources::variants::DiscoveryIdentity, xex, 1, format);
+    return xenos::portable_pack::RuntimeContract(xex, cacheIdentity, PortablePackFormat());
 }
 
 bool TryOpenPortableShaderPack(std::span<const uint8_t> xex)

@@ -219,6 +219,15 @@ jobs:
           call tools\build_tools.bat || exit /b 1
           out\build\tools\xexdump.exe LostOdysseyRecompLib\private\disc1\default.xex LostOdysseyRecompLib\private\image_disc1.bin || exit /b 1
           python tools\ppc_codegen.py generate || exit /b 1
+      - name: Fetch portable shader pack
+        env:
+          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          # The pinned input takes priority over a pack left by an earlier run. The
+          # build stages it only after verify-runtime accepts it for this runtime.
+          Remove-Item -LiteralPath out/shader-pack/portable_vk.lospv -ErrorAction SilentlyContinue
+          python tools/release/fetch_shader_pack.py --target-dir out/shader-pack --tag "$env:RELEASE_TAG"
       - name: Build Release
         shell: cmd
         env:
@@ -263,14 +272,6 @@ jobs:
             if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "VC143 redistributable file missing: $dll" }
             Copy-Item -LiteralPath $source -Destination $runtime
           }
-      - name: Fetch portable shader pack
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          # The pinned input takes priority over a previously staged valid pack.
-          Remove-Item -LiteralPath out/build/release/LostOdysseyRecomp/shaders/portable_vk.lospv -ErrorAction SilentlyContinue
-          python tools/release/fetch_shader_pack.py --target-dir out/build/release/LostOdysseyRecomp/shaders --tag "$env:RELEASE_TAG"
       - name: Package runtime
         run: |
           if (-not (Test-Path -LiteralPath out/build/release/LostOdysseyRecomp/licenses/LICENSE-FidelityFX.txt -PathType Leaf)) {
@@ -422,12 +423,20 @@ jobs:
         run: |
           out/build/tools/xexdump LostOdysseyRecompLib/private/disc1/default.xex LostOdysseyRecompLib/private/image_disc1.bin
           python tools/ppc_codegen.py generate --executable out/build/tools/XenonRecomp/XenonRecomp/XenonRecomp
+      - name: Fetch portable shader pack
+        env:
+          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
+        run: |
+          # The build stages it only after verify-runtime accepts it for this runtime.
+          rm -f out/shader-pack/portable_vk.lospv
+          python tools/release/fetch_shader_pack.py --target-dir out/shader-pack --tag "$RELEASE_TAG"
       - name: Build Linux runtime
         run: |
           cmake -S . -B out/build/linux -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang-18 \
             -DCMAKE_CXX_COMPILER=clang++-18 \
+            -DLO_PORTABLE_SHADER_PACK="$LO_PORTABLE_SHADER_PACK" \
             -DLO_ENABLE_DLSS=ON \
             -DLO_REQUIRE_DLSS=ON \
             -DLO_DLSS_SDK_ROOT="$GITHUB_WORKSPACE/out/deps/nvidia-dlss" \
@@ -450,12 +459,6 @@ jobs:
           wget -q -O out/tools/linuxdeploy/linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x out/tools/linuxdeploy/linuxdeploy
           echo "$GITHUB_WORKSPACE/out/tools/linuxdeploy" >> "$GITHUB_PATH"
-      - name: Fetch portable shader pack
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-        run: |
-          rm -f out/build/linux/shaders/portable_vk.lospv
-          python tools/release/fetch_shader_pack.py --target-dir out/build/linux/shaders --tag "$RELEASE_TAG"
       - name: Package AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'

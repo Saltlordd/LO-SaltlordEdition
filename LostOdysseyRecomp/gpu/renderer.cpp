@@ -67,6 +67,7 @@
 #include "shader/resource_variants.h"
 #include <kernel/io/file_system.h>
 #include <kernel/memory.h>
+#include <kernel/xex_loader.h>
 #include <os/logger.h>
 #include <os/shader_log.h>
 #include "color_qualification.h"
@@ -4168,9 +4169,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             {
                 video::ResetShaderPreparationSkip();
                 try {
-                const auto xex = std::span<const uint8_t>(static_cast<const uint8_t*>(g_memory.Translate(xenos::portable_pack::RuntimeXexAddress)), xenos::portable_pack::RuntimeXexBytes);
-                // A distribution pack is independent of the writable local cache and local DXC identity.
-                if (TryOpenPortableShaderPack(xex)) { ResetTimers(); return; }
+                // The local startup bundle keys on this prefix as bound in guest memory.
+                const auto xex = std::span<const uint8_t>(static_cast<const uint8_t*>(g_memory.Translate(XexLoader::s_imageBase)), xenos::portable_pack::RuntimeXexBytes);
+                // A distribution pack is independent of the writable local cache, the local
+                // DXC identity and the host addresses that import binding wrote into the image.
+                const auto unboundXex = XexLoader::UnboundIdentityPrefix();
+                if (TryOpenPortableShaderPack(unboundXex)) { ResetTimers(); return; }
                 if (shaderCacheDir.empty() || getenv("LO_NO_SHADER_PREPARE") || settings::GetConfig().skipShaderPrebuild) {
                     LOG_INFO("renderer: shader preparation skipped by configuration or environment");
                     return;
@@ -4191,7 +4195,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     !getenv("LO_SHADER_HLSL_DIR") && !retryFailures;
                 LOG_INFO("renderer: shader startup cache: {}, compiler identity {}", bundlePath.string(),
                     compilerIdentity.empty() ? "unavailable (persistent reuse disabled)" : compilerIdentity);
-                BeginPortableShaderExport(xex);
+                BeginPortableShaderExport(unboundXex);
                 if (reuseBundle) {
                     uint32_t modules = 0, cachedFailures = 0;
                     double moduleMs = 0;
@@ -4303,7 +4307,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_INFO("renderer: startup bundle fallback: {}", e.what());
                     }
                 } else LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
-                BeginPortableShaderExport(xex); // Discard any partial export after transactional bundle rejection.
+                BeginPortableShaderExport(unboundXex); // Discard any partial export after transactional bundle rejection.
                 video::SetShaderPreparationProgress(0, 1, video::PreparationStage::CacheValidation, video::PreparationUnit::Files);
                 video::PumpEvents();
                 xenos::resources::SourceStore sourceStore;
