@@ -78,7 +78,7 @@ jobs:
           ctest --test-dir out/fg-game -C Release --output-on-failure -R '^fg_game_input_contract$'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Write-Output 'COMPILE_AND_CPU_ONLY: no SDK runtime, game launch or GPU acceptance performed'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v3 # Gitea does not support v4
         if: always()
         with:
           name: fg-game-compile-logs

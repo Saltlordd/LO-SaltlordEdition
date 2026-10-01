@@ -75,7 +75,7 @@ jobs:
         run: ctest --test-dir build/fg-contracts -C Release --output-on-failure
       - name: Preserve contract log
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3 # Gitea does not support v4
         with:
           name: fg-contracts-${{ matrix.os }}
           path: build/fg-contracts/Testing/Temporary/LastTest.log
