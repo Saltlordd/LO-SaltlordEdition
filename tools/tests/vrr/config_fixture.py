@@ -28,6 +28,7 @@ prefix = r'''
 namespace os::user_paths {
 bool UsePortableLayout() { return true; }
 std::filesystem::path ConfigDir() { return {}; }
+std::filesystem::path SettingsPath() { return "settings.ini"; }
 }
 #define LOG_INFO(...) ((void)0)
 namespace settings { void LogSettingsSaved(const Config&) {} }
@@ -70,6 +71,20 @@ int main() {
         Check(settings::SaveSaveAnywhere(true), "debug toggle save");
         Check(settings::Read().variableRefreshRate == enabled, "other saves retain disk VRR setting");
     }
+    for (auto provider : {framegen::Provider::Fsr, framegen::Provider::MetalFx}) {
+        auto config=settings::GetConfig(); config.frameGenerationProvider=provider;
+        config.frameGenerationMode=framegen::Mode::Dynamic;
+        config.frameGenerationMultiplier=6; config.frameGenerationTargetFps=144;
+        Check(settings::SaveConfig(config), "fixed-only FG provider saves");
+        const auto disk=settings::Read();
+        Check(disk.frameGenerationProvider==provider && disk.frameGenerationMode==framegen::Mode::Fixed &&
+            disk.frameGenerationMultiplier==2 && !disk.frameGenerationTargetFps,
+            "FSR/MetalFX normalize to fixed 2x without discarding saved provider");
+    }
+    Write("frame_generation_provider=3\n");
+    Check(settings::Read().frameGenerationProvider==framegen::Provider::MetalFx,"MetalFX has stable INI value 3");
+    Write("frame_generation_provider=4\n");
+    Check(settings::Read().frameGenerationProvider==framegen::Provider::Off,"unknown FG provider rejected");
     fs::current_path(previous);
     fs::remove_all(scratch);
     std::cout << "VRR production config parse/save/preview checks passed (isolated paths)\n";

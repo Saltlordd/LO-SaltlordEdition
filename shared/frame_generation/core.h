@@ -7,9 +7,9 @@
 #include <utility>
 
 namespace framegen {
-enum class Provider : uint8_t { Off, Dlss, Fsr };
+enum class Provider : uint8_t { Off, Dlss, Fsr, MetalFx };
 enum class Mode : uint8_t { Off, Fixed, Dynamic };
-enum class Api : uint8_t { D3D12, Vulkan };
+enum class Api : uint8_t { D3D12, Vulkan, Metal };
 struct Config {
     Provider provider = Provider::Off;
     Mode mode = Mode::Off;
@@ -34,7 +34,7 @@ struct Selection {
 };
 inline Selection Select(Config request, Capabilities caps) {
     if (request.provider == Provider::Off || request.mode == Mode::Off) return {};
-    if ((request.provider != Provider::Dlss && request.provider != Provider::Fsr) ||
+    if ((request.provider != Provider::Dlss && request.provider != Provider::Fsr && request.provider != Provider::MetalFx) ||
         (request.mode != Mode::Fixed && request.mode != Mode::Dynamic) ||
         !std::isfinite(request.targetFrameRate) || request.targetFrameRate < 0 ||
         !request.generatedFrames)

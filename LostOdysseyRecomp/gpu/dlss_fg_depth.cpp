@@ -1,9 +1,16 @@
 #include "dlss_fg_depth.h"
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
 #include "shader/dxc_compiler.h"
 #include <plume_render_interface_builders.h>
 #include <cmath>
+#include <plume_vulkan.h>
+#ifdef _WIN32
 #include <plume_d3d12.h>
+#endif
+#ifdef __APPLE__
+#include <plume_metal.h>
+#endif
+#include "shader/target_format.h"
 #include <cstring>
 
 namespace gpu::dlss_fg {
@@ -38,7 +45,7 @@ void Describe(plume::RenderDescriptorSetBuilder& b) {
 bool DepthRemapper::Initialize(plume::RenderDevice* device) {
     if (pipeline_) return device == device_;
     if (!device) return false;
-    const auto format=device->getCapabilities().shaderFormat;
+    const auto format=shader::UsesSpirv(device) ? plume::RenderShaderFormat::SPIRV : device->getCapabilities().shaderFormat;
     if (format != plume::RenderShaderFormat::SPIRV && format != plume::RenderShaderFormat::DXIL) return false;
     const auto binary=format==plume::RenderShaderFormat::SPIRV ? xenos::ShaderBinaryFormat::Spirv : xenos::ShaderBinaryFormat::Dxil;
     device_ = device;
@@ -77,12 +84,23 @@ plume::RenderTexture* DepthRemapper::Record(plume::RenderCommandList* commands,
         if (image.device != device_ || !image.vk || !image.imageView || !image.allocation ||
             image.imageFormat != VK_FORMAT_R32_SFLOAT || image.textureLayout != plume::RenderTextureLayout::SHADER_READ) return nullptr;
         desc=&image.desc;
-    } else {
+    }
+#ifdef __APPLE__
+    else if (device_->getCapabilities().shaderFormat == plume::RenderShaderFormat::METAL) {
+        const auto& image=*static_cast<const plume::MetalTexture*>(source.texture);
+        if (image.device != device_ || !image.mtl) return nullptr;
+        desc=&image.desc;
+    }
+#endif
+#ifdef _WIN32
+    else {
         const auto& image=*static_cast<const plume::D3D12Texture*>(source.texture);
         if (image.device != device_ || !image.d3d ||
             !(image.resourceStates & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)) return nullptr;
         desc=&image.desc;
     }
+#endif
+    if (!desc) return nullptr;
     if (desc->dimension != plume::RenderTextureDimension::TEXTURE_2D ||
         desc->format != plume::RenderFormat::R32_FLOAT ||
         desc->width != source.allocation.width || desc->height != source.allocation.height ||

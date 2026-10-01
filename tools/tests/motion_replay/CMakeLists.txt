@@ -1,15 +1,27 @@
 cmake_minimum_required(VERSION 3.24)
 project(lo_motion_replay_tests LANGUAGES CXX C)
+if(APPLE)
+ enable_language(OBJC OBJCXX)
+endif()
 set(CMAKE_CXX_STANDARD 20)
 if(MSVC)
  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 get_filename_component(ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+if(APPLE)
+ set(SPIRV_CROSS_CLI OFF CACHE BOOL "" FORCE)
+ set(SPIRV_CROSS_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+ add_subdirectory("${ROOT}/thirdparty/SPIRV-Cross" spirv-cross EXCLUDE_FROM_ALL)
+endif()
 set(PLUME_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(PLUME_SDL_VULKAN_ENABLED OFF CACHE BOOL "" FORCE)
 add_subdirectory("${ROOT}/thirdparty/plume" plume)
+if(APPLE)
+ target_link_libraries(plume PRIVATE spirv-cross-msl)
+endif()
 add_subdirectory("${ROOT}/tools/XenosRecomp/thirdparty/fmt" fmt EXCLUDE_FROM_ALL)
 add_library(mv_runtime STATIC
+ "${ROOT}/LostOdysseyRecomp/gpu/optiscaler_loader.cpp"
  "${ROOT}/LostOdysseyRecomp/gpu/shader/xenos_translator.cpp"
  "${ROOT}/LostOdysseyRecomp/gpu/shader/dxc_compiler.cpp"
  "${ROOT}/LostOdysseyRecomp/gpu/temporal_aa.cpp")
@@ -84,6 +96,9 @@ target_include_directories(motion_renderer_compile BEFORE PRIVATE "${CMAKE_CURRE
 target_include_directories(motion_renderer_compile PRIVATE "${ROOT}/thirdparty/unordered_dense/include")
 target_compile_definitions(motion_renderer_compile PRIVATE LO_SOURCE_VERSION="mv-fixture")
 target_link_libraries(motion_renderer_compile PRIVATE mv_runtime)
+if(APPLE)
+ target_include_directories(motion_renderer_compile PRIVATE "${ROOT}/thirdparty/plume/contrib/metal-cpp")
+endif()
 if(NOT MSVC)
  target_compile_options(motion_renderer_compile PRIVATE -O0 -g0)
 endif()
@@ -116,6 +131,10 @@ if(LO_P2_VIDEO_COMPILE_CHECK)
  target_compile_definitions(p2_video_compile PRIVATE LO_SOURCE_VERSION="p2-fixture"
   $<$<PLATFORM_ID:Linux>:PLUME_SDL_VULKAN_ENABLED=1>)
  target_link_libraries(p2_video_compile PRIVATE mv_runtime ${_p2_sdl_target})
+ if(APPLE)
+  # The standalone Metal target does not invoke the Vulkan/D3D12 FSR setup.
+  target_compile_definitions(p2_video_compile PRIVATE LO_HAS_FSR=0 LO_HAS_FSR_D3D12=0)
+ endif()
 endif()
 
 # Full production target-map/command route with only NGX and the platform
@@ -212,13 +231,16 @@ target_include_directories(sr_hybrid_motion_test PRIVATE "${ROOT}/LostOdysseyRec
 add_test(NAME sr_hybrid_motion_cpu COMMAND sr_hybrid_motion_test)
 
 # Capture assertions must execute in Release too.
-if(MSVC)
- target_compile_options(LoDlssEvaluateCaptureContractTest PRIVATE /UNDEBUG)
-else()
- target_compile_options(LoDlssEvaluateCaptureContractTest PRIVATE -UNDEBUG)
+if(TARGET LoDlssEvaluateCaptureContractTest)
+ if(MSVC)
+  target_compile_options(LoDlssEvaluateCaptureContractTest PRIVATE /UNDEBUG)
+ else()
+  target_compile_options(LoDlssEvaluateCaptureContractTest PRIVATE -UNDEBUG)
+ endif()
+ add_test(NAME hybrid_capture_metadata COMMAND LoDlssEvaluateCaptureContractTest --evaluate-capture-contract-only)
+ set_tests_properties(hybrid_capture_metadata PROPERTIES TIMEOUT 180)
 endif()
-add_test(NAME hybrid_capture_metadata COMMAND LoDlssEvaluateCaptureContractTest --evaluate-capture-contract-only)
-set_tests_properties(sr_hybrid_motion_gpu hybrid_capture_metadata PROPERTIES TIMEOUT 180)
+set_tests_properties(sr_hybrid_motion_gpu PROPERTIES TIMEOUT 180)
 if(WIN32)
  set_tests_properties(sr_hybrid_motion_d3d12 PROPERTIES TIMEOUT 180)
 endif()
@@ -251,3 +273,40 @@ add_executable(LoFgGameInputTest "${ROOT}/tools/tests/frame_generation/game_inpu
 target_include_directories(LoFgGameInputTest PRIVATE "${ROOT}")
 target_link_libraries(LoFgGameInputTest PRIVATE mv_runtime)
 add_test(NAME fg_game_input_contract COMMAND LoFgGameInputTest)
+
+option(LO_VULKAN_FG_GAME_COMPILE_CHECK "Compile the Windows Vulkan DLSS/FSR FG game path against pinned headers" OFF)
+if(LO_VULKAN_FG_GAME_COMPILE_CHECK)
+ if(NOT WIN32 OR NOT TARGET p2_video_compile OR NOT EXISTS "${FRAMEGEN_STREAMLINE_INCLUDE}/sl_dlss_g.h" OR
+    NOT EXISTS "${FRAMEGEN_FIDELITYFX_INCLUDE}/ffx_api/vk/ffx_api_vk.h")
+  message(FATAL_ERROR "Vulkan FG compile check requires Windows, LO_P2_VIDEO_COMPILE_CHECK and the pinned Streamline/FidelityFX include directories")
+ endif()
+ add_library(fg_vulkan_compile OBJECT
+  "${ROOT}/LostOdysseyRecomp/gpu/fsr_frame_generation_vulkan.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/dlss_frame_generation.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/dlss_fg_depth.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/streamline_runtime.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/streamline_vulkan_dispatch.cpp")
+ target_link_libraries(fg_vulkan_compile PRIVATE mv_runtime)
+ foreach(target IN ITEMS fg_vulkan_compile p2_video_compile)
+  target_compile_definitions(${target} PRIVATE LO_ENABLE_STREAMLINE_FG=1 LO_ENABLE_VULKAN_FSR_FG=1)
+  target_include_directories(${target} SYSTEM PRIVATE "${FRAMEGEN_STREAMLINE_INCLUDE}" "${FRAMEGEN_FIDELITYFX_INCLUDE}")
+ endforeach()
+endif()
+
+option(LO_METALFX_FG_GAME_COMPILE_CHECK "Compile the MetalFX FG session and actual game presentation path" OFF)
+if(LO_METALFX_FG_GAME_COMPILE_CHECK)
+ if(NOT APPLE OR NOT TARGET p2_video_compile)
+  message(FATAL_ERROR "MetalFX FG compile check requires macOS and LO_P2_VIDEO_COMPILE_CHECK")
+ endif()
+ add_library(fg_metal_compile OBJECT
+  "${ROOT}/LostOdysseyRecomp/gpu/metalfx_frame_generation.mm"
+  "${ROOT}/LostOdysseyRecomp/gpu/dlss_fg_depth.cpp")
+ target_link_libraries(fg_metal_compile PRIVATE mv_runtime)
+ set_property(TARGET fg_metal_compile PROPERTY OBJCXX_STANDARD 20)
+ set_source_files_properties("${ROOT}/LostOdysseyRecomp/gpu/metalfx_frame_generation.mm"
+  PROPERTIES COMPILE_OPTIONS "-fobjc-arc;-fblocks")
+ foreach(target IN ITEMS fg_metal_compile p2_video_compile motion_renderer_compile)
+  target_compile_definitions(${target} PRIVATE LO_ENABLE_METALFX_FG=1)
+  target_include_directories(${target} PRIVATE "${ROOT}/thirdparty/plume/contrib/metal-cpp")
+ endforeach()
+endif()

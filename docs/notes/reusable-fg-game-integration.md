@@ -4,6 +4,10 @@
 
 Development branch: `feature/reusable-fg-fsr-d3d12-mfg`.
 
+The newer [Vulkan FG and platform feasibility note](vulkan-fg-fsr4-metalfx.md) records
+persisted Vulkan DLSS settings and capability-gated fixed MFG on
+`feat/vulkan-frame-generation`; the runtime evidence below predates those changes.
+
 ## Code scope
 
 Windows D3D12 game presentation selects one reusable provider: standalone FSR FG, DLSS FG, or capability-gated DLSS dynamic MFG. Native device/queue rendering is retained; creation hooks install the selected SDK's swapchain. The existing Windows Vulkan fixed-2x DLSS FG path remains separate and its FSR SR + DLSS FG maintainer acceptance is preserved.

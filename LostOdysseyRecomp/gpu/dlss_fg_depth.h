@@ -1,8 +1,8 @@
 #pragma once
 
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
 #include "frame_generation_camera.h"
-#include <plume_vulkan.h>
+#include <plume_render_interface.h>
 #include <memory>
 
 namespace gpu::dlss_fg {

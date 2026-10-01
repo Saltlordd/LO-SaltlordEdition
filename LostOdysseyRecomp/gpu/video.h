@@ -6,6 +6,7 @@
 #include "display_change.h"
 #include "present_capture.h"
 #include "upscaling_plan.h"
+#include "frame_generation_status.h"
 #include "../../shared/frame_generation/core.h"
 namespace settings { struct Config; }
 
@@ -81,7 +82,6 @@ namespace gpu::video
     struct DynamicFgOutputPacing { uint32_t outputFps = 0; uint64_t actualPresents = 0; };
     // GPU owner only. Cumulative SDK presents are observations, not physical scanout.
     DynamicFgOutputPacing GetDynamicFgOutputPacing(uint32_t nativeTarget);
-    enum class FrameGenerationPhase : uint8_t { Off, Pending, Ready, Unavailable };
     struct FrameGenerationStatus {
         FrameGenerationPhase phase = FrameGenerationPhase::Off;
         framegen::Provider requested = framegen::Provider::Off;

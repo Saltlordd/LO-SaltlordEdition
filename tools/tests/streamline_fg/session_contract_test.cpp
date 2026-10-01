@@ -1,6 +1,7 @@
 #include "gpu/dlss_fg_completion.h"
 #ifndef LO_FG_COMPLETION_ONLY
 #include "gpu/temporal_frame_inputs.h"
+#include "gpu/dlss_fg_policy.h"
 #endif
 
 #include <cstdio>
@@ -45,6 +46,13 @@ void CompletionContract() {
 #ifndef LO_FG_COMPLETION_ONLY
 void InputContract() {
     using namespace gpu;
+    Check(dlss_fg::FullFramePresentation(1280, 720, 1280, 720), "native full-frame FG presentation");
+    Check(dlss_fg::FullFramePresentation(1280, 720, 1920, 1080), "SR-off 720p can scale to 1080p FG output");
+    Check(dlss_fg::FullFramePresentation(3840, 2160, 1920, 1080), "uniform downscale keeps FG coordinates aligned");
+    Check(!dlss_fg::FullFramePresentation(1280, 720, 1920, 1200), "letterboxed output needs subregion FG tags");
+    Check(!dlss_fg::FullFramePresentation(1280, 720, 3440, 1440), "pillarboxed output cannot use full-frame motion");
+    Check(!dlss_fg::FullFramePresentation(0, 720, 1920, 1080) &&
+          !dlss_fg::FullFramePresentation(1280, 720, 0, 0), "empty presentation never admits FG");
     temporal::TemporalFrameInputs in{};
     // Opaque, never-dereferenced addresses are sufficient for metadata checks.
     in.color = {reinterpret_cast<plume::RenderTexture*>(uintptr_t(1)), {640, 360}, 0, 0, 640, 360};

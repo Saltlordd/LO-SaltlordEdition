@@ -87,6 +87,7 @@
 #include <plume_d3d12.h>
 #endif
 #if LO_PLATFORM_MACOS
+#include <plume_metal.h>
 namespace plume {
     // Orders the scene-copy SR command lists; plume resources are untracked on Metal.
     void EncodeMetalQueueSignal(RenderCommandList* commandList);
@@ -2900,9 +2901,11 @@ namespace gpu::renderer
                     if (compositeSnapshot) fgCompositeAttemptedFrame = frame;
                     // Read native storage format, never infer it from transfer.
                     auto sourceFormat = RenderFormat::UNKNOWN;
-                    if (vulkan) sourceFormat = static_cast<VulkanTexture*>(promotion.inputs.color.texture)->desc.format;
+                    if (nativeVulkan) sourceFormat = static_cast<VulkanTexture*>(promotion.inputs.color.texture)->desc.format;
 #ifdef _WIN32
                     else sourceFormat = static_cast<D3D12Texture*>(promotion.inputs.color.texture)->desc.format;
+#elif LO_PLATFORM_MACOS
+                    else sourceFormat = static_cast<plume::MetalTexture*>(promotion.inputs.color.texture)->desc.format;
 #endif
                     auto snapshot = frame_generation::RecordProducerSnapshot(device, commandList,
                         promotion.inputs, sourceFormat, promotion.scratch->texture.get(),
@@ -6269,7 +6272,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalStableGrid = started.stableGrid;
                     temporalInputProbe = started.inputProbe;
                     dlssSrRequested = started.dlssSr;
-                    nativeFgInputs = !vulkan && fgCompositeEnabled && !resolveReadback &&
+                    nativeFgInputs = fgCompositeEnabled && !resolveReadback &&
                         frame_generation::NativeCompositePlan(activePlan) && !started.experiment && !started.inputProbe;
                     if (started.rejectDlss)
                         DisableDlssRequest(frame_plan::FailureReason::InvalidInput);

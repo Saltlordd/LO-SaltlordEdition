@@ -30,14 +30,15 @@ Config Validate(Config value)
     value.fsrSharpnessPercent = std::min(value.fsrSharpnessPercent, 100u);
     if (value.frameGenerationProvider != framegen::Provider::Off &&
         value.frameGenerationProvider != framegen::Provider::Dlss &&
-        value.frameGenerationProvider != framegen::Provider::Fsr)
+        value.frameGenerationProvider != framegen::Provider::Fsr &&
+        value.frameGenerationProvider != framegen::Provider::MetalFx)
         value.frameGenerationProvider = framegen::Provider::Off;
     if (value.frameGenerationMode != framegen::Mode::Fixed && value.frameGenerationMode != framegen::Mode::Dynamic)
         value.frameGenerationMode = framegen::Mode::Fixed;
     if (value.frameGenerationMultiplier < 2 || value.frameGenerationMultiplier > framegen::kMaxMultiplier)
         value.frameGenerationMultiplier = 2;
     if (value.frameGenerationTargetFps > 1000) value.frameGenerationTargetFps = 0;
-    if (value.frameGenerationProvider == framegen::Provider::Fsr)
+    if (value.frameGenerationProvider == framegen::Provider::Fsr || value.frameGenerationProvider == framegen::Provider::MetalFx)
     {
         value.frameGenerationMode = framegen::Mode::Fixed;
         value.frameGenerationMultiplier = 2;
@@ -128,7 +129,7 @@ Config Read()
         else if (key == "fsr_sharpness")
             value.fsrSharpnessPercent = number;
         else if (key == "frame_generation_provider")
-            value.frameGenerationProvider = number <= uint32_t(framegen::Provider::Fsr)
+            value.frameGenerationProvider = number <= uint32_t(framegen::Provider::MetalFx)
                 ? framegen::Provider(number) : framegen::Provider::Off;
         else if (key == "frame_generation_mode")
             value.frameGenerationMode = number <= uint32_t(framegen::Mode::Dynamic)
