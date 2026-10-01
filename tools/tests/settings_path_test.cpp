@@ -36,8 +36,14 @@ int main()
     const bool hadXdg = originalXdg != nullptr;
     const std::string previousXdg = hadXdg ? originalXdg : "";
     const char* actualHome = std::getenv("HOME");
+#if LO_PLATFORM_MACOS
+    const bool hadHome = actualHome != nullptr;
+    const std::string previousHome = hadHome ? actualHome : "";
+    const auto fallback = root / "home/Library/Application Support/LostOdysseyRecomp/settings.ini";
+#else
     const auto fallback = (actualHome ? fs::path(actualHome) : fs::path{}) /
         ".config/lost-odyssey-recomp/settings.ini";
+#endif
 #endif
     int result = 0;
     try
@@ -55,24 +61,32 @@ int main()
 
 #ifndef _WIN32
         setenv("XDG_CONFIG_HOME", (root / "xdg").c_str(), 1);
+#if LO_PLATFORM_MACOS
+        setenv("HOME", (root / "home").c_str(), 1);
+        const auto bundle = root / "LostOdysseyRecomp.app/Contents/MacOS";
+        fs::create_directories(bundle);
+        os::user_paths::Initialize(bundle);
+        const auto expected = fallback;
+#else
         os::user_paths::Initialize(root / "read-only-mount");
         const auto expected = root / "xdg/lost-odyssey-recomp/settings.ini";
-        Check(os::user_paths::SettingsPath() == expected, "read-only installations must use exact XDG settings file");
-        Check(!fs::exists(os::user_paths::SettingsPath()), "launch-directory settings must not suppress XDG initial setup");
+#endif
+        Check(os::user_paths::SettingsPath() == expected, "installed applications must use the platform settings file");
+        Check(!fs::exists(os::user_paths::SettingsPath()), "launch-directory settings must not suppress installed initial setup");
         WriteSettings(expected, "automatic_updates=1\nui_language=4\n");
-        Check(fs::exists(os::user_paths::SettingsPath()), "saved XDG settings bypass initial setup");
+        Check(fs::exists(os::user_paths::SettingsPath()), "saved installed settings bypass initial setup");
         preferences = updater::ReadStartupPreferences(os::user_paths::SettingsPath());
-        Check(preferences.automaticUpdates && preferences.uiLanguage == 4, "startup reads XDG settings rather than portable settings");
+        Check(preferences.automaticUpdates && preferences.uiLanguage == 4, "startup reads installed settings rather than portable settings");
         fs::current_path(root / "portable");
-        Check(os::user_paths::SettingsPath() == expected && fs::exists(expected), "XDG settings stay stable across launch directories");
+        Check(os::user_paths::SettingsPath() == expected && fs::exists(expected), "installed settings stay stable across launch directories");
         preferences = updater::ReadStartupPreferences(os::user_paths::SettingsPath());
         Check(preferences.automaticUpdates && preferences.uiLanguage == 4, "changed launch directory does not alter settings readback");
         unsetenv("XDG_CONFIG_HOME");
-        Check(os::user_paths::SettingsPath() == fallback, "unset XDG variable uses HOME fallback");
+        Check(os::user_paths::SettingsPath() == fallback, "unset XDG variable uses platform HOME path");
         setenv("XDG_CONFIG_HOME", "", 1);
-        Check(os::user_paths::SettingsPath() == fallback, "empty XDG variable uses HOME fallback");
+        Check(os::user_paths::SettingsPath() == fallback, "empty XDG variable uses platform HOME path");
 #endif
-        std::cout << "PASS: shared portable/XDG settings path and startup preference readback\n";
+        std::cout << "PASS: shared portable/installed settings path and startup preference readback\n";
     }
     catch (const std::exception& error)
     {
@@ -83,6 +97,10 @@ int main()
 #ifndef _WIN32
     if (hadXdg) setenv("XDG_CONFIG_HOME", previousXdg.c_str(), 1);
     else unsetenv("XDG_CONFIG_HOME");
+#if LO_PLATFORM_MACOS
+    if (hadHome) setenv("HOME", previousHome.c_str(), 1);
+    else unsetenv("HOME");
+#endif
 #endif
     std::error_code error;
     fs::remove_all(root, error);

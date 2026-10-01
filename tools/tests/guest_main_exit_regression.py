@@ -43,6 +43,7 @@ HARNESS = r'''
 #include <mutex>
 #include <thread>
 #include <vector>
+#include "os/guest_code_thread.h"
 #define LOG_INFO(...) ((void)0)
 #define LOG_ERROR(...) ((void)0)
 template <typename T> using be = T;
@@ -62,6 +63,7 @@ constexpr uint32_t REG_RB_EDRAM_TIMING = 0, REG_RB_BC_CONTROL = 1;
 constexpr uint32_t REG_D1MODE_V_COUNTER = 2, REG_INTERRUPT_STATUS = 3, REG_D1MODE_VIEWPORT_SIZE = 4;
 class CommandProcessor {
     std::vector<uint32_t> m_registers;
+    std::atomic<uint64_t> m_constantGeneration[2]{};
     std::atomic<bool> m_running{false};
     std::thread m_worker, m_vsync, m_interruptThread;
     std::mutex m_writePtrMutex, m_interruptMutex;
@@ -124,7 +126,8 @@ def main() -> int:
     tail_marker = '    LOG_INFO("guest main thread returned");'
     if main_source.count(tail_marker) != 1:
         raise RuntimeError("Guest-return extraction boundary changed")
-    main_tail = main_source[main_source.index(tail_marker):]
+    guest_body = function(main_source, "static int RunGuest(uint32_t entry)")
+    main_tail = guest_body[guest_body.index(tail_marker):]
     cpp = HARNESS + "\nnamespace gpu {\n" + "\n".join(
         function(cp, signature) for signature in (
             "bool CommandProcessor::Init()",
@@ -150,6 +153,7 @@ int main(int argc, char** argv) {
     executable = out / "exit"
     build = subprocess.run(
         [args.cxx, "-std=c++20", "-pthread", "-Wall", "-Wextra", "-Werror",
+         "-I" + str(ROOT / "LostOdysseyRecomp"),
          str(out / "exit.cpp"), "-o", str(executable)],
         capture_output=True, text=True, timeout=60,
     )

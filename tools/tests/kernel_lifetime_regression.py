@@ -28,6 +28,7 @@ def main():
     cpp = r'''
 #include "kernel/dispatcher_wait.h"
 #include "os/thread_name.h"
+#include "os/guest_code_thread.h"
 #include <atomic>
 #include <future>
 #include <iostream>
