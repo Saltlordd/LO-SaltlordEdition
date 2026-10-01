@@ -21,6 +21,7 @@
 #include "frame_generation_composite.h"
 #include "fsr_frame_generation_vulkan.h"
 #include "metalfx_frame_generation.h"
+#include "optiscaler_loader.h"
 #include "../../shared/frame_generation/environment.h"
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
 #include "frame_generation_d3d12.h"
@@ -1482,6 +1483,21 @@ namespace gpu::video
                 getenv("LO_GRAPHICS_API") ? getenv("LO_GRAPHICS_API") : "settings");
             return false;
         }
+
+#if defined(LO_GPU_PLUME)
+#if defined(LO_DLSS_SDK)
+        constexpr bool ngxCompiled = true;
+#else
+        constexpr bool ngxCompiled = false;
+#endif
+        const auto& opti = optiscaler::Initialize(ngxCompiled);
+        if (opti.requested) {
+            if (opti.loaded)
+                LOG_INFO("OptiScaler: {}. Select DLSS as the game input; configure the output in OptiScaler.", opti.reason);
+            else
+                LOG_WARNING("OptiScaler: {} (system error {})", opti.reason, opti.systemError);
+        }
+#endif
 
         auto createWindow = [] {
             g_windowDisplay = {};

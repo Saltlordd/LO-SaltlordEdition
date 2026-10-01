@@ -17,6 +17,7 @@ platform support. This implementation builds on that port.
 | DLSS FG, native Linux Vulkan | The pinned Streamline release has no native Linux FG runtime. No Linux provider advertised. |
 | FSR FG, native Linux Vulkan | Algorithm sources exist, but the pinned SDK presenter depends on Win32 threads/events/timing. A native presenter port is still required; existing Linux FSR SR is unaffected. |
 | MAKO / LSFG, native Linux Vulkan | Separate external-layer option, reviewed at `06ecf6e`. Uses the user's Lossless Scaling installation. Native/AppImage launch procedure below; no game/GPU acceptance claimed. The reviewed Flatpak extensions do not include this game's 26.08 runtime. |
+| OptiScaler, Windows | Implemented optional early DLL loading using the existing NGX input adapter. Upstream supports D3D12/Vulkan SR, including FSR 4 on supported hardware; OptiFG remains D3D12-only. Loader tests pass; actual OptiScaler rendering is unverified. |
 | FSR 4 SR / FG | Feasibility research below. SDK 2.3 has no official Vulkan backend; OptiScaler's Vulkan SR uses Windows DX12 interop. No FSR 4 adapter claimed. |
 
 These are experimental source integrations. Compilation and CPU tests do not
@@ -251,7 +252,7 @@ cost. Both require hardware/visual testing; no quality or speed claim is made.
 
 ## FSR 4 and what OptiScaler demonstrates
 
-Reviewed OptiScaler commit `5dc144e29a1ba6fd63549dcabf20bce814d01e6a`.
+Reviewed OptiScaler commit `435609d4080373a008cc0312fb65641d35feae9c`.
 Its README lists Vulkan FSR 4 through **DX12 interop**. `FFXFeatureVkOn12`
 constructs a `FFXFeatureDx12`; `IFeature_VkwDx12` implements shared images,
 Windows handles, shared fences/semaphores and submission splitting. Its OptiFG
@@ -263,7 +264,7 @@ The game currently calls the statically compiled
 FFX API upscaler DLL, so a driver-level FSR upgrade or replacing a DLL beside the
 game cannot be assumed to upgrade this path.
 
-For a supported Windows implementation, first add a D3D12 adapter using the
+For a native Windows implementation independent of OptiScaler, first add a D3D12 adapter using the
 signed `amd_fidelityfx_upscaler_dx12.dll`, query provider versions for the actual
 device and verify the selected provider after context creation. SDK 2.3's
 Upscaling 4.1.1 documentation lists Radeon 7000-series **discrete** GPUs and
@@ -296,12 +297,69 @@ feasibility and why it is not a native Linux implementation. Its performance
 cost is workload-dependent; no OptiScaler benchmark is presented as a game
 measurement here. No OptiScaler source was copied into the runtime.
 
+## Optional OptiScaler loading on Windows
+
+`LO_OPTISCALER_PATH` enables the new experimental loader before SDL and graphics
+device creation. The reviewed upstream `CheckWorkingMode()` accepts the original
+`OptiScaler.dll` name and installs its hooks during DLL attachment. The game's
+existing NGX adapter supplies the upscaling input; the output is configured in
+OptiScaler. Loading the DLL does **not** establish that a particular output is
+active or that the game is compatible with it.
+
+Use a Windows build with `LO_ENABLE_DLSS=ON` and a usable local NGX SDK. Extract
+the user's complete OptiScaler package into an `OptiScaler` directory beside
+`LostOdysseyRecomp.exe`, preserving the original DLL filename, INI and supporting
+files. The reviewed upstream reads `OptiScaler.ini` beside its DLL and defaults
+its runtime library directory to `<exe-directory>/OptiScaler`. For another
+location, configure upstream `[Libraries] OptiDllPath` as well as the game path.
+The game does not download or bundle OptiScaler or its output runtimes.
+
+For a Vulkan SR trial, launch from the executable directory in PowerShell:
+
+```powershell
+$env:LO_GRAPHICS_API = 'vulkan'
+$env:LO_FG_PROVIDER = 'off'
+$env:LO_OPTISCALER_PATH = (Resolve-Path '.\OptiScaler\OptiScaler.dll').Path
+& '.\LostOdysseyRecomp.exe' --game 'D:\Games\LostOdyssey'
+```
+
+Select **DLSS** in the game's upscaler menu, then configure the desired output
+in OptiScaler. Selecting the game's statically linked FSR path does not provide
+the NGX input for this route. At the reviewed revision, Vulkan FSR 4 uses
+`[Upscalers] VulkanUpscaler=ffx_12`; the selected FFX provider, matching runtime
+files, hardware and drivers must also support FSR 4. Check OptiScaler's own
+overlay/log for the actual provider. Its default Vulkan output is FSR 2.2.
+
+For OptiFG, restart with `LO_GRAPHICS_API=d3d12` and keep
+`LO_FG_PROVIDER=off`. Configure upstream `[FrameGen] FGInput=upscaler`, enable
+its frame generation and choose an output it supports with the installed
+runtimes. The game supplies the SR input and OptiScaler manages external FG.
+No internal Streamline/FSR FG swapchain is started in this mode. HUD handling,
+frame pacing and output quality still require game/GPU acceptance. Vulkan SR
+interop does not make OptiFG a Vulkan presenter.
+
+The loader requires an absolute path, the original DLL basename, compiled NGX
+support and explicit `LO_FG_PROVIDER=off`. This environment override also keeps
+saved settings and live menu changes from starting an internal FG presenter.
+It accepts Unicode paths without changing the working directory, reports load
+errors, and retains the DLL until process exit because graphics dispatch
+pointers may reference its hooks. Enabling, replacing or disabling OptiScaler
+requires a game restart. Unset `LO_OPTISCALER_PATH` to disable it; unset
+`LO_FG_PROVIDER` to restore the saved internal FG preference.
+
+Native Linux/macOS builds report this Windows DLL route as unavailable. Running
+the Windows game under Wine/Proton is a separate, unverified deployment; the
+loader fixture tests under Wine do not validate OptiScaler there. MAKO remains
+the external native-Linux route described above.
+
 ## Validation
 
 The standalone CPU suite now covers DLSS-only, FSR-only, both-provider and
 uncompiled selection; SDK queue reservation; MetalFX parameter conversion and
 platform gating; existing ownership/history/completion contracts; and actual
 menu interaction with provider switching and restart prompts.
+It also exercises the actual OptiScaler loader with a small test DLL that has
+no OptiScaler, NGX or GPU functionality.
 
 ```sh
 cmake -S tools/tests/streamline_fg -B out/vulkan-fg/contracts -DLO_STREAMLINE_FG_CPU_ONLY=ON
@@ -315,7 +373,11 @@ The macOS check cross-compiles actual sources against macOS SDK 26.0 for arm64;
 it does not link or execute the full game. No game assets or SDK binaries enter
 the repository.
 
-- Linux GCC and Windows MinGW/Wine: **23/23** CPU/menu contracts each.
+- Linux GCC: **25/25** CPU/menu/loader contracts. Windows MinGW/Wine:
+  **31/31**. Loader cases cover absent configuration, missing NGX support,
+  internal FG conflicts, relative/wrong-name/missing/invalid DLLs, and successful
+  loading from a Unicode/space path with immutable process-lifetime ownership.
+  Native non-Windows rejection is covered separately.
 - Production settings/VRR tests: **3/3** each on Linux and Windows/Wine,
   including saved FSR/MetalFX selection and fixed-2× normalization. Shared FG
   ownership/history core: **1/1** on Linux.
@@ -326,6 +388,9 @@ the repository.
   standalone CMake configuration also succeeds; its generated compile commands
   compile the adapter, depth, video and renderer objects.
 - Linux: ordinary video and modified Plume Vulkan source compiled.
+- OptiScaler integration: affected Windows/Linux/macOS video sources compiled;
+  the Windows check includes the NGX-enabled loader call. The loader compiles
+  on all three platforms, including macOS arm64 with SDK 26.
 - Pinned Plume base and macOS patches replay cleanly and reproduce the checked
   source files. CI compiles both new adapters and the real game integration
   without generated guest code.
@@ -345,6 +410,6 @@ cadence. New paths are not certified by historical DLSS 2× probe results.
 - [Streamline 2.14.1 release](https://github.com/NVIDIA-RTX/Streamline/releases/tag/v2.14.1) and [pinned DLSS-G programming guide, fixed/dynamic MFG](https://github.com/NVIDIA-RTX/Streamline/blob/2122257e0fce486f91b385aa63b9a09b0a34b363/docs/ProgrammingGuideDLSS_G.md#62-enabling-multi-frame-generation).
 - [FidelityFX 1.1.4 Vulkan FFX API types](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/ffx-api/include/ffx_api/vk/ffx_api_vk.h), [swapchain implementation](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/src/backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK.cpp) and [Win32 presenter declarations](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/src/backends/vk/FrameInterpolationSwapchain/FrameInterpolationSwapchainVK.h).
 - [FSR SDK 2.3 Vulkan limitation](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/v2.3.0/Kits/FidelityFX/readme.md), [Upscaling 4.1.1](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/v2.3.0/Kits/FidelityFX/docs/techniques/super-resolution-ml.md), [FG 4.0.1](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/v2.3.0/Kits/FidelityFX/docs/techniques/frame-interpolation-ml.md) and [FFX API/provider selection](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/blob/v2.3.0/Kits/FidelityFX/docs/getting-started/ffx-api.md).
-- [OptiScaler support matrix](https://github.com/optiscaler/OptiScaler/blob/5dc144e29a1ba6fd63549dcabf20bce814d01e6a/README.md), [Vulkan-to-DX12 resource/synchronization implementation](https://github.com/optiscaler/OptiScaler/blob/5dc144e29a1ba6fd63549dcabf20bce814d01e6a/OptiScaler/upscalers/IFeature_VkwDx12.cpp), and [FFX Vulkan-on-DX12 adapter](https://github.com/optiscaler/OptiScaler/blob/5dc144e29a1ba6fd63549dcabf20bce814d01e6a/OptiScaler/upscalers/ffx/FFXFeature_VkOn12.cpp).
+- [OptiScaler support matrix](https://github.com/optiscaler/OptiScaler/blob/435609d4080373a008cc0312fb65641d35feae9c/README.md), [original-name DLL loading and early hooks](https://github.com/optiscaler/OptiScaler/blob/435609d4080373a008cc0312fb65641d35feae9c/OptiScaler/dllmain.cpp), [configuration](https://github.com/optiscaler/OptiScaler/blob/435609d4080373a008cc0312fb65641d35feae9c/OptiScaler.ini), [Vulkan-to-DX12 resource/synchronization implementation](https://github.com/optiscaler/OptiScaler/blob/435609d4080373a008cc0312fb65641d35feae9c/OptiScaler/upscalers/IFeature_VkwDx12.cpp), and [FFX Vulkan-on-DX12 adapter](https://github.com/optiscaler/OptiScaler/blob/435609d4080373a008cc0312fb65641d35feae9c/OptiScaler/upscalers/ffx/FFXFeature_VkOn12.cpp).
 - [MAKO backend input/FD contract](https://github.com/eugeniosegala/MAKO/blob/06ecf6ee87e601f9f2a6990ae7c50a5da6137992/engine/mako-backend/include/mako-backend/mako.hpp), [WSI and Gamescope ownership](https://github.com/eugeniosegala/MAKO/blob/06ecf6ee87e601f9f2a6990ae7c50a5da6137992/engine/docs/WSI-ISOLATION.md), [launcher/profile configuration](https://github.com/eugeniosegala/MAKO/blob/06ecf6ee87e601f9f2a6990ae7c50a5da6137992/engine/docs/CONFIGURATION.md), and [packaged Flatpak runtime branches](https://github.com/eugeniosegala/MAKO/blob/06ecf6ee87e601f9f2a6990ae7c50a5da6137992/engine/dist/flatpak/mako-render/runtime-versions.txt).
 - [Apple frame-interpolator descriptor](https://developer.apple.com/documentation/metalfx/mtlfxframeinterpolatordescriptor), [device-support query](https://developer.apple.com/documentation/metalfx/mtlfxframeinterpolatordescriptor/supportsdevice(_:)), and [frame-interpolator resource contract](https://developer.apple.com/documentation/metalfx/mtlfxframeinterpolatorbase).

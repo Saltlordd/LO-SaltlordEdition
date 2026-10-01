@@ -21,6 +21,7 @@ if(APPLE)
 endif()
 add_subdirectory("${ROOT}/tools/XenosRecomp/thirdparty/fmt" fmt EXCLUDE_FROM_ALL)
 add_library(mv_runtime STATIC
+ "${ROOT}/LostOdysseyRecomp/gpu/optiscaler_loader.cpp"
  "${ROOT}/LostOdysseyRecomp/gpu/shader/xenos_translator.cpp"
  "${ROOT}/LostOdysseyRecomp/gpu/shader/dxc_compiler.cpp"
  "${ROOT}/LostOdysseyRecomp/gpu/temporal_aa.cpp")
