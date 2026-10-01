@@ -1,10 +1,11 @@
-# Pull request checks on Gitea
+# Pull request checks and releases on Gitea
 
 Since 2026-09-30 the pull request checks run on Gitea Actions at
 `git.zkx.ca` instead of GitHub Actions. GitHub queues were too slow for these
-short jobs. The GitHub copies under `.github/workflows/` keep only
-`workflow_dispatch`, so they can still be started manually. Release packaging,
-the Mod Wiki publication and issue triage stay on GitHub.
+short jobs. Release packaging followed on 2026-10-01 (see [Releases](#releases)).
+The GitHub copies under `.github/workflows/` keep only `workflow_dispatch`, so
+they can still be started manually. The Mod Wiki publication and issue triage
+stay on GitHub.
 
 | Workflow (`.gitea/workflows/`) | Jobs | Runner |
 |---|---|---|
@@ -39,20 +40,92 @@ and `.../actions/jobs/<id>/logs`.
 Each workflow ends with a `github-status` job that writes the overall result
 to the GitHub commit as the status `gitea/<workflow>`, linked to the Gitea run,
 so GitHub pull requests show the outcome. It needs the Gitea repository secret
-`LO_GITHUB_TOKEN`: a fine-grained GitHub token for this repository with
-"Commit statuses: Read and write". Without the secret the job skips. A commit
-that has not been pushed to GitHub yet gets no status (HTTP 422 in the job log).
+`LO_GITHUB_TOKEN`: a fine-grained GitHub token for the owner's repositories with
+"Commit statuses: Read and write" and, for the release workflow, "Contents:
+Read and write". Without the secret the job skips. A commit that has not been
+pushed to GitHub yet gets no status (HTTP 422 in the job log).
 
 In the agent's non-interactive Git Bash, `tea` started directly hangs, even
 for `--version`. The zkx credential helper is `tea login helper`, so a push
 from there hangs too. Started from PowerShell or through `cmd //c` it works.
+A PowerShell wrapper script around `tea` must not bind `-d` as a script
+parameter: PowerShell takes it as `-Debug`, and the request goes out without a
+body (Gitea answers "Empty Content-Type").
+
+## Releases
+
+`.gitea/workflows/release.yml` is the port of the GitHub release workflow. A
+`v*` tag pushed to `zkx` starts it, and so does a manual start with an
+optional `release_tag`. Push the tag to GitHub first: the draft step runs
+`gh release create --verify-tag`, which needs the tag there.
+
+```powershell
+git push origin refs/tags/vX.Y.Z
+git push zkx refs/tags/vX.Y.Z
+```
+
+| Job | Runner |
+|---|---|
+| Create draft release, publish complete release | `docker-runner` |
+| FSR shader inputs, Windows build and ZIP | `win-t640` |
+| Linux build, AppImage and Flatpak | `docker-lo-release-privileged` |
+
+The Gitea job token cannot reach GitHub, so every GitHub operation uses
+`LO_GITHUB_TOKEN` with `GH_REPO` pinned to `freefrank/LostOdysseyRecomp`:
+creating the draft, uploading assets, publishing, downloading the pinned
+Streamline SDK, and fetching the private `freefrank/LostOdysseyRecomp-build-inputs`
+commits (no deploy key on Gitea). A manual start without `release_tag` builds
+the selected branch and keeps the packages as Gitea artifacts; it writes
+nothing to GitHub. To package an existing tag again, start it with that tag:
+
+```powershell
+tea api --login zkx -X POST -d '{"ref":"main","inputs":{"release_tag":"vX.Y.Z"}}' /repos/freefrank/LostOdysseyRecomp/actions/workflows/release.yml/dispatches
+```
+
+As on GitHub, an existing release keeps its reviewed notes and assets; only
+missing assets are uploaded, and a public release stays as it is.
+
+Differences from the GitHub release workflow:
+
+- Flatpak needs bubblewrap, which needs a privileged container, hence the
+  dedicated runner. `gh` 2.63.2 is downloaded in each Linux job.
+- Windows jobs use T640's Python 3.12 (a venv for the packaging tools) instead
+  of `setup-python`, 32 build jobs and 16 FSR shader threads. The Linux build
+  uses 4 jobs to stay within the Gitea host's free memory.
+- Runner caches: both release runners set `LO_CI_CACHE` (`D:\ci-cache` on
+  T640; `/ci-cache` on the privileged runner, the `lo-release-cache` docker
+  volume). `fetch_dlss_sdk.py` keeps a verified checkout of the pinned SDK in
+  `nvidia-dlss-<commit>` there and copies it instead of fetching about
+  0.5 GB again; a damaged entry is dropped and fetched anew. The Windows job
+  keeps the Streamline archive in `streamline/` once it has passed the size
+  and SHA-256 check. Windows submodules use the `LO_GIT_REFERENCE` mirror. The
+  privileged runner also keeps `/var/lib/flatpak` in the `lo-release-flatpak`
+  volume; the job runs `flatpak update` for the two runtimes so a kept copy
+  matches a fresh install. The private game input is not cached. Without
+  `LO_CI_CACHE` every step downloads as before.
+- On the Windows host runner, a second `actions/checkout` in the same job fails:
+  act re-fetches its cached copy of the action, and Windows denies access to
+  the replaced pack file. The FidelityFX SDK and the private inputs are
+  fetched with plain git; the token reaches git through `GIT_CONFIG_*`
+  variables, so it is neither on a command line nor in `.git/config`.
 
 ## Runners
 
 | Runner | Labels | Host |
 |---|---|---|
 | `docker-runner` | `ubuntu-latest`, `ubuntu-24.04`, `ubuntu-22.04` | Docker on the Gitea host |
+| `docker-lo-release-privileged` | `ubuntu-22.04-privileged` (this repository only) | Docker on the Gitea host, privileged containers |
 | `win-t640` | `windows-2022`, `windows-latest`, `windows` (host mode) | T640, Windows Server 2022, 64 threads |
+
+The Gitea host (`192.168.1.7`) is a Linux VM on T640 with 32 threads and
+31 GB of memory, about half of it free for jobs. The privileged runner is a
+separate compose project in `/root/app/gitea-runner-lo` (container
+`gitea-runner-lo-release`, one job at a time). It is registered to this
+repository only, because a privileged job container can control the Docker
+host. Only the release workflow uses its label. Its `data/config.yaml` sets
+`LO_CI_CACHE: /ci-cache` under `runner.envs`, mounts the `lo-release-cache`
+and `lo-release-flatpak` volumes through `container.options`, and lists both
+in `container.valid_volumes`.
 
 The Linux image has no CMake or compiler, so the workflows install `cmake`,
 `g++` and, where needed, `python3` and `libsdl2-dev` first.
@@ -71,9 +144,18 @@ T640 toolchain:
 - CMake 3.31.6 and PowerShell 7.4.6
 - Python 3.12.10 in `C:\Program Files\Python312`, unpacked from the official NuGet package because the python.org installer fails on this machine, as `setup-python` did in 2026-09
 - Git for Windows, Node.js, and aria2 in `C:\tools\aria2`
+- GitHub CLI 2.63.2 in `C:\tools\gh` (on the runner `PATH`), used by the release workflow
 
 `start-runner.cmd` also sets `MSBUILDDISABLENODEREUSE=1`, so idle MSBuild
 worker processes do not linger and hold files between jobs.
+
+Until 2026-10-01, T640 had TCP receive window auto-tuning and RSS disabled.
+That capped every single TCP connection at 64 KB per round trip, about
+1.9 MB/s to GitHub, while multi-connection tests such as fast.com still
+showed 400 Mb/s. The first Gitea release run spent 14 minutes fetching the
+DLSS SDK. With `netsh int tcp set global autotuninglevel=normal` and
+`rss=enabled`, one connection reaches about 12 MB/s. If GitHub downloads on
+T640 become slow again, check `netsh int tcp show global` first.
 
 The VS-bundled clang package stalled for half an hour during setup (it
 completed later), so `start-runner.cmd` sets `LLVMInstallDir` and
@@ -100,6 +182,10 @@ variable keep `--depth 1`. The mirror is owned by the setup account, so
 To add an upstream, add a remote with the same two fetch refspecs and
 `tagOpt --no-tags`, then fetch.
 
+It also exports `LO_CI_CACHE=D:\ci-cache` for the release caches described
+under [Releases](#releases). Entries are named by the pinned version or
+commit, so a pin change adds a new entry; delete old ones by hand.
+
 ## Differences from the GitHub workflows
 
 - `actions/upload-artifact@v3`: Gitea rejects v4 as an unsupported GHES server.
@@ -107,7 +193,9 @@ To add an upstream, add a remote with the same two fetch refspecs and
   shallow sparse `git fetch`. `actions/checkout` would send the Gitea job token
   to github.com, which answers 401, and git then fails asking for a username.
   The sparse paths use cone mode, because Git Bash rewrites `/`-prefixed
-  arguments into Windows paths.
+  arguments into Windows paths. With an explicit `token:` and
+  `github-server-url: https://github.com`, `actions/checkout` works for GitHub
+  repositories; the Linux release job uses that.
 
 ## Timing
 

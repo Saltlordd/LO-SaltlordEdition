@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Fetch and pin the audited NVIDIA DLSS SDK repository for CI release builds."""
 import argparse
+import os
 from pathlib import Path
+import shutil
+import stat
 import subprocess
 import sys
 
@@ -11,6 +14,54 @@ DEFAULT_COMMIT = '374959484e79a640feaba44c93ac8cfb0a03f5b5'
 
 def run(cmd, cwd=None):
     subprocess.run(cmd, cwd=cwd, check=True)
+
+
+def remove_tree(path: Path):
+    """Delete a checkout, including git's read-only object files on Windows."""
+    def retry_writable(func, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    if path.exists():
+        handler = {'onexc' if sys.version_info >= (3, 12) else 'onerror': retry_writable}
+        shutil.rmtree(path, **handler)
+
+
+def restore_from_cache(cache: Path, dest: Path, commit: str) -> bool:
+    """Copy a cached checkout of the pinned commit into an empty destination."""
+    if dest.exists() or not (cache / '.git').is_dir():
+        return False
+    print(f"Restoring DLSS SDK from cache {cache}...")
+    shutil.copytree(cache, dest, symlinks=True)
+    try:
+        head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=dest, text=True).strip()
+        if head != commit:
+            raise SystemExit(f'cached checkout is at {head}')
+        verify_sdk(dest)
+    except (OSError, subprocess.CalledProcessError, SystemExit) as error:
+        # A damaged cache entry is dropped and the SDK is fetched again.
+        print(f"Discarding unusable DLSS SDK cache: {error}")
+        remove_tree(dest)
+        try:
+            remove_tree(cache)
+        except OSError as cleanup_error:
+            print(f"Could not remove the cache entry: {cleanup_error}")
+        return False
+    return True
+
+
+def store_in_cache(dest: Path, cache: Path):
+    """Publish a verified checkout to the cache; concurrent writers keep the first copy."""
+    if cache.exists():
+        return
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    staging = cache.with_name(f'{cache.name}.tmp-{os.getpid()}')
+    remove_tree(staging)
+    shutil.copytree(dest, staging, symlinks=True)
+    try:
+        os.replace(staging, cache)
+        print(f"Cached DLSS SDK at {cache}")
+    except OSError:
+        remove_tree(staging)
 
 
 def verify_sdk(dest: Path):
@@ -35,15 +86,23 @@ def main():
                         help='Destination directory for DLSS SDK')
     parser.add_argument('--remote', default=DEFAULT_REMOTE, help='Git remote URL')
     parser.add_argument('--commit', default=DEFAULT_COMMIT, help='Target Git commit SHA')
+    parser.add_argument('--cache-root', type=Path, default=os.environ.get('LO_CI_CACHE') or None,
+                        help='Persistent runner cache directory (default: LO_CI_CACHE); '
+                             'the verified checkout is kept in <root>/nvidia-dlss-<commit>')
     args = parser.parse_args()
 
     dest = args.dest.resolve()
+    cache = Path(args.cache_root).resolve() / f'nvidia-dlss-{args.commit}' if args.cache_root else None
+    if cache:
+        restore_from_cache(cache, dest, args.commit)
     if (dest / '.git').exists():
         try:
             head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=dest, text=True).strip()
             if head == args.commit:
                 verify_sdk(dest)
                 print(f"DLSS SDK already present and verified at {dest} (commit {head})")
+                if cache:
+                    store_in_cache(dest, cache)
                 return
         except Exception:
             pass
@@ -60,6 +119,8 @@ def main():
 
     verify_sdk(dest)
     print(f"DLSS SDK successfully fetched and verified at {dest} (commit {args.commit})")
+    if cache:
+        store_in_cache(dest, cache)
 
 
 if __name__ == '__main__':

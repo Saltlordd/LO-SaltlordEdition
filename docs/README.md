@@ -36,7 +36,7 @@ Reusable investigation methods and constraints may also be summarized in Basic M
 | [Portable shader packs](PORTABLE_SHADER_PACK.md) | Vulkan/DX12 distribution, tools and historical pack measurements |
 | [Repository synchronization](PUBLISHING.md) | Remote selection and publication workflow |
 | [Release packaging](../tools/release/README.md) | Package assembly and release-note extraction; release workflows stay on GitHub Actions |
-| [Pull request checks](notes/ci-gitea.md) | Gitea Actions workflows, runners and the `gitea/<workflow>` status reported back to GitHub |
+| [Pull request checks and releases](notes/ci-gitea.md) | Gitea Actions workflows (PR checks and release packaging), runners and the `gitea/<workflow>` status reported back to GitHub |
 | [AppImage compatibility](../packaging/linux/APPIMAGE_COMPATIBILITY.md) | ABI baseline, packaging evidence and hardware limits |
 | [Project synchronization](project-management/README.md) | Manifest ownership, conflict handling and live state reconciliation |
 | [TAA live debug](TAA_LIVE_DEBUG.md) | Local panel reference plus dated Bell/Uhra experiments |

@@ -90,7 +90,10 @@ jobs:
       - name: Generate FSR D3D12 shaders
         shell: cmd
         run: |
-          git submodule update --init --recursive tools/XenosRecomp || exit /b 1
+          rem win-t640 sets LO_GIT_REFERENCE to a local mirror of the submodule upstreams.
+          set "SUBMODULE_REFERENCE="
+          if defined LO_GIT_REFERENCE set "SUBMODULE_REFERENCE=--reference %LO_GIT_REFERENCE%"
+          git submodule update --init --recursive %SUBMODULE_REFERENCE% tools/XenosRecomp || exit /b 1
           python tools/fsr/generate_dx12_shaders.py --sdk out/deps/fidelityfx-sdk --dxc-dir tools/XenosRecomp/thirdparty/dxc-bin/bin/x64 --output out/fsr-shaders-dx12 --threads 16 || exit /b 1
           python tools/fsr/prepare_adapter_shaders_dx12.py --dxc tools/XenosRecomp/thirdparty/dxc-bin/bin/x64/dxc.exe --output out/fsr-adapter-dx12 || exit /b 1
       - uses: actions/upload-artifact@v3 # Gitea does not support v4
@@ -119,8 +122,15 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.release_tag && format('refs/tags/{0}', inputs.release_tag) || github.ref }}
-          submodules: recursive
           persist-credentials: false
+      - name: Checkout submodules
+        shell: bash
+        run: |
+          set -euo pipefail
+          # win-t640 sets LO_GIT_REFERENCE to a local mirror of the submodule
+          # upstreams; objects missing from it are still fetched from GitHub.
+          if [ -n "${LO_GIT_REFERENCE:-}" ]; then fetch=(--reference "$LO_GIT_REFERENCE"); else fetch=(); fi
+          git submodule update --init --recursive "${fetch[@]}"
       - uses: actions/download-artifact@v3
         with:
           name: fsr-vulkan-build-inputs
@@ -165,10 +175,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
         run: |
-          gh release download v2.14.1 --repo NVIDIA-RTX/Streamline --pattern streamline-sdk-v2.14.1.zip --dir out/deps --clobber
-          if ($LASTEXITCODE -ne 0) { throw 'Official Streamline SDK download failed.' }
-          python tools/release/prepare_streamline_sdk.py --archive out/deps/streamline-sdk-v2.14.1.zip --dest out/deps/streamline
-          if ($LASTEXITCODE -ne 0) { throw 'Pinned Streamline SDK verification failed.' }
+          $zip = 'streamline-sdk-v2.14.1.zip'
+          New-Item -ItemType Directory -Force out/deps | Out-Null
+          # The runner cache (LO_CI_CACHE) keeps the archive once it has passed verification.
+          $cached = if ($env:LO_CI_CACHE) { Join-Path $env:LO_CI_CACHE "streamline/$zip" }
+          if ($cached -and (Test-Path -LiteralPath $cached)) {
+            Copy-Item -LiteralPath $cached -Destination out/deps
+          } else {
+            gh release download v2.14.1 --repo NVIDIA-RTX/Streamline --pattern $zip --dir out/deps --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Official Streamline SDK download failed.' }
+          }
+          python tools/release/prepare_streamline_sdk.py --archive out/deps/$zip --dest out/deps/streamline
+          if ($LASTEXITCODE -ne 0) {
+            if ($cached) { Remove-Item -LiteralPath $cached -ErrorAction SilentlyContinue }
+            throw 'Pinned Streamline SDK verification failed.'
+          }
+          if ($cached -and -not (Test-Path -LiteralPath $cached)) {
+            New-Item -ItemType Directory -Force (Split-Path $cached) | Out-Null
+            Copy-Item -LiteralPath out/deps/$zip -Destination "$cached.tmp-$PID"
+            Move-Item -LiteralPath "$cached.tmp-$PID" -Destination $cached -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath "$cached.tmp-$PID" -ErrorAction SilentlyContinue
+          }
       - name: Generate game code
         shell: cmd
         run: |
@@ -472,6 +499,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends flatpak
           sudo flatpak --system remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak --system install -y --noninteractive flathub \
+            org.freedesktop.Platform//26.08 \
+            org.freedesktop.Sdk//26.08
+          # The privileged runner keeps /var/lib/flatpak in a volume; bring a
+          # kept runtime to the current commit, as a fresh install would be.
+          sudo flatpak --system update -y --noninteractive \
             org.freedesktop.Platform//26.08 \
             org.freedesktop.Sdk//26.08
       - name: Package Flatpak from the AppImage runtime

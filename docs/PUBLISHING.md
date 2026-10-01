@@ -25,9 +25,11 @@ Review the unpublished diff for private/generated content before publication.
 Since 2026-09-30 the FG contract, FG game integration compile, reusable FG and
 review-regression pull request checks run as Gitea Actions on the `zkx` remote. A branch push to `zkx`
 starts them (subject to each workflow's path filter), and each result is reported back
-to the GitHub commit as `gitea/<workflow>`. The matching GitHub workflows are
-manual-only; release packaging, the Mod API and Wiki workflow and issue triage stay on
-GitHub Actions. See [Pull request checks on Gitea](notes/ci-gitea.md) for pushing,
+to the GitHub commit as `gitea/<workflow>`. Since 2026-10-01 release packaging runs
+on Gitea as well: a `v*` tag pushed to `zkx` builds the Windows ZIP, AppImage and
+Flatpak and publishes them to the GitHub release. The matching GitHub workflows are
+manual-only; the Mod API and Wiki workflow and issue triage stay on GitHub Actions.
+See [Pull request checks and releases on Gitea](notes/ci-gitea.md) for pushing,
 reading results and the required Gitea secret.
 
 The legacy `tools/push_all.ps1` helper still hardcodes `origin` and `github`.
@@ -40,7 +42,16 @@ The pre-cleanup history is retained only on Gitea in
 `archive/pre-public-cleanup-2026-09-05`. Never merge this branch into `main` or
 publish it to GitHub. Do not use `--all`, `--mirror`, or automatic tag pushing.
 Release tags must be created from reviewed public commits and pushed explicitly
-to both remotes. Hosting a binary release is a separate packaging step.
+to both remotes, GitHub first, because the Gitea release workflow creates the
+draft with `gh release create --verify-tag`:
+
+```powershell
+git push origin refs/tags/vX.Y.Z
+git push zkx refs/tags/vX.Y.Z
+```
+
+The push to `zkx` starts the release build. Check the Gitea run and the
+published assets before announcing the release.
 
 Personal game data, saves, generated sources and analysis outputs stay ignored.
 Dependency submodules retain their upstream histories and licenses.
