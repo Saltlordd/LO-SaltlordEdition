@@ -10,8 +10,8 @@ The separate `LO_STREAMLINE_FG_CPU_ONLY=ON` configuration needs no SDK, GPU or
 game assets. It covers runtime/input policies, Vulkan settings selection and
 production menu interaction/raster tests (Python 3 generates the menu fixture).
 The [Vulkan/FSR 4/MetalFX investigation](../../../docs/notes/vulkan-fg-fsr4-metalfx.md)
-documents the game's new fixed-multiplier settings path and its remaining
-hardware checks; this standalone GPU probe still exercises its original 2× path.
+documents the game's DLSS/FSR Vulkan adapters, MetalFX FG, queue reservations,
+settings and remaining hardware checks; this standalone GPU probe still exercises its original 2× path.
 
 From the repository root in PowerShell, after placing the SDKs in the local `.cache/deps` paths:
 

@@ -8,6 +8,11 @@ on:
     branches: ['**']
     paths:
       - '.gitea/workflows/fg-cpu-contracts.yml'
+      - 'LostOdysseyRecomp/gpu/fsr_fg_*.h'
+      - 'LostOdysseyRecomp/gpu/fsr_frame_generation_vulkan.*'
+      - 'LostOdysseyRecomp/gpu/metalfx_*'
+      - 'shared/frame_generation/**'
+      - 'tools/patches/plume-lostodyssey.patch'
       - 'LostOdysseyRecomp/gpu/dlss_fg_*.h'
       - 'LostOdysseyRecomp/gpu/dlss_ngx.*'
       - 'LostOdysseyRecomp/gpu/temporal_upscaler.*'
@@ -32,6 +37,11 @@ on:
   pull_request:
     paths:
       - '.gitea/workflows/fg-cpu-contracts.yml'
+      - 'LostOdysseyRecomp/gpu/fsr_fg_*.h'
+      - 'LostOdysseyRecomp/gpu/fsr_frame_generation_vulkan.*'
+      - 'LostOdysseyRecomp/gpu/metalfx_*'
+      - 'shared/frame_generation/**'
+      - 'tools/patches/plume-lostodyssey.patch'
       - 'LostOdysseyRecomp/gpu/dlss_fg_*.h'
       - 'LostOdysseyRecomp/gpu/dlss_ngx.*'
       - 'LostOdysseyRecomp/gpu/temporal_upscaler.*'

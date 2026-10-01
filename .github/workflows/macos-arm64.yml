@@ -59,6 +59,16 @@ jobs:
             grep -vE "$excluded" > out/build/macos/ci-targets.txt
           ninja -C out/build/macos plume spirv-cross-msl SDL2-static XenonUtils lo_portable_shader_pack lo_menu_lzo \
             lo_avcodec lo_avutil o1heap $(cat out/build/macos/ci-targets.txt)
+      - name: Compile MetalFX FG game integration (no game data)
+        run: |
+          cmake -S tools/tests/motion_replay -B out/build/metalfx-fg -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DLO_ENABLE_DLSS=OFF -DLO_ENABLE_FSR=OFF \
+            -DLO_P2_VIDEO_COMPILE_CHECK=ON \
+            -DLO_P2_VIDEO_SDL_HEADERS="$PWD/thirdparty/SDL/include" \
+            -DLO_METALFX_FG_GAME_COMPILE_CHECK=ON
+          cmake --build out/build/metalfx-fg --target fg_metal_compile p2_video_compile motion_renderer_compile
       - name: Run tests
         run: |
           scratch="$RUNNER_TEMP/lo-tests"

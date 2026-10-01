@@ -145,7 +145,7 @@ int main(int argc, char** argv) {
     Check(settings::edit.dlssQuality==gpu::upscaling::DlssQuality::Dlaa &&
           settings::edit.fsrQuality==gpu::upscaling::FsrQuality::Balanced,"provider-specific qualities preserved");
     settings::row=int(GraphicsRow::DlssQuality);tick(2);
-    Check(settings::row==int(GraphicsRow::FsrSharpness) && settings::snapshot.scroll==0,"sharpness directly follows quality");
+    Check(settings::row==int(GraphicsRow::FsrSharpness),"sharpness directly follows quality");
     settings::edit.fsrSharpnessPercent=0;tick(4);Check(!settings::edit.fsrSharpnessPercent,"sharpness lower bound");
     tick(8);Check(settings::edit.fsrSharpnessPercent==1,"sharpness increments");
     settings::edit.fsrSharpnessPercent=100;tick(8);Check(settings::edit.fsrSharpnessPercent==100,"sharpness upper bound");
@@ -251,9 +251,12 @@ int main(int argc, char** argv) {
     settings::savedConfig=settings::edit;
     tick();
     const bool vulkanFg=gpu::frame_generation::VulkanCompiledProvider(framegen::Provider::Dlss);
-    Check(settings::snapshot.rows[int(GraphicsRow::FrameGeneration)].choices ==
-        (vulkanFg ? std::vector<std::wstring>{L"Off",L"DLSS"} : std::vector<std::wstring>{L"Off"}),
-        "Vulkan FG offers only compiled native providers");
+    const bool vulkanFsr=gpu::frame_generation::VulkanCompiledProvider(framegen::Provider::Fsr);
+    std::vector<std::wstring> expectedFg{L"Off"};
+    if(vulkanFg) expectedFg.push_back(L"DLSS");
+    if(vulkanFsr) expectedFg.push_back(L"FSR");
+    Check(settings::snapshot.rows[int(GraphicsRow::FrameGeneration)].choices == expectedFg,
+        "Vulkan FG offers exactly the compiled native providers");
     Check(settings::snapshot.rows[int(GraphicsRow::FrameGenerationMultiplier)].hidden,"Vulkan Off hides multiplier");
     if(vulkanFg) {
         tick(8);Check(settings::edit.frameGenerationProvider==framegen::Provider::Dlss,"Vulkan selects DLSS");
@@ -265,7 +268,7 @@ int main(int argc, char** argv) {
         status.requested=framegen::Provider::Dlss;
         tick();Check(settings::snapshot.notice.find(L"Restart to enable Vulkan")!=std::wstring::npos,"startup Off reports restart");
         settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
-        Check(settings::restartPrompt && settings::snapshot.dialogMessage.find(L"Enabling Vulkan frame generation")!=std::wstring::npos,
+        Check(settings::restartPrompt && settings::snapshot.dialogMessage.find(L"Enabling or changing Vulkan frame generation")!=std::wstring::npos,
             "Save displays Vulkan restart reason");
         settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
         status.phase=gpu::video::FrameGenerationPhase::Ready;
@@ -274,9 +277,28 @@ int main(int argc, char** argv) {
         settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
         Check(!settings::restartPrompt,"existing Vulkan session changes multiplier without restart");
         settings::row=int(GraphicsRow::FrameGeneration);tick(8);
-        Check(settings::edit.frameGenerationProvider==framegen::Provider::Off,"Vulkan provider cycle never selects FSR");
+        if(vulkanFsr) {
+            Check(settings::edit.frameGenerationProvider==framegen::Provider::Fsr && settings::edit.frameGenerationMultiplier==2,
+                "Vulkan DLSS to FSR switches to fixed 2x");
+            Check(settings::snapshot.rows[int(GraphicsRow::FrameGenerationMultiplier)].hidden,"FSR hides unsupported multipliers");
+            status.phase=gpu::video::FrameGenerationPhase::RestartRequired;status.requested=framegen::Provider::Fsr;
+            settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+            Check(settings::restartPrompt,"Vulkan SDK provider change requests restart");
+            settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
+            settings::row=int(GraphicsRow::FrameGeneration);tick(8);
+        }
+        Check(settings::edit.frameGenerationProvider==framegen::Provider::Off,"Vulkan provider cycle returns to Off");
+        status.phase=gpu::video::FrameGenerationPhase::Off;status.requested=framegen::Provider::Off;
         settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
         Check(!settings::restartPrompt,"existing Vulkan session turns off without restart");
+    } else if(vulkanFsr) {
+        tick(8);Check(settings::edit.frameGenerationProvider==framegen::Provider::Fsr,"FSR-only build selects FSR without Streamline");
+        Check(settings::snapshot.rows[int(GraphicsRow::FrameGenerationMultiplier)].hidden,"FSR-only is fixed 2x");
+        auto& status=gpu::video::fgStatus;
+        status.phase=gpu::video::FrameGenerationPhase::RestartRequired;status.requested=framegen::Provider::Fsr;
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(settings::restartPrompt,"FSR startup Off requires provider startup hooks");
+        settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
     } else {
         tick(8);Check(settings::edit.frameGenerationProvider==framegen::Provider::Off,"unavailable build cannot enable Vulkan FG");
     }

@@ -25,7 +25,7 @@
 
 | 文档 | 类型 |
 |---|---|
-| [Vulkan FG、FSR 4 / OptiScaler 与 MetalFX 可行性](vulkan-fg-fsr4-metalfx.md) | 调查 |
+| [Vulkan DLSS/FSR FG、MetalFX 实现与 FSR 4 调查](vulkan-fg-fsr4-metalfx.md) | 调查 |
 | [PR69 foreground validation — 2026-09-26](fg-pr69-validation-2026-09-26.md) | 历史 |
 | [FSR / DLSS FG 历史交接（2026-09-24）](fsr-dlss-fg-codex-handoff.zh-CN.md) | 历史 |
 | [FSR / DLSS FG Codex 历史交接记录](fsr-dlss-fg-codex-history.zh-CN.md) | 历史 |

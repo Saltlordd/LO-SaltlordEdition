@@ -19,6 +19,8 @@
 #if defined(LO_GPU_PLUME)
 #include "frame_generation_present_bridge.h"
 #include "frame_generation_composite.h"
+#include "fsr_frame_generation_vulkan.h"
+#include "metalfx_frame_generation.h"
 #include "../../shared/frame_generation/environment.h"
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
 #include "frame_generation_d3d12.h"
@@ -301,7 +303,7 @@ namespace gpu::video
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
         std::unique_ptr<frame_generation::D3D12Bridge> g_d3dFg;
 #endif
-#if defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
         std::mutex g_fgSettingsMutex;
         framegen::Config g_fgAppliedConfig{};
         framegen::Provider g_fgSessionProvider = framegen::Provider::Off;
@@ -312,9 +314,15 @@ namespace gpu::video
         std::unique_ptr<dlss_fg::VulkanDispatch> g_fgDispatch;
         std::unique_ptr<dlss_fg::Session> g_fgSession;
 #endif
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        std::unique_ptr<fsr_fg::Session> g_fsrVulkanFg;
+#endif
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
         std::atomic<bool> g_fgWindowSynchronization{false};
         std::atomic<int> g_fgWindowChange{0}; // 0 idle, 1 requested, 2 GPU quiescent
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        std::unique_ptr<metalfx_fg::Session> g_metalFg;
 #endif
         std::unique_ptr<TemporalUpscaler> g_temporalUpscaler;
 #endif
@@ -656,6 +664,9 @@ namespace gpu::video
                 if (completed) LOG_INFO("video: FG diagnostic completed={} present_serial={} provider_ready=0 ui=unavailable",
                     completed, g_fgPresentSerial);
                 g_presentPending = false;
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+                if (g_metalFg) g_metalFg->AfterHostDrain();
+#endif
             }
             return !GpuWorkStopped();
         }
@@ -705,6 +716,15 @@ namespace gpu::video
         }
 
         void PreparePresentImage(plume::RenderTexture* image) {
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg && g_fsrVulkanFg->UsesProxySwapchain()) {
+                // SDK 1.1.4 ReplacementBufferTransferState is SHADER_READ_ONLY,
+                // including passthrough while FG is Off. These are SDK images.
+                g_commandList->barriers(plume::RenderBarrierStage::ALL,
+                    plume::RenderTextureBarrier(image, plume::RenderTextureLayout::SHADER_READ));
+                return;
+            }
+#endif
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
             if (g_fgSession) {
                 // The SL Vulkan proxy is copied by its present worker. This
@@ -725,6 +745,12 @@ namespace gpu::video
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
             if (g_fgSession) g_fgSession->SubmitStart();
 #endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg) g_fsrVulkanFg->SubmitStart();
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+            if (g_metalFg) g_metalFg->SubmitStart();
+#endif
         }
         void FgHostSubmitted(bool success, uint64_t serial, int32_t nativeResult) {
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
@@ -732,6 +758,12 @@ namespace gpu::video
 #endif
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
             if (g_fgSession) g_fgSession->HostSubmitted(success, serial, nativeResult);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg) g_fsrVulkanFg->HostSubmitted(success, serial);
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+            if (g_metalFg) g_metalFg->HostSubmitted(success, serial);
 #endif
         }
         void FgPresentStart() {
@@ -748,6 +780,16 @@ namespace gpu::video
 #endif
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
             if (g_fgSession) g_fgSession->Presented(accepted);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg) {
+                g_fsrVulkanFg->Presented(accepted);
+                if (g_fsrVulkanFg->Failed()) {
+                    renderer::SetFrameGenerationInputCaptureEnabled(false);
+                    std::lock_guard lock(g_fgSettingsMutex);
+                    g_fgFailedRequest = g_fgAppliedConfig;
+                }
+            }
 #endif
         }
 
@@ -869,6 +911,9 @@ namespace gpu::video
                 RetainPresentCapture();
                 return;
             }
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+            if (g_metalFg) g_metalFg->AfterHostDrain();
+#endif
             auto *mapped = static_cast<const uint8_t *>(g_captureCopy.buffer->map());
             if (!mapped)
             {
@@ -1312,14 +1357,24 @@ namespace gpu::video
     // rendering has stopped. The window/event thread is deliberately retained
     // between candidates; device children are destroyed before their parents.
     static void ResetGpu() {
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        if (g_metalFg) {
+            if (!WaitForPresentGpu()) { std::fflush(nullptr); std::_Exit(EXIT_FAILURE); }
+            g_metalFg->SuspendAfterHostDrain();
+            g_metalFg.reset();
+        }
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        if (g_fsrVulkanFg) g_fsrVulkanFg->Quiesce();
+#endif
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
         g_fgWindowSynchronization = false;
         g_fgWindowChange = 0;
 #endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
         if (g_d3dFg) g_d3dFg->Quiesce();
 #endif
-#if defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
         {
             std::lock_guard lock(g_fgSettingsMutex);
             g_fgAppliedConfig = {};
@@ -1377,6 +1432,10 @@ namespace gpu::video
         // parameters. Its proxy vtables also outlive all swapchain references.
         // The device and queue are still live for FG shutdown here.
         g_d3dFg.reset();
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        // WSI hooks and exclusive queues outlive the SDK swapchain and SR work.
+        g_fsrVulkanFg.reset();
 #endif
         g_releaseSemaphore.reset(); g_acquireSemaphore.reset();
         g_fence.reset(); g_commandList.reset(); g_queue.reset();
@@ -1565,7 +1624,7 @@ namespace gpu::video
                     std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
                     std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
                 if (fg.error) LOG_ERROR("FG: {}", fg.error);
-                if (fg.Enabled()) {
+                if (fg.Enabled() && fg.config.provider == framegen::Provider::Dlss) {
                     std::string reason;
                     g_fgRuntime = std::make_unique<dlss_fg::Runtime>();
                     if (!g_fgRuntime->Initialize(DlssRuntimePath(), reason)) {
@@ -1595,6 +1654,15 @@ namespace gpu::video
             g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
 #endif
             if (!g_interface) return "API/loader initialization failed";
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_vulkan) {
+                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
+                    std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
+                    std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+                static_cast<plume::VulkanInterface*>(g_interface.get())->enableFrameInterpolationFeatures =
+                    fg.Enabled() && fg.config.provider == framegen::Provider::Fsr;
+            }
+#endif
             g_device = g_interface->createDevice();
             if (g_device) {
                 const uint64_t nextEpoch = g_deviceEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
@@ -1660,6 +1728,27 @@ namespace gpu::video
                 g_fgSessionProvider = framegen::Provider::Dlss;
             }
 #endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_vulkan) {
+                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
+                    std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
+                    std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+                if (fg.error) LOG_ERROR("Vulkan FSR FG: {}", fg.error);
+                if (fg.Enabled() && fg.config.provider == framegen::Provider::Fsr) {
+                    auto session = std::make_unique<fsr_fg::Session>();
+                    const char* runtime = std::getenv("LO_FSR_VULKAN_FG_RUNTIME");
+                    std::string reason;
+                    if (session->Initialize(*static_cast<plume::VulkanDevice*>(g_device.get()),
+                        *static_cast<plume::VulkanCommandQueue*>(g_queue.get()),
+                        runtime && *runtime ? std::filesystem::path(runtime) : DlssRuntimePath() / "amd_fidelityfx_vk.dll", reason)) {
+                        g_fsrVulkanFg = std::move(session);
+                        g_fgWindowSynchronization = true;
+                        std::lock_guard lock(g_fgSettingsMutex);
+                        g_fgSessionProvider = framegen::Provider::Fsr;
+                    } else LOG_ERROR("Vulkan FSR FG: unavailable; ordinary presentation retained: {}", reason);
+                }
+            }
+#endif
             g_commandList = g_queue->createCommandList();
             g_fence = g_device->createCommandFence();
             g_acquireSemaphore = g_device->createCommandSemaphore();
@@ -1721,15 +1810,15 @@ namespace gpu::video
         if (selection.selected) {
             g_selectedBackend = static_cast<int>(*selection.selected);
             g_available = true; g_initializing = false;
-#if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
+#if (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG)) && defined(_WIN32)
             if (*selection.selected == backend::Backend::Vulkan) {
                 const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
                     std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
                     std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
                 // A failed startup is unavailable, not a request to restart
                 // endlessly. Starting Off can be enabled after a restart.
-                if (fg.Enabled() && !g_fgSession) {
-                    std::lock_guard lock(g_fgSettingsMutex);
+                std::lock_guard lock(g_fgSettingsMutex);
+                if (fg.Enabled() && g_fgSessionProvider == framegen::Provider::Off) {
                     g_fgFailedRequest = fg.config;
                 }
             }
@@ -1788,6 +1877,12 @@ namespace gpu::video
 #if defined(LO_GPU_PLUME) && defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
         if (g_fgSession && g_fgSession->Requested()) return true;
 #endif
+#if defined(LO_GPU_PLUME) && defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        if (g_fsrVulkanFg && g_fsrVulkanFg->Requested()) return true;
+#endif
+#if defined(LO_GPU_PLUME) && defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        if (g_metalFg && g_metalFg->Requested()) return true;
+#endif
         return false;
     }
     bool FrameGenerationAvailable() {
@@ -1796,6 +1891,12 @@ namespace gpu::video
 #endif
 #if defined(LO_GPU_PLUME) && defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
         if (g_fgSession) return g_fgSession->Available();
+#endif
+#if defined(LO_GPU_PLUME) && defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        if (g_fsrVulkanFg) return g_fsrVulkanFg->Available();
+#endif
+#if defined(LO_GPU_PLUME) && defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        if (g_metalFg) return g_metalFg->Available();
 #endif
         return false;
     }
@@ -1821,6 +1922,12 @@ namespace gpu::video
         // Availability is a last-frame runtime observation, not evidence that
         // the monitor is using VRR.
         if (requested && !hostOverlay && g_fgSession && g_fgSession->Available()) multiplier = g_fgSession->Multiplier();
+#endif
+#if defined(LO_GPU_PLUME) && defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        if (requested && !hostOverlay && g_fsrVulkanFg && g_fsrVulkanFg->Available()) multiplier = 2;
+#endif
+#if defined(LO_GPU_PLUME) && defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        if (requested && !hostOverlay && g_metalFg && g_metalFg->Available()) multiplier = 2;
 #endif
         const auto paced = dynamic ? vrr::DynamicPacingTarget(nativeTarget, requested, refresh, dynamicTarget)
             : vrr::PacingTarget(nativeTarget, requested, refresh, multiplier);
@@ -1875,7 +1982,7 @@ namespace gpu::video
             std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"), g_displayRefreshHz.load(std::memory_order_relaxed));
         status.requested = request.config.provider;
         status.requestedMultiplier = request.config.generatedFrames + 1;
-#if (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG)) && defined(_WIN32) && defined(LO_GPU_PLUME)
+#if defined(LO_GPU_PLUME) && ((defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)))
         {
             std::lock_guard lock(g_fgSettingsMutex);
             status.applied = g_fgAppliedConfig.provider;
@@ -1886,7 +1993,7 @@ namespace gpu::video
                 status.phase = request.config.provider == framegen::Provider::Off && !request.error
                     ? FrameGenerationPhase::Off : FrameGenerationPhase::Unavailable;
             else if (backend == backend::Backend::Vulkan && request.Enabled() &&
-                g_fgSessionProvider == framegen::Provider::Off)
+                g_fgSessionProvider != request.config.provider)
                 status.phase = FrameGenerationPhase::RestartRequired;
             else if (!backend || request.config != g_fgAppliedConfig)
                 status.phase = request.config.provider == framegen::Provider::Off && !backend
@@ -2198,7 +2305,7 @@ namespace gpu::video
         if (state.shortcutMode) config.windowMode = *state.shortcutMode;
         const bool reapply = g_reapplyWindow.exchange(false);
         if(reapply || !state.initialized || config.width!=state.applied.width || config.height!=state.applied.height || config.windowMode!=state.applied.windowMode) {
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
             if (g_fgWindowSynchronization && g_fgWindowChange.load() != 2) {
                 g_fgWindowChange = 1;
                 g_reapplyWindow = true;
@@ -2232,7 +2339,7 @@ namespace gpu::video
             g_nextRefreshPoll = {}; // Re-query after a mode transition on the next window pump.
             g_windowResizeRequested = true;
             g_displayChanges.WindowComplete(ticket, result == 0);
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
             g_fgWindowChange = 0;
 #endif
         }
@@ -2517,29 +2624,38 @@ namespace gpu::video
         return true;
     }
 #endif
-#if defined(_WIN32) && defined(LO_ENABLE_STREAMLINE_FG)
+#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))
     static bool ReconcileVulkanFrameGeneration()
     {
         if (!g_vulkan || g_fgWindowChange.load() != 0) return true;
         const auto request = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
             std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
             std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
-        const auto desired = request.Enabled() ? request.config : framegen::Config{};
+        auto desired = request.Enabled() ? request.config : framegen::Config{};
         {
             std::lock_guard lock(g_fgSettingsMutex);
             if (g_fgFailedRequest && *g_fgFailedRequest != request.config) g_fgFailedRequest.reset();
             if (g_fgFailedRequest || desired == g_fgAppliedConfig) return true;
+            if (g_fgSessionProvider == framegen::Provider::Off) return true;
+            // Each SDK owns its WSI hooks. Switching providers needs a restart;
+            // stop the old feature now so it cannot masquerade as the new one.
+            if (request.Enabled() && request.config.provider != g_fgSessionProvider) {
+                desired = {};
+                if (desired == g_fgAppliedConfig) return true;
+            }
         }
-        // Device/WSI hooks must be installed before creating the Vulkan device.
-        // If startup was Off, the menu reports RestartRequired. Keep an existing
-        // proxy alive while Off so Off -> On can reuse it safely in this process.
-        if (!g_fgSession) return true;
         if (!renderer::DrainForFrameGenerationReconfigure() || !WaitForPresentGpu()) return false;
         g_fgPresent.CancelAll(frame_generation::HandoffCancel::DisplayChange);
         renderer::CancelFgHandoffs();
         std::string reason;
-        const bool applied = g_fgSession->Reconfigure(desired, reason);
-        renderer::SetFrameGenerationInputCaptureEnabled(applied && request.Enabled());
+        bool applied = false;
+#if defined(LO_ENABLE_STREAMLINE_FG)
+        if (g_fgSession) applied = g_fgSession->Reconfigure(desired, reason);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG)
+        if (g_fsrVulkanFg) applied = g_fsrVulkanFg->Reconfigure(desired, reason);
+#endif
+        renderer::SetFrameGenerationInputCaptureEnabled(applied && desired.provider != framegen::Provider::Off);
         {
             std::lock_guard lock(g_fgSettingsMutex);
             g_fgAppliedConfig = applied ? desired : framegen::Config{};
@@ -2548,8 +2664,42 @@ namespace gpu::video
         if (!applied || request.error)
             LOG_ERROR("Vulkan FG: unavailable; ordinary rendering retained: {}", request.error ? request.error : reason);
         else
-            LOG_INFO("Vulkan FG: requested={} multiplier={} input_capture={}",
-                request.Enabled() ? "dlss" : "off", g_fgSession->Multiplier(), request.Enabled());
+            LOG_INFO("Vulkan FG: provider={} multiplier={} input_capture={}",
+                uint32_t(desired.provider), desired.generatedFrames + 1, desired.provider != framegen::Provider::Off);
+        return true;
+    }
+#endif
+
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+    static bool ReconcileMetalFrameGeneration()
+    {
+        if (!g_metal) return true;
+        const auto request = frame_generation::ResolveSelection(backend::Backend::Metal, settings::GetConfig(),
+            std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
+            std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        const auto desired = request.Enabled() ? request.config : framegen::Config{};
+        {
+            std::lock_guard lock(g_fgSettingsMutex);
+            if (g_fgFailedRequest && *g_fgFailedRequest != request.config) g_fgFailedRequest.reset();
+            if (g_fgFailedRequest || desired == g_fgAppliedConfig) return true;
+        }
+        if (!renderer::DrainForFrameGenerationReconfigure() || !WaitForPresentGpu()) return false;
+        g_fgPresent.CancelAll(frame_generation::HandoffCancel::DisplayChange);
+        renderer::CancelFgHandoffs();
+        std::string reason;
+        if (!g_metalFg && request.Enabled()) {
+            auto session = std::make_unique<metalfx_fg::Session>();
+            if (session->Initialize(g_device.get(), reason)) g_metalFg = std::move(session);
+        }
+        const bool applied = g_metalFg ? g_metalFg->Reconfigure(desired, reason) : desired.provider == framegen::Provider::Off;
+        renderer::SetFrameGenerationInputCaptureEnabled(applied && request.Enabled());
+        {
+            std::lock_guard lock(g_fgSettingsMutex);
+            g_fgAppliedConfig = applied ? desired : framegen::Config{};
+            g_fgSessionProvider = g_metalFg ? framegen::Provider::MetalFx : framegen::Provider::Off;
+            g_fgFailedRequest = applied ? std::nullopt : std::optional(request.config);
+        }
+        if (!applied) LOG_ERROR("MetalFX FG: unavailable; ordinary presentation retained: {}", reason);
         return true;
     }
 #endif
@@ -2559,10 +2709,13 @@ namespace gpu::video
     // or rasterizing UI. The returned ticket belongs to these prepared operations.
     static bool PreparePresentation(uint64_t& displayTicket, uint32_t& width, uint32_t& height)
     {
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
         if (g_fgWindowChange.load() == 1) {
 #if defined(LO_ENABLE_STREAMLINE_FG)
             if (g_fgSession) g_fgSession->Quiesce();
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg) g_fsrVulkanFg->Quiesce();
 #endif
 #if defined(LO_ENABLE_D3D12_FG)
             if (g_d3dFg) g_d3dFg->Quiesce();
@@ -2578,8 +2731,11 @@ namespace gpu::video
 #if defined(_WIN32) && defined(LO_ENABLE_D3D12_FG)
         if (!ReconcileD3D12FrameGeneration()) return false;
 #endif
-#if defined(_WIN32) && defined(LO_ENABLE_STREAMLINE_FG)
+#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))
         if (!ReconcileVulkanFrameGeneration()) return false;
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        if (!ReconcileMetalFrameGeneration()) return false;
 #endif
         const auto nativeTarget = gpu::GetFrameRateTarget();
         auto& nativePolicy = g_presentationDisplay;
@@ -2605,7 +2761,12 @@ namespace gpu::video
         {
             const uint32_t paced = GetFramePacingTarget(nativeTarget);
             const bool adaptive = settings::GetConfig().variableRefreshRate || frame_rate::NeedsImmediate(nativeTarget);
-            const double duration = adaptive && paced ? std::max(0.0, 1.0 / paced - 0.001) : 0.0;
+            uint32_t presentationMultiplier = 1;
+#if defined(LO_ENABLE_METALFX_FG)
+            if (g_metalFg && g_metalFg->Requested()) presentationMultiplier = 2;
+#endif
+            const double duration = (adaptive || presentationMultiplier > 1) && paced
+                ? std::max(0.0, 1.0 / (double(paced) * presentationMultiplier) - 0.001) : 0.0;
             if (duration != nativePolicy.metalMinimumPresentDuration) {
                 plume::SetMetalMinimumPresentDuration(g_swapChain.get(), duration);
                 nativePolicy.metalMinimumPresentDuration = duration;
@@ -2677,9 +2838,15 @@ namespace gpu::video
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
             if (g_fgSession) g_fgSession->Quiesce();
 #endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+            if (g_fsrVulkanFg) g_fsrVulkanFg->Quiesce();
+#endif
             g_fgPresent.CancelAll(frame_generation::HandoffCancel::DisplayChange);
             renderer::CancelFgHandoffs();
             if (!WaitForPresentGpu()) return false;
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+            if (g_metalFg) g_metalFg->SuspendAfterHostDrain();
+#endif
             if (!g_swapChain->resize()) {
                 // Zero extent is transient. Retain the pending transaction and
                 // resize request until the window has a drawable extent again.
@@ -2728,11 +2895,20 @@ namespace gpu::video
         if (GpuWorkStopped() || (!g_available && !g_initializing) || !g_swapChain || g_swapChain->isEmpty())
             return false;
         g_fgPresent.CancelAll(frame_generation::HandoffCancel::AlternatePresent);
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        if (g_metalFg) {
+            if (!WaitForPresentGpu()) return false;
+            g_metalFg->SuspendAfterHostDrain();
+        }
+#endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
         if (g_d3dFg) g_d3dFg->Quiesce();
 #endif
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
         if (g_fgSession) g_fgSession->Prepare({}, width, height, 0, VK_FORMAT_UNDEFINED);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        if (g_fsrVulkanFg) g_fsrVulkanFg->Quiesce();
 #endif
         renderer::CancelFgHandoffs();
         DisplayCompletion completion(g_displayChanges, displayTicket);
@@ -2942,11 +3118,16 @@ namespace gpu::video
                     return;
                 DisplayCompletion completion(g_displayChanges, displayTicket);
                 if (!WaitForPresentGpu()) return;
-#if defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG))
+#if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
                 frame_generation::CompositeHandoff composite;
                 double fgProducerWaitMs = 0.0;
                 if (FrameGenerationInputCaptureEnabled()) {
                     const auto fgAcquireBegin = std::chrono::steady_clock::now();
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+                    // The first Metal FG path drains producer command buffers;
+                    // queue submission order alone does not order untracked textures.
+                    if (g_metalFg && !renderer::DrainForFrameGenerationReconfigure()) return;
+#endif
                     const bool matched = renderer::AcquireFgCompositeInputs(physicalAddress & 0x1FFFFFFF, composite) &&
                         composite.ReadyForOrderedSubmission() && composite.outputWidth == sourceWidth && composite.outputHeight == sourceHeight &&
                         (!g_vulkan || dlss_fg::FullFramePresentation(sourceWidth, sourceHeight,
@@ -2976,8 +3157,15 @@ namespace gpu::video
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
                         if (g_fgSession) g_fgSession->CancelUnsubmitted(g_commandList.get());
 #endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+                        if (g_fsrVulkanFg) g_fsrVulkanFg->CancelUnsubmitted(g_commandList.get());
+#endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
                         if (g_d3dFg) g_d3dFg->CancelUnsubmitted(g_commandList.get());
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+                        if (g_metalFg && g_metalFg->HasUnsubmitted(g_commandList.get()))
+                            g_metalFg->CancelUnsubmitted(g_commandList.get(), renderer::DrainForFrameGenerationReconfigure());
 #endif
                         g_fgPresent.CancelRecording();
                     }
@@ -3013,6 +3201,11 @@ namespace gpu::video
                         uint32_t(swap->textures.size()), swap->createInfo.imageFormat, g_commandList.get(), fgProducerWaitMs);
                 }
 #endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+                if (g_fsrVulkanFg) g_fsrVulkanFg->PrepareAfterHostDrain(composite,
+                    *static_cast<plume::VulkanSwapChain*>(g_swapChain.get()),
+                    *static_cast<plume::VulkanCommandList*>(g_commandList.get()));
+#endif
 #if LO_PLATFORM_MACOS
                 if (g_presentation && settings::GetConfig().scalingQuality == settings::ScalingMetalFx)
                     source = UpscaleWithMetalFx(source, sourceWidth, sourceHeight);
@@ -3040,6 +3233,9 @@ namespace gpu::video
                 }
                 RecordPresentedSnapshot(backBuffer);
                 QueuePresentCapture(backBuffer, capture);
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+                const bool metalGenerated = g_metalFg && g_metalFg->Record(composite, g_commandList.get(), backBuffer);
+#endif
 #ifndef _WIN32
                 const uint64_t d3dSignal = 0;
 #else
@@ -3070,8 +3266,49 @@ namespace gpu::video
                 g_fgPresentSerial = submissionSerial;
                 g_presentPending = true;
                 g_lastPresentedImage=imageIndex; g_hasPresentedImage=true;
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+                bool realPresented = presented;
+                if (g_metalFg && metalGenerated && presented) {
+                    // Present the generated image first, then the retained real
+                    // image. Guest simulation and renderer frame IDs advance once.
+                    const auto presentOriginal = [&]() -> bool {
+                        if (!WaitForPresentGpu()) return false;
+                        uint32_t realIndex = 0;
+                        if (!g_swapChain->acquireTexture(g_acquireSemaphore.get(), &realIndex)) return false;
+                        auto* realBuffer = g_swapChain->getTexture(realIndex);
+                        if (!BeginGpuCommands(g_commandList.get())) return false;
+                        g_metalFg->RecordOriginal(g_commandList.get(), realBuffer);
+                        PreparePresentImage(realBuffer);
+                        if (!EndGpuCommands(g_commandList.get())) return false;
+                        auto* ready = PresentSemaphore(realIndex);
+                        uint64_t realSerial = 0; int32_t realResult = 0;
+                        FgSubmitStart();
+                        const bool submittedReal = SubmitPresentationBatch(lists, 1, &waitSemaphore, 1,
+                            &ready, 1, g_fence.get(), &realSerial, &realResult);
+                        FgHostSubmitted(submittedReal, realSerial, realResult);
+                        if (!submittedReal) return false;
+                        g_fgPresentSerial = realSerial; g_presentPending = true;
+                        const bool accepted = g_swapChain->present(realIndex, &ready, 1);
+                        if (accepted) ++g_completedPresentCount;
+                        g_lastPresentedImage = realIndex; g_hasPresentedImage = accepted;
+                        return accepted;
+                    };
+                    realPresented = presentOriginal();
+                }
+                if (g_metalFg) {
+                    g_metalFg->FinishPresent(realPresented, metalGenerated);
+                    if (g_metalFg->Failed()) {
+                        renderer::SetFrameGenerationInputCaptureEnabled(false);
+                        std::lock_guard lock(g_fgSettingsMutex);
+                        g_fgFailedRequest = g_fgAppliedConfig;
+                    }
+                }
+                completion.Complete(realPresented && !g_displayFailed.load());
+                ReadPresentCapture(captureResult, true, realPresented, submissionSerial);
+#else
                 completion.Complete(presented && !g_displayFailed.load());
                 ReadPresentCapture(captureResult, true, presented, submissionSerial);
+#endif
                 return;
             }
         }

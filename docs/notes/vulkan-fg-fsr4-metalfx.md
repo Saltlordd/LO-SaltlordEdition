@@ -1,121 +1,166 @@
-# Vulkan frame generation, FSR 4 and MetalFX feasibility
+# Vulkan frame generation, FSR 4 and MetalFX
 
-Source review: 2026-10-01. Repository baseline: `ca0d8fa`. Development branch:
-`feat/vulkan-frame-generation`. This note distinguishes implemented changes from
-integration plans. No new GPU/display acceptance is claimed.
+Source review: 2026-10-01. Branch: `feat/vulkan-frame-generation`, rebased onto
+`3e0b549` (v0.7.25 main, including the macOS integration from PR #113).
+The earlier version of this note incorrectly assessed macOS from a stale checkout;
+the application already has native Metal, MetalFX spatial/temporal SR and macOS
+platform support. This implementation builds on that port.
 
 ## Result
 
-| Feature / platform | Evidence and current decision |
+| Feature / platform | Implementation and limits |
 |---|---|
-| DLSS FG, Windows Vulkan | Extend the existing Streamline integration: persisted settings, fixed 2×–6× requests gated by SDK capabilities, live multiplier/Off changes, and an explicit restart requirement when the process started without FG hooks. Implemented on this branch. |
-| DLSS dynamic MFG, Vulkan | Streamline 2.14.1 documents dynamic MFG as D3D12-only. Rejected explicitly. Fixed MFG is a separate capability. |
-| FSR 3.1.4 FG, Windows Vulkan | Official SDK 1.1.4 includes a Vulkan frame-generation provider and replacement swapchain. Feasible, but requires a four-queue integration and timeline synchronization absent from the current application. Not enabled by this branch. |
-| DLSS FG, native Linux Vulkan | The pinned official Streamline release provides Windows DLLs and no native Linux FG runtime. The guide's Linux optical-flow driver note does not establish availability of that runtime. No native Linux integration claimed. |
-| FSR 3.1.4 FG, native Linux Vulkan | GPU algorithm sources exist; the pinned Vulkan swapchain/pacer depends on Win32 synchronization, threads and timing. A native presenter port is required. Existing Linux FSR SR remains available. |
-| FSR 4 upscaling, Windows | SDK 2.3 includes FSR Upscaling 4.1.1 through the FidelityFX API and a signed DX12 runtime. Native D3D12 integration is feasible; Vulkan requires an additional DX12 interop layer, as demonstrated by OptiScaler. Research complete; implementation is a separate adapter/interop project. |
-| FSR 4 frame generation, Windows | Separate from FSR 4 upscaling. SDK 2.3 documents FG 4.0.1, Windows 11, Agility SDK 1.4.9 and Radeon 9000-series or later. No official Vulkan backend in SDK 2.3. |
-| FSR 4, native Linux | SDK 2.3 does not supply this project's needed native Vulkan/Linux path. Running a Windows mod through Wine/Proton is a different deployment model from linking a native Linux game. |
-| MetalFX FG, macOS | Apple provides frame interpolation from macOS 26. Runtime device support must be queried. This game has no Metal backend selection/macOS build preset, and its non-Windows address-space implementation uses Linux `memfd_create`. A macOS platform/rendering port must precede integration. No stub provider added. |
+| DLSS FG, Windows Vulkan | Implemented persisted settings and fixed 2×–6× requests, limited by the actual Streamline capability. Existing proxy retained for live Off/On and multiplier changes. |
+| FSR 3.1.4 FG, Windows Vulkan | Implemented the FidelityFX 1.1.4 adapter, exclusive queue reservations, logical-device features, replacement WSI, depth conversion, Prepare/Generate, input retirement, resize and settings. Fixed 2×. |
+| MetalFX FG, macOS Metal | Implemented `MTLFXFrameInterpolator` and generated-then-real presentation on the existing Metal backend. Requires macOS 26 and `supportsDevice:`. Fixed 2×, live Off/On. |
+| DLSS dynamic MFG, Vulkan | Explicitly rejected: Streamline 2.14.1 documents dynamic MFG as D3D12-only. |
+| DLSS FG, native Linux Vulkan | The pinned Streamline release has no native Linux FG runtime. No Linux provider advertised. |
+| FSR FG, native Linux Vulkan | Algorithm sources exist, but the pinned SDK presenter depends on Win32 threads/events/timing. A native presenter port is still required; existing Linux FSR SR is unaffected. |
+| FSR 4 SR / FG | Feasibility research below. SDK 2.3 has no official Vulkan backend; OptiScaler's Vulkan SR uses Windows DX12 interop. No FSR 4 adapter claimed. |
 
-## Changes implemented here
+These are experimental source integrations. Compilation and CPU tests do not
+establish generated-image quality, GPU validation cleanliness or display delivery.
+There is no physical GPU in the executor used for this work.
 
-The previous Windows Vulkan DLSS path parsed only environment variables and
-accepted fixed 2×. The settings menu advertised FG only for D3D12, even when the
-Vulkan Streamline code was compiled. The Vulkan path now uses the same saved
-provider, multiplier and environment-precedence rules as D3D12.
+## Windows Vulkan integration
 
-- `LO_FG_PROVIDER=off` still beats the saved provider and `LO_DLSS_FG=1`.
-- An explicit provider override retains its whole-request defaults; individual
-  overrides otherwise replace saved fields. Legacy On remains fixed 2×.
-- Vulkan exposes only compiled DLSS support. FSR FG and dynamic Vulkan MFG are
-  rejected; Linux never advertises a Windows-only adapter.
-- Fixed 2×–6× requests translate to one through five generated frames. The
-  session queries `slDLSSGGetState().numFramesToGenerateMax`; an excessive request
-  leaves ordinary rendering active, without silently changing the multiplier.
-- Settings changes drain producer/host/SDK work before changing the session.
-  Off stops input capture. An already installed Streamline proxy stays alive so
-  Off → On and multiplier changes can use the existing device. The proxy and
-  immediate presentation policy are retained while Off; restart with FG Off to
-  return to an ordinary swapchain without that overhead.
-- Starting with FG Off creates an ordinary Vulkan device. First enabling FG
-  therefore requires restart, with a specific menu/status message. A failed
-  startup is reported unavailable, rather than asking for repeated restarts.
-- VRR pacing uses the selected fixed multiplier once runtime availability has
-  been observed. SDK counters remain diagnostic observations, not display proof.
-- The presentation output extent may differ from the native scene's extent.
-  Same-frame producer/resolve identity checks remain in place; depth/motion keep
-  their actual render dimensions and Streamline receives swapchain dimensions.
-  Uniform scaling to a full backbuffer is admitted; letterboxed/pillarboxed
-  presentation still requires a future subregion-tag integration. This removes
-  an obsolete rejection of scaled native-resolution input, without changing SR
-  selection or guest frame rate.
+The settings and environment parser expose exactly the compiled providers.
+`LO_FG_PROVIDER=off` overrides saved settings and the legacy `LO_DLSS_FG=1`.
+Explicit provider selection retains whole-request defaults; individual overrides
+otherwise replace the corresponding saved fields. Invalid requests preserve
+ordinary rendering, without silently selecting another SDK or multiplier.
 
-Build with the existing `LO_ENABLE_STREAMLINE_FG=ON`, local official
-`LO_STREAMLINE_SDK_ROOT`, and the native NGX SDK requirements from
-[`LoStreamline.cmake`](../../cmake/LoStreamline.cmake). SDK versions and required
-runtime files remain pinned by the [existing manifest](../../tools/tests/streamline_fg/sdk-manifest.json).
-No SDK binaries are added to this repository.
+Starting with FG Off, or changing between DLSS and FSR, requires a restart: each
+SDK owns the Vulkan device/WSI setup. Changing providers disables the existing
+feature immediately. An installed provider can turn Off/On without rebuilding
+the device. A failed startup is reported unavailable, not an endless restart
+request. The SDK proxy remains installed while Off; restart with FG Off to remove
+its presentation overhead.
 
-Choose Vulkan and DLSS FG in Graphics, save, and restart if prompted. A diagnostic
-launch can instead set:
+The renderer now captures native-resolution FG inputs on Vulkan as well as
+D3D12/Metal, independently of SR. Same-frame producer/resolve identity remains
+mandatory. Color may be uniformly scaled to the output while depth and motion
+retain their input dimensions. Letterboxing/pillarboxing is rejected because
+this path has no subregion tags. The fully composited color includes game UI;
+no separated HUD or dynamic-object motion coverage is promised.
+
+### FSR queue and resource ownership
+
+`fsr_frame_generation_vulkan.cpp` loads the local Vulkan FFX API DLL and queries
+both interpolation and swapchain providers. It does not require Streamline or
+an FSR SR build.
+
+- When starting FSR, Plume enables supported timeline semaphore, float16,
+  16-bit storage and subgroup-size-control features on the logical device.
+  This matches the physical capabilities FidelityFX uses to select shader
+  permutations. The feature structs are opt-in so they cannot conflict with
+  Streamline's aggregate Vulkan 1.3 feature struct on the DLSS path.
+- The SDK requires four distinct native queues even with async interpolation
+  disabled. The host keeps its graphics queue; the adapter reserves compute,
+  present and acquire queues from the queues actually created by Plume, checks
+  surface presentation support, and leaves host allocation capacity in every
+  used family. Later virtual queues cannot borrow reserved SDK queues.
+- SDK submissions to the shared game queue take its existing mutex. Plume
+  delegates proxy-present synchronization to the hook so it does not hold that
+  mutex while FFX invokes the submission callback. Ordinary WSI fallback keeps
+  the original locking behavior.
+- The FFX swapchain must be destroyed before its replacement is created. The
+  opt-in Plume resize path drains SDK work, destroys old views/context, then
+  creates the replacement. The hooks and queue reservations remain alive until
+  after the last SDK swapchain has been destroyed.
+- FFX 1.1.4 expects its replacement images in **SHADER_READ_ONLY_OPTIMAL** at
+  present, including FG-Off passthrough (`ReplacementBufferTransferState`).
+  Streamline's existing proxy uses a different layout. Ordinary native WSI uses
+  PRESENT_SRC_KHR. These paths are handled separately.
+- Prepare receives a finite reversed-depth remap, same-frame motion, camera
+  basis, jitter, milliseconds and a monotonic SDK frame ID. Configure precedes
+  Prepare; the SDK invokes Generate. All source textures and depth conversion
+  resources remain retained through SDK presenter retirement and a checked
+  native device-idle result. Cancellation first discards unsubmitted commands;
+  an attempted submission is never treated as cancelable.
+
+The first implementation deliberately waits for FFX presenter retirement after
+presentation. This serializes some CPU/GPU work and needs hardware profiling
+before replacing it with a deeper frame ring. Unknown GPU completion terminates
+rather than freeing resources that the SDK may still use. The original
+FidelityFX presenter still needs hardware validation for minimized/out-of-date
+surfaces, device loss and pacing; its raw counters are not display evidence.
+
+### Build and select
+
+Apply the tracked Plume patches through the normal repository setup. Configure
+a Windows x64 GPU build with the official SDK **1.1.4** sources/API headers and
+its Vulkan FFX API runtime (the SDK can build it with `FFX_API_BACKEND=VK_X64`):
+
+```text
+-DLO_ENABLE_VULKAN_FSR_FG=ON
+-DLO_FSR_SDK_ROOT=/path/to/FidelityFX-SDK-1.1.4
+-DLO_FSR_VULKAN_FG_RUNTIME=/path/to/amd_fidelityfx_vk.dll
+```
+
+The DLL is copied beside the game. No SDK binaries are committed. Select Vulkan
+and FSR in Graphics, save, and restart when prompted, or use:
 
 ```powershell
 $env:LO_GRAPHICS_API = 'vulkan'
-$env:LO_FG_PROVIDER = 'dlss'
+$env:LO_FG_PROVIDER = 'fsr'
 $env:LO_FG_MODE = 'fixed'
-$env:LO_FG_MULTIPLIER = '2' # 2..6, subject to the SDK-reported maximum
+$env:LO_FG_MULTIPLIER = '2'
+# Optional runtime override:
+$env:LO_FSR_VULKAN_FG_RUNTIME = 'C:\SDK\amd_fidelityfx_vk.dll'
 ```
 
-Historical fixed-2× acceptance and its known SDK validation report remain in
-[the earlier record](gate1-host-repair-20260927.md). They do not validate new
-multiplier/menu behavior on this branch.
+DLSS uses the existing `LO_ENABLE_STREAMLINE_FG=ON`, official
+`LO_STREAMLINE_SDK_ROOT` and NGX requirements in
+[`LoStreamline.cmake`](../../cmake/LoStreamline.cmake). Select `dlss` and request
+2–6; `slDLSSGGetState().numFramesToGenerateMax` remains authoritative. DLSS keeps
+its immediate-presentation requirement and the historical SDK validation caveat
+in [the earlier acceptance record](gate1-host-repair-20260927.md).
 
-## FSR 3.1.4 Vulkan implementation plan
+For Linux, the missing work is a native version of the FFX swapchain/pacer's
+threads, events, critical sections, QPC timing and waiting, or an independently
+validated native presenter. Merely enabling the current SR library cannot do
+this: `LoFsr.cmake` intentionally excludes interpolation/optical-flow shaders
+and its SR-only patch removes the FG swapchain callback. Wine/Proton running a
+Windows executable is a separate deployment model from a native Linux build.
 
-Use the pinned SDK **1.1.4**, not SDK 2.3: the latter explicitly lists Vulkan as
-unsupported. SDK 1.1.4's FFX API builds `amd_fidelityfx_vk.dll` with
-`FFX_API_BACKEND=VK_X64`. Relevant public types include:
+## MetalFX FG on the existing macOS port
 
-- `ffxCreateBackendVKDesc` for device/physical-device/procedure lookup.
-- `ffxCreateContextDescFrameGenerationSwapChainVK` for four queue descriptors and
-  the native swapchain create description.
-- `ffxQueryDescSwapchainReplacementFunctionsVK` for replacement create, destroy,
-  get-images, acquire and present functions.
-- `ffxDispatchDescFrameGenerationSwapChainWaitForPresentsVK` for SDK presenter
-  retirement; the ordinary host-render fence is insufficient.
+`LO_ENABLE_METALFX_FG` defaults On for macOS builds. The provider appears in the
+graphics menu; `LO_FG_PROVIDER=metalfx` also selects it. It supports fixed 2×.
+Older SDKs compile an unavailable path; macOS 26 availability and the actual
+Metal device's `supportsDevice:` are both checked before input capture begins.
+The integration uses regular `MTLCommandBuffer`, not Metal 4 command buffers.
 
-The SDK's `FrameInterpolationSwapChainVK::init` explicitly rejects aliasing
-between **game, async compute, present and image-acquire queues**. Setting
-`allowAsyncWorkloads=false` does not remove that initialization requirement.
-Plume creates up to four queues in selected families, but its virtual-queue
-allocator can share native queues. The game currently uses one presentation
-queue. Passing that same queue four times is not a usable integration.
+`metalfx_frame_generation.mm` provides actual native color, previous-color,
+remapped depth, motion and private output textures. Descriptor dimensions track
+input depth/motion and output color separately. SDK texture usage requirements
+are checked before encoding. The API takes **seconds and degrees**, converted
+from the renderer's milliseconds and radians; motion vectors are scaled from
+input pixels into previous-color/output pixels. No macOS 27-only content-offset,
+projection-matrix or `requiresPrevColorTexture` properties are referenced.
 
-A complete adapter needs the following boundaries before it can be enabled:
+A reset frame primes SDK history and presents only the rendered image. A
+continuous pair encodes interpolation, presents the generated image, drains that
+submission, then presents the retained real image. Guest simulation, camera
+history and renderer frame IDs advance only once. CAMetalLayer's minimum present
+duration accounts for the two presentations. Host overlays, missing input,
+configuration changes, resize and frame gaps reset interpolation history.
 
-1. Query and enable timeline-semaphore support at device creation. Reserve four
-   distinct suitable native queues, verify surface presentation support, and
-   prevent later Plume queue allocation from taking SDK-owned queues. Preserve
-   ordinary rendering if this is unsupported.
-2. Install the FFX replacement WSI functions before swapchain creation. Respect
-   Plume's create-new-before-destroy-old resize sequence, allocator lifetime,
-   host queue mutexes and SDK worker submissions. `vkDeviceWaitIdle` alone must
-   not race an SDK thread that can submit more work.
-3. Reuse `CompositeHandoff`, same-frame depth/motion, `BuildCamera` and the depth
-   remapper. Configure the frame ID before Prepare, then let the SDK generate
-   and pace the extra frame. Keep source snapshots alive through host completion
-   **and** SDK input/presenter completion.
-4. Test Off/On, unsupported queues, missing runtime, rejected acquire/present,
-   resize, minimized windows, cancellation before submit, and teardown. Begin
-   with fixed 2× and the composited backbuffer, matching the present D3D12 scope.
+The initial path drains renderer inputs before reading their untracked Metal
+textures. Explicit fences bridge Plume encoders into MetalFX and back. Input
+leases retire only after the host fence and the actual command buffer's completed
+status, including the second real-frame copy. SDK resource references are then
+cleared. Captures retain the original rendered pixels, rather than labeling a
+generated image as the current renderer frame.
 
-For Linux, port the SDK presenter's Windows threads, events, critical sections,
-QPC timing and waiting before exposing the same provider. A custom paced Vulkan
-presenter is another possible design, but requires its own ownership/timing
-validation. The existing SR-only `LoFsr.cmake` deliberately removes the FG
-swapchain callback and builds neither optical-flow nor interpolation shaders;
-changing its option name or dropping in another library does not add FG.
+The Plume macOS patch also fixes drawable-slot advancement to run solely on the
+presentation thread, and drains the separate present command buffers before
+swapchain resize/destruction. Completion notification occurs under its mutex,
+so shutdown cannot destroy the condition variable before a callback uses it.
+
+A composited HUD can still interpolate poorly, and the conservative waits add
+cost. Both require hardware/visual testing; no quality or speed claim is made.
 
 ## FSR 4 and what OptiScaler demonstrates
 
@@ -164,42 +209,12 @@ feasibility and why it is not a native Linux implementation. Its performance
 cost is workload-dependent; no OptiScaler benchmark is presented as a game
 measurement here. No OptiScaler source was copied into the runtime.
 
-## MetalFX FG on macOS
+## Validation
 
-Apple's `MTLFXFrameInterpolatorDescriptor` is available from **macOS 26.0**.
-Call `supportsDevice(_:)` for the actual Metal device; OS availability alone is
-not a GPU capability check. The Metal 4 path additionally has
-`supportsMetal4FX(_:)`; the ordinary `MTLFXFrameInterpolator` interface encodes
-into an `MTLCommandBuffer`.
-
-A future adapter can reuse the provider-neutral camera/history/input contracts,
-but must supply actual Metal color, previous-color where required, depth,
-motion and output textures, plus jitter, camera matrices, frame delta and reset
-information. `requiresPrevColorTexture` and the optional associated scaler
-control the history inputs. UI composition has explicit API properties; our
-current composited-backbuffer inputs do not establish separated HUD rendering.
-The interpolation effect encodes GPU work; the application still needs to
-schedule and present the generated and rendered frames through Metal/CAMetalLayer.
-
-The repository's Plume dependency has a Metal implementation, but the application
-chooses only D3D12/Vulkan, compiles rendering shaders for DXIL/SPIR-V, and has no
-macOS preset. Its non-Windows guest-address-space allocator calls
-`syscall(SYS_memfd_create, ...)`, which requires a macOS replacement that
-preserves the guest's fixed-address alias mappings. These are concrete platform
-prerequisites, rather than a missing MetalFX header alone.
-
-The implementation sequence is: establish a macOS game/renderer build; select a
-native Metal backend and shader conversion path; provide retained same-frame
-Metal resources; add the interpolator and a paced presenter; then validate on
-supported Apple hardware. A MoltenVK bridge would instead need explicit Metal
-object export and cross-API synchronization validation; a `VkImage` cannot be
-cast to an `MTLTexture`. This branch does not claim that either port exists.
-
-## Validation and remaining acceptance
-
-The standalone CPU suite covers selection/override precedence, build/platform
-availability, fixed multiplier limits, existing input ownership and completion,
-runtime recovery, and production menu interaction/raster contracts:
+The standalone CPU suite now covers DLSS-only, FSR-only, both-provider and
+uncompiled selection; SDK queue reservation; MetalFX parameter conversion and
+platform gating; existing ownership/history/completion contracts; and actual
+menu interaction with provider switching and restart prompts.
 
 ```sh
 cmake -S tools/tests/streamline_fg -B out/vulkan-fg/contracts -DLO_STREAMLINE_FG_CPU_ONLY=ON
@@ -207,32 +222,36 @@ cmake --build out/vulkan-fg/contracts --parallel 4
 ctest --test-dir out/vulkan-fg/contracts --output-on-failure
 ```
 
-The game compile workflow now also builds the Vulkan session, depth remapper,
-Streamline runtime and dispatch through `LO_VULKAN_FG_GAME_COMPILE_CHECK=ON`,
-including `video.cpp` with both Vulkan and D3D12 FG enabled. It uses the pinned
-headers and no proprietary game assets or SDK execution.
+Local build logs and compiler arguments are under ignored `out/vulkan-fg/`.
+Windows CPU executables run under Wine 10, not a Windows graphics driver.
+The macOS check cross-compiles actual sources against macOS SDK 26.0 for arm64;
+it does not link or execute the full game. No game assets or SDK binaries enter
+the repository.
 
-Local evidence is retained under ignored `out/vulkan-fg/`:
+- Linux GCC and Windows MinGW/Wine: **23/23** CPU/menu contracts each.
+- Production settings/VRR tests: **3/3** each on Linux and Windows/Wine,
+  including saved FSR/MetalFX selection and fixed-2× normalization. Shared FG
+  ownership/history core: **1/1** on Linux.
+- Windows: actual FSR Vulkan adapter, shared depth pass, presentation path with
+  all Windows FG providers, renderer and modified Plume Vulkan source compiled.
+- macOS arm64: actual MetalFX Objective-C++ adapter, depth pass, video, renderer
+  and modified Plume Metal source compiled against the macOS 26 SDK. The new
+  standalone CMake configuration also succeeds; its generated compile commands
+  compile the adapter, depth, video and renderer objects.
+- Linux: ordinary video and modified Plume Vulkan source compiled.
+- Pinned Plume base and macOS patches replay cleanly and reproduce the checked
+  source files. CI compiles both new adapters and the real game integration
+  without generated guest code.
 
-- Linux GCC: **17/17** CPU/menu tests passed. The updated scaled-presentation
-  contract was rebuilt and passed after the final geometry change.
-- Windows x64 executables cross-compiled with MinGW GCC 14: **17/17** tests
-  passed under Wine 10, including the Windows-only provider/restart menu flow.
-  The existing D3D12 settings/VRR regression also passed under Wine. This is
-  CPU execution evidence, not a Windows graphics-driver test.
-- Production `video.cpp` compiled for Windows Vulkan FG, Windows Vulkan plus
-  D3D12 FG, and Linux. The Vulkan session, depth remapper and dispatch compiled
-  against the pinned public SDK headers. The shared-runtime variant of
-  `streamline_runtime.cpp` compiled as well.
-- The standalone runtime's unchanged `sl_security.h` needs Windows SDK
-  `WINTRUST_SIGNATURE_SETTINGS` definitions absent from this MinGW distribution.
-  That variant still needs the native MSVC/ClangCL workflow above. Signature
-  verification was not removed or replaced to make a local check pass.
+The unchanged standalone Streamline signature-verification implementation
+still requires Windows SDK definitions missing in this MinGW distribution; its
+shared-runtime variant is checked locally and native ClangCL CI covers the
+standalone variant. Signature verification was not removed.
 
-There is no physical GPU in this executor.
-The new Vulkan multipliers, live reconfiguration, scaled native input, resize
-and actual generated-frame presentation still require a Windows NVIDIA hardware
-run. FSR/MetalFX plans above have not been compiled or executed as game providers.
+Remaining hardware acceptance: supported NVIDIA/AMD Vulkan adapters and Apple
+Metal devices; native/SR inputs, first frame/camera cuts, Off/On/provider changes,
+resize/minimize/restore/exit, validation layers, image quality and presentation
+cadence. New paths are not certified by historical DLSS 2× probe results.
 
 ## Primary sources
 

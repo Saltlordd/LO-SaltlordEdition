@@ -1,5 +1,5 @@
 diff --git a/plume_metal.cpp b/plume_metal.cpp
-index 373c87e..4de6e41 100644
+index 373c87e..68fff65 100644
 --- a/plume_metal.cpp
 +++ b/plume_metal.cpp
 @@ -8,14 +8,22 @@
@@ -227,7 +227,27 @@ index 373c87e..4de6e41 100644
  
          this->commandQueue = commandQueue;
          this->desc = desc;
-@@ -1959,8 +2108,13 @@ namespace plume {
+@@ -1935,6 +2084,19 @@ namespace plume {
+     }
+ 
+     MetalSwapChain::~MetalSwapChain() {
++        // Completion handlers capture this swapchain. A game submission fence
++        // precedes the separate present command buffer and cannot retire them.
++        if (!waitForAllPresents()) {
++            fprintf(stderr, "Metal swapchain present completion failed during teardown.\n");
++            std::abort();
++        }
++    }
++
++    bool MetalSwapChain::waitForAllPresents() {
++        std::unique_lock lock(lastPresentedIdMutex);
++        return lastPresentedIdCondVar.wait_for(lock, std::chrono::seconds(10), [this] {
++            return lastPresentedId >= currentPresentId;
++        }) && !presentFailed;
+     }
+ 
+     bool MetalSwapChain::present(const uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, const uint32_t waitSemaphoreCount) {
+@@ -1959,19 +2121,26 @@ namespace plume {
          // According to Apple, presenting via scheduled handler is more performant than using the presentDrawable method.
          // We grab the underlying drawable because we might've acquired a new one by now and the old one would have been released.
          CA::MetalDrawable *drawableMtl = drawable.mtl->retain();
@@ -243,7 +263,38 @@ index 373c87e..4de6e41 100644
          });
  
          presentBuffer->addCompletedHandler([drawableMtl, presentId, this](MTL::CommandBuffer* cmdBuffer) {
-@@ -2725,6 +2879,12 @@ namespace plume {
+-            currentAvailableDrawableIndex = (currentAvailableDrawableIndex + 1) % MAX_DRAWABLES;
+             drawableMtl->release();
+ 
+             {
+                 std::lock_guard lock(lastPresentedIdMutex);
++                presentFailed |= cmdBuffer->status() == MTL::CommandBufferStatusError;
+                 lastPresentedId = std::max(lastPresentedId, presentId);
++                // Teardown may proceed as soon as this predicate is visible.
++                // Notify before unlocking so no callback touches a destroyed CV.
++                lastPresentedIdCondVar.notify_all();
+             }
+-            lastPresentedIdCondVar.notify_all();
+         });
+ 
+         presentBuffer->commit();
+@@ -1992,6 +2161,7 @@ namespace plume {
+     }
+ 
+     bool MetalSwapChain::resize() {
++        if (!waitForAllPresents()) return false;
+         MetalAutoreleasePool releasePool;
+         getWindowSize(width, height);
+ 
+@@ -2066,6 +2236,7 @@ namespace plume {
+         // Set the texture index and drawable data
+         *textureIndex = currentAvailableDrawableIndex;
+         MetalDrawable &drawable = drawables[currentAvailableDrawableIndex];
++        currentAvailableDrawableIndex = (currentAvailableDrawableIndex + 1) % MAX_DRAWABLES;
+         drawable.desc.width = width;
+         drawable.desc.height = height;
+         drawable.desc.flags = RenderTextureFlag::RENDER_TARGET;
+@@ -2725,6 +2896,12 @@ namespace plume {
      }
  
      void MetalCommandList::setFramebuffer(const RenderFramebuffer *framebuffer) {
@@ -256,7 +307,7 @@ index 373c87e..4de6e41 100644
          MetalAutoreleasePool releasePool;
          endOtherEncoders(EncoderType::Render);
          endActiveRenderEncoder();
-@@ -2775,6 +2935,13 @@ namespace plume {
+@@ -2775,6 +2952,13 @@ namespace plume {
      }
  
      void MetalCommandList::clearColor(const uint32_t attachmentIndex, RenderColor colorValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -270,7 +321,7 @@ index 373c87e..4de6e41 100644
          assert(targetFramebuffer != nullptr);
          assert(attachmentIndex < targetFramebuffer->colorAttachments.size());
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -2864,6 +3031,12 @@ namespace plume {
+@@ -2864,6 +3048,12 @@ namespace plume {
      }
  
      void MetalCommandList::clearDepthStencil(const bool clearDepth, const bool clearStencil, const float depthValue, const uint32_t stencilValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -283,7 +334,7 @@ index 373c87e..4de6e41 100644
          assert(targetFramebuffer != nullptr);
          assert(targetFramebuffer->depthAttachment.format != RenderFormat::UNKNOWN);
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -3022,6 +3195,44 @@ namespace plume {
+@@ -3022,6 +3212,44 @@ namespace plume {
                  dstOrigin
              );
              activeBlitEncoder->popDebugGroup();
@@ -328,7 +379,7 @@ index 373c87e..4de6e41 100644
          } else {
              assert(dstTexture != nullptr);
              assert(srcTexture != nullptr);
-@@ -3818,6 +4029,10 @@ namespace plume {
+@@ -3818,6 +4046,10 @@ namespace plume {
          // TODO: Support Raytracing.
          // capabilities.raytracing = mtl->supportsRaytracing();
          capabilities.maxTextureSize = mtl->supportsFamily(MTL::GPUFamilyApple3) ? 16384 : 8192;
@@ -339,7 +390,7 @@ index 373c87e..4de6e41 100644
          capabilities.sampleLocations = mtl->programmableSamplePositionsSupported();
          capabilities.resolveRegion = true;
          capabilities.resolveModes = false;
-@@ -3885,7 +4100,13 @@ namespace plume {
+@@ -3885,7 +4117,13 @@ namespace plume {
      }
  
      std::unique_ptr<RenderShader> MetalDevice::createShader(const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format) {
@@ -354,7 +405,7 @@ index 373c87e..4de6e41 100644
      }
  
      std::unique_ptr<RenderSampler> MetalDevice::createSampler(const RenderSamplerDesc &desc) {
-@@ -4222,6 +4443,212 @@ namespace plume {
+@@ -4222,6 +4460,212 @@ namespace plume {
  
      // Global creation function.
  
@@ -568,7 +619,7 @@ index 373c87e..4de6e41 100644
          std::unique_ptr<MetalInterface> createdInterface = std::make_unique<MetalInterface>();
          return createdInterface->isValid() ? std::move(createdInterface) : nullptr;
 diff --git a/plume_metal.h b/plume_metal.h
-index 59ae129..6e2597c 100644
+index 59ae129..a2df8a2 100644
 --- a/plume_metal.h
 +++ b/plume_metal.h
 @@ -7,6 +7,7 @@
@@ -579,7 +630,7 @@ index 59ae129..6e2597c 100644
  #include <set>
  #include <unordered_set>
  
-@@ -242,6 +243,9 @@ namespace plume {
+@@ -242,12 +243,17 @@ namespace plume {
  
          // Present wait
          uint64_t currentPresentId = 0;
@@ -587,9 +638,17 @@ index 59ae129..6e2597c 100644
 +        // refresh. Lets ProMotion displays follow the application's frame rate.
 +        std::atomic<double> minimumPresentDuration = 0.0;
          uint64_t lastPresentedId = 0;
++        bool presentFailed = false;
          std::mutex lastPresentedIdMutex;
          std::condition_variable lastPresentedIdCondVar;
-@@ -635,6 +639,8 @@ namespace plume {
+ 
+         MetalSwapChain(MetalCommandQueue *commandQueue, const RenderSwapChainDesc &desc);
+         ~MetalSwapChain() override;
++        bool waitForAllPresents();
+         bool present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) override;
+         void wait() override;
+         bool resize() override;
+@@ -635,6 +641,8 @@ namespace plume {
          RenderShaderFormat format = RenderShaderFormat::UNKNOWN;
          MTL::Library *library = nullptr;
          NS::String *debugName = nullptr;

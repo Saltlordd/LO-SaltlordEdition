@@ -21,14 +21,19 @@ inline constexpr bool D3D12CompiledProvider(framegen::Provider provider) {
 
 inline constexpr bool VulkanCompiledProvider(framegen::Provider provider) {
 #if defined(_WIN32) && defined(LO_ENABLE_STREAMLINE_FG)
-    return provider == framegen::Provider::Dlss;
-#else
+    if (provider == framegen::Provider::Dlss) return true;
+#endif
+#if defined(_WIN32) && defined(LO_ENABLE_VULKAN_FSR_FG)
+    if (provider == framegen::Provider::Fsr) return true;
+#endif
     (void)provider;
     return false;
-#endif
 }
 
 inline constexpr bool CompiledProvider(settings::GraphicsBackend backend, framegen::Provider provider) {
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+    if (backend == settings::GraphicsBackend::Metal && provider == framegen::Provider::MetalFx) return true;
+#endif
     return backend == settings::GraphicsBackend::Vulkan ? VulkanCompiledProvider(provider) :
         backend == settings::GraphicsBackend::D3D12 && D3D12CompiledProvider(provider);
 }
@@ -37,7 +42,9 @@ inline constexpr bool CompiledProvider(settings::GraphicsBackend backend, frameg
 // Hardware limits are checked separately against slDLSSGGetState, never clamped.
 inline const char* VulkanRequestError(const framegen::Config& config) {
     if (config.provider == framegen::Provider::Off || config.mode == framegen::Mode::Off) return nullptr;
-    if (config.provider != framegen::Provider::Dlss) return "Vulkan FSR FG is not implemented";
+    if (config.provider == framegen::Provider::Fsr)
+        return config.mode == framegen::Mode::Fixed && config.generatedFrames == 1 ? nullptr : "Vulkan FSR FG requires fixed 2x";
+    if (config.provider != framegen::Provider::Dlss) return "unknown Vulkan FG provider";
     if (config.mode != framegen::Mode::Fixed) return "Vulkan DLSS FG requires fixed mode; dynamic MFG is D3D12-only";
     if (!config.generatedFrames || config.generatedFrames >= framegen::kMaxMultiplier)
         return "Vulkan DLSS FG multiplier must be from 2 to 6";
@@ -51,7 +58,8 @@ inline framegen::EnvironmentSelection ResolveSelection(settings::GraphicsBackend
     const char* targetFps, const char* legacyDlss, uint32_t refreshHz = 0) {
     const bool providerOverride = provider || legacyDlss;
     const char* savedProvider = saved.frameGenerationProvider == framegen::Provider::Dlss ? "dlss" :
-        saved.frameGenerationProvider == framegen::Provider::Fsr ? "fsr" : "off";
+        saved.frameGenerationProvider == framegen::Provider::Fsr ? "fsr" :
+        saved.frameGenerationProvider == framegen::Provider::MetalFx ? "metalfx" : "off";
     const char* savedMode = saved.frameGenerationMode == framegen::Mode::Off ? "off" :
         saved.frameGenerationMode == framegen::Mode::Dynamic ? "dynamic" : "fixed";
     const auto savedMultiplier = std::to_string(saved.frameGenerationMultiplier);

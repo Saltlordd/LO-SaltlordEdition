@@ -359,10 +359,6 @@ std::wstring DlssNotice()
 }
 bool GraphicsRowHidden(int r)
 {
-#if LO_PLATFORM_MACOS
-    // Metal has no frame generation provider; keep the ids, hide the rows.
-    if (r == int(GraphicsRow::FrameGeneration)) return true;
-#endif
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -370,7 +366,7 @@ bool GraphicsRowHidden(int r)
 std::vector<framegen::Provider> FgProviders()
 {
     std::vector<framegen::Provider> providers{framegen::Provider::Off};
-    for (auto provider : {framegen::Provider::Dlss, framegen::Provider::Fsr})
+    for (auto provider : {framegen::Provider::Dlss, framegen::Provider::Fsr, framegen::Provider::MetalFx})
         if (gpu::frame_generation::CompiledProvider(edit.graphicsBackend, provider) || edit.frameGenerationProvider == provider)
             providers.push_back(provider);
     return providers;
@@ -391,7 +387,8 @@ std::wstring FgNotice()
     case FrameGenerationPhase::Pending:
         text = Tr(L"Applying FG settings…", L"正在套用影格生成設定……"); break;
     case FrameGenerationPhase::Ready:
-        text = running.applied == framegen::Provider::Dlss ? L"DLSS" : L"FSR";
+        text = running.applied == framegen::Provider::Dlss ? L"DLSS" :
+            running.applied == framegen::Provider::MetalFx ? L"MetalFX" : L"FSR";
         text += Tr(L" FG ready. Generation depends on the current scene.", L" 影格生成已就緒，是否補幀取決於目前場景。"); break;
     case FrameGenerationPhase::Unavailable:
         text = Tr(L"FG is unavailable for this request. Normal rendering is in use.",
@@ -581,7 +578,7 @@ void Publish(uint8_t *base, uint32_t config)
         for (auto provider : FgProviders()) {
             if (provider == edit.frameGenerationProvider) selected = uint32_t(providers.size());
             providers.emplace_back(provider == framegen::Provider::Off ? Tr(L"Off", L"關") :
-                provider == framegen::Provider::Dlss ? L"DLSS" : L"FSR");
+                provider == framegen::Provider::Dlss ? L"DLSS" : provider == framegen::Provider::MetalFx ? L"MetalFX" : L"FSR");
         }
         auto frameGeneration = makeChoices(L"Frame generation", L"影格生成", std::move(providers), selected);
         frameGeneration.hidden = GraphicsRowHidden(int(GraphicsRow::FrameGeneration));
@@ -727,14 +724,18 @@ void Publish(uint8_t *base, uint32_t config)
         case GraphicsRow::FrameGeneration:
         case GraphicsRow::FrameGenerationMultiplier:
             if (!gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::Dlss) &&
-                !gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::Fsr))
+                !gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::Fsr) &&
+                !gpu::frame_generation::CompiledProvider(edit.graphicsBackend, framegen::Provider::MetalFx))
                 next.help = Tr(L"Frame generation is unavailable for this backend in this build.", L"此版本的目前圖形後端未包含影格生成功能。");
             else if (GraphicsRow(row) == GraphicsRow::FrameGenerationMultiplier)
                 next.help = Tr(L"Includes the rendered frame. Available multipliers depend on the GPU and driver.",
                                L"倍數包含原始渲染影格。可用倍數取決於顯示卡與驅動程式。");
+            else if (edit.graphicsBackend == GraphicsBackend::Metal)
+                next.help = Tr(L"MetalFX frame generation uses 2x on supported GPUs with macOS 26 or later.",
+                               L"MetalFX 影格生成在 macOS 26 或更新版本及支援的 GPU 上使用 2x 倍數。");
             else if (edit.graphicsBackend == GraphicsBackend::Vulkan)
-                next.help = Tr(L"Vulkan supports DLSS fixed multipliers. Enabling FG after starting with it off requires a restart.",
-                               L"Vulkan 支援 DLSS 固定倍數。若啟動時未開啟影格生成，啟用後需重新啟動。");
+                next.help = Tr(L"Vulkan supports DLSS fixed multipliers and FSR 2x. Enabling or changing the FG provider requires a restart.",
+                               L"Vulkan 支援 DLSS 固定倍數與 FSR 2x。啟用或切換影格生成提供者需重新啟動。");
             else
                 next.help = Tr(L"FG works independently of upscaling. FSR uses a fixed 2× multiplier.",
                                L"影格生成可獨立於超解析度使用。FSR 固定為 2×。");
@@ -756,8 +757,8 @@ void Publish(uint8_t *base, uint32_t config)
                  L"無法儲存設定。請檢查 settings.ini 權限後重試或取消。")
             : savedRestartPrompt && restartForFgProvider
                 ? edit.graphicsBackend == GraphicsBackend::Vulkan
-                    ? Tr(L"Enabling Vulkan frame generation requires a restart. Settings saved. Restart now?",
-                         L"啟用 Vulkan 影格生成需要重新啟動。設定已儲存，現在重新啟動嗎？")
+                    ? Tr(L"Enabling or changing Vulkan frame generation requires a restart. Settings saved. Restart now?",
+                         L"啟用或切換 Vulkan 影格生成需要重新啟動。設定已儲存，現在重新啟動嗎？")
                     : Tr(L"Switching from DLSS FG to FSR FG requires a restart. Settings saved. Restart now?",
                      L"從 DLSS 影格生成切換到 FSR 影格生成需要重新啟動。設定已儲存，現在重新啟動嗎？")
             : savedRestartPrompt ? Tr(L"Settings saved. Restart now?", L"設定已儲存。立即重新啟動嗎？")
@@ -1406,7 +1407,7 @@ PPC_FUNC(sub_822F19B0)
                 edit.frameGenerationProvider = providers[cycle(uint32_t(found - providers.begin()), uint32_t(providers.size()))];
                 edit.frameGenerationMode = framegen::Mode::Fixed;
                 edit.frameGenerationTargetFps = 0;
-                if (edit.frameGenerationProvider == framegen::Provider::Fsr) edit.frameGenerationMultiplier = 2;
+                if (edit.frameGenerationProvider == framegen::Provider::Fsr || edit.frameGenerationProvider == framegen::Provider::MetalFx) edit.frameGenerationMultiplier = 2;
                 break;
             }
             case GraphicsRow::FrameGenerationMultiplier:
@@ -1472,7 +1473,7 @@ PPC_FUNC(sub_822F19B0)
         graphics.uiLanguage = previousDisplay.uiLanguage;
         graphics.gameLanguage = previousDisplay.gameLanguage;
         graphics.automaticUpdates = previousDisplay.automaticUpdates;
-        if (graphics.frameGenerationProvider == framegen::Provider::Fsr)
+        if (graphics.frameGenerationProvider == framegen::Provider::Fsr || graphics.frameGenerationProvider == framegen::Provider::MetalFx)
             graphics.frameGenerationMultiplier = 2;
         if (!SaveConfig(graphics))
             status = Tr(L"Could not save settings.", L"無法儲存設定。");

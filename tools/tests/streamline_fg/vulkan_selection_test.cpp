@@ -28,7 +28,12 @@ int main() {
 #else
     Check(!compiled, "uncompiled or non-Windows Vulkan provider stays unavailable");
 #endif
-    Check(!VulkanCompiledProvider(Provider::Fsr), "FSR SR build never implies Vulkan FSR FG");
+    const bool fsrCompiled = VulkanCompiledProvider(Provider::Fsr);
+#if defined(_WIN32) && defined(LO_ENABLE_VULKAN_FSR_FG)
+    Check(fsrCompiled, "Windows Vulkan FSR FG build enabled independently of SR");
+#else
+    Check(!fsrCompiled, "FSR SR build never implies Vulkan FSR FG");
+#endif
     Check(!VulkanCompiledProvider(Provider::Off), "Off is not an SDK provider");
     Check(CompiledProvider(saved.graphicsBackend, Provider::Dlss) == compiled, "menu uses backend availability");
     auto selection = resolve();
@@ -40,7 +45,9 @@ int main() {
     selection = resolve("dlss");
     Check(selection.config.generatedFrames == 1, "explicit provider keeps whole-request defaults");
     Check(!resolve(nullptr, "dynamic").Enabled(), "Vulkan dynamic MFG rejected");
-    Check(!resolve("fsr", "fixed", "2").Enabled(), "Vulkan FSR FG rejected");
+    Check(resolve("fsr", "fixed", "2").Enabled() == fsrCompiled, "Vulkan FSR FG 2x uses its own build flag");
+    Check(!resolve("fsr", "dynamic", "2").Enabled(), "FSR dynamic mode rejected");
+    Check(!resolve("fsr", "fixed", "3").Enabled(), "FSR multi-frame request rejected");
     for (const char* bad : {"0", "1", "7", "-2", "2.5", "garbage"})
         Check(!resolve(nullptr, nullptr, bad).Enabled(), "invalid multiplier rejected");
     for (const char* bad : {"-1", "nan", "inf"})
