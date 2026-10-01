@@ -24,7 +24,12 @@ public:
     void RecordOriginal(plume::RenderCommandList* commands, plume::RenderTexture* backbuffer);
     void SubmitStart();
     void HostSubmitted(bool success, uint64_t serial);
+    // The host's presentation wait finished; a command buffer error disables
+    // FG instead of terminating, since an errored buffer no longer runs.
     void AfterHostDrain();
+    // Teardown: waits for the session's own submitted command buffer, so it
+    // does not depend on the host wait succeeding after a GPU error.
+    void Retire();
     void FinishPresent(bool accepted, bool generated);
     bool HasUnsubmitted(plume::RenderCommandList* commands) const;
     void CancelUnsubmitted(plume::RenderCommandList* commands, bool producerDrained);

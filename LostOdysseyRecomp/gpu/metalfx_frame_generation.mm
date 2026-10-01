@@ -44,11 +44,29 @@ struct Session::Impl {
     uint64_t pendingFrame = 0, pairs = 0;
     uint32_t inputWidth = 0, inputHeight = 0, width = 0, height = 0;
     plume::RenderFormat format = plume::RenderFormat::UNKNOWN;
-    bool supported = false, failed = false, active = false, prepared = false;
+    bool supported = false, failed = false, active = false, prepared = false, inputWarned = false;
 
     void Fail(const char* reason) {
         if (!failed) LOG_ERROR("MetalFX FG unavailable: {}", reason);
         failed = true; active = false; history.Reset();
+    }
+    // Ends a submitted lease. A committed buffer that completed or failed no
+    // longer touches its resources; an uncommitted one never ran.
+    void Release() {
+        const auto status = recorded ? recorded.status : MTLCommandBufferStatusNotEnqueued;
+        const bool executed = status >= MTLCommandBufferStatusCommitted;
+        if (executed && status != MTLCommandBufferStatusCompleted && status != MTLCommandBufferStatusError)
+            [recorded waitUntilCompleted];
+        if (executed && (recorded.status == MTLCommandBufferStatusError || recorded.error))
+            Fail("Metal presentation command buffer failed");
+        recorded = nil; retained.reset();
+        if (executed) depth.ReleaseAfterInputDrain(); else depth.DiscardUnsubmitted();
+#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
+        if (@available(macOS 26.0, *)) {
+            interpolator.depthTexture = nil; interpolator.motionTexture = nil;
+            interpolator.colorTexture = nil; interpolator.prevColorTexture = nil; interpolator.outputTexture = nil;
+        }
+#endif
     }
     void Begin(plume::RenderCommandList* commands) {
         Require(use.Begin(commands), "overlapping input recording");
@@ -159,6 +177,18 @@ bool Session::Record(const frame_generation::CompositeHandoff& handoff,
         const auto parameters=ConvertParameters(in.frameTimeDeltaMilliseconds,camera.fovRadians,
             in.depth.width,in.depth.height,output.width,output.height);
         if (!parameters || !s.Ensure(in.depth.width,in.depth.height,output.width,output.height,output.format)) return false;
+        // The descriptor fixes the motion format and the input extent, as the
+        // D3D12 adapters require. An offset or pooled motion image would be read
+        // incorrectly, so such frames use normal presentation.
+        const id<MTLTexture> motion=Texture(in.motion.texture);
+        if (!motion || motion.pixelFormat!=MTLPixelFormatRG16Float || in.motion.x || in.motion.y ||
+            in.motion.width!=in.depth.width || in.motion.height!=in.depth.height ||
+            motion.width!=in.depth.width || motion.height!=in.depth.height) {
+            if (!s.inputWarned) LOG_WARNING("MetalFX FG: motion input {}x{}+{},{} in a {}x{} texture does not match depth {}x{}; normal presentation used",
+                in.motion.width,in.motion.height,in.motion.x,in.motion.y,motion ? motion.width : 0,motion ? motion.height : 0,
+                in.depth.width,in.depth.height);
+            s.inputWarned=true; s.history.Reset(); s.active=false; return false;
+        }
         s.pendingKey={in.plan.deviceEpoch,in.temporalEpoch,output.width,output.height,in.depth.width,in.depth.height,uint32_t(output.format),s.config};
         s.pendingFrame=in.renderFrameId; s.pendingPlan=in.plan;
         const bool reset=s.history.NeedsReset(in.renderFrameId,s.pendingKey,in.resetHistory ||
@@ -201,20 +231,24 @@ void Session::RecordOriginal(plume::RenderCommandList* commands, plume::RenderTe
 }
 void Session::SubmitStart() { Require(impl_->use.SubmissionStarted(), "duplicate submit"); }
 void Session::HostSubmitted(bool success, uint64_t serial) {
-    if (impl_->use.Pending()) Require(impl_->use.Submitted(success,serial), "host submission");
+    auto& s=*impl_;
+    if (!s.use.Pending()) return;
+    if (success) { Require(s.use.Submitted(true,serial), "host submission serial"); return; }
+    Require(s.use.SubmitFailed(), "failed submission lease");
+    s.Release(); s.Fail("Metal presentation submission failed");
 }
 void Session::AfterHostDrain() {
     auto& s=*impl_;
-    if (!s.use.Pending()) return;
-    Require(s.use.Serial() && s.recorded.status==MTLCommandBufferStatusCompleted && !s.recorded.error, "Metal command completion");
+    // Unsubmitted recordings belong to the current command buffer.
+    if (!s.use.Pending() || !s.use.Serial()) return;
     Require(s.use.Completed(), "input lease completion");
-    s.recorded=nil; s.retained.reset(); s.depth.ReleaseAfterInputDrain();
-#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 260000
-    if (@available(macOS 26.0, *)) {
-        s.interpolator.depthTexture=nil; s.interpolator.motionTexture=nil;
-        s.interpolator.colorTexture=nil; s.interpolator.prevColorTexture=nil; s.interpolator.outputTexture=nil;
-    }
-#endif
+    s.Release();
+}
+void Session::Retire() {
+    auto& s=*impl_;
+    if (!s.use.Pending()) return;
+    Require(s.use.Serial() ? s.use.Completed() : s.use.SubmitFailed(), "teardown input lease");
+    s.Release();
 }
 void Session::FinishPresent(bool accepted, bool generated) {
     auto& s=*impl_;

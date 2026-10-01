@@ -51,6 +51,8 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 - Clears with more than `MAX_CLEAR_RECTS` rectangles are split into batches, matching the D3D12 and Vulkan changes in `plume-lostodyssey.patch`; the quad clear otherwise overruns fixed-size arrays.
 - `plume::SetMetalMinimumPresentDuration` makes the swap chain present each drawable with `presentAfterMinimumDuration`, so ProMotion displays follow the game's frame rate (the runtime's "Adaptive sync (ProMotion)" setting and targets above 60 FPS).
 - `plume::EncodeMetalFxSpatialScale` encodes MetalFX's spatial scaler into the command list's buffer (the "MetalFX" scaling filter). The runtime links `MetalFX.framework` to plume in `thirdparty/CMakeLists.txt`.
+- Drawable slots advance only in `acquireTexture`, on the presentation thread, instead of in present completion handlers.
+- Present completion is recorded in state shared with the handlers, so a handler that runs after teardown never touches the swap chain. `resize()` and the destructor wait up to 10 seconds for outstanding presents, because their command buffers wait on the caller's events without retaining them. A present command buffer that completes with an error is logged through `plume_log.h` and does not fail later resizes or teardown.
 
 Apply it after the upstream patch, from the repository root:
 

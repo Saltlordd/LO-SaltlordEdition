@@ -1363,7 +1363,10 @@ namespace gpu::video
     static void ResetGpu() {
 #if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
         if (g_metalFg) {
-            if (!WaitForPresentGpu()) { std::fflush(nullptr); std::_Exit(EXIT_FAILURE); }
+            // After a GPU error the host wait can report failure; the session
+            // then waits for its own command buffer instead of ending the process.
+            WaitForPresentGpu();
+            g_metalFg->Retire();
             g_metalFg->SuspendAfterHostDrain();
             g_metalFg.reset();
         }
@@ -2931,7 +2934,9 @@ namespace gpu::video
             return false;
         g_fgPresent.CancelAll(frame_generation::HandoffCancel::AlternatePresent);
 #if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
-        if (g_metalFg) {
+        // Only an active request has interpolation history to interrupt. With FG
+        // Off the session records nothing, so host-only frames do not wait.
+        if (g_metalFg && g_metalFg->Requested()) {
             if (!WaitForPresentGpu()) return false;
             g_metalFg->SuspendAfterHostDrain();
         }
