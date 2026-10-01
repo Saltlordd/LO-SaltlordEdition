@@ -71,7 +71,8 @@ namespace menu_assets { std::shared_ptr<const Assets> Cached(const std::filesyst
 }
 namespace gpu::video {
 plume::RenderDevice* GetDevice(){return reinterpret_cast<plume::RenderDevice*>(1);}
-FrameGenerationStatus GetFrameGenerationStatus(){return {};}
+FrameGenerationStatus fgStatus{};
+FrameGenerationStatus GetFrameGenerationStatus(){return fgStatus;}
 std::optional<gpu::backend::Backend> SelectedBackend(){return gpu::backend::Backend::Vulkan;}
 DisplayChangeResult QueryDisplayChange(uint64_t){return DisplayChangeResult::Applied;}
 uint64_t BeginDisplayChange(const settings::Config&){return 1;}
@@ -239,6 +240,47 @@ int main(int argc, char** argv) {
     Check(settings::DrawMenu(promptPixels,promptRevision,1280,720),"Xbox prompts restore");
     Check(promptRevision == sameRevision && promptPixels == xboxPixels,
         "controller style round trip restores original pixels");
+    // Exercise the real Vulkan FG menu and Save/restart flow without an SDK.
+    settings::tab=2;settings::row=int(GraphicsRow::FrameGeneration);
+    settings::edit=settings::savedConfig;
+    settings::edit.graphicsBackend=settings::GraphicsBackend::Vulkan;
+    settings::edit.frameGenerationProvider=framegen::Provider::Off;
+    settings::edit.frameGenerationMode=framegen::Mode::Fixed;
+    settings::edit.frameGenerationMultiplier=2;
+    settings::edit.uiLanguage=0;
+    settings::savedConfig=settings::edit;
+    tick();
+    const bool vulkanFg=gpu::frame_generation::VulkanCompiledProvider(framegen::Provider::Dlss);
+    Check(settings::snapshot.rows[int(GraphicsRow::FrameGeneration)].choices ==
+        (vulkanFg ? std::vector<std::wstring>{L"Off",L"DLSS"} : std::vector<std::wstring>{L"Off"}),
+        "Vulkan FG offers only compiled native providers");
+    Check(settings::snapshot.rows[int(GraphicsRow::FrameGenerationMultiplier)].hidden,"Vulkan Off hides multiplier");
+    if(vulkanFg) {
+        tick(8);Check(settings::edit.frameGenerationProvider==framegen::Provider::Dlss,"Vulkan selects DLSS");
+        Check(!settings::snapshot.rows[int(GraphicsRow::FrameGenerationMultiplier)].hidden,"Vulkan DLSS exposes multiplier");
+        settings::row=int(GraphicsRow::FrameGenerationMultiplier);tick(4);
+        Check(settings::edit.frameGenerationMultiplier==6,"Vulkan multiplier wraps to 6x");
+        auto& status=gpu::video::fgStatus;
+        status.phase=gpu::video::FrameGenerationPhase::RestartRequired;
+        status.requested=framegen::Provider::Dlss;
+        tick();Check(settings::snapshot.notice.find(L"Restart to enable Vulkan")!=std::wstring::npos,"startup Off reports restart");
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(settings::restartPrompt && settings::snapshot.dialogMessage.find(L"Enabling Vulkan frame generation")!=std::wstring::npos,
+            "Save displays Vulkan restart reason");
+        settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
+        status.phase=gpu::video::FrameGenerationPhase::Ready;
+        status.sessionProvider=status.applied=framegen::Provider::Dlss;
+        settings::row=int(GraphicsRow::FrameGenerationMultiplier);tick(8);
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(!settings::restartPrompt,"existing Vulkan session changes multiplier without restart");
+        settings::row=int(GraphicsRow::FrameGeneration);tick(8);
+        Check(settings::edit.frameGenerationProvider==framegen::Provider::Off,"Vulkan provider cycle never selects FSR");
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(!settings::restartPrompt,"existing Vulkan session turns off without restart");
+    } else {
+        tick(8);Check(settings::edit.frameGenerationProvider==framegen::Provider::Off,"unavailable build cannot enable Vulkan FG");
+    }
+    gpu::video::fgStatus={};
     if (argc > 1) {
         std::filesystem::create_directories(argv[1]);
         for (uint32_t language : {0u,4u}) {

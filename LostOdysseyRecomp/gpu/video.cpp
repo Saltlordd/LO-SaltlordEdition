@@ -20,7 +20,6 @@
 #include "frame_generation_present_bridge.h"
 #include "frame_generation_composite.h"
 #include "../../shared/frame_generation/environment.h"
-#include "frame_generation_settings.h"
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
 #include "frame_generation_d3d12.h"
 #endif
@@ -38,6 +37,7 @@
 #include "deadline_wait.h"
 #include "frame_plan.h"
 #include <settings/config.h>
+#include "frame_generation_settings.h"
 #include <settings/menu.h>
 #include <settings/restart.h>
 #include <kernel/memory.h>
@@ -300,6 +300,8 @@ namespace gpu::video
         std::unique_ptr<dlss::Controller> g_dlssController;
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
         std::unique_ptr<frame_generation::D3D12Bridge> g_d3dFg;
+#endif
+#if defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG))
         std::mutex g_fgSettingsMutex;
         framegen::Config g_fgAppliedConfig{};
         framegen::Provider g_fgSessionProvider = framegen::Provider::Off;
@@ -1316,6 +1318,8 @@ namespace gpu::video
 #endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
         if (g_d3dFg) g_d3dFg->Quiesce();
+#endif
+#if defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG))
         {
             std::lock_guard lock(g_fgSettingsMutex);
             g_fgAppliedConfig = {};
@@ -1557,14 +1561,11 @@ namespace gpu::video
                 g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
                 g_temporalUpscaler = std::make_unique<TemporalUpscaler>(*g_dlssController);
 #if defined(LO_ENABLE_STREAMLINE_FG)
-                const auto fg = framegen::ParseEnvironment(std::getenv("LO_FG_PROVIDER"),
+                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(), std::getenv("LO_FG_PROVIDER"),
                     std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
                     std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
                 if (fg.error) LOG_ERROR("FG: {}", fg.error);
-                const bool legacyFg = fg.Enabled() && fg.config.provider == framegen::Provider::Dlss &&
-                    fg.config.mode == framegen::Mode::Fixed && fg.config.generatedFrames == 1;
-                if (fg.Enabled() && !legacyFg) LOG_ERROR("FG: selected mode requires the D3D12 backend; Vulkan FG disabled");
-                if (legacyFg) {
+                if (fg.Enabled()) {
                     std::string reason;
                     g_fgRuntime = std::make_unique<dlss_fg::Runtime>();
                     if (!g_fgRuntime->Initialize(DlssRuntimePath(), reason)) {
@@ -1655,6 +1656,8 @@ namespace gpu::video
                     *static_cast<plume::VulkanDevice*>(g_device.get()), *static_cast<plume::VulkanCommandQueue*>(g_queue.get()));
                 if (!g_fgSession->Initialize()) return "DLSS FG presentation initialization failed";
                 g_fgWindowSynchronization = true;
+                std::lock_guard lock(g_fgSettingsMutex);
+                g_fgSessionProvider = framegen::Provider::Dlss;
             }
 #endif
             g_commandList = g_queue->createCommandList();
@@ -1718,6 +1721,19 @@ namespace gpu::video
         if (selection.selected) {
             g_selectedBackend = static_cast<int>(*selection.selected);
             g_available = true; g_initializing = false;
+#if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
+            if (*selection.selected == backend::Backend::Vulkan) {
+                const auto fg = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
+                    std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+                    std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+                // A failed startup is unavailable, not a request to restart
+                // endlessly. Starting Off can be enabled after a restart.
+                if (fg.Enabled() && !g_fgSession) {
+                    std::lock_guard lock(g_fgSettingsMutex);
+                    g_fgFailedRequest = fg.config;
+                }
+            }
+#endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (*selection.selected == backend::Backend::D3D12) {
                 const auto requestedFg = frame_generation::ResolveD3D12Selection(settings::GetConfig(),
@@ -1770,7 +1786,7 @@ namespace gpu::video
         if (g_d3dFg && g_d3dFg->Enabled()) return true;
 #endif
 #if defined(LO_GPU_PLUME) && defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
-        if (g_fgSession) return true;
+        if (g_fgSession && g_fgSession->Requested()) return true;
 #endif
         return false;
     }
@@ -1802,9 +1818,9 @@ namespace gpu::video
         }
 #endif
 #if defined(LO_GPU_PLUME) && defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
-        // The existing Vulkan session is fixed 2x. Availability is a last-frame
-        // runtime observation, not evidence that the monitor is using VRR.
-        if (requested && !hostOverlay && g_fgSession && g_fgSession->Available()) multiplier = 2;
+        // Availability is a last-frame runtime observation, not evidence that
+        // the monitor is using VRR.
+        if (requested && !hostOverlay && g_fgSession && g_fgSession->Available()) multiplier = g_fgSession->Multiplier();
 #endif
         const auto paced = dynamic ? vrr::DynamicPacingTarget(nativeTarget, requested, refresh, dynamicTarget)
             : vrr::PacingTarget(nativeTarget, requested, refresh, multiplier);
@@ -1851,22 +1867,27 @@ namespace gpu::video
         FrameGenerationStatus status;
         status.environmentOverride = std::getenv("LO_FG_PROVIDER") || std::getenv("LO_FG_MODE") ||
             std::getenv("LO_FG_MULTIPLIER") || std::getenv("LO_FG_TARGET_FPS") || std::getenv("LO_DLSS_FG");
-#if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32) && defined(LO_GPU_PLUME) && !defined(LO_VIDEO_SUBMISSION_UNIT)
-        const auto request = frame_generation::ResolveD3D12Selection(settings::GetConfig(),
+#if !defined(LO_VIDEO_SUBMISSION_UNIT)
+        const auto saved = settings::GetConfig();
+        const auto backend = SelectedBackend();
+        const auto request = frame_generation::ResolveSelection(backend.value_or(saved.graphicsBackend), saved,
             std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
             std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"), g_displayRefreshHz.load(std::memory_order_relaxed));
         status.requested = request.config.provider;
         status.requestedMultiplier = request.config.generatedFrames + 1;
+#if (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG)) && defined(_WIN32) && defined(LO_GPU_PLUME)
         {
             std::lock_guard lock(g_fgSettingsMutex);
             status.applied = g_fgAppliedConfig.provider;
             status.sessionProvider = g_fgSessionProvider;
             status.appliedMultiplier = g_fgAppliedConfig.generatedFrames + 1;
-            const auto backend = SelectedBackend();
-            if (request.error || (backend && *backend != backend::Backend::D3D12) ||
+            if (request.error ||
                 (g_fgFailedRequest && *g_fgFailedRequest == request.config))
                 status.phase = request.config.provider == framegen::Provider::Off && !request.error
                     ? FrameGenerationPhase::Off : FrameGenerationPhase::Unavailable;
+            else if (backend == backend::Backend::Vulkan && request.Enabled() &&
+                g_fgSessionProvider == framegen::Provider::Off)
+                status.phase = FrameGenerationPhase::RestartRequired;
             else if (!backend || request.config != g_fgAppliedConfig)
                 status.phase = request.config.provider == framegen::Provider::Off && !backend
                     ? FrameGenerationPhase::Off : FrameGenerationPhase::Pending;
@@ -1874,10 +1895,10 @@ namespace gpu::video
                 status.phase = status.applied == framegen::Provider::Off
                     ? FrameGenerationPhase::Off : FrameGenerationPhase::Ready;
         }
-#elif !defined(LO_VIDEO_SUBMISSION_UNIT)
-        status.requested = settings::GetConfig().frameGenerationProvider;
-        status.phase = status.requested == framegen::Provider::Off
+#else
+        status.phase = status.requested == framegen::Provider::Off && !request.error
             ? FrameGenerationPhase::Off : FrameGenerationPhase::Unavailable;
+#endif
 #endif
         return status;
     }
@@ -2496,6 +2517,43 @@ namespace gpu::video
         return true;
     }
 #endif
+#if defined(_WIN32) && defined(LO_ENABLE_STREAMLINE_FG)
+    static bool ReconcileVulkanFrameGeneration()
+    {
+        if (!g_vulkan || g_fgWindowChange.load() != 0) return true;
+        const auto request = frame_generation::ResolveVulkanSelection(settings::GetConfig(),
+            std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+            std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        const auto desired = request.Enabled() ? request.config : framegen::Config{};
+        {
+            std::lock_guard lock(g_fgSettingsMutex);
+            if (g_fgFailedRequest && *g_fgFailedRequest != request.config) g_fgFailedRequest.reset();
+            if (g_fgFailedRequest || desired == g_fgAppliedConfig) return true;
+        }
+        // Device/WSI hooks must be installed before creating the Vulkan device.
+        // If startup was Off, the menu reports RestartRequired. Keep an existing
+        // proxy alive while Off so Off -> On can reuse it safely in this process.
+        if (!g_fgSession) return true;
+        if (!renderer::DrainForFrameGenerationReconfigure() || !WaitForPresentGpu()) return false;
+        g_fgPresent.CancelAll(frame_generation::HandoffCancel::DisplayChange);
+        renderer::CancelFgHandoffs();
+        std::string reason;
+        const bool applied = g_fgSession->Reconfigure(desired, reason);
+        renderer::SetFrameGenerationInputCaptureEnabled(applied && request.Enabled());
+        {
+            std::lock_guard lock(g_fgSettingsMutex);
+            g_fgAppliedConfig = applied ? desired : framegen::Config{};
+            g_fgFailedRequest = !applied || request.error ? std::optional(request.config) : std::nullopt;
+        }
+        if (!applied || request.error)
+            LOG_ERROR("Vulkan FG: unavailable; ordinary rendering retained: {}", request.error ? request.error : reason);
+        else
+            LOG_INFO("Vulkan FG: requested={} multiplier={} input_capture={}",
+                request.Enabled() ? "dlss" : "off", g_fgSession->Multiplier(), request.Enabled());
+        return true;
+    }
+#endif
+
     // Sole presentation-thread entry for mode changes and swap-chain recovery.
     // Both guest frames and host-only frames call this BEFORE reading dimensions
     // or rasterizing UI. The returned ticket belongs to these prepared operations.
@@ -2519,6 +2577,9 @@ namespace gpu::video
         gpu::SetFrameRateTarget(settings::GetConfig().frameRate);
 #if defined(_WIN32) && defined(LO_ENABLE_D3D12_FG)
         if (!ReconcileD3D12FrameGeneration()) return false;
+#endif
+#if defined(_WIN32) && defined(LO_ENABLE_STREAMLINE_FG)
+        if (!ReconcileVulkanFrameGeneration()) return false;
 #endif
         const auto nativeTarget = gpu::GetFrameRateTarget();
         auto& nativePolicy = g_presentationDisplay;
@@ -2888,7 +2949,8 @@ namespace gpu::video
                     const auto fgAcquireBegin = std::chrono::steady_clock::now();
                     const bool matched = renderer::AcquireFgCompositeInputs(physicalAddress & 0x1FFFFFFF, composite) &&
                         composite.ReadyForOrderedSubmission() && composite.outputWidth == sourceWidth && composite.outputHeight == sourceHeight &&
-                        (!g_vulkan || (sourceWidth == g_swapChain->getWidth() && sourceHeight == g_swapChain->getHeight()));
+                        (!g_vulkan || dlss_fg::FullFramePresentation(sourceWidth, sourceHeight,
+                            g_swapChain->getWidth(), g_swapChain->getHeight()));
                     if (std::getenv("LO_MV_LOG") && composite.frame % 120 == 119)
                         LOG_INFO("video FG admission: frame={} matched={} window_change={} source={}x{} swapchain={}x{} composite={}x{}",
                             composite.frame, matched, g_fgWindowChange.load(), sourceWidth, sourceHeight,

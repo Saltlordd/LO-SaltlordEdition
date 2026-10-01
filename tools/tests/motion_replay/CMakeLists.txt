@@ -251,3 +251,20 @@ add_executable(LoFgGameInputTest "${ROOT}/tools/tests/frame_generation/game_inpu
 target_include_directories(LoFgGameInputTest PRIVATE "${ROOT}")
 target_link_libraries(LoFgGameInputTest PRIVATE mv_runtime)
 add_test(NAME fg_game_input_contract COMMAND LoFgGameInputTest)
+
+option(LO_VULKAN_FG_GAME_COMPILE_CHECK "Compile the Windows Vulkan DLSS FG game path against pinned headers" OFF)
+if(LO_VULKAN_FG_GAME_COMPILE_CHECK)
+ if(NOT WIN32 OR NOT TARGET p2_video_compile OR NOT EXISTS "${FRAMEGEN_STREAMLINE_INCLUDE}/sl_dlss_g.h")
+  message(FATAL_ERROR "Vulkan FG compile check requires Windows, LO_P2_VIDEO_COMPILE_CHECK and FRAMEGEN_STREAMLINE_INCLUDE")
+ endif()
+ add_library(fg_vulkan_compile OBJECT
+  "${ROOT}/LostOdysseyRecomp/gpu/dlss_frame_generation.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/dlss_fg_depth.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/streamline_runtime.cpp"
+  "${ROOT}/LostOdysseyRecomp/gpu/streamline_vulkan_dispatch.cpp")
+ target_link_libraries(fg_vulkan_compile PRIVATE mv_runtime)
+ foreach(target IN ITEMS fg_vulkan_compile p2_video_compile)
+  target_compile_definitions(${target} PRIVATE LO_ENABLE_STREAMLINE_FG=1)
+  target_include_directories(${target} SYSTEM PRIVATE "${FRAMEGEN_STREAMLINE_INCLUDE}")
+ endforeach()
+endif()

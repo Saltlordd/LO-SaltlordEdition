@@ -10,6 +10,14 @@ inline bool CompositePlanSupported(const frame_plan::FramePlan& plan) {
     return upscaling::IsSrConsumer(plan.consumer) &&
         upscaling::MatchesSrProvider(plan.requestedUpscaler, plan.consumer);
 }
+// Presentation scales uniformly and adds bars when aspect ratios differ. The
+// full-backbuffer FG path can consume scaled native input only without bars;
+// otherwise its depth/motion coordinates would not match the intercepted color.
+inline bool FullFramePresentation(uint32_t sourceWidth, uint32_t sourceHeight,
+                                  uint32_t outputWidth, uint32_t outputHeight) {
+    return sourceWidth && sourceHeight && outputWidth && outputHeight &&
+        uint64_t(sourceWidth) * outputHeight == uint64_t(outputWidth) * sourceHeight;
+}
 inline bool SameHistoryConfiguration(const frame_plan::FramePlan& a,
                                      const frame_plan::FramePlan& b) {
     return a.deviceEpoch == b.deviceEpoch && a.geometryEpoch == b.geometryEpoch &&

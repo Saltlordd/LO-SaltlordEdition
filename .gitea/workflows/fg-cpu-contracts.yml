@@ -19,6 +19,10 @@ on:
       - 'LostOdysseyRecomp/gpu/frame_generation_composite.h'
       - 'LostOdysseyRecomp/gpu/temporal_frame_inputs.h'
       - 'tools/tests/streamline_fg/**'
+      - 'tools/tests/settings_menu/**'
+      - 'LostOdysseyRecomp/gpu/frame_generation_settings.h'
+      - 'LostOdysseyRecomp/settings/menu.cpp'
+      - 'LostOdysseyRecomp/settings/config.h'
       - 'tools/tests/temporal_frame_inputs_test.cpp'
       - 'tools/tests/temporal_upscaler_contract_test.cpp'
       - 'tools/tests/frame_plan_test.cpp'
@@ -39,6 +43,10 @@ on:
       - 'LostOdysseyRecomp/gpu/frame_generation_composite.h'
       - 'LostOdysseyRecomp/gpu/temporal_frame_inputs.h'
       - 'tools/tests/streamline_fg/**'
+      - 'tools/tests/settings_menu/**'
+      - 'LostOdysseyRecomp/gpu/frame_generation_settings.h'
+      - 'LostOdysseyRecomp/settings/menu.cpp'
+      - 'LostOdysseyRecomp/settings/config.h'
       - 'tools/tests/temporal_frame_inputs_test.cpp'
       - 'tools/tests/temporal_upscaler_contract_test.cpp'
       - 'tools/tests/frame_plan_test.cpp'
@@ -66,7 +74,7 @@ jobs:
         run: |
           SUDO=$(command -v sudo || true)
           $SUDO apt-get update
-          $SUDO apt-get install -y --no-install-recommends cmake g++
+          $SUDO apt-get install -y --no-install-recommends cmake g++ python3
       - name: Configure GPU-free contracts
         run: cmake -S tools/tests/streamline_fg -B build/fg-contracts -DLO_STREAMLINE_FG_CPU_ONLY=ON
       - name: Build

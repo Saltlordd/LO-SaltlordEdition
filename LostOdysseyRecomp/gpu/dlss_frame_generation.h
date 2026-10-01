@@ -7,6 +7,7 @@
 #include "dlss_fg_host_use.h"
 #include "dlss_fg_policy.h"
 #include "dlss_fg_runtime_policy.h"
+#include "../../shared/frame_generation/core.h"
 
 namespace gpu::dlss_fg {
 // Presentation-thread owner. The first implementation serializes input reuse
@@ -16,6 +17,9 @@ public:
     Session(Runtime& runtime, plume::VulkanDevice& device, plume::VulkanCommandQueue& queue);
     ~Session();
     bool Initialize();
+    bool Reconfigure(const framegen::Config& config, std::string& reason);
+    bool Requested() const { return config_.provider == framegen::Provider::Dlss; }
+    uint32_t Multiplier() const { return Requested() ? config_.generatedFrames + 1 : 1; }
     bool Prepare(const std::shared_ptr<frame_generation::ProducerSnapshot>& inputs,
         uint32_t width, uint32_t height, uint32_t buffers, VkFormat format,
         plume::RenderCommandList* commands = nullptr, double producerWaitMs = 0.0);
@@ -50,6 +54,8 @@ private:
     sl::ViewportHandle viewport_{0};
     sl::FrameToken* token_ = nullptr;
     sl::DLSSGOptions options_{};
+    framegen::Config config_{};
+    framegen::Capabilities capabilities_{};
     VkFence completion_ = VK_NULL_HANDLE;
     PresentQueueCompletion inputCompletion_;
     HostInputUse hostUse_;

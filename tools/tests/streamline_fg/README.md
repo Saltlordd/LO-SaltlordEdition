@@ -6,6 +6,13 @@ This is an **experimental, standalone Windows x64 Vulkan probe** for native NGX 
 
 It needs the official Streamline v2.14.1 SDK described in `sdk-manifest.json`, a separate local NGX 310.9.1 SDK, and Visual Studio 2022 with CMake 3.28 or newer. Configure does not download either SDK. The build copies only the required Streamline runtime DLLs from the local SDK and the native NGX SR runtime from `LoDlss.cmake`; `sl.dlss.dll` must not be placed beside the executable. SDK archives, headers and binaries remain outside this source checkpoint.
 
+The separate `LO_STREAMLINE_FG_CPU_ONLY=ON` configuration needs no SDK, GPU or
+game assets. It covers runtime/input policies, Vulkan settings selection and
+production menu interaction/raster tests (Python 3 generates the menu fixture).
+The [Vulkan/FSR 4/MetalFX investigation](../../../docs/notes/vulkan-fg-fsr4-metalfx.md)
+documents the game's new fixed-multiplier settings path and its remaining
+hardware checks; this standalone GPU probe still exercises its original 2× path.
+
 From the repository root in PowerShell, after placing the SDKs in the local `.cache/deps` paths:
 
 ```powershell

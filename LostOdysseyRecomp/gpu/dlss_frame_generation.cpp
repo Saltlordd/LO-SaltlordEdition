@@ -1,6 +1,7 @@
 #include "dlss_frame_generation.h"
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
 #include "dlss_fg_constants.h"
+#include "frame_generation_settings.h"
 #include "vulkan_command_recording.h"
 #include <os/logger.h>
 #include <cstdlib>
@@ -41,11 +42,36 @@ bool Session::Initialize() {
     ready_ = true;
     return Mode(false);
 }
+bool Session::Reconfigure(const framegen::Config& config, std::string& reason) {
+    if (!ready_) { reason = "Vulkan DLSS FG session is unavailable"; return false; }
+    Quiesce(); // Retire SDK input reads before changing multiplier or disabling capture.
+    config_ = {};
+    if (const auto* error = frame_generation::VulkanRequestError(config)) { reason = error; return false; }
+    if (config.provider == framegen::Provider::Off || config.mode == framegen::Mode::Off) return true;
+    if (failed_) { reason = "Vulkan DLSS FG session has failed"; return false; }
+    sl::DLSSGState state{};
+    if (!Check(runtime_.DLSSGGetState(viewport_, state, nullptr), "FG capabilities", true)) {
+        reason = "Vulkan DLSS FG capability query failed"; return false;
+    }
+    // Query only at configuration boundaries: GetState also consumes present
+    // counters. Do not consume them again before every regular Present.
+    presentCounter_.Reset();
+    capabilities_ = {true, state.numFramesToGenerateMax, false};
+    const auto selected = framegen::Select(config, capabilities_);
+    if (!selected.Enabled()) {
+        reason = "Vulkan DLSS FG multiplier unsupported (SDK maximum generated frames=" +
+            std::to_string(capabilities_.maxGeneratedFrames) + ")";
+        return false;
+    }
+    options_.numFramesToGenerate = config.generatedFrames;
+    config_ = config;
+    return true;
+}
 bool Session::Mode(bool enabled) {
     options_.mode = enabled ? sl::DLSSGMode::eOn : sl::DLSSGMode::eOff;
     used_ |= enabled; // Even a failed enable may have partial SDK resources.
     if (!Check(runtime_.DLSSGSetOptions(viewport_, options_), "FG options", enabled)) return false;
-    if (enabled != enabled_) LOG_INFO("DLSS FG: mode_request={} runtime={} input=composited_backbuffer ui_separation=unavailable multiplier=2", enabled ? "on" : "off", Name(runtimeState_.Phase()));
+    if (enabled != enabled_) LOG_INFO("DLSS FG: mode_request={} runtime={} input=composited_backbuffer ui_separation=unavailable multiplier={}", enabled ? "on" : "off", Name(runtimeState_.Phase()), Multiplier());
     enabled_ = enabled;
     if (!enabled) runtimeState_.SuspendInputs();
     return true;
@@ -66,6 +92,7 @@ bool Session::Prepare(const std::shared_ptr<frame_generation::ProducerSnapshot>&
     if (retained_) FailClosed("prepare before previous input completion");
     ObserveCreationFailure(); // A worker-thread error may arrive after GetState.
     token_ = nullptr;
+    if (!Requested()) { Disable(); return false; }
     ++frame_;
     if (!Check(runtime_.NewFrameToken(token_, &frame_), "frame token") || !token_) {
         Disable(); ObserveInputs(false, false, Interruption::SdkFailure); return false;
@@ -95,7 +122,6 @@ bool Session::Prepare(const std::shared_ptr<frame_generation::ProducerSnapshot>&
         !inputs->inputsQualifiedAtCapture || !inputs->inputs.CompleteForFrameGeneration() ||
         inputs->producerDiscarded || inputs->producerWaitFailed || inputs->lineageCanceled ||
         !width || !height || !buffers || format == VK_FORMAT_UNDEFINED ||
-        width != inputs->inputs.plan.output.width || height != inputs->inputs.plan.output.height ||
         !commands || !BuildConstants(inputs->inputs, reset ? nullptr : &previousVP_, constants, &remap,
             reset ? nullptr : &previousRaster_)) {
         if (frame_ % 120 == 0 && std::getenv("LO_MV_LOG"))

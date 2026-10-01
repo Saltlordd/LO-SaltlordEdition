@@ -81,7 +81,7 @@ namespace gpu::video
     struct DynamicFgOutputPacing { uint32_t outputFps = 0; uint64_t actualPresents = 0; };
     // GPU owner only. Cumulative SDK presents are observations, not physical scanout.
     DynamicFgOutputPacing GetDynamicFgOutputPacing(uint32_t nativeTarget);
-    enum class FrameGenerationPhase : uint8_t { Off, Pending, Ready, Unavailable };
+    enum class FrameGenerationPhase : uint8_t { Off, Pending, Ready, Unavailable, RestartRequired };
     struct FrameGenerationStatus {
         FrameGenerationPhase phase = FrameGenerationPhase::Off;
         framegen::Provider requested = framegen::Provider::Off;

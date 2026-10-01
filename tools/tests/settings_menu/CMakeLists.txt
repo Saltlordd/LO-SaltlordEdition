@@ -13,6 +13,7 @@ add_custom_command(OUTPUT "${FIXTURE}"
     DEPENDS generate_runtime_fixture.py "${RUNTIME}/settings/menu.cpp"
     VERBATIM)
 add_executable(LoSettingsInteraction "${FIXTURE}" "${RUNTIME}/settings/menu_render.cpp")
+target_compile_definitions(LoSettingsInteraction PRIVATE LO_ENABLE_STREAMLINE_FG=1)
 add_executable(LoSettingsRaster raster_test.cpp "${RUNTIME}/settings/menu_render.cpp")
 foreach(target IN ITEMS LoSettingsInteraction LoSettingsRaster)
     target_include_directories(${target} PRIVATE "${RUNTIME}")
