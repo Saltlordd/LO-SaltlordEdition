@@ -69,7 +69,11 @@ T640 toolchain:
 - Visual Studio 2022 Build Tools 17.14 (MSVC 14.44, Windows SDK 10.0.26100, ClangCL MSBuild toolset)
 - LLVM 22.1.8 in `C:\Program Files\LLVM`, matching the development machine
 - CMake 3.31.6 and PowerShell 7.4.6
+- Python 3.12.10 in `C:\Program Files\Python312`, unpacked from the official NuGet package because the python.org installer fails on this machine, as `setup-python` did in 2026-09
 - Git for Windows, Node.js, and aria2 in `C:\tools\aria2`
+
+`start-runner.cmd` also sets `MSBUILDDISABLENODEREUSE=1`, so idle MSBuild
+worker processes do not linger and hold files between jobs.
 
 The VS-bundled clang package stalled for half an hour during setup (it
 completed later), so `start-runner.cmd` sets `LLVMInstallDir` and
