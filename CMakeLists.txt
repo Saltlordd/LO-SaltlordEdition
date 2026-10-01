@@ -15,14 +15,6 @@ endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-# CMake spells C++23 for clang-cl as -clang:-std=c++23, which ccache cannot
-# cache. clang-cl 20+ accepts /std:c++23preview for the same language mode;
-# the objects are byte-identical (checked with clang-cl 22 and /Brepro).
-if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC" AND
-   CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 20)
-    set(CMAKE_CXX23_STANDARD_COMPILE_OPTION "/std:c++23preview")
-    set(CMAKE_CXX23_EXTENSION_COMPILE_OPTION "/std:c++23preview")
-endif()
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(BUILD_SHARED_LIBS OFF)
 

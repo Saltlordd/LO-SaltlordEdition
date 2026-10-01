@@ -111,11 +111,14 @@ Differences from the GitHub release workflow:
   change with the XEX or the recompiler, and they took about 9 of the 11
   minutes of the first Linux build. The job log ends the build with
   `ccache --show-stats`. Translation units that use the runtime's precompiled
-  header fall back to the compiler. ccache rejects CMake's clang-cl spelling of
-  C++23, `-clang:-std=c++23`, so the top-level `CMakeLists.txt` selects
-  `/std:c++23preview` for clang-cl 20 and later; on clang-cl 22 with `/Brepro`
-  both spellings produced byte-identical objects. Before that change 611 of
-  837 Windows compilations were uncacheable.
+  header fall back to the compiler. On Windows only the C units hit (212 of
+  837 compilations): the release build uses the Visual Studio clang-cl 19.1.5
+  that `vcvars64` puts first on `PATH`, as the GitHub runners did, and CMake
+  passes C++23 to it as `-clang:-std=c++23`, an option ccache rejects. clang-cl
+  20+ accepts `/std:c++23preview`, which ccache caches and which produced
+  byte-identical objects on clang-cl 22 with `/Brepro`; using it would mean
+  building releases with LLVM 22 instead. The Windows build takes about
+  4 minutes with 24 jobs and runs beside the longer Linux job.
 - Runner caches: both release runners set `LO_CI_CACHE` (`D:\ci-cache` on
   T640; `/ci-cache` on the privileged runner, the `lo-release-cache` docker
   volume). `fetch_dlss_sdk.py` keeps a verified checkout of the pinned SDK in
@@ -184,7 +187,10 @@ T640 become slow again, check `netsh int tcp show global` first.
 The VS-bundled clang package stalled for half an hour during setup (it
 completed later), so `start-runner.cmd` sets `LLVMInstallDir` and
 `LLVMToolsVersion=22`, and `-T ClangCL` uses the standalone LLVM 22, the same
-version as the development machine. It also puts Git Bash first on `PATH`;
+version as the development machine. Ninja builds that run `vcvars64` first,
+such as the release build, find the Visual Studio clang-cl 19.1.5 (installed
+since) ahead of it on `PATH`, like the GitHub Windows runners.
+`start-runner.cmd` also puts Git Bash first on `PATH`;
 otherwise `shell: bash` resolves to the WSL `bash.exe` in System32.
 
 ### Submodule mirror
