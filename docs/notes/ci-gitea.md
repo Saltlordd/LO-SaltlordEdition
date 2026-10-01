@@ -90,8 +90,17 @@ Differences from the GitHub release workflow:
 - Flatpak needs bubblewrap, which needs a privileged container, hence the
   dedicated runner. `gh` 2.63.2 is downloaded in each Linux job.
 - Windows jobs use T640's Python 3.12 (a venv for the packaging tools) instead
-  of `setup-python`, 32 build jobs and 16 FSR shader threads. The Linux build
-  uses 4 jobs to stay within the Gitea host's free memory.
+  of `setup-python`, 24 build jobs and 16 FSR shader threads. The Linux build
+  uses 20 jobs. The Linux VM runs on T640 too, so the two builds share its
+  64 threads; a Linux compiler process peaked below 0.5 GB.
+- Compiler cache: both builds run compilers through ccache (4.14.1 in
+  `C:\tools\ccache` on T640, the distribution package on Linux) with
+  `CCACHE_DIR=$LO_CI_CACHE/ccache` and `CCACHE_BASEDIR` set to the workspace, so
+  hits do not depend on the per-job directory. The generated PPC units only
+  change with the XEX or the recompiler, and they took about 9 of the 11
+  minutes of the first Linux build. The job log ends the build with
+  `ccache --show-stats`. Translation units that use the runtime's precompiled
+  header fall back to the compiler.
 - Runner caches: both release runners set `LO_CI_CACHE` (`D:\ci-cache` on
   T640; `/ci-cache` on the privileged runner, the `lo-release-cache` docker
   volume). `fetch_dlss_sdk.py` keeps a verified checkout of the pinned SDK in

@@ -68,8 +68,8 @@ out/release-venv/Scripts/python.exe tools/package_release.py
 ```
 
 The dedicated `out/build/release` directory uses clang-cl, Release and static CRT.
-`LO_BUILD_JOBS` defaults to 4. The Gitea release workflow uses 32 on T640 (64 threads,
-128 GB); the GitHub fallback uses 2 to limit memory pressure from the generated C++ files. Existing development builds are not overwritten.
+`LO_BUILD_JOBS` defaults to 4. The Gitea release workflow uses 24 on T640 (64 threads,
+128 GB, shared with the Linux release VM) and ccache; the GitHub fallback uses 2 to limit memory pressure from the generated C++ files. Existing development builds are not overwritten.
 
 Packaging uses the pinned Microsoft DXC v1.8.2407 x64 `dxcompiler.dll` and `dxil.dll` pair
 already staged beside the tested build. The pair is byte-checked against the official archive

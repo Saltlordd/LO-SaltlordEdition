@@ -196,6 +196,23 @@ jobs:
             Move-Item -LiteralPath "$cached.tmp-$PID" -Destination $cached -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath "$cached.tmp-$PID" -ErrorAction SilentlyContinue
           }
+      - name: Configure compiler cache
+        run: |
+          # win-t640 has ccache on PATH and LO_CI_CACHE set. Generated PPC units
+          # only change with the XEX or the recompiler, so most objects hit.
+          # BASEDIR makes the per-job workspace path irrelevant to the hash.
+          $ccache = Get-Command ccache -ErrorAction SilentlyContinue
+          if (-not $ccache -or -not $env:LO_CI_CACHE) { Write-Host 'No compiler cache on this runner.'; exit 0 }
+          $env:CCACHE_DIR = Join-Path $env:LO_CI_CACHE 'ccache'
+          @(
+            "CMAKE_C_COMPILER_LAUNCHER=$($ccache.Source)",
+            "CMAKE_CXX_COMPILER_LAUNCHER=$($ccache.Source)",
+            "CCACHE_DIR=$env:CCACHE_DIR",
+            "CCACHE_BASEDIR=$($env:GITHUB_WORKSPACE -replace '\\', '/')",
+            'CCACHE_NOHASHDIR=1',
+            'CCACHE_MAXSIZE=20G'
+          ) | Add-Content -Path $env:GITHUB_ENV
+          & $ccache.Source --zero-stats | Out-Null
       - name: Generate game code
         shell: cmd
         run: |
@@ -205,7 +222,8 @@ jobs:
       - name: Build Release
         shell: cmd
         env:
-          LO_BUILD_JOBS: '32'
+          # T640's 64 threads are shared with the Linux release VM.
+          LO_BUILD_JOBS: '24'
           LO_ENABLE_DLSS: 'ON'
           LO_REQUIRE_DLSS: 'ON'
           LO_DLSS_SDK_ROOT: out\deps\nvidia-dlss
@@ -221,6 +239,11 @@ jobs:
           LO_FSR_DX12_SHADER_DIR: ${{ github.workspace }}/out/fsr-shaders-dx12
           LO_FSR_DX12_ADAPTER_DIR: ${{ github.workspace }}/out/fsr-adapter-dx12
         run: call tools\build_release.bat
+      - name: Compiler cache statistics
+        if: always() && env.CMAKE_CXX_COMPILER_LAUNCHER != ''
+        run: |
+          & $env:CMAKE_CXX_COMPILER_LAUNCHER --show-stats
+          exit 0
       - name: Stage FG runtime dependencies
         run: |
           $runtime = 'out/build/release/LostOdysseyRecomp'
@@ -343,10 +366,26 @@ jobs:
             libdbus-1-dev \
             libudev-dev \
             file \
-            wget
+            wget \
+            ccache
           # Jammy's distribution CMake predates the project's 3.28 minimum.
           python -m pip install 'cmake==3.31.6' -r tools/release/requirements.txt
           python -m unittest discover -s tools/tests -p test_appimage_compat.py
+      - name: Configure compiler cache
+        run: |
+          # The privileged runner sets LO_CI_CACHE to a persistent volume. Generated
+          # PPC units only change with the XEX or the recompiler, so most objects
+          # hit; BASEDIR makes the per-job workspace path irrelevant to the hash.
+          if [ -z "${LO_CI_CACHE:-}" ]; then echo 'No compiler cache on this runner.'; exit 0; fi
+          {
+            echo "CMAKE_C_COMPILER_LAUNCHER=$(command -v ccache)"
+            echo "CMAKE_CXX_COMPILER_LAUNCHER=$(command -v ccache)"
+            echo "CCACHE_DIR=$LO_CI_CACHE/ccache"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo 'CCACHE_NOHASHDIR=1'
+            echo 'CCACHE_MAXSIZE=20G'
+          } >> "$GITHUB_ENV"
+          CCACHE_DIR="$LO_CI_CACHE/ccache" ccache --zero-stats >/dev/null
       - name: Retrieve private build input
         uses: actions/checkout@v4
         with:
@@ -417,8 +456,12 @@ jobs:
             -DSDL_PIPEWIRE=ON -DSDL_PIPEWIRE_SHARED=ON
           grep -q '^#define SDL_AUDIO_DRIVER_PIPEWIRE 1' out/build/linux/thirdparty/SDL/include-config-release/SDL2/SDL_config.h
           grep -q '^#define SDL_AUDIO_DRIVER_PIPEWIRE_DYNAMIC ' out/build/linux/thirdparty/SDL/include-config-release/SDL2/SDL_config.h
-          # The shared docker host has ~15 GB free; recompiled PPC units are memory heavy.
-          cmake --build out/build/linux --target LostOdysseyRecomp --parallel 4
+          # The release VM shares T640's 64 threads with the Windows job; each
+          # compiler process peaked below 0.5 GB of the VM's ~15 GB free memory.
+          cmake --build out/build/linux --target LostOdysseyRecomp --parallel 20
+      - name: Compiler cache statistics
+        if: always() && env.CMAKE_CXX_COMPILER_LAUNCHER != ''
+        run: ccache --show-stats || true
       - name: Install linuxdeploy
         run: |
           mkdir -p out/tools/linuxdeploy
