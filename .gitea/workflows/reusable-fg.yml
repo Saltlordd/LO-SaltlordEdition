@@ -39,24 +39,26 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/checkout@v4
-        if: matrix.provider != 'FSR'
-        with:
-          github-server-url: https://github.com
-          repository: NVIDIA-RTX/Streamline
-          ref: 2122257e0fce486f91b385aa63b9a09b0a34b363
-          path: out/deps/streamline
-          sparse-checkout: include
-          persist-credentials: false
-      - uses: actions/checkout@v4
-        if: matrix.provider != 'DLSS'
-        with:
-          github-server-url: https://github.com
-          repository: GPUOpen-LibrariesAndSDKs/FidelityFX-SDK
-          ref: c6efa6bf7f2027b3ec94f28578bb5965eabb9e55
-          path: out/deps/fidelityfx
-          sparse-checkout: ffx-api/include
-          persist-credentials: false
+      # actions/checkout would send the Gitea job token to github.com, which
+      # rejects it; fetch the pinned public SDK headers without credentials.
+      - name: Fetch pinned SDK headers
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch() {
+            rm -rf "$3"
+            git init -q "$3"
+            git -C "$3" remote add origin "$1"
+            git -C "$3" sparse-checkout set --cone "$4"
+            git -C "$3" fetch -q --depth 1 --filter=blob:none origin "$2"
+            git -C "$3" checkout -q FETCH_HEAD
+          }
+          if [ '${{ matrix.provider }}' != FSR ]; then
+            fetch https://github.com/NVIDIA-RTX/Streamline.git 2122257e0fce486f91b385aa63b9a09b0a34b363 out/deps/streamline include
+          fi
+          if [ '${{ matrix.provider }}' != DLSS ]; then
+            fetch https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git c6efa6bf7f2027b3ec94f28578bb5965eabb9e55 out/deps/fidelityfx ffx-api/include
+          fi
       - name: Configure independent SDK adapters
         shell: pwsh
         run: |
