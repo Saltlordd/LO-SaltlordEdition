@@ -2,7 +2,7 @@
 
 [文档总入口](../README.md) · [当前状态](../STATUS.md) · [路线图](../ROADMAP.zh-CN.md) · [历史归档](../archive/README.md)
 
-2026-09-30 整理：本目录收录全部 **145 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
+2026-09-30 整理：本目录收录全部 **146 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
 
 ## 如何使用
 
@@ -13,7 +13,7 @@
 | 调查 | 问题分析及其证据边界；此标记不等于对应 Issue 仍开放，现状以 STATUS / 路线图为准。 |
 | 草案 | 设计、研究、需求或发布文案；不代表已实施，也不因年代久远自动取消。 |
 
-分类合计：参考 24、历史 98、调查 13、草案 10。
+分类合计：参考 24、历史 99、调查 13、草案 10。
 
 先用当前状态确认实施、验证、验收和发布，再从下方进入证据。旧命令执行前核对源码、工具及输入；`out/`、本机绝对路径和截图编号是原调查的定位信息，不随仓库分发。已缺失的本地产物标为历史路径，不能视作本次复验。
 
@@ -175,6 +175,7 @@
 | [Issue #12 root cause: garbage-collected materials drawn by a stale scene proxy](issue12-root-cause.md) | 历史 |
 | [Issue #7: cutscene closure and missing crash diagnostics](issue7-cutscene-crash.md) | 历史 |
 | [Issue #53 Disc 2 loading investigation](ISSUE_53_DISC2_HANG_FIX_REPORT.md) | 历史 |
+| [Project review fixes — 2026-09-30](PROJECT_REVIEW_FIXES_20260930.md) | 历史 |
 | [内核 HLE 当前说明（2026-09-05）](kernel.md) | 历史 |
 | [重编译配置笔记](recomp.md) | 参考 |
 | [Recompiler width and control-flow audit](recompiler-width-audit.md) | 参考 |

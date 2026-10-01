@@ -22,6 +22,14 @@ Both readback hashes must equal `$publishRevision`. Stop if a push fails; resolv
 connection, authentication or divergent-history errors without force-pushing.
 Review the unpublished diff for private/generated content before publication.
 
+Since 2026-09-30 the FG contract, FG game integration compile, reusable FG and
+review-regression pull request checks run as Gitea Actions on the `zkx` remote. A branch push to `zkx`
+starts them (subject to each workflow's path filter), and each result is reported back
+to the GitHub commit as `gitea/<workflow>`. The matching GitHub workflows are
+manual-only; release packaging, the Mod API and Wiki workflow and issue triage stay on
+GitHub Actions. See [Pull request checks on Gitea](notes/ci-gitea.md) for pushing,
+reading results and the required Gitea secret.
+
 The legacy `tools/push_all.ps1` helper still hardcodes `origin` and `github`.
 With this checkout's `origin`/`zkx` configuration, even `-CheckOnly` cannot complete.
 Its public-baseline, attribution and tracked-path checks remain useful historical

@@ -38,6 +38,8 @@
 
 ## 2026-09-06 当前交接
 
+> 2026-09-30 补充：下文关于关闭 Gitea Actions、CI 使用 GitHub 的叙述属于 2026-09-06 的决定。现在拉取请求检查已迁到 Gitea Actions（`git.zkx.ca`），发布打包、Mod Wiki 发布和 Issue 分析仍在 GitHub Actions，见 [Pull request checks on Gitea](ci-gitea.md)。
+
 [v0.2.1 已正式发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.2.1)，包含 F1 渲染捕获自动 ZIP 与多手柄／键盘 E/R 输入；托管 CI、正式包验证及隔离启动／捕获均通过。参见[捕获](render-state-capture.md)与[输入](controller-input.md)，不代表 AMD 缺陷已修复；文本补丁仍暂停。
 
 用户最终决定再次关闭本仓库 Gitea Actions；API PATCH `has_actions=false` 后 GET 已验证为 false。`git ls-remote origin main` 返回 `98b8fcc`，代码镜像继续保留，CI 与正式发布使用 GitHub。此前 `win-t640` 的 `windows-2022:host` 标签已修复并恢复接单，但 Release 16 与 test 17／18 均在 `setup-python@v5` 安装 Python 3.12.10 时失败，尚未进入 C++ 编译。T640 的 `Setup_20260906134712_Failed.txt` 记录 `0x80004005`，提示无法打开 engine process path 的句柄及初始化 engine section/state。本轮不再修复 Python 环境，不改变全局 runner 或其他仓库。GitHub [正式 CI 34053765472](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/34053765472) 已全部成功，包括 LoHidTest；v0.2.1 正式发布不受影响。
