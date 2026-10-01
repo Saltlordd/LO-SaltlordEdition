@@ -4,6 +4,44 @@ This is a target catalog and a record of earlier focused results. Versioned chec
 
 ## Test targets and harness catalog
 
+### Project review regressions (2026-09-30)
+
+The independent suite below builds without private game data, generated PPC
+sources, a GPU or the full runtime dependency tree. It covers the 13 confirmed
+issues described in [the fix record](../../docs/notes/PROJECT_REVIEW_FIXES_20260930.md).
+Use GCC/Clang, Python 3.11+, CMake 3.20+ and SDL2 development files on Linux:
+
+```bash
+git submodule update --init --depth 1 tools/XenonRecomp
+git -C tools/XenonRecomp submodule update --init --depth 1 thirdparty/xxHash thirdparty/tomlplusplus
+cmake -S tools/tests/review_regressions -B out/review-regressions -DCMAKE_BUILD_TYPE=Debug
+cmake --build out/review-regressions --parallel 2
+ctest --test-dir out/review-regressions --output-on-failure --parallel 2
+```
+
+ASan/UBSan are enabled by default; `-DLO_REVIEW_SANITIZE=OFF` disables them for
+native targets and selectable Python fixtures (the allocator fixture always
+uses them). `-DLO_REVIEW_SDL_TESTS=OFF` omits the SDL fixtures when development
+files are unavailable. An existing SDL library can be supplied with
+`-DLO_REVIEW_SDL_LIBRARY=/absolute/path/to/libSDL2.so`; that mode requires the
+pinned `thirdparty/SDL` headers. The SDL tests cover both `posix_ui.cpp` and
+the actual production `progress.cpp` implementation, using the dummy driver.
+
+The Python fixtures compile extracted production allocator, file API, packet
+parser, interrupt dispatch and exit bodies with guest/driver stubs. CTest gives
+each run fresh output under the build directory's `fixtures/` folder, so repeat
+runs are supported. These tests verify local contracts and error paths; they
+do not establish gameplay, Windows CRT behavior, GPU rendering or frame times.
+The Linux CI entry is `.gitea/workflows/review-regressions.yml` on git.zkx.ca, which runs on branch pushes; the GitHub copy only runs when started manually.
+
+For a separate ThreadSanitizer check of the changed callbacks:
+
+```bash
+python3 -B tools/tests/gpu_command_safety_regression.py --cxx g++ --out /tmp/lo-gpu-tsan --tsan
+g++ -std=c++20 -O1 -g -pthread -fsanitize=thread -I LostOdysseyRecomp tools/tests/audio_callback_test.cpp -o /tmp/lo-audio-tsan
+/tmp/lo-audio-tsan
+```
+
 Automated and standalone tests are organized by execution requirements and subsystem boundaries. Select targets appropriate to the changed area; `tools/test.bat` (forwarding to `run.py`) is an older convenience runner, not an exhaustive registry of all test suites. Do not rerun previously passed tests without invalidated code or flags.
 
 ### 1. CPU contract and unit test targets

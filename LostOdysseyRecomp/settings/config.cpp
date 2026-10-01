@@ -69,7 +69,7 @@ Config Read()
 {
     Config value;
     bool hasAntialiasing = false;
-    const auto path = os::user_paths::UsePortableLayout() ? std::filesystem::path("settings.ini") : os::user_paths::ConfigDir() / "settings.ini";
+    const auto path = os::user_paths::SettingsPath();
     std::ifstream input(path);
     std::string key;
     while (std::getline(input, key))
@@ -208,7 +208,7 @@ uint32_t GameLanguage()
 }
 static bool WriteConfig(const Config &value)
 {
-    const auto path = os::user_paths::UsePortableLayout() ? std::filesystem::path("settings.ini") : os::user_paths::ConfigDir() / "settings.ini";
+    const auto path = os::user_paths::SettingsPath();
     std::error_code ec;
     std::filesystem::create_directories(path.parent_path(), ec);
     const auto temporary = path.parent_path() / (path.filename().string() + ".tmp");

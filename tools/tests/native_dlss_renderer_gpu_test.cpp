@@ -61,6 +61,7 @@ bool WaitForGpuFence(plume::RenderCommandFence* fence) {
     return fixture::state.WaitSubmitted([&] { return int32_t(vkWaitForFences(d->vk, 1, &f->vk, VK_TRUE, UINT64_MAX)); });
 }
 bool WaitForPresentGpu() { return true; } // No swapchain in this fixture.
+bool FrameGenerationInputCaptureEnabled() { return false; } // No frame generation session either.
 bool SubmitRendererBatch(const plume::RenderCommandList* const* lists, uint32_t count,
     plume::RenderCommandFence* fence, uint64_t& serial, int32_t& result, bool* executionMayBeInFlight) {
     if (executionMayBeInFlight) *executionMayBeInFlight = false;

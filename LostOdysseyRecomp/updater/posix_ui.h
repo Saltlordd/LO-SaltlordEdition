@@ -12,6 +12,6 @@ namespace updater
 bool ConfirmUpdateSdl(std::string_view version, std::string_view changelog, uint32_t uiLanguage);
 
 // SDL-based notice for external update (e.g. Flatpak).
-// Informs user an update is available via flatpak update.
+// Explains how to download and install a new standalone .flatpak bundle.
 void ShowExternalUpdateNoticeSdl(std::string_view version, uint32_t uiLanguage);
 } // namespace updater

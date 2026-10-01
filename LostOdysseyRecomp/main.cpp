@@ -215,10 +215,7 @@ int main(int argc, char* argv[])
     // Check for a newer runtime before opening the content importer or setup.
     if (!getenv("LO_HEADLESS") && !getenv("LO_BACKGROUND"))
     {
-        const auto startupPreferences = updater::ReadStartupPreferences(
-            os::user_paths::UsePortableLayout()
-                ? std::filesystem::current_path() / "settings.ini"
-                : os::user_paths::ConfigDir() / "settings.ini");
+        const auto startupPreferences = updater::ReadStartupPreferences(os::user_paths::SettingsPath());
         if (startupPreferences.automaticUpdates)
         {
             updater::StartupOptions updateOptions;
@@ -295,7 +292,7 @@ int main(int argc, char* argv[])
     {
         ~CollectionShutdown() { gpu::taa_collection::Shutdown(); }
     } collectionShutdown;
-    if(requestedSetup || (!getenv("LO_BACKGROUND") && !getenv("LO_HEADLESS") && !std::filesystem::exists("settings.ini"))) {
+    if(requestedSetup || (!getenv("LO_BACKGROUND") && !getenv("LO_HEADLESS") && !std::filesystem::exists(os::user_paths::SettingsPath()))) {
         if(!settings::FirstRunSetup(&gameRoot)) return 0;
         gpu::taa_collection::PromptFirstRun(settings::GetConfig().uiLanguage);
         if(setupOnly) return 0;
@@ -378,5 +375,14 @@ int main(int argc, char* argv[])
     GuestThread::Start({ entry, 0, 0 });
 
     LOG_INFO("guest main thread returned");
-    return 0;
+    // Other guest threads may still be running: closing their handles is not
+    // cancellation. Use the same GPU-owner cleanup and process-exit policy as
+    // the window's quit action rather than destructing shared runtime state.
+    gpu::video::RequestExit();
+    gpu::g_commandProcessor.Shutdown();
+    // The GPU owner normally exits the process after cleanup. If it had
+    // already stopped, still avoid global teardown while guest threads survive.
+    os::shaderlog::CloseForExit();
+    std::fflush(nullptr);
+    std::_Exit(EXIT_SUCCESS);
 }

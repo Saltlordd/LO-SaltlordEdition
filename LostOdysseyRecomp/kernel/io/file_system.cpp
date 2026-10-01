@@ -3,6 +3,8 @@
 #include "disc_set.h"
 #include "io_diagnostics.h"
 #include "file_system_test.h"
+#include <cerrno>
+#include <limits>
 #include <mutex>
 #include <cpu/guest_thread.h>
 #include <kernel/xam.h>
@@ -53,12 +55,52 @@ void EnqueueUserApc(uint32_t routine, uint32_t context, uint32_t arg1, uint32_t 
 // low bit of the routine pointer means "do not post to an IO completion port".
 static void QueueIoApc(uint32_t apcRoutine, uint32_t apcContext, XIO_STATUS_BLOCK* iosb, uint32_t status)
 {
-    if ((apcRoutine & ~1u) && apcContext && status == STATUS_SUCCESS)
+    if ((apcRoutine & ~1u) && apcContext && iosb && status == STATUS_SUCCESS)
         EnqueueUserApc(apcRoutine & ~1u, apcContext, g_memory.MapVirtual(iosb), 0);
 }
 
 namespace
 {
+    constexpr uint32_t kStatusInfoLengthMismatch = 0xC0000004u;
+    constexpr uint32_t kStatusBufferOverflow = 0x80000005u;
+    constexpr uint32_t kStatusIoDeviceError = 0xC0000185u;
+
+    uint32_t CheckInformationBuffer(const void* buffer, uint32_t length, uint32_t minimum)
+    {
+        if (length < minimum)
+            return kStatusInfoLengthMismatch;
+        return buffer ? STATUS_SUCCESS : STATUS_INVALID_PARAMETER;
+    }
+
+    bool IsValidFileOffset(uint64_t offset)
+    {
+        if (offset > uint64_t(std::numeric_limits<int64_t>::max()))
+            return false;
+#ifndef _WIN32
+        if (offset > uint64_t(std::numeric_limits<off_t>::max()))
+            return false;
+#endif
+        return true;
+    }
+
+    uint32_t FileIoError(int error)
+    {
+        switch (error)
+        {
+        case EACCES:
+        case EPERM:
+        case EROFS:
+            return STATUS_ACCESS_DENIED;
+        case EINVAL:
+        case EOVERFLOW:
+            return STATUS_INVALID_PARAMETER;
+        case ENOSPC:
+            return 0xC000007Fu; // STATUS_DISK_FULL
+        default:
+            return kStatusIoDeviceError;
+        }
+    }
+
     std::filesystem::path g_gameRoot;
     std::filesystem::path g_discRoot;
     DiscSet::Identity g_discIdentity;
@@ -552,8 +594,8 @@ uint32_t NtReadFile(uint32_t handleValue, uint32_t Event, uint32_t ApcRoutine, u
     trace.Acquired(handle->diagnostic, &handle->ioMutex, handle->path, handle.get());
     IO_TEST_STAGE(HandleAcquired, handleValue);
     uint64_t offset;
-    size_t read;
-    uint32_t status;
+    size_t read = 0;
+    uint32_t status = STATUS_SUCCESS;
     {
         FileIoLock ioLock(handle->ioMutex, trace, handleValue);
         IO_TEST_STAGE(IoLockAcquired, handleValue);
@@ -567,10 +609,24 @@ uint32_t NtReadFile(uint32_t handleValue, uint32_t Event, uint32_t ApcRoutine, u
         }
 
         trace.SetResolvedOffset(offset);
-        _fseeki64(handle->file, int64_t(offset), SEEK_SET);
-        read = fread(Buffer, 1, Length, handle->file);
-        handle->position = offset + read;
-        status = read == 0 && Length != 0 ? STATUS_END_OF_FILE : STATUS_SUCCESS;
+        if (!IsValidFileOffset(offset) || (!Buffer && Length))
+            status = STATUS_INVALID_PARAMETER;
+        else if (Length)
+        {
+            clearerr(handle->file);
+            if (_fseeki64(handle->file, int64_t(offset), SEEK_SET) != 0)
+                status = FileIoError(errno);
+            else
+            {
+                read = fread(Buffer, 1, Length, handle->file);
+                if (ferror(handle->file))
+                    status = FileIoError(errno);
+                else if (read == 0 && feof(handle->file))
+                    status = STATUS_END_OF_FILE;
+                if (read)
+                    handle->position = offset + read;
+            }
+        }
         trace.SetResult(status, uint32_t(read));
         trace.SetStage(io_diagnostics::Stage::TransferDone);
         IO_TEST_STAGE(TransferDone, handleValue);
@@ -688,39 +744,51 @@ uint32_t NtQueryInformationFile(uint32_t handleValue, XIO_STATUS_BLOCK* IoStatus
     uint32_t info = 0;
     uint32_t status = STATUS_SUCCESS;
     std::error_code ec;
+    auto require = [&](uint32_t minimum)
+    {
+        status = CheckInformationBuffer(FileInformation, Length, minimum);
+        return status == STATUS_SUCCESS;
+    };
 
     switch (FileInformationClass)
     {
     case FileInternalInformation:
+        if (!require(8)) break;
         *reinterpret_cast<be<uint64_t>*>(FileInformation) = uint64_t(g_memory.MapVirtual(handle.get()));
         info = 8;
         break;
     case FilePositionInformation:
+        if (!require(8)) break;
         *reinterpret_cast<be<uint64_t>*>(FileInformation) = handle->position;
         info = 8;
         break;
     case FileStandardInformation:
     {
+        if (!require(sizeof(X_FILE_STANDARD_INFORMATION))) break;
         auto* s = reinterpret_cast<X_FILE_STANDARD_INFORMATION*>(FileInformation);
         s->allocationSize = RoundUp<uint64_t>(handle->size, 0x800);
         s->endOfFile = handle->size;
         s->numberOfLinks = 1;
         s->deletePending = 0;
         s->directory = handle->isDirectory;
+        s->pad[0] = s->pad[1] = 0;
         info = sizeof(*s);
         break;
     }
     case FileBasicInformation:
     {
+        if (!require(sizeof(X_FILE_BASIC_INFORMATION))) break;
         auto* b = reinterpret_cast<X_FILE_BASIC_INFORMATION*>(FileInformation);
         uint64_t t = std::filesystem::exists(handle->path, ec) ? ToFileTime(std::filesystem::last_write_time(handle->path, ec)) : 0;
         b->creationTime = t; b->lastAccessTime = t; b->lastWriteTime = t; b->changeTime = t;
         b->attributes = handle->isDirectory ? X_FILE_ATTRIBUTE_DIRECTORY : X_FILE_ATTRIBUTE_NORMAL;
+        b->pad = 0;
         info = sizeof(*b);
         break;
     }
     case FileNetworkOpenInformation:
     {
+        if (!require(sizeof(X_FILE_NETWORK_OPEN_INFORMATION))) break;
         auto* n = reinterpret_cast<X_FILE_NETWORK_OPEN_INFORMATION*>(FileInformation);
         uint64_t t = std::filesystem::exists(handle->path, ec) ? ToFileTime(std::filesystem::last_write_time(handle->path, ec)) : 0;
         n->creationTime = t; n->lastAccessTime = t; n->lastWriteTime = t; n->changeTime = t;
@@ -733,18 +801,24 @@ uint32_t NtQueryInformationFile(uint32_t handleValue, XIO_STATUS_BLOCK* IoStatus
     }
     case FileNameInformation:
     {
+        if (!require(4)) break;
         std::string name = "\\" + handle->path.filename().string();
         auto* p = reinterpret_cast<be<uint32_t>*>(FileInformation);
         *p = uint32_t(name.size());
-        memcpy(p + 1, name.data(), std::min<size_t>(name.size(), Length - 4));
-        info = 4 + uint32_t(name.size());
+        const auto copied = std::min<size_t>(name.size(), Length - 4);
+        memcpy(p + 1, name.data(), copied);
+        info = 4 + uint32_t(copied);
+        if (copied < name.size())
+            status = kStatusBufferOverflow;
         break;
     }
     case FileAlignmentInformation:
+        if (!require(4)) break;
         *reinterpret_cast<be<uint32_t>*>(FileInformation) = 0;
         info = 4;
         break;
     case FileModeInformation:
+        if (!require(4)) break;
         *reinterpret_cast<be<uint32_t>*>(FileInformation) = 0;
         info = 4;
         break;
@@ -771,28 +845,58 @@ uint32_t NtSetInformationFile(uint32_t handleValue, XIO_STATUS_BLOCK* IoStatusBl
     FileIoLock ioLock(handle->ioMutex, trace);
 
     uint32_t status = STATUS_SUCCESS;
+    auto require = [&](uint32_t minimum)
+    {
+        status = CheckInformationBuffer(FileInformation, Length, minimum);
+        return status == STATUS_SUCCESS;
+    };
     switch (FileInformationClass)
     {
     case FilePositionInformation:
-        handle->position = *reinterpret_cast<be<uint64_t>*>(FileInformation);
+    {
+        if (!require(8)) break;
+        const uint64_t offset = *reinterpret_cast<be<uint64_t>*>(FileInformation);
+        if (!IsValidFileOffset(offset))
+            status = STATUS_INVALID_PARAMETER;
+        else
+            handle->position = offset;
         break;
+    }
     case FileEndOfFileInformation:
     case FileAllocationInformation:
     {
+        if (!require(8)) break;
         uint64_t size = *reinterpret_cast<be<uint64_t>*>(FileInformation);
-        if (handle->file && handle->writable)
+        if (!handle->file || !handle->writable)
+            status = STATUS_ACCESS_DENIED;
+        else if (!IsValidFileOffset(size))
+            status = STATUS_INVALID_PARAMETER;
+        else if (FileInformationClass == FileAllocationInformation)
         {
-            fflush(handle->file);
+            // Match Xenia: allocation hints are accepted without changing EOF.
+            // This backend does not reserve host storage; EOF changes use the
+            // separate FileEndOfFileInformation class.
+            LOG_KERNEL("ignoring allocation hint {}", size);
+        }
+        else if (fflush(handle->file) != 0)
+            status = FileIoError(errno);
+        else
+        {
 #ifdef _WIN32
-            _chsize_s(_fileno(handle->file), int64_t(size));
+            const auto error = _chsize_s(_fileno(handle->file), int64_t(size));
+            if (error != 0)
+                status = FileIoError(error);
 #else
-            ftruncate(fileno(handle->file), off_t(size));
+            if (ftruncate(fileno(handle->file), off_t(size)) != 0)
+                status = FileIoError(errno);
 #endif
-            handle->size = size;
+            if (status == STATUS_SUCCESS)
+                handle->size = size;
         }
         break;
     }
     case FileDispositionInformation: // delete on close
+        require(1);
         break;
     default:
         LOG_KERNEL("unimplemented class {}", FileInformationClass);
@@ -807,22 +911,32 @@ uint32_t NtQueryVolumeInformationFile(uint32_t handleValue, XIO_STATUS_BLOCK* Io
     uint32_t Length, uint32_t FsInformationClass)
 {
     auto handle = GetKernelObject<FileHandle>(handleValue);
+    if (!handle)
+        return STATUS_INVALID_HANDLE;
     uint32_t info = 0;
     uint32_t status = STATUS_SUCCESS;
+    auto require = [&](uint32_t minimum)
+    {
+        status = CheckInformationBuffer(FsInformation, Length, minimum);
+        return status == STATUS_SUCCESS;
+    };
     switch (FsInformationClass)
     {
     case FileFsVolumeInformation:
     {
+        if (!require(18)) break;
         auto* p = reinterpret_cast<uint8_t*>(FsInformation);
         *reinterpret_cast<be<uint64_t>*>(p) = 0;          // creation time
         *reinterpret_cast<be<uint32_t>*>(p + 8) = 0x12345678; // serial
         *reinterpret_cast<be<uint32_t>*>(p + 12) = 0;     // label length
         p[16] = 0;                                        // supports objects
+        p[17] = 0;
         info = 18;
         break;
     }
     case FileFsSizeInformation:
     {
+        if (!require(24)) break;
         auto* p = reinterpret_cast<be<uint64_t>*>(FsInformation);
         p[0] = 0x1000000; // total allocation units
         p[1] = 0x800000;  // available
@@ -833,6 +947,7 @@ uint32_t NtQueryVolumeInformationFile(uint32_t handleValue, XIO_STATUS_BLOCK* Io
     }
     case FileFsDeviceInformation:
     {
+        if (!require(8)) break;
         auto* p = reinterpret_cast<be<uint32_t>*>(FsInformation);
         p[0] = handle && handle->path.native().starts_with(g_gameRoot.native()) ? 2 /* FILE_DEVICE_CD_ROM */ : 7 /* FILE_DEVICE_DISK */;
         p[1] = 0;
@@ -841,13 +956,17 @@ uint32_t NtQueryVolumeInformationFile(uint32_t handleValue, XIO_STATUS_BLOCK* Io
     }
     case FileFsAttributeInformation:
     {
+        if (!require(12)) break;
         auto* p = reinterpret_cast<be<uint32_t>*>(FsInformation);
         p[0] = 0; // attributes
         p[1] = 255; // max component length
         const char name[] = "FATX";
         p[2] = sizeof(name) - 1;
-        memcpy(p + 3, name, sizeof(name) - 1);
-        info = 12 + sizeof(name) - 1;
+        const auto copied = std::min<size_t>(sizeof(name) - 1, Length - 12);
+        memcpy(p + 3, name, copied);
+        info = 12 + uint32_t(copied);
+        if (copied < sizeof(name) - 1)
+            status = kStatusBufferOverflow;
         break;
     }
     default:
@@ -867,6 +986,11 @@ uint32_t NtQueryDirectoryFile(uint32_t handleValue, uint32_t Event, uint32_t Apc
     handle = GetKernelObject<FileHandle>(handleValue);
     if (!handle || !handle->isDirectory)
         return STATUS_INVALID_HANDLE;
+    if (!FileInformation && Length)
+    {
+        if (IoStatusBlock) { IoStatusBlock->Status = STATUS_INVALID_PARAMETER; IoStatusBlock->Information = 0; }
+        return STATUS_INVALID_PARAMETER;
+    }
 
     trace.Acquired(handle->diagnostic, &handle->ioMutex, handle->path, handle.get());
     FileIoLock ioLock(handle->ioMutex, trace);
@@ -906,16 +1030,19 @@ uint32_t NtQueryDirectoryFile(uint32_t handleValue, uint32_t Event, uint32_t Apc
 
     while (handle->nextEntry < handle->entries.size())
     {
-        auto& e = handle->entries[handle->nextEntry++];
+        auto& e = handle->entries[handle->nextEntry];
         std::string name = e.path().filename().string();
         if (!matches(name))
+        {
+            ++handle->nextEntry;
             continue;
+        }
 
         uint32_t needed = uint32_t(offsetof(X_FILE_DIRECTORY_INFORMATION, fileName) + name.size());
         if (needed > Length)
         {
-            if (IoStatusBlock) { IoStatusBlock->Status = 0x80000005; IoStatusBlock->Information = 0; } // BUFFER_OVERFLOW
-            return 0x80000005;
+            if (IoStatusBlock) { IoStatusBlock->Status = kStatusBufferOverflow; IoStatusBlock->Information = 0; }
+            return kStatusBufferOverflow;
         }
 
         auto* d = reinterpret_cast<X_FILE_DIRECTORY_INFORMATION*>(FileInformation);
@@ -924,7 +1051,7 @@ uint32_t NtQueryDirectoryFile(uint32_t handleValue, uint32_t Event, uint32_t Apc
         uint64_t size = dir ? 0 : e.file_size(ec);
         uint64_t t = ToFileTime(e.last_write_time(ec));
         d->nextEntryOffset = 0;
-        d->fileIndex = uint32_t(handle->nextEntry);
+        d->fileIndex = uint32_t(handle->nextEntry + 1);
         d->creationTime = t; d->lastAccessTime = t; d->lastWriteTime = t; d->changeTime = t;
         d->endOfFile = size;
         d->allocationSize = RoundUp<uint64_t>(size, 0x800);
@@ -932,6 +1059,7 @@ uint32_t NtQueryDirectoryFile(uint32_t handleValue, uint32_t Event, uint32_t Apc
         d->fileNameLength = uint32_t(name.size());
         memcpy(d->fileName, name.data(), name.size());
 
+        ++handle->nextEntry;
         if (IoStatusBlock) { IoStatusBlock->Status = STATUS_SUCCESS; IoStatusBlock->Information = needed; }
         return STATUS_SUCCESS;
     }
@@ -987,35 +1115,65 @@ uint32_t NtReadFileScatter(uint32_t handleValue, uint32_t Event, uint32_t ApcRou
     if (io_diagnostics::Enabled() && ByteOffset) trace.SetRequestedOffset(uint64_t(*ByteOffset));
     trace.Acquired(handle->diagnostic, &handle->ioMutex, handle->path, handle.get());
     uint32_t total = 0;
+    uint32_t status = STATUS_SUCCESS;
     {
         FileIoLock ioLock(handle->ioMutex, trace);
-        const uint64_t offset = ByteOffset ? uint64_t(*ByteOffset) : handle->position;
+        uint64_t offset = handle->position;
+        if (ByteOffset && uint64_t(*ByteOffset) != 0xFFFFFFFFFFFFFFFEull)
+            offset = *ByteOffset;
         trace.SetResolvedOffset(offset);
-        _fseeki64(handle->file, int64_t(offset), SEEK_SET);
-        for (uint32_t remaining = Length, i = 0; remaining > 0; i++)
+        if (!IsValidFileOffset(offset) || (!SegmentArray && Length))
+            status = STATUS_INVALID_PARAMETER;
+        else if (Length)
         {
-            uint32_t chunk = std::min<uint32_t>(remaining, 0x1000);
-            uint32_t guestPtr = uint32_t(uint64_t(SegmentArray[i]));
-            size_t read = fread(g_memory.Translate(guestPtr), 1, chunk, handle->file);
-            total += uint32_t(read);
-            remaining -= chunk;
-            if (read < chunk)
-                break;
+            clearerr(handle->file);
+            if (_fseeki64(handle->file, int64_t(offset), SEEK_SET) != 0)
+                status = FileIoError(errno);
+            else
+            {
+                for (uint32_t remaining = Length, i = 0; remaining > 0; i++)
+                {
+                    const uint32_t chunk = std::min<uint32_t>(remaining, 0x1000);
+                    // PVOID64 segments carry a 32-bit guest pointer; titles may
+                    // sign-extend physical addresses (0xA0000000+) into the high word.
+                    const uint64_t guestPtr = uint32_t(uint64_t(SegmentArray[i]));
+                    if (!guestPtr || chunk > PPC_MEMORY_SIZE - guestPtr)
+                    {
+                        status = STATUS_INVALID_PARAMETER;
+                        break;
+                    }
+                    const size_t read = fread(g_memory.Translate(size_t(guestPtr)), 1, chunk, handle->file);
+                    total += uint32_t(read);
+                    remaining -= chunk;
+                    if (ferror(handle->file))
+                    {
+                        status = FileIoError(errno);
+                        break;
+                    }
+                    if (read < chunk)
+                    {
+                        if (total == 0 && feof(handle->file))
+                            status = STATUS_END_OF_FILE;
+                        break;
+                    }
+                }
+                if (total)
+                    handle->position = offset + total;
+            }
         }
-        handle->position = offset + total;
-        trace.SetResult(STATUS_SUCCESS, total);
+        trace.SetResult(status, total);
         trace.SetStage(io_diagnostics::Stage::TransferDone);
     }
     IO_TEST_STAGE(BeforeCompletion, handleValue);
-    if (IoStatusBlock) { IoStatusBlock->Status = STATUS_SUCCESS; IoStatusBlock->Information = total; }
-    QueueIoApc(ApcRoutine, ApcContext, IoStatusBlock, STATUS_SUCCESS);
+    if (IoStatusBlock) { IoStatusBlock->Status = status; IoStatusBlock->Information = total; }
+    QueueIoApc(ApcRoutine, ApcContext, IoStatusBlock, status);
     if (Event != 0)
     {
         extern void KernelSignalEventHandle(uint32_t handle);
         KernelSignalEventHandle(Event);
     }
     trace.SetStage(io_diagnostics::Stage::CompletionPublished);
-    return STATUS_SUCCESS;
+    return status;
 }
 
 GUEST_FUNCTION_HOOK(__imp__NtCreateFile, NtCreateFile);

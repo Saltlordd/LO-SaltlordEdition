@@ -7,6 +7,7 @@
 #include <SDL.h>
 #include "updater/update.h"
 #include "updater/posix_ui.h"
+#include "updater/external_update_notice.h"
 #include "install/installer_colors.h"
 #include "install/installer_font.h"
 
@@ -30,7 +31,26 @@ int main(int argc, char* argv[])
     assert(!confirmed);
 
     // Test 2: SDL_VIDEODRIVER=dummy ShowExternalUpdateNoticeSdl should safely return and not crash or hang
-    updater::ShowExternalUpdateNoticeSdl("v0.5.14", 0);
+    for (uint32_t language = 0; language < 5; ++language)
+    {
+        updater::ShowExternalUpdateNoticeSdl("v0.5.14", language);
+        const auto& text = updater::FlatpakUpdateNoticeText(language);
+        // Rendered instructions and the URL must fit in full, including CJK.
+        for (const auto line : {text.download, text.install, text.systemScope,
+                                updater::FlatpakReleaseUrl, updater::FlatpakBundleInstallCommand})
+        {
+            if (install::ui::MeasureTextWidth(line, 0.9f) > 700 - 48)
+            {
+                std::cerr << "FAIL: clipped Flatpak guidance for UI language " << language << '\n';
+                return 1;
+            }
+        }
+        if (install::ui::MeasureTextWidth(text.close) > 120)
+        {
+            std::cerr << "FAIL: clipped Flatpak confirmation label\n";
+            return 1;
+        }
+    }
 
     // Test 3: StatusName for ExternalUpdateAvailable
     assert(std::string(updater::StatusName(updater::StartupStatus::ExternalUpdateAvailable)) == "external-update-available");

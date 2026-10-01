@@ -19,6 +19,7 @@
 #include "texture_descriptor_cache.h"
 #include "sampler_palette.h"
 #include "texture_key.h"
+#include "texture_content.h"
 #include "depth_format.h"
 #include "depth_clear_layout.h"
 #include "draw_attachment_policy.h"
@@ -339,12 +340,13 @@ namespace gpu::renderer
             uint32_t ScaleX(uint32_t value) const { return resolution::ScaleX(value, resolutionSize.width); }
             uint32_t ScaleY(uint32_t value) const { return resolution::Scale(value, resolutionSize.height); }
             uint32_t depthMsaa = 0;
-            // Guest-memory footprint and a sampled hash of it, so a texture the
-            // title streams in after we first uploaded it is noticed and re-read.
+            // Guest-memory footprint with sampled and full hashes of it, so a
+            // texture the title streams in after we first uploaded it is re-read.
             uint32_t guestAddress = 0, guestBytes = 0;
             uint32_t mipAddress = 0, mipBytes = 0; // stored mip chain, if uploaded
-            uint64_t guestHash = 0;
+            uint64_t guestHash = 0, guestFullHash = 0;
             uint64_t checkedFrame = ~0ull;
+            uint64_t nextFullScanFrame = 0;
             // The source remains BC3. Only a verified controller atlas owns an
             // optional, single-mip RGBA PlayStation child; retirement of the
             // source also retires its child after the GPU fence.
@@ -5138,7 +5140,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bindingInfo->sourceMip = sourceMip;
                     bindingInfo->guestExtent = {originalWidth, originalHeight};
                 }
-                TextureKey key{ sourceAddress, format, width, height, (tiled ? 1u : 0u) | (endian << 1) | (pitch32 << 3) | (dimension << 12) | (uint32_t(packedMips) << 14) | (sourceMip << 15) | (mipLevels << 19) };
+                TextureKey key{ sourceAddress, format, width, height, (tiled ? 1u : 0u) | (endian << 1) | (pitch32 << 3) | (dimension << 12) | (uint32_t(packedMips) << 14) | (sourceMip << 15) | (mipLevels << 19), mipLevels ? mipAddress : 0 };
                 // LO_NO_DEPTH_FETCH=1: hand shaders a constant instead of the resolved
                 // depth, to tell depth-driven artefacts from shading ones.
                 static const bool noDepthFetch = getenv("LO_NO_DEPTH_FETCH") != nullptr;
@@ -5210,8 +5212,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         return SelectControllerAtlas(cached, bindingInfo, bindingEpoch);
                     }
                     cached->checkedFrame = frame;
-                    const uint64_t now = GuestHash(*cached);
-                    if (now == cached->guestHash) {
+                    bool changed = SampledGuestHash(*cached) != cached->guestHash;
+                    if (!changed && frame >= cached->nextFullScanFrame) {
+                        cached->nextFullScanFrame = frame + texture_cache::kFullScanInterval;
+                        changed = FullGuestHash(*cached) != cached->guestFullHash;
+                    }
+                    if (!changed) {
                         return SelectControllerAtlas(cached, bindingInfo, bindingEpoch);
                     }
                     textureReuploads++;
@@ -5261,8 +5267,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // 4 KB subresource alignment (xenos.h kTextureSubresourceAlignment).
                 const uint32_t faces = dimension == 3 ? 6u : 1u;
                 const uint32_t blocksYAligned = (packedOffset.y + blocksY + 31) & ~31u;
-                const uint32_t faceStride = ((pitchBlocks * blocksYAligned * fi.bytesPerBlock) + 4095u) & ~4095u;
-                std::vector<uint8_t> staging(size_t(rowPitch) * blocksY * faces);
+                const uint64_t faceStrideBytes = (uint64_t(pitchBlocks) * blocksYAligned * fi.bytesPerBlock + 4095u) & ~4095ull;
+                const uint64_t guestBytes = faceStrideBytes * faces;
+                const uint64_t stagingBytes = uint64_t(rowPitch) * blocksY * faces;
+                if (!texture_cache::PhysicalRangeValid(sourceAddress, guestBytes) || stagingBytes > kUploadRingSize)
+                {
+                    LOG_WARNING("renderer: texture source or upload extent invalid fmt={} {}x{} at {:#x} guestBytes={} uploadBytes={}",
+                        format, width, height, sourceAddress, guestBytes, stagingBytes);
+                    return nullptr;
+                }
+                const uint32_t faceStride = uint32_t(faceStrideBytes);
+                std::vector<uint8_t> staging(static_cast<size_t>(stagingBytes));
                 std::vector<uint8_t> block(fi.bytesPerBlock);
                 auto decode = [&](const uint8_t* levelSrc, uint32_t levelPitchBlocks, TextureBlockOffset origin,
                     uint32_t levelBlocksX, uint32_t levelBlocksY, uint32_t levelFaces, uint8_t* out, uint32_t outPitch)
@@ -5316,7 +5331,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 tex->width = width;
                 tex->height = height;
                 tex->guestAddress = sourceAddress;
-                tex->guestBytes = uint32_t(std::min<uint64_t>(uint64_t(faceStride) * faces, 64u << 20));
+                tex->guestBytes = uint32_t(guestBytes);
                 tex->checkedFrame = frame;
                 if (controller_atlas::Candidate(dimension, format, originalWidth, originalHeight,
                         width, height, sourceMip)) {
@@ -5347,14 +5362,24 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     const uint32_t levelBlocksX = levelWidth / fi.blockWidth, levelBlocksY = levelHeight / fi.blockHeight;
                     const uint32_t levelRowPitch = (levelBlocksX * hostBpp + 255) & ~255u;
                     const size_t levelOffset = (staging.size() + 511) & ~size_t(511);
-                    staging.resize(levelOffset + size_t(levelRowPitch) * levelBlocksY);
+                    const uint64_t mipBytes = uint64_t(layout.storageOffset) + layout.storageBytes;
+                    const size_t levelEnd = levelOffset + size_t(levelRowPitch) * levelBlocksY;
+                    if (!texture_cache::PhysicalRangeValid(mipAddress, mipBytes) || levelEnd > kUploadRingSize)
+                    {
+                        LOG_WARNING("renderer: texture mip source or upload extent invalid fmt={} level={} at {:#x} guestBytes={} uploadBytes={}",
+                            format, level, mipAddress, mipBytes, levelEnd);
+                        return nullptr;
+                    }
+                    staging.resize(levelEnd);
                     decode(Phys(mipAddress + layout.storageOffset), layout.pitchBlocks, layout.origin,
                         levelBlocksX, levelBlocksY, 1, staging.data() + levelOffset, levelRowPitch);
                     levels.push_back({levelWidth, levelHeight, levelRowPitch, levelOffset});
                     tex->mipAddress = mipAddress;
-                    tex->mipBytes = std::max(tex->mipBytes, layout.storageOffset + layout.storageBytes);
+                    tex->mipBytes = std::max(tex->mipBytes, uint32_t(mipBytes));
                 }
-                tex->guestHash = GuestHash(*tex);
+                tex->guestHash = SampledGuestHash(*tex);
+                tex->guestFullHash = FullGuestHash(*tex);
+                tex->nextFullScanFrame = texture_cache::FirstFullScanFrame(frame, tex->guestAddress);
                 if (dimension == 3)
                     tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, fi.host, RenderTextureFlag::CUBE));
                 else
@@ -5571,41 +5596,22 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return desc;
             }
 
-            // ---- vertex buffers ------------------------------------------------------------
-            // Cheap change detection: everything for small buffers, otherwise the
-            // head, the tail and 64 evenly spread 64-byte windows.
             // Streamed mips are re-read with their base, so hash both ranges.
-            uint64_t GuestHash(const HostTexture& tex) const
+            // The sampled hash runs every active frame; the full one covers
+            // writes outside the sampled windows on the staggered schedule.
+            uint64_t SampledGuestHash(const HostTexture& tex) const
             {
-                const uint64_t base = SampleHash(Phys(tex.guestAddress), tex.guestBytes);
-                return tex.mipBytes ? base ^ SampleHash(Phys(tex.mipAddress), tex.mipBytes) * 0x9E3779B97F4A7C15ull : base;
+                return texture_cache::SampledGuestContentHash(Phys(tex.guestAddress), tex.guestBytes,
+                    tex.mipBytes ? Phys(tex.mipAddress) : nullptr, tex.mipBytes);
             }
 
-            static uint64_t SampleHash(const uint8_t* data, size_t bytes)
+            uint64_t FullGuestHash(const HostTexture& tex) const
             {
-                uint64_t h = 0x9E3779B97F4A7C15ull ^ bytes;
-                auto mix = [&](const uint8_t* q, size_t n)
-                {
-                    for (size_t i = 0; i + 8 <= n; i += 8)
-                    {
-                        uint64_t v; memcpy(&v, q + i, 8);
-                        h = (h ^ v) * 0x100000001B3ull;
-                        h ^= h >> 29;
-                    }
-                };
-                if (bytes <= 8192)
-                {
-                    mix(data, bytes);
-                    return h;
-                }
-                mix(data, 512);
-                mix(data + bytes - 512, 512);
-                const size_t step = (bytes - 1024) / 64;
-                for (int i = 0; i < 64; i++)
-                    mix(data + 512 + size_t(i) * step, 64);
-                return h;
+                return texture_cache::GuestContentHash(Phys(tex.guestAddress), tex.guestBytes,
+                    tex.mipBytes ? Phys(tex.mipAddress) : nullptr, tex.mipBytes);
             }
 
+            // ---- vertex buffers ------------------------------------------------------------
             // Returns the arena offset of the swapped copy of a guest vertex buffer.
             uint64_t GetVertexBuffer(uint32_t address, uint32_t sizeDwords, uint32_t endian)
             {
