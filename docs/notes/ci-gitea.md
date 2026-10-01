@@ -23,10 +23,25 @@ start. A newer push to the same branch cancels the older run.
 git push zkx <branch>
 ```
 
+A push of a new branch whose commits all exist on other branches (for
+example a branch that only merges others) can start no run. Start the
+workflows manually in that case:
+
+```powershell
+tea api --login zkx -X POST -d '{"ref":"<branch>"}' /repos/freefrank/LostOdysseyRecomp/actions/workflows/<workflow>.yml/dispatches
+```
+
 Results are on the repository's Actions page at `git.zkx.ca`. `tea` 0.14
 cannot list runs on Gitea 1.25 (`tea actions` needs 1.26). Use the API instead,
 for example `tea api --login zkx "/repos/freefrank/LostOdysseyRecomp/actions/jobs?limit=20"`
 and `.../actions/jobs/<id>/logs`.
+
+Each workflow ends with a `github-status` job that writes the overall result
+to the GitHub commit as the status `gitea/<workflow>`, linked to the Gitea run,
+so GitHub pull requests show the outcome. It needs the Gitea repository secret
+`LO_GITHUB_TOKEN`: a fine-grained GitHub token for this repository with
+"Commit statuses: Read and write". Without the secret the job skips. A commit
+that has not been pushed to GitHub yet gets no status (HTTP 422 in the job log).
 
 In the agent's non-interactive Git Bash, `tea` started directly hangs, even
 for `--version`. The zkx credential helper is `tea login helper`, so a push

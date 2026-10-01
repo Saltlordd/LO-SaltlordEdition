@@ -68,3 +68,27 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - run: cmake --build out/fg-native --config Release --parallel 4
       - run: ctest --test-dir out/fg-native -C Release --output-on-failure
+  # Mirror the result onto the GitHub commit so pull requests show it. Needs a
+  # Gitea secret LO_GITHUB_TOKEN (fine-grained PAT, Commit statuses: write).
+  github-status:
+    needs: [core, native]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report to GitHub
+        env:
+          LO_GITHUB_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
+          RESULTS: ${{ needs.core.result }} ${{ needs.native.result }}
+          CONTEXT: gitea/reusable-fg
+          RUN_URL: https://git.zkx.ca/${{ github.repository }}/actions/runs/${{ github.run_number }}
+        run: |
+          if [ -z "$LO_GITHUB_TOKEN" ]; then echo 'LO_GITHUB_TOKEN is not set; skipping'; exit 0; fi
+          state=success
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; cancelled) [ "$state" = failure ] || state=error ;; *) state=failure ;; esac
+          done
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $LO_GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/freefrank/LostOdysseyRecomp/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"$CONTEXT\",\"description\":\"Gitea Actions: $RESULTS\",\"target_url\":\"$RUN_URL\"}") || true
+          echo "GitHub status $state for $GITHUB_SHA -> HTTP $code"
