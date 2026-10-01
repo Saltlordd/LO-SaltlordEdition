@@ -86,3 +86,10 @@ if(UNIX)
     lo_review_python(guest_main_exit guest_main_exit_regression.py --out --cxx)
     lo_review_python(kernel_lifetime kernel_lifetime_regression.py --out --cxx ${sanitizer_flags})
 endif()
+
+# AppImage and Flatpak packaging scripts, with linuxdeploy, flatpak and the
+# compiler, readelf and ldd checks replaced by stand-ins.
+foreach(name package_appimage package_flatpak)
+    add_test(NAME ${name} COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/${name}_test.py")
+    set_tests_properties(${name} PROPERTIES TIMEOUT 60)
+endforeach()

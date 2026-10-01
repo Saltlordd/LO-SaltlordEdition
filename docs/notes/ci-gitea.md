@@ -16,7 +16,7 @@ and issue triage stay on GitHub.
 | `fg-cpu-contracts.yml` | GPU-free FG contracts | Linux and Windows |
 | `fg-game-integration.yml` | clang-cl compile of the production renderer/video units, FG bridge link and input contract | Windows |
 | `reusable-fg.yml` | Shared FG core; DLSS, FSR and combined native adapters | Linux and Windows |
-| `review-regressions.yml` (from the 2026-09-30 project review) | Sanitizer regression suite | Linux |
+| `review-regressions.yml` (from the 2026-09-30 project review) | Sanitizer regression suite; AppImage and Flatpak packaging script tests | Linux |
 
 ## Running the checks
 

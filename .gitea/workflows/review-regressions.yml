@@ -20,6 +20,12 @@ on:
       - 'LostOdysseyRecomp/os/user_paths.h'
       - 'LostOdysseyRecomp/settings/config.cpp'
       - 'LostOdysseyRecomp/updater/**'
+      - 'packaging/linux/**'
+      - 'tools/appimage_compat.py'
+      - 'tools/package_appimage.py'
+      - 'tools/package_flatpak.py'
+      - 'tools/portable_shader_pack_payload.py'
+      - 'tools/release/version.py'
       - 'tools/tests/**'
   pull_request:
     paths:
@@ -36,6 +42,12 @@ on:
       - 'LostOdysseyRecomp/os/user_paths.h'
       - 'LostOdysseyRecomp/settings/config.cpp'
       - 'LostOdysseyRecomp/updater/**'
+      - 'packaging/linux/**'
+      - 'tools/appimage_compat.py'
+      - 'tools/package_appimage.py'
+      - 'tools/package_flatpak.py'
+      - 'tools/portable_shader_pack_payload.py'
+      - 'tools/release/version.py'
       - 'tools/tests/**'
 
 permissions:
