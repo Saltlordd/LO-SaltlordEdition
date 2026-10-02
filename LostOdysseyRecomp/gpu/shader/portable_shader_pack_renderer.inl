@@ -17,7 +17,7 @@ xenos::portable_pack::PackFormat PortablePackFormat() const
 xenos::portable_pack::Flavor PortablePackFlavor() const
 {
     using xenos::portable_pack::Flavor;
-    return !vulkan ? Flavor::D3D12 : nativeVulkan ? Flavor::Vulkan : Flavor::Metal;
+    return vulkan ? Flavor::Vulkan : Flavor::D3D12;
 }
 
 xenos::portable_pack::Digest PortableShaderContract(std::span<const uint8_t> xex) const

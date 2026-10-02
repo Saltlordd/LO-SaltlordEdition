@@ -17,7 +17,6 @@ struct XePushConstants
     uint64_t PixelShaderConstants;
 };
 )HLSL"
-#if LO_SHADER_VERTEX_BDA
 R"HLSL(// Some Android drivers misread the middle 64-bit push member. Preserve
 // the 24-byte CPU layout, but load each address as two 32-bit words.
 struct XePushConstantWords
@@ -41,10 +40,6 @@ XePushConstants XeLoadPushConstants()
 }
 #define xePush (XeLoadPushConstants())
 )HLSL"
-#else
-R"HLSL([[vk::push_constant]] ConstantBuffer<XePushConstants> xePush;
-)HLSL"
-#endif
 R"HLSL(#ifdef XE_PIXEL_SHADER
 #define XE_CONSTANTS_ADDRESS xePush.PixelShaderConstants
 #else
@@ -202,7 +197,8 @@ uint XeLoopConst(uint id)
 }
 
 )HLSL"
-#if LO_SHADER_VERTEX_BDA
+// Desktop Vulkan and Metal take the same device-address vertex fetch as
+// Android, so one SPIR-V pack serves all three.
 R"HLSL(
 #ifdef __spirv__
 // Android GPUs may cap storage-buffer descriptors at 128 MiB. Keep the
@@ -234,7 +230,6 @@ static const XeVertexDeviceBuffer xeVertexDeviceBuffer = (XeVertexDeviceBuffer)0
 #define ByteAddressBuffer XeVertexDeviceBuffer
 #endif
 )HLSL"
-#endif
 R"HLSL(// ---- vertex fetch ----
 // Data is little-endian after the CPU applied the fetch constant's endian swap.
 float XeNorm(uint v, uint bits, bool sgn, bool nrm)
@@ -339,13 +334,11 @@ float4 XeVF_32_32_32_32_FLOAT(ByteAddressBuffer b, uint a, bool sgn, bool nrm)
 }
 
 )HLSL"
-#if LO_SHADER_VERTEX_BDA
 R"HLSL(
 #ifdef __spirv__
 #undef ByteAddressBuffer
 #endif
 )HLSL"
-#endif
 R"HLSL(// ---- texture fetch ----
 float2 XeTextureDimensions(Texture2D<float4> t, uint slot)
 {

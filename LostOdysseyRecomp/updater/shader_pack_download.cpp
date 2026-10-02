@@ -6,6 +6,9 @@
 
 #include <SDL.h>
 #include <host_ui/rasterizer.h>
+#if defined(__ANDROID__)
+#include <hid/android_touch.h>
+#endif
 #include <host_ui/widgets.h>
 
 #include <algorithm>
@@ -48,16 +51,14 @@ unsigned long ProcessId()
 
 std::optional<pack::Flavor> ExpectedFlavor(gpu::backend::Backend configured)
 {
-#if LO_PLATFORM_MACOS
-    (void)configured;
-    return pack::Flavor::Metal;
-#elif defined(_WIN32)
+#if defined(_WIN32)
     // The renderer tries the requested backend first; D3D11 runs as D3D12.
     const auto requested = gpu::backend::Requested(configured, std::getenv("LO_GRAPHICS_API"));
     if (!requested) return std::nullopt;
     return *requested == gpu::backend::Backend::Vulkan || *requested == gpu::backend::Backend::Metal
         ? pack::Flavor::Vulkan : pack::Flavor::D3D12;
 #else
+    // Linux, Android and macOS (Metal reads the Vulkan SPIR-V).
     (void)configured;
     return pack::Flavor::Vulkan;
 #endif
@@ -270,6 +271,22 @@ Action ReadAction(const SDL_Event &event, uint32_t windowId, int width, int heig
     return Action::None;
 }
 
+#if defined(__ANDROID__)
+// The on-screen controller covers the window and feeds hid, not SDL events:
+// its newly pressed A, B and D-pad left/right act like a controller's.
+Action TouchAction(uint16_t &previous)
+{
+    const uint16_t buttons = hid::android_touch::Snapshot().buttons;
+    const uint16_t pressed = buttons & ~previous;
+    previous = buttons;
+    if (pressed & 0x1000) return Action::Activate; // A
+    if (pressed & 0x2000) return Action::Secondary; // B
+    if (pressed & 0x0004) return Action::Left;
+    if (pressed & 0x0008) return Action::Right;
+    return Action::None;
+}
+#endif
+
 void Apply(Session &session, Action action)
 {
     std::lock_guard lock(session.mutex);
@@ -353,7 +370,7 @@ void Render(Session &session, host_ui::Rasterizer &r)
         r.DrawString(112, 184, zh ? "现在下载着色器包吗？（" + Mebibytes(session.total) + " MiB）"
                                   : "Download the shader bundle now? (" + Mebibytes(session.total) + " MiB)", white, 1.2f);
         int y = DrawWrapped(r, 112, 250, 1056, zh ? "不下载的话，游戏会先在本机编译全部着色器，可能需要几分钟。"
-            : "Without it, the game first compiles all of its shaders on this PC, which can take several minutes.", muted);
+            : "Without it, the game first compiles all of its shaders on this device, which can take several minutes.", muted);
         DrawWrapped(r, 112, y + 8, 1056, zh ? "选择跳过后，着色器更新之前不会再询问。"
             : "If you skip, you will not be asked again until the shaders change.", muted);
         host_ui::DrawButton(r, 866, 618, 140, 46, zh ? L"下载 (A)" : L"Download (A)", session.selected == 0);
@@ -375,7 +392,7 @@ void Render(Session &session, host_ui::Rasterizer &r)
         r.DrawString(112, 140, zh ? "着色器包没有装好。" : "The shader bundle could not be installed.", white, 1.2f);
         const int y = DrawWrapped(r, 112, 196, 1056, session.failure, muted);
         DrawWrapped(r, 112, y + 8, 1056, zh ? "游戏会改为在本机编译着色器。"
-            : "The game will compile its shaders on this PC instead.", muted);
+            : "The game will compile its shaders on this device instead.", muted);
         host_ui::DrawButton(r, 1022, 618, 140, 46, zh ? L"继续 (A)" : L"Continue (A)", true);
         break;
     }
@@ -474,6 +491,10 @@ std::string PrepareAtStartup(const StartupRequest &request)
     {
         host_ui::Rasterizer rasterizer(window.Pixels());
         bool started = automatic;
+#if defined(__ANDROID__)
+        // Ignore a button still held from before the window opened.
+        uint16_t touchButtons = hid::android_touch::Snapshot().buttons;
+#endif
         while (true)
         {
             SDL_Event event;
@@ -484,6 +505,9 @@ std::string PrepareAtStartup(const StartupRequest &request)
                 do Apply(session, ReadAction(event, window.Id(), width, height));
                 while (SDL_PollEvent(&event));
             }
+#if defined(__ANDROID__)
+            Apply(session, TouchAction(touchButtons));
+#endif
             bool begin = false;
             {
                 std::lock_guard lock(session.mutex);

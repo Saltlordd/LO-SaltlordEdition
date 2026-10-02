@@ -138,6 +138,10 @@ class Run:
             "LO_AUTO_PULSE": str(self.s.get("pulse", 6)),
         })
         env.update({key: str(value) for key, value in self.s["env"].items()})
+        # An empty [env] value removes the variable, e.g. LO_BACKGROUND = "" for a
+        # foreground window (HDR output needs one).
+        for key in [key for key, value in self.s["env"].items() if str(value) == ""]:
+            env.pop(key, None)
         # Swap-stamped presses; an empty schedule must not fall back to "s".
         env["LO_AUTO_BUTTONS"] = self.s["buttons"] or "s@999999999"
         return env

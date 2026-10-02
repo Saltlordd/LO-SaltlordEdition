@@ -192,38 +192,27 @@ Android compatibility for each controller or USB/Bluetooth mode.
 Activity mutex, and Vulkan surface creation retains the native window while
 calling the driver. Direct CMake invocations must apply this patch first.
 
-## Prebuild Android Vulkan shaders on a host
+## Shader pack
 
-Android uses the vertex-BDA/u32-push shader contract. A desktop Vulkan bundle
-does not match this contract and is rejected. With the normal host build
-dependencies, generated PPC sources, decrypted `image_disc1.bin` and your game
-files present, run on a Linux Vulkan-capable host (including a suitable WSL
-configuration):
+Android reads the same Vulkan shader pack as Windows, Linux and macOS: every
+SPIR-V build fetches vertices through the arena's device address, because many
+Android GPUs cap storage-buffer descriptors at 128 MiB. At startup the runtime
+looks for `files/shaders/portable_vk.lospv` in app storage and, when it is
+missing or made for another shader contract, offers the published pack from the
+`shader-packs` release in the same window as the desktop (press A or B on the
+on-screen controller, or use a physical controller). The download goes to `files/shaders/` and is checked
+against the index size, SHA-256 and the contract before it replaces anything.
 
-```sh
-CC=clang CXX=clang++ tools/android/build-shader-pack.sh \
-  /path/to/game/disc1 /path/to/android-shader-pack
-```
-
-The script enables `LO_ANDROID_SHADER_PACK_HOST`, builds the host runtime and
-pack tool, prepares the known shaders in an isolated cache, and verifies
-`portable_vk.lospv` with `LoShaderPackTool verify-runtime --android`. It writes
-the contract and verification reports beside the bundle and refuses to replace
-an existing output bundle. `LO_ANDROID_SHADER_HOST_BUILD_DIR` selects the host
-build directory; `LO_ANDROID_SHADER_HOST_CACHE_DIR` selects its shader cache.
-`LO_ANDROID_SHADER_FFMPEG_SOURCE_DIR` can reuse the pinned FFmpeg source.
-
-For the development APK, install the verified bundle into app-owned internal
-storage while the game is stopped, preserving game files, settings and saves:
+Packs are built on Windows or Linux with one entry,
+`tools/shader_pack/build_packs.py` ([portable shader packs](../../docs/PORTABLE_SHADER_PACK.md)).
+A pack built that way can also be installed by hand while the game is stopped:
 
 ```sh
-adb push /path/to/android-shader-pack/portable_vk.lospv /data/local/tmp/lo-android-portable_vk.lospv
+adb push portable_vk.lospv /data/local/tmp/lo-portable_vk.lospv
 adb shell run-as io.github.freefrank.lostodyssey mkdir -p files/shaders
-adb shell run-as io.github.freefrank.lostodyssey cp /data/local/tmp/lo-android-portable_vk.lospv files/shaders/portable_vk.lospv
-adb shell rm /data/local/tmp/lo-android-portable_vk.lospv
+adb shell run-as io.github.freefrank.lostodyssey cp /data/local/tmp/lo-portable_vk.lospv files/shaders/portable_vk.lospv
+adb shell rm /data/local/tmp/lo-portable_vk.lospv
 ```
 
-The existing loader validates the Android contract before use. This avoids
-on-device DXC work for covered shaders; driver pipeline creation and shaders
-outside the bundle may still require preparation. Desktop automatic bundle
-download is not enabled on Android.
+The pack avoids on-device DXC work for covered shaders; driver pipeline
+creation and shaders outside the pack may still need preparation.

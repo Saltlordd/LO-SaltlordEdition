@@ -162,7 +162,7 @@ On Linux, set `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` to move the
 | Logs | log folder: `logs/runtime-*.log` and `logs/shader-*.jsonl` | The current run and the two previous runs are kept. |
 | F1 render captures | config folder: `captures/` | `.zip` on Windows, `.tar.gz` on Linux and macOS. |
 | Mods | `mods/`: beside the program when portable, otherwise in the data folder | `LO_MODS_DIR` overrides it. |
-| Shader packs | install folder: `shaders/` beside the program when portable, otherwise `shaders/` in the data folder | The game downloads the pack for the selected renderer here (`portable_vk.lospv`, `portable_dx12.lospd` or `portable_metal.lospv`); skipping the offer is remembered in `declined-downloads.txt` in the same folder. v0.7.25 and earlier bundled `shaders/portable_vk.lospv` beside the program. |
+| Shader packs | install folder: `shaders/` beside the program when portable, otherwise `shaders/` in the data folder | The game downloads the pack for the selected renderer here (`portable_vk.lospv` for Vulkan, Metal and Android, or `portable_dx12.lospd`); skipping the offer is remembered in `declined-downloads.txt` in the same folder. v0.7.25 and earlier bundled `shaders/portable_vk.lospv` beside the program. |
 | Updater work files | Windows: `.update\` beside the program. AppImage: log folder `.update/` | Flatpak and macOS packages are updated manually. |
 
 **How the game is found** when `--game` is not given:

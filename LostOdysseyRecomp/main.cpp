@@ -423,9 +423,9 @@ int main(int argc, char* argv[])
     if (entry == 0)
         return 1;
 
-#if !LO_PLATFORM_ANDROID
     // After the update check and before shader preparation: when no installed
     // distribution pack matches the configured renderer, offer the published one.
+    // Android takes the same Vulkan pack as the desktop (no app update check there).
     {
         updater::shader_pack::StartupRequest packRequest;
         packRequest.configuredBackend = settings::GetConfig().graphicsBackend;
@@ -433,7 +433,6 @@ int main(int argc, char* argv[])
         packRequest.unboundXex = XexLoader::UnboundIdentityPrefix();
         LOG_INFO("shader pack: {}", updater::shader_pack::PrepareAtStartup(packRequest));
     }
-#endif
 
     // Exercise the same renderer preparation as ordinary startup, without
     // starting guest threads or opening game saves/profiles. This also provides

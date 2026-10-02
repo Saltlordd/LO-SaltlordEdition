@@ -42,9 +42,9 @@ void DigestKeys() {
     bumped.translatorVersion += 7;
     Check(xenos::cache::CompileInputDigest("float4 main() : SV_Target { return 0; }", true, bumped) == base,
         "a translator version bump keeps the compile-input digest of unchanged HLSL");
-    auto metal = identity;
-    metal.options = xenos::cache::MetalOptions();
-    Check(xenos::cache::CompileInputDigest("float4 main() : SV_Target { return 0; }", true, metal) != base,
+    auto options = identity;
+    options.options += ";O1";
+    Check(xenos::cache::CompileInputDigest("float4 main() : SV_Target { return 0; }", true, options) != base,
         "compiler options are part of the compile input");
     auto compiler = identity;
     compiler.compiler = "dxc-1.9";
