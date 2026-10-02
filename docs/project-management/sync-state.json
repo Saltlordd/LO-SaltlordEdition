@@ -3381,11 +3381,11 @@
         "Delivery": "In progress",
         "Release": "v0.8.0",
         "Start date": "2026-10-02",
-        "Evidence": "PR #141 (one-file shader store) is merged (2026-10-02) and unreleased; PR #142 (startup pack download) is open and was tested against a local HTTP server only. The three packs were published to the shader-packs prerelease on 2026-10-02 (not a version release); the release changes and the local cache cleanup are not started.",
+        "Evidence": "PR #141 (one-file shader store), PR #142 (startup pack download) and PR #144 (release packages without packs, plus a published-index check) are merged (2026-10-02) and unreleased. The three packs are published to the shader-packs prerelease and downloads from it worked on Windows and on an M1 Max Mac; the local cache cleanup is not started.",
         "Source key": "shader-delivery-v080"
       },
       "title": "Shader delivery: one-file store, startup pack download and cache cleanup (v0.8.0)",
-      "body_sha256": "cd33071b2633465c704e28e290669569eef02a5df3127c70ab04ac80fb320ec8"
+      "body_sha256": "5f3f364d21d6830aabc45a7a8e22f29e47d637129af135b397c511eaafca9f95"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"
