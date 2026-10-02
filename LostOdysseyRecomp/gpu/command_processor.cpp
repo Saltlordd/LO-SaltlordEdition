@@ -426,12 +426,15 @@ namespace gpu
             case OriginalHeight: if (m_movieClear.active) m_movieClear.height = value; break;
             case SafeLeft: if (m_movieClear.active) m_movieClear.safeLeft = value; break;
             case SafeRight: if (m_movieClear.active) m_movieClear.safeRight = value; break;
+            case SafeTop: if (m_movieClear.active) m_movieClear.safeTop = value; break;
+            case SafeBottom: if (m_movieClear.active) m_movieClear.safeBottom = value; break;
             case Commit:
                 if (m_movieClear.active && value == Magic)
                     renderer::ClearMovieBars(m_movieClear.surfaceInfo, m_movieClear.colorInfo,
                         std::bit_cast<float>(m_movieClear.x), std::bit_cast<float>(m_movieClear.y),
                         std::bit_cast<float>(m_movieClear.width), std::bit_cast<float>(m_movieClear.height),
-                        std::bit_cast<float>(m_movieClear.safeLeft), std::bit_cast<float>(m_movieClear.safeRight));
+                        std::bit_cast<float>(m_movieClear.safeLeft), std::bit_cast<float>(m_movieClear.safeRight),
+                        std::bit_cast<float>(m_movieClear.safeTop), std::bit_cast<float>(m_movieClear.safeBottom));
                 m_movieClear = {};
                 break;
             }

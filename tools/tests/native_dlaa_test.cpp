@@ -159,9 +159,9 @@ int main() {
             "missing optimal dimensions cannot be replaced with native output");
     }
 
-    for (auto drawable : std::array<resolution::Size, 7>{{
+    for (auto drawable : std::array<resolution::Size, 9>{{
             {1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160},
-            {3440, 1440}, {1280, 800}, {1366, 768}}}) {
+            {3440, 1440}, {1280, 800}, {1366, 768}, {1280, 960}, {1440, 960}}}) {
         const auto output = ResolveOutputRegion(drawable);
         auto sizing = Sizing(output);
         auto input = Input(sizing, output);
@@ -180,7 +180,7 @@ int main() {
         const auto presentation = ResolvePresentationDecision(&plan, true, 3, 1);
         Check(presentation.requestedAA == 0 && presentation.bypassAA, "completed DLAA bypasses presentation AA");
         if (drawable.height == 800)
-            Check(plan.output.y == 40 && plan.height == 720, "16:10 letterbox is outside DLAA content");
+            Check(plan.output.y == 0 && plan.height == 800, "DLAA fills the taller scene output");
     }
 
     const auto output = ResolveOutputRegion({2560, 1440});

@@ -10286,10 +10286,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                                float x, float y, float width, float height, float safeLeft, float safeRight)
+                                float x, float y, float width, float height, float safeLeft, float safeRight,
+                                float safeTop, float safeBottom)
             {
                 if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height) ||
-                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || width <= 0.0f || height <= 0.0f)
+                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || !std::isfinite(safeTop) ||
+                    !std::isfinite(safeBottom) || width <= 0.0f || height <= 0.0f)
                     return;
 
                 const uint32_t pitch = surfaceInfo & 0x3FFF;
@@ -10312,19 +10314,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const int32_t targetBottom = std::clamp(scaleY(y + height), targetTop, int32_t(color->height));
                 const int32_t leftBarEnd = std::clamp(scaleX(safeLeft), targetLeft, targetRight);
                 const int32_t rightBarStart = std::clamp(scaleX(safeRight), targetLeft, targetRight);
-                if (targetBottom <= targetTop || (leftBarEnd <= targetLeft && rightBarStart >= targetRight))
+                const int32_t topBarEnd = std::clamp(scaleY(safeTop), targetTop, targetBottom);
+                const int32_t bottomBarStart = std::clamp(scaleY(safeBottom), topBarEnd, targetBottom);
+                if (targetBottom <= targetTop || targetRight <= targetLeft)
                     return;
 
-                std::array<RenderRect, 2> bars{};
+                std::array<RenderRect, 4> bars{};
                 uint32_t count = 0;
-                auto addBar = [&](int32_t left, int32_t right)
+                auto addBar = [&](int32_t left, int32_t top, int32_t right, int32_t bottom)
                 {
-                    if (right <= left)
+                    if (right <= left || bottom <= top)
                         return;
-                    bars[count++] = { left, targetTop, right, targetBottom };
+                    bars[count++] = { left, top, right, bottom };
                 };
-                addBar(targetLeft, leftBarEnd);
-                addBar(rightBarStart, targetRight);
+                addBar(targetLeft, targetTop, targetRight, topBarEnd);
+                addBar(targetLeft, bottomBarStart, targetRight, targetBottom);
+                addBar(targetLeft, topBarEnd, leftBarEnd, bottomBarStart);
+                addBar(rightBarStart, topBarEnd, targetRight, bottomBarStart);
                 if (!count)
                     return;
 
@@ -11308,14 +11314,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     }
 
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                        float x, float y, float width, float height, float safeLeft, float safeRight)
+                        float x, float y, float width, float height, float safeLeft, float safeRight,
+                        float safeTop, float safeBottom)
     {
 #ifdef LO_GPU_PLUME
         if (g_renderer)
-            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight);
+            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight, safeTop, safeBottom);
 #else
         (void)surfaceInfo; (void)colorInfo; (void)x; (void)y;
-        (void)width; (void)height; (void)safeLeft; (void)safeRight;
+        (void)width; (void)height; (void)safeLeft; (void)safeRight; (void)safeTop; (void)safeBottom;
 #endif
     }
 #endif // !LO_RENDERER_P2_EMBEDDED_TEST

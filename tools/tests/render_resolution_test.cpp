@@ -13,14 +13,18 @@ void Require(bool ok, const char* message) {
 }
 int main() {
     using namespace gpu::resolution;
-    Require(ResolveInternalSize(0, 1920, 1200) == Size{1920, 1080}, "Auto fits letterboxed output");
+    Require(ResolveInternalSize(0, 1920, 1200) == Size{1920, 1200}, "Auto fills 16:10 output");
+    Require(ResolveInternalSize(0, 1600, 1200) == Size{1600, 1200}, "Auto fills 4:3 output");
+    Require(ResolveInternalSize(0, 1800, 1200) == Size{1800, 1200}, "Auto fills 3:2 output");
+    Require(ResolveInternalSize(1080, 1600, 1200) == Size{1440, 1080}, "manual internal height preserves 4:3");
+    Require(ResolveInternalSize(1080, 1800, 1200) == Size{1620, 1080}, "manual internal height preserves 3:2");
     Require(ResolveInternalSize(0, 3440, 1440) == Size{3440, 1440}, "Auto retains the actual ultrawide aspect");
     Require(ResolveInternalSize(0, 2560, 1080) == Size{2560, 1080}, "Auto distinguishes 21:9 output aspects");
     Require(ResolveInternalSize(0, 7680, 4320) == Size{3840, 2160}, "Auto capped at 4K");
     Require(ResolveInternalSize(0, 0, 0) == Size{}, "uninitialized output stays native");
     Require(ResolveInternalSize(1080, 0, 0) == Size{1920, 1080}, "manual internal height has a native fallback");
     Require(ResolveInternalSize(0, 1366, 768) == Size{1366, 768}, "Auto follows a slightly wider output raster");
-    Require(ResolveInternalSize(0, 1080, 1920) == Size{1072, 603}, "portrait excludes output bars");
+    Require(ResolveInternalSize(0, 1080, 1920) == Size{1080, 1920}, "portrait follows output raster");
     Require(ResolveInternalSize(2160, 1280, 720) == Size{3840, 2160}, "manual internal size retains 16:9 output");
     Require(ResolveInternalSize(1080, 2560, 1080) == Size{2560, 1080}, "manual internal height follows output aspect");
     Require(Scale(428, 1080) == 642 && Scale(448, 1080) == 672, "logical fetch view excludes scaled storage padding");

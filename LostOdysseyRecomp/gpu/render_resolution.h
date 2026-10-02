@@ -8,13 +8,13 @@ struct Size {
     bool operator==(const Size&) const = default;
 };
 enum class TargetRole : uint8_t { Unknown, Scene, Fixed };
-// The guest remains 1280x720.  Host scene targets follow a wider output
-// horizontally (Hor+) while 16:9 and narrower outputs retain the old fit.
+// The guest remains 1280x720. Host scene targets follow the output aspect;
+// the camera and Canvas hooks preserve scene and UI proportions separately.
 // A minimized/uninitialized output uses the native size, never a zero allocation.
 inline constexpr Size ResolveInternalSize(uint32_t mode, uint32_t outputWidth, uint32_t outputHeight) {
-    const bool wide = outputWidth && outputHeight && uint64_t(outputWidth) * 9 > uint64_t(outputHeight) * 16;
+    const bool hasOutput = outputWidth && outputHeight;
     const auto widthForHeight = [&](uint32_t height) {
-        return wide ? uint32_t((uint64_t(height) * outputWidth + outputHeight / 2) / outputHeight)
+        return hasOutput ? (std::max)(1u, uint32_t((uint64_t(height) * outputWidth + outputHeight / 2) / outputHeight))
                     : uint32_t((uint64_t(height) * 16) / 9);
     };
     switch (mode) {
@@ -24,12 +24,8 @@ inline constexpr Size ResolveInternalSize(uint32_t mode, uint32_t outputWidth, u
     case 2160: return {widthForHeight(2160), 2160};
     default:
         if (!outputWidth || !outputHeight) return {};
-        if (wide) {
-            const uint32_t height = (std::clamp)(outputHeight, 1u, 2160u);
-            return {widthForHeight(height), height};
-        }
-        const uint32_t units = (std::clamp)((std::min)(outputWidth / 16, outputHeight / 9), 1u, 240u);
-        return {units * 16, units * 9};
+        const uint32_t height = (std::clamp)(outputHeight, 1u, 2160u);
+        return {widthForHeight(height), height};
     }
 }
 // Map boundaries, rather than independently rounding an origin and a width:
