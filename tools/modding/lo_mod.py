@@ -6,9 +6,11 @@ import argparse
 import csv
 import json
 import re
+import sqlite3
 import struct
 import sys
 import zipfile
+from contextlib import closing
 from pathlib import Path, PurePosixPath
 
 MAGIC = b"LOTEX1\r\n"
@@ -129,6 +131,84 @@ def catalog(path: Path, object_name: str | None = None, package: str | None = No
     return [result[key] for key in sorted(result)]
 
 
+def image_consumer(row: sqlite3.Row, key: str, width: int, height: int) -> str:
+    """Static routing evidence from menu_assets.cpp, not runtime acceptance."""
+    if row["format"] != 7 or any(n < 128 or n > 2048 or n & (n - 1) for n in (width, height)):
+        return "no_runtime_consumer"
+    package = key.partition("#")[0]
+    match = re.fullmatch(r"bin/xenon/loc/(int|chi|jpn|kor|sch)/menu/(rpmenurescommon|rpfontscommon)_\1\.xxx", package)
+    if match:
+        if match[2] == "rpmenurescommon" and row["object"] == "UI_MAIN_00" and (width, height) == (512, 1024):
+            return "native_menu_atlas"
+        if (match[2] == "rpfontscommon" and row["parent_class"] == "Font"
+                and row["parent_name"] in ("Maru23", "LocTit1", "Abc") and not row["parent_error"]):
+            # Ownership is indexed; the Font native page-reference array is not.
+            return "native_font_page_candidate"
+    return "no_runtime_consumer"
+
+
+def database_catalog(path: Path, object_name: str | None = None, package: str | None = None,
+                     content_sha256: str | None = None, runtime_only: bool = False,
+                     limit: int | None = 100) -> list[dict]:
+    """Read eligible Image identities, retaining every package-content variant."""
+    if limit is not None:
+        integer(limit, 1, 10000)
+    clauses = ["c.cls='Texture2D'", "c.mod_key!=''", "c.key_error=''",
+               "c.property_error=''", "p.status='ok'"]
+    params = []
+    if object_name is not None:
+        clauses.append("c.object=?")
+        params.append(text(object_name))
+    if package is not None:
+        clauses.append("substr(c.mod_key,1,instr(c.mod_key,'#')-1)=?")
+        params.append(make_key(package, 0, "Object").partition("#")[0])
+    if content_sha256 is not None:
+        if not re.fullmatch(r"[0-9a-fA-F]{64}", content_sha256):
+            raise ValueError("--content-sha256 must be a full 64-digit package SHA-256")
+        clauses.append("c.sha256=?")
+        params.append(content_sha256.lower())
+    result = []
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        db.execute("PRAGMA query_only=ON")
+        db.execute("BEGIN")
+        meta = {r[0]: json.loads(r[1]) for r in db.execute(
+            "SELECT key,value FROM metadata WHERE key IN ('schema_version','complete')")}
+        if type(meta.get("schema_version")) is not int or meta["schema_version"] != 1:
+            raise ValueError("expected asset inventory schema_version 1")
+        if meta.get("complete") is not True:
+            raise ValueError("asset inventory is incomplete; finish scan/reparse first")
+        rows = db.execute("""SELECT c.*,parent.class_name AS parent_class,
+            parent.name AS parent_name,parent.property_error AS parent_error
+            FROM catalog c JOIN payloads p ON p.sha256=c.sha256
+            JOIN exports e ON e.sha256=c.sha256 AND e.export_index=c.export_index
+            LEFT JOIN exports parent ON parent.sha256=e.sha256 AND parent.export_index=e.outer_ref-1
+            WHERE """ + " AND ".join(clauses) + " ORDER BY c.mod_key,c.sha256,c.id", params)
+        for row in rows:
+            try:
+                key = make_key(row["package"], row["export_index"], row["object"])
+            except (ValueError, TypeError) as exc:
+                raise ValueError(f"catalog contains an invalid identity at asset {row['id']}: {exc}") from exc
+            if key != row["mod_key"]:
+                raise ValueError("catalog contains an inconsistent Mod key: " + key)
+            try:
+                width, height = dimensions(row["width"], row["height"])
+            except (ValueError, TypeError):
+                continue  # Metadata-only rows without a usable image size.
+            consumer = image_consumer(row, key, width, height)
+            if runtime_only and consumer == "no_runtime_consumer":
+                continue
+            sources = [dict(source) for source in db.execute(
+                "SELECT disc,archive,offset,length FROM files WHERE sha256=? AND path=? ORDER BY disc,archive,offset",
+                (row["sha256"], row["package"]))]
+            result.append({"key": key, "width": width, "height": height, "image_path": "",
+                           "sha256": row["sha256"], "consumer": consumer,
+                           "overlay_path": overlay_path(key), "sources": sources})
+            if limit is not None and len(result) >= limit:
+                break
+    return result
+
+
 def mod_id(value: object) -> str:
     value = text(value)
     if len(value) > 128 or value in (".", "..") or not re.fullmatch(r"[A-Za-z0-9_.-]+", value):
@@ -221,11 +301,18 @@ def main(argv: list[str] | None = None) -> int:
     key_parser.add_argument("--export-index", type=int, required=True)
     key_parser.add_argument("--object", required=True)
     for command in ("catalog", "init"):
-        command_parser = sub.add_parser(command, help="read exported Texture2D entries from manifest.csv")
-        command_parser.add_argument("--manifest", type=Path, required=True)
+        command_parser = sub.add_parser(command, help="select Texture2D entries from an export manifest or asset inventory")
+        source = command_parser.add_mutually_exclusive_group(required=True)
+        source.add_argument("--manifest", type=Path, help="legacy exported-image manifest.csv")
+        source.add_argument("--database", type=Path, help="read-only asset inventory catalog.sqlite")
         command_parser.add_argument("--object")
         command_parser.add_argument("--package")
+        command_parser.add_argument("--content-sha256", help="database only: select one package-content variant")
+        if command == "catalog":
+            command_parser.add_argument("--runtime-only", action="store_true", help="database only: native menu atlas/font-page candidates")
+            command_parser.add_argument("--limit", type=int, help="database only: maximum results (default 100; max 10000)")
         if command == "init":
+            command_parser.add_argument("--allow-unwired", action="store_true", help="database only: allow experimental images, including unverified font-page candidates")
             command_parser.add_argument("--image", required=True, help="PNG path relative to the new JSON specification")
             command_parser.add_argument("--id", required=True)
             command_parser.add_argument("--priority", type=int, default=100)
@@ -242,13 +329,26 @@ def main(argv: list[str] | None = None) -> int:
             key = make_key(args.package, args.export_index, args.object)
             print(json.dumps({"key": key, "overlay_path": overlay_path(key)}, ensure_ascii=False, indent=2))
         elif args.command in ("catalog", "init"):
-            items = catalog(args.manifest, args.object, args.package)
+            if args.database:
+                # Init must see all matches; a display limit must never hide ambiguity.
+                items = database_catalog(args.database, args.object, args.package, args.content_sha256,
+                                         getattr(args, "runtime_only", False),
+                                         (args.limit if args.limit is not None else 100) if args.command == "catalog" else None)
+            else:
+                if (args.content_sha256 or getattr(args, "runtime_only", False)
+                        or getattr(args, "limit", None) is not None or getattr(args, "allow_unwired", False)):
+                    raise ValueError("--content-sha256, --runtime-only, --limit and --allow-unwired require --database")
+                items = catalog(args.manifest, args.object, args.package)
             if args.command == "catalog":
                 print(json.dumps(items, ensure_ascii=False, indent=2))
             else:
                 if len(items) != 1:
-                    raise ValueError(f"matched {len(items)} distinct resources; specify --object and --package to select exactly one")
+                    raise ValueError(f"matched {len(items)} eligible resources/content variants; select exactly one with --object, --package and (for database variants) --content-sha256")
                 item = items[0]
+                if args.database and item["consumer"] == "no_runtime_consumer" and not args.allow_unwired:
+                    raise ValueError("selected image has no current runtime consumer; --allow-unwired permits experimental packaging only")
+                if args.database and item["consumer"] == "native_font_page_candidate" and not args.allow_unwired:
+                    raise ValueError("font-page reference is unverified; --allow-unwired permits experimental packaging only")
                 spec = {"api_version": 1, "id": mod_id(args.id),
                         "priority": integer(args.priority, -(1 << 31), (1 << 31) - 1),
                         "images": [{"key": item["key"], "source": relative(args.image),
@@ -265,7 +365,7 @@ def main(argv: list[str] | None = None) -> int:
                 data = file.read(MAX_FILE + 1)
             print(json.dumps(inspect(data), ensure_ascii=False, indent=2))
         return 0
-    except (OSError, ValueError, TypeError, KeyError, csv.Error, zipfile.BadZipFile) as exc:
+    except (OSError, ValueError, TypeError, KeyError, csv.Error, sqlite3.Error, zipfile.BadZipFile) as exc:
         print(f"lo_mod: {exc}", file=sys.stderr)
         return 2
 

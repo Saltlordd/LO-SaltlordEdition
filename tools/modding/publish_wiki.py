@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 PAGES = ("Modding", "Creating-Mods", "Modding-API", "Mod-Organizer-2",
-         "Runtime-Texture-Replacement", "Modding-Validation")
+         "Runtime-Texture-Replacement", "Modding-Validation", "Asset-Inventory")
 BEGIN, END = "<!-- LO-MODS:BEGIN -->", "<!-- LO-MODS:END -->"
 
 
