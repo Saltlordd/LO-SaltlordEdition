@@ -63,6 +63,7 @@
 #include "shader/startup_cache.h"
 #include "shader/portable_shader_pack.h"
 #include "shader/portable_shader_contract.h"
+#include "shader/portable_shader_pack_location.h"
 #include "shader/resource_scan.h"
 #include "shader/source_store.h"
 #include "shader/resource_xex.h"

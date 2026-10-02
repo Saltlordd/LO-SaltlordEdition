@@ -14,6 +14,12 @@ xenos::portable_pack::PackFormat PortablePackFormat() const
     return vulkan ? xenos::portable_pack::PackFormat::Spirv : xenos::portable_pack::PackFormat::Dxil;
 }
 
+xenos::portable_pack::Flavor PortablePackFlavor() const
+{
+    using xenos::portable_pack::Flavor;
+    return !vulkan ? Flavor::D3D12 : nativeVulkan ? Flavor::Vulkan : Flavor::Metal;
+}
+
 xenos::portable_pack::Digest PortableShaderContract(std::span<const uint8_t> xex) const
 {
     return xenos::portable_pack::RuntimeContract(xex, cacheIdentity, PortablePackFormat());
@@ -23,30 +29,41 @@ bool TryOpenPortableShaderPack(std::span<const uint8_t> xex)
 {
     if ((cacheIdentity.backend != xenos::cache::Backend::Vulkan &&
          cacheIdentity.backend != xenos::cache::Backend::D3D12) ||
-        PortableExportRequested() || std::getenv("LO_NO_PORTABLE_SHADER_PACK") ||
-        std::getenv("LO_SHADER_FULL_SCAN") || std::getenv("LO_SHADER_HLSL_DIR") ||
-        std::getenv("LO_SHADER_RETRY_FAILURES")) return false;
+        xenos::portable_pack::DistributionPacksDisabled()) return false;
+    const auto flavor = PortablePackFlavor();
+    xenos::portable_pack::Digest contract{};
     try {
-        const char* configured = std::getenv("LO_SHADER_PACK_PATH");
-        const auto path = configured && *configured ? std::filesystem::path(configured) :
-            xenos::portable_pack::DefaultPath(PortablePackFormat());
-        std::error_code ec;
-        if (!std::filesystem::is_regular_file(path, ec)) {
-            if (configured && *configured) LOG_WARNING("renderer: configured portable shader pack is missing: {}", path.string());
-            return false;
-        }
-        auto pack = std::make_unique<xenos::portable_pack::Reader>(path,
-            PortableShaderContract(xex), PortablePackFormat());
-        const auto& report = pack->Info();
-        LOG_INFO("renderer: portable shader pack hit: {} records, {} unique binaries, {} file bytes, {} index bytes; lazy modules, no guest shader DXC prebuild",
-            report.records, report.uniqueBinaries, report.fileBytes, report.indexBytes);
-        portableShaderPack = std::move(pack);
-        return true;
+        contract = PortableShaderContract(xex);
+        // The startup download picks the pack from the settings alone.
+        if (xenos::portable_pack::FlavorContract(xex, flavor) != contract)
+            LOG_WARNING("renderer: portable shader contract differs from the {} download contract",
+                xenos::portable_pack::FlavorName(flavor));
     } catch (const std::exception& e) {
-        LOG_WARNING("renderer: portable shader pack rejected; local cache fallback: {}", e.what());
-        portableShaderPack.reset();
+        LOG_WARNING("renderer: portable shader contract unavailable: {}", e.what());
         return false;
     }
+    // A stale pack at one location does not hide a matching one at the next.
+    for (const auto& path : xenos::portable_pack::CandidatePaths(flavor)) {
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(path, ec)) {
+            if (xenos::portable_pack::ConfiguredPackPath())
+                LOG_WARNING("renderer: configured portable shader pack is missing: {}", path.string());
+            continue;
+        }
+        try {
+            auto pack = std::make_unique<xenos::portable_pack::Reader>(path, contract, PortablePackFormat());
+            const auto& report = pack->Info();
+            LOG_INFO("renderer: portable shader pack hit: {}: {} records, {} unique binaries, {} file bytes, {} index bytes; lazy modules, no guest shader DXC prebuild",
+                path.string(), report.records, report.uniqueBinaries, report.fileBytes, report.indexBytes);
+            portableShaderPack = std::move(pack);
+            return true;
+        } catch (const std::exception& e) {
+            LOG_WARNING("renderer: portable shader pack {} rejected; trying the next location or the local cache: {}",
+                path.string(), e.what());
+        }
+    }
+    portableShaderPack.reset();
+    return false;
 }
 
 bool TryLoadPortableShader(bool pixel, uint64_t hash)

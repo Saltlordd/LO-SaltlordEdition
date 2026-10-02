@@ -11,6 +11,49 @@ Release measurements below are dated evidence. The initial implementation was
 based on `menu@257f3866e9f9f5d3e65550c86dce453290cf7ee4`; its delivery archive and
 unverified boundaries are retained in the final historical sections.
 
+## Startup download
+
+The runtime can fetch the pack for its renderer itself. The check runs after the update check and before shader preparation (`updater/shader_pack_download.cpp`, called from `main.cpp` after `XexLoader::Load`):
+
+1. It computes the contract of the configured renderer from the loaded executable: Vulkan, DirectX 12, or Metal on macOS. The contract ignores the local DXC identity, so it is known before the renderer starts; `LoPortableShaderContractTest` checks that it equals the renderer's own. Metal has its own file, `portable_metal.lospv`.
+2. It looks for a matching pack: `LO_SHADER_PACK_PATH` alone when set, otherwise the install folder, then `shaders/` beside the executable. The install folder is `shaders/` beside the executable in a portable layout (Windows) and `shaders/` in the user data folder otherwise (macOS app, AppImage, Flatpak). A pack for another contract counts as missing; the renderer also moves on to the next location instead of stopping at a rejected file.
+3. Without a match it reads `index.json` from the `shader-packs` release. Only a listed contract is offered. A window shows the renderer and the size; Download (A) shows progress and can be cancelled with B. Skip (B) writes the contract to `shaders/declined-downloads.txt` in the install folder, and the offer comes back only for a new contract. Closing the window asks again at the next start.
+4. The file is downloaded beside its target as `<name>.download-<pid>`. Its size and SHA-256 must match the index, and the pack must pass the contract check and `Reader::VerifyAll` before it replaces the old file. On any failure the old state stays and the game compiles locally; the window shows the reason.
+
+Background (`LO_BACKGROUND`) and headless runs show no window. Developer shader settings (`LO_SHADER_PACK_PATH`, `LO_NO_PORTABLE_SHADER_PACK`, `LO_SHADER_EXPORT_PACK`, `LO_SHADER_FULL_SCAN`, `LO_SHADER_HLSL_DIR`, `LO_SHADER_RETRY_FAILURES`) skip the check, as they skip packs in the renderer. `LO_SHADER_PACK_DOWNLOAD=0` turns it off; `LO_SHADER_PACK_DOWNLOAD=1` downloads without asking, also in background runs. `LO_SHADER_PACK_INDEX_URL` replaces the index URL for tests; packs are always fetched beside the index, never from a URL in its text. The log line `shader pack: …` records the outcome.
+
+### Index
+
+Packs are assets of the `shader-packs` GitHub prerelease, named `<file stem>-<first 16 contract digits><extension>`. A prerelease is never the repository's latest release, which the updater reads. `index.json` on the same release lists them:
+
+```json
+{
+  "schema": 1,
+  "packs": [
+    {
+      "renderer": "vulkan",
+      "contract": "4e123a08e148937e41b1b7dc636608377bd15a0043fb506a43a75cb6930ea6ae",
+      "file": "portable_vk-4e123a08e148937e.lospv",
+      "size": 180527457,
+      "sha256": "5c412fd71c5cdae0e4e5fcfe67de536cc5c0a10f10ed71b1b0f6cdd5858600fb"
+    }
+  ]
+}
+```
+
+`renderer` is `vulkan`, `d3d12` or `metal`; a runtime ignores renderers it does not know. A malformed entry, a duplicate renderer and contract or another schema makes the runtime reject the whole index.
+
+### Publishing
+
+`LoShaderPackTool contract <xexdump image>` prints the contract of each renderer. `tools/release/publish_shader_packs.py --tool <LoShaderPackTool> --image <image> <packs>` maps each pack to its renderer by contract, runs `verify-runtime` (with `--metal` for Metal), stages the renamed packs and the merged index in `out/shader-packs`, and uploads them with `--publish`: packs first, then the index. Entries for other contracts stay, so older runtimes keep finding their packs. After uploading it checks that the latest release is still a version. `--check` only reports whether the published index covers all three contracts of the image.
+
+### Validation (2026-10-02)
+
+- `LoShaderPackIndexTest` (35 checks: parsing, selection, asset names, URLs, decline record) passed with GCC 16 and clang 22 under ASan and UBSan; it runs in review-regressions.
+- `LoShaderPackTool contract` printed the contracts of the three 2026-10-02 packs, and the publish script staged them with an index without uploading.
+- A Windows build was run with `--prepare-shaders-only` against a local HTTP server serving that index. Installed and used: Vulkan and DX12 packs, and a Vulkan pack replacing one with another contract. Reported and left alone: an unpublished contract, a wrong SHA-256 (no file left behind), an unreachable index, a background run and a remembered decline. In the window, Download, Skip, Cancel and the failure page were driven by keyboard messages, in English and Chinese.
+- Not yet checked: the published release (nothing is uploaded yet), Linux and macOS runs (the new sources only compiled on Linux), and mouse input in the window.
+
 ## Runtime contract and release check (after v0.7.25)
 
 v0.7.25 shipped the Vulkan pack pinned for v0.7.10, although its runtime had moved from shader translator version 24 to 26 (the macOS merge changed predicate-push translation). The game rejected the pack (`portable shader pack rejected; local cache fallback: portable shader contract mismatch`) and compiled all 28,549 shaders on first launch: 180 s with 15 workers on a 16-thread CPU. Nothing in the release compared the pack with the runtime, and `verify-runtime` could not do it in general. The runtime hashed its guest image after `XexLoader` had written host-assigned import addresses into it, so the tool relied on one audited contract pair, which the next translator change made useless.
