@@ -320,6 +320,7 @@ void CheckPlanObservationConsistency()
     const auto ready = ReadySizing(9, 2560, 1440, 1707, 960);
     PlannerState planner;
     std::atomic<bool> failed{false};
+    std::atomic<bool> done{false};
     std::atomic<int> observations{0};
     std::thread mutator([&] {
         for (int i = 0; i < 20000; ++i) {
@@ -332,9 +333,14 @@ void CheckPlanObservationConsistency()
                         gpu::frame_plan::FailureReason::InvalidInput});
             }
         }
+        done.store(true, std::memory_order_release);
     });
     std::thread observer([&] {
-        for (int i = 0; i < 20000; ++i) {
+        // Read until the mutator is done, not a fixed count: a late mutator
+        // thread can start after the observer has finished its reads. done is
+        // loaded before each read, so the last read follows the last publication.
+        for (bool finished = false; !finished;) {
+            finished = done.load(std::memory_order_acquire);
             const auto observed = planner.Observe();
             if (!observed.hasPlan) continue;
             observations.fetch_add(1, std::memory_order_relaxed);
@@ -350,7 +356,8 @@ void CheckPlanObservationConsistency()
     });
     mutator.join();
     observer.join();
-    Require(observations.load() > 0 && !failed.load(), "observed plans keep consumer, request, and size from the same publication");
+    Require(observations.load() > 0, "the observer reads the mutator's published plans");
+    Require(!failed.load(), "observed plans keep consumer, request, and size from the same publication");
 }
 
 void CheckPublicationSource()
