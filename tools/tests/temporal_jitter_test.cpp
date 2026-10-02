@@ -20,6 +20,8 @@
 #include "f25276_cave_jitter_capture.h"
 #include "tour_sky_20261001_capture.h"
 #include "tour_batch2_20261001_capture.h"
+#include "tour_8d66_20261001_capture.h"
+#include "battle_depth_20261001_capture.h"
 #include "feedback_mapping_cases.h"
 #include "screen_batch_cases.h"
 
@@ -1788,6 +1790,127 @@ static void CapturedTourBatch2()
     Check(PositionVPSlot(0xf964d2661094b1a0ull)==4 && PositionVPSlot(0xfe3efe042c311110ull)==4,
         "tour depth VS f964 maps to slot 4 with fe3e, its 10-dword stride twin");
 }
+// Map tours 2026-10-01: VS 8d66 (HLSL 430-447) is the TireMaterialFf9 chain over
+// b030 depth and copies its clip to o1; PS c795 (Ice Canyon - Ice Gorge) and 9e1c
+// (Frozen Trail) read only i1.w and sample at mesh UVs.
+static void CapturedTour8d66()
+{
+    const auto& draws=tour_8d66_20261001::draws;
+    CapturedMaterialOverDepth({"tour 8d66/c795",0x8d6658641e3b780dull,0xc7956695c6ba859bull,0xb030ab4e17a20783ull,
+        draws[0].draw,draws[0].depthDraw},draws[0]);
+    CapturedMaterialOverDepth({"tour 8d66/9e1c",0x8d6658641e3b780dull,0x9e1cd4d452f7380dull,0xb030ab4e17a20783ull,
+        draws[1].draw,draws[1].depthDraw},draws[1]);
+}
+// Opening battle 2026-10-01: depth writers 7def (HLSL 534-543) and c511 (540-549)
+// end with oPos = P.x*c11 + P.w*c10 + P.z*c9 + P.y*c8 for a position P built from
+// the vertex, the world rows and the c12 eye. No depth companion draws the same
+// geometry; the log found the scene camera at c8-c11 on each draw.
+static Float4 BattleBillboardClip(const Constants& c, const Float4& p)
+{
+    auto r=Mul(p[0],C(c,11));
+    r=Mad(p[3],C(c,10),r);
+    r=Mad(p[2],C(c,9),r);
+    return Mad(p[1],C(c,8),r);
+}
+// Synthetic input only: the P with P.x=1 (c11 holds the translation) whose clip
+// lands at the given NDC and W under this bank's camera.
+static Float4 BattleBillboardPoint(const Constants& c, double ndcX, double ndcY, double w)
+{
+    const auto row=[&](unsigned slot,unsigned axis) { return double(C(c,slot)[axis]); };
+    const unsigned axes[3]{0,1,3};
+    const double target[3]{ndcX*w,ndcY*w,w};
+    double m[3][3],b[3];
+    for (unsigned i=0;i<3;++i)
+    {
+        m[i][0]=row(8,axes[i]); m[i][1]=row(9,axes[i]); m[i][2]=row(10,axes[i]);
+        b[i]=target[i]-row(11,axes[i]);
+    }
+    const auto det=[](const double a[3][3]) {
+        return a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1])-a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0])+
+            a[0][2]*(a[1][0]*a[2][1]-a[1][1]*a[2][0]); };
+    const double d=det(m);
+    double p[3];
+    for (unsigned k=0;k<3;++k)
+    {
+        double replaced[3][3];
+        for (unsigned i=0;i<3;++i)
+            for (unsigned j=0;j<3;++j) replaced[i][j]=j==k?b[i]:m[i][j];
+        p[k]=det(replaced)/d;
+    }
+    return {1.f,float(p[0]),float(p[1]),float(p[2])};
+}
+static void CapturedBattleDepthWriters()
+{
+    double maxPixelError=0,oldSeparation=0;
+    const auto startChecks=checks;
+    for (const auto& draw:battle_depth_20261001::draws)
+    {
+        char label[48];
+        std::snprintf(label,sizeof(label),"battle %04x/%04x f%u",unsigned(draw.vs>>48),unsigned(draw.ps>>48),draw.frame);
+        const auto message=[&](const char* text) { return std::string(label)+" "+text; };
+        Constants original{},originalPs{};
+        std::copy(draw.vertex.begin(),draw.vertex.end(),original.begin());
+        std::copy(draw.vertexLate.begin(),draw.vertexLate.end(),original.begin()+254*4);
+        std::copy(draw.pixel.begin(),draw.pixel.end(),originalPs.begin());
+        Check(draw.slot==8 && std::equal(draw.camera.begin(),draw.camera.end(),original.begin()+8*4),
+            message("log found the scene camera at c8-c11").c_str());
+        Check(PositionVPSlot(draw.vs)==8 && DrawPositionVPSlot(draw.vs,draw.ps)==8 &&
+            !RequiresEarlierSceneAnchor(draw.vs,draw.ps) && !RetainsMotionFallback(draw.vs,draw.ps),
+            message("depth writer maps VS-wide to slot 8 with the ordinary anchor and motion policy").c_str());
+        for (const auto extent:{Viewport{0,0,2560,1440},Viewport{0,0,3840,2160}})
+            for (uint64_t phase=0;phase<32;++phase)
+            {
+                const SceneAnchor anchor{draw.camera,extent,14};
+                auto values=original,ps=originalPs;
+                const auto result=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,14,extent,
+                    values.data(),ps.data());
+                Check(result.applied && result.slot==8 && !result.shadowCompensated && ps==originalPs,
+                    message("depth writer jitters slot 8 without changing PS constants").c_str());
+                auto reference=original,referencePs=originalPs;
+                Check(ApplyDrawJitter(0x1da1ddc75da8e994ull,0,phase,true,true,&anchor,14,extent,
+                    reference.data(),referencePs.data()).applied &&
+                    std::equal(values.begin()+8*4,values.begin()+12*4,reference.begin()+8*4),
+                    message("depth writer gets the jittered camera of mapped slot-8 VS 1da1").c_str());
+                for (unsigned i=0;i<values.size();++i)
+                    if (i<8*4 || i>=12*4 || i%4>=2)
+                        Check(values[i]==original[i],message("world, eye, UV and clip ZW constants stay exact").c_str());
+                for (const auto& target:{std::array<double,3>{.3,-.2,60},{-.55,.4,250},{.1,.65,900}})
+                {
+                    const auto p=BattleBillboardPoint(original,target[0],target[1],target[2]);
+                    const auto current=BattleBillboardClip(values,p);
+                    const auto old=BattleBillboardClip(original,p);
+                    Check(current[2]==old[2] && current[3]==old[3],
+                        message("depth writer keeps clip Z and the W its PS reads").c_str());
+                    Check(std::isfinite(old[3]) && std::abs(old[3])>1,
+                        message("synthetic point has nondegenerate clip W").c_str());
+                    for (unsigned axis=0;axis<2;++axis)
+                    {
+                        const double pixels=(double(current[axis])/current[3]-double(old[axis])/old[3])*
+                            (axis?extent.height:extent.width)*(axis?-.5:.5);
+                        const double wanted=axis?result.sample.pixelY:result.sample.pixelX;
+                        maxPixelError=std::max(maxPixelError,std::abs(pixels-wanted));
+                        oldSeparation=std::max(oldSeparation,std::abs(pixels));
+                        Check(std::abs(pixels-wanted)<.003,
+                            message("depth writer clip shift matches the requested physical jitter").c_str());
+                    }
+                }
+                for (unsigned mutation=0;mutation<2;++mutation)
+                {
+                    auto rejected=original,rejectedPs=originalPs;
+                    if (!mutation) rejected[8*4]^=1;
+                    const auto before=rejected;
+                    const auto failure=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,
+                        mutation?15:14,extent,rejected.data(),rejectedPs.data());
+                    Check(!failure.applied && rejected==before && rejectedPs==originalPs &&
+                        failure.rejection==(mutation?JitterRejection::DepthMismatch:JitterRejection::CameraMismatch),
+                        message("camera or depth mismatch rejects without changing constants").c_str());
+                }
+            }
+    }
+    Check(oldSeparation>.3,"unmapped battle depth writers separate from the jittered scene by a visible phase");
+    std::printf("Captured battle depth writers: %u checks, %zu draws (7def, c511), 32 phases, 1440p/4K; old separation %.6f px, max jitter error %.6f px\n",
+        checks-startChecks,std::size(battle_depth_20261001::draws),oldSeparation,maxPixelError);
+}
 // Runtime suspect locator (no F1 capture): camera slot choice, same-frame
 // companion lookup, per-pair settling and the fixture-bearing log format.
 static void SuspectLocator()
@@ -2044,6 +2167,8 @@ static const NamedCase namedCases[]{
     {"--captured-f25276-cave",CapturedF25276Cave,true},
     {"--captured-tour-sky",CapturedTourSky,true},
     {"--captured-tour-batch2",CapturedTourBatch2,true},
+    {"--captured-tour-8d66",CapturedTour8d66,true},
+    {"--captured-battle-depth",CapturedBattleDepthWriters,true},
     {"--suspect-tracker",SuspectLocator,true},
     {"--feedback-mapping-batch",FeedbackMappingBatch,true},
     {"--screen-mapping-batch",ScreenMappingBatch,true},

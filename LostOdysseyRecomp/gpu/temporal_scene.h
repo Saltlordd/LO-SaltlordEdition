@@ -73,7 +73,10 @@ inline int PositionVPSlot(uint64_t shader) {
     // Map tour 2026-10-01: static materials over 52e4 depth whose c7-c10 feed only
     // oPos and the o4 copy, of which their only seen PS reads just W.
     // 2441 + d7f3: Snow-Covered Trail. f8b1 + e5b7: Astral Square, Numara Palace.
-    case 0x24418a5936c2d236ull:case 0xf8b1457ed05cacdfull:return 7;
+    case 0x24418a5936c2d236ull:case 0xf8b1457ed05cacdfull:
+    // 8d66 over b030 depth (Ice Canyon - Ice Gorge, Frozen Trail): the same chain;
+    // PS c795 and 9e1c read only W of the o1 copy.
+    case 0x8d6658641e3b780dull:return 7;
     case 0x1da1ddc75da8e994ull:case 0x22557143e0f243ddull:case 0x4c87bb5b986defc8ull:case 0xa6c8c11c6dd07144ull:
     case 0xe8c0d438c690c784ull:case 0x576d669b2ad3c898ull:
     case 0x188061ace0615678ull:case 0xdc7f83af67c53ba1ull:case 0x68014a17a2a9a4bdull:
@@ -97,6 +100,11 @@ inline int PositionVPSlot(uint64_t shader) {
     // PS 4907455386b2b291 samples a same-frame resolve of jittered slot-0
     // passes through o5.xy/w, so that lookup must follow the raster jitter.
     case 0xe9b8dd7e7c5a3425ull:case 0xd31e2122a3b51434ull:
+    // Opening battle 2026-10-01: alpha-tested depth writers 7def and c511 use the
+    // scene camera at c8-c11 for oPos and its o2/o4 copy only (the c12 eye stays
+    // intact). Their nine player-feedback PS partners read only W of the copy and
+    // kill on alpha sampled at mesh UVs.
+    case 0x7def181705ff29c9ull:case 0xc511136caf4421ebull:
     // f6131-f6133: late additive floor lighting matches the f7fd depth and
     // ff769 material geometry. c8-c11 feed oPos and o5; PS 4013372b6413788f
     // samples the current scene light resolve through o5.xy/w, so the lookup

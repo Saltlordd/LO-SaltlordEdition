@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "date": "2026-10-01",
+  "scope": "Holds from the 2026-10-01 map tours and opening-battle runs that the static triage cannot express.",
+  "candidates": [
+    {
+      "vs": "25d2c638dcba4059",
+      "slot": 2,
+      "decision": "hold",
+      "observed_ps": ["725f354714f685ff"],
+      "reason": "oPos uses the slot-2 window, which no mapped shader uses; nothing has shown that window equals the scene camera, so the clip review alone does not authorize it."
+    }
+  ]
+}

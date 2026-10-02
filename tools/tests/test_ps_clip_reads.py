@@ -62,6 +62,20 @@ class PsClipReadsTest(unittest.TestCase):
                 self.assertFalse(review["candidate_no_clip_xy_reads"])
                 self.assertTrue(any(reason in item["reason"] for item in review["unsupported"]))
 
+    def test_guest_kill_is_reviewed_as_a_read(self):
+        alpha = audit_ps.analyze_clip_reads(shader(
+            "  r4 = i4;\n  r0 = XeTex2D(tex2D_0, XeSampler(0u), r1.xy);\n"
+            "  clip(any(XeConst(255).x > r0.w) ? -1 : 1);\n  oC0.w = max(r4.w, r4.w);"), [4])
+        self.assertTrue(alpha["candidate_no_clip_xy_reads"])
+        self.assertFalse(alpha["unsupported"])
+        screen = audit_ps.analyze_clip_reads(shader(
+            "  r4 = i4;\n  clip(any(-abs(r4.x) == XeConst(3).y) ? -1 : 1);\n  oC0 = r0;"), [4])
+        self.assertFalse(screen["candidate_no_clip_xy_reads"])
+        self.assertEqual(screen["clip_xy_reads"][0]["inputs"], ["i4.x"])
+        chained = audit_ps.analyze_clip_reads(shader(
+            "  r4 = i4;\n  clip(any(r0.x > r1.x > r2.x) ? -1 : 1);\n  oC0 = r0;"), [4])
+        self.assertTrue(any("kill" in item["reason"] for item in chained["unsupported"]))
+
     def test_cli_from_other_cwd_is_opt_in_and_validates_index(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

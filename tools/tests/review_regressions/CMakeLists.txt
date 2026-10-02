@@ -45,6 +45,9 @@ lo_review_test(LoTemporalJitterTest temporal_jitter_test.cpp)
 # Offline capture, suspect-log and triage tools (standard-library Python).
 add_test(NAME LoJitterCaptureTools COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/jitter_capture_tools_test.py")
 set_tests_properties(LoJitterCaptureTools PROPERTIES TIMEOUT 60)
+add_test(NAME LoPsClipReads COMMAND "${Python3_EXECUTABLE}" -B -m unittest tools.tests.test_ps_clip_reads
+    WORKING_DIRECTORY "${LO_ROOT}")
+set_tests_properties(LoPsClipReads PROPERTIES TIMEOUT 60)
 
 if(LO_REVIEW_SDL_TESTS)
     if(LO_REVIEW_SDL_LIBRARY)

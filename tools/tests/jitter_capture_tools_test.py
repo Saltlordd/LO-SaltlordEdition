@@ -260,7 +260,8 @@ TRIAGE_PS = """void main(
 
 
 class TriageSuspectTest(unittest.TestCase):
-    def run_triage(self, root, ps_text=TRIAGE_PS, mapping_extra="", pairs="", include_mapped=False, held=False):
+    def run_triage(self, root, ps_text=TRIAGE_PS, mapping_extra="", pairs="", include_mapped=False, held=False,
+                   decision=None):
         log = root / "runtime.log"
         log.write_text(suspect_lines()[0])
         hlsl = root / "hlsl"
@@ -275,7 +276,7 @@ class TriageSuspectTest(unittest.TestCase):
         output = root / f"triage-{len(list(root.glob('triage-*.json')))}.json"
         reviews = root / "reviews"
         reviews.mkdir(exist_ok=True)
-        decision = "held" if held else "implemented"
+        decision = decision or ("held" if held else "implemented")
         (reviews / "manifest.json").write_text(json.dumps({"candidates": [
             {"vs": MATERIAL, "decision": decision, "reason": "another PS samples the clip copy"}]}))
         args = ["--log", str(log), "--hlsl-dir", str(hlsl), "--mapping", str(mapping), "--reviews", str(reviews),
@@ -305,6 +306,12 @@ class TriageSuspectTest(unittest.TestCase):
             pair, = self.run_triage(Path(tmp), held=True)
             self.assertEqual(pair["action"], "map_exact_pair")
             self.assertTrue(any("manifest.json holds this VS" in reason for reason in pair["reasons"]))
+
+    def test_vs_on_hold_in_a_review_manifest_stays_held(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pair, = self.run_triage(Path(tmp), decision="hold")
+            self.assertEqual(pair["action"], "hold")
+            self.assertTrue(any("manifest.json holds this VS entirely" in reason for reason in pair["reasons"]))
 
     def test_clip_xy_sampling_or_screen_position_holds(self):
         with tempfile.TemporaryDirectory() as tmp:
