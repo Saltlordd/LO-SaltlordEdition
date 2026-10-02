@@ -20,12 +20,16 @@ if(WIN32)
     if(MINGW)
         target_link_options(LoOptiscalerLoaderTest PRIVATE -municode)
     endif()
+    # The timeout turns a loader regression that brings back a modal Windows
+    # error dialog into a quick failure instead of ctest's 1500 s default.
     foreach(scenario IN ITEMS disabled no-sdk conflict relative wrong-name missing invalid-dll loaded)
         add_test(NAME optiscaler_${scenario} COMMAND LoOptiscalerLoaderTest
             ${scenario} "$<TARGET_FILE:LoOptiscalerLoaderFixture>")
+        set_tests_properties(optiscaler_${scenario} PROPERTIES TIMEOUT 60)
     endforeach()
 else()
     foreach(scenario IN ITEMS disabled native-platform)
         add_test(NAME optiscaler_${scenario} COMMAND LoOptiscalerLoaderTest ${scenario})
+        set_tests_properties(optiscaler_${scenario} PROPERTIES TIMEOUT 60)
     endforeach()
 endif()
