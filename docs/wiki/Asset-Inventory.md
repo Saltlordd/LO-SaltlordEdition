@@ -128,9 +128,9 @@ Categories are based on UE3 export classes and include models, scene actors, wor
 
 The report distinguishes disc file occurrences, distinct virtual paths, complete payloads, exports, and path/content/export variants. Imports are dependency references and are not counted as assets. Different complete package contents sharing a Mod key are retained as variants; select them using disc, path, and SHA-256.
 
-UI 标签是额外的用途提示，来自 export class 或路径/名称启发式判断，不代表当前运行时一定能替换。当前 Mod API 只接入原生设置菜单的 `UI_MAIN_00` 图集和特定字体纹理页；任意 guest texture、模型、字体指标、电影及其他资源仍需要对应 runtime consumer。对象名包含当前 API 不支持的字符时会保留 `key_error` 并清空 `mod_key`，工具不会猜测可用 key。
+UI 标签是额外的用途提示，来自 export class 或路径/名称启发式判断，不代表当前运行时一定能替换。运行时可以替换原生设置菜单的 `UI_MAIN_00` 图集和原生菜单字体使用的纹理页（见 [Modding](Modding.md)），但统计目录只把 `UI_MAIN_00` 确认为 `init` 可用的 consumer，字体纹理页仍是候选；任意 guest texture、模型、字体指标、电影及其他资源仍需要对应 runtime consumer。对象名包含当前 API 不支持的字符时会保留 `key_error` 并清空 `mod_key`，工具不会猜测可用 key。
 
-The UI label is an additional usage hint from export classes or path/name heuristics; it does not prove runtime replacement support. The current Mod API wires only the native settings `UI_MAIN_00` atlas and selected font texture pages. Arbitrary guest textures, models, font metrics, movies, and other resources still require a runtime consumer. Names containing characters unsupported by the current API retain `key_error` and an empty `mod_key`; the tool does not guess a key.
+The UI label is an additional usage hint from export classes or path/name heuristics; it does not prove runtime replacement support. The runtime can replace the native settings `UI_MAIN_00` atlas and the texture pages used by native menu fonts (see [Modding](Modding.md)), but the catalog confirms only `UI_MAIN_00` as an `init` consumer; font pages remain candidates. Arbitrary guest textures, models, font metrics, movies, and other resources still require a runtime consumer. Names containing characters unsupported by the current API retain `key_error` and an empty `mod_key`; the tool does not guess a key.
 
 FPD offset 是原始归档 extent，不能与解包后的 UE3 object offset 混用。`Default__*` 模板单独列为 `default_templates`；`Model`/`Terrain` 列为 `world_geometry`；`StaticMeshRPG` 列为 models，`SkeletalMesh_VC` 列为 `scene_actors`。
 
