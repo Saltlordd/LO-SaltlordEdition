@@ -888,6 +888,10 @@ elseif(UNIX AND LO_BUILD_GPU)
     endif()
     get_filename_component(LO_DXC_SO_NAME "${LO_DXC_SO}" NAME)
     if(LO_DXC_SO AND EXISTS "${LO_DXC_SO}")
+        install(FILES "${LO_DXC_SO}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+    foreach(target LostOdysseyRecomp LoShaderTool LoRenderResolutionShaderTest)
+        if(TARGET ${target} AND LO_DXC_SO AND EXISTS "${LO_DXC_SO}")
             add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     "${LO_DXC_SO}" "$<TARGET_FILE_DIR:${target}>/${LO_DXC_SO_NAME}" VERBATIM)
