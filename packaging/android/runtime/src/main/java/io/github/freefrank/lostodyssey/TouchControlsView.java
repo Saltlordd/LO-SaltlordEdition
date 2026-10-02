@@ -6,6 +6,9 @@ import android.content.SharedPreferences;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.hardware.input.InputManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.SparseArray;
 import android.view.InputDevice;
 import android.view.MotionEvent;
@@ -17,6 +20,7 @@ import android.widget.TextView;
 
 /** Local touch controls layered over SDL's surface; physical pads stay in SDL. */
 final class TouchControlsView extends View {
+    private static final long CONTROLLER_POLL_MS = 1000;
     private static final int UP = 0x0001, DOWN = 0x0002, LEFT = 0x0004, RIGHT = 0x0008;
     private static final int START = 0x0010, BACK = 0x0020;
     private static final int L3 = 0x0040, R3 = 0x0080;
@@ -40,10 +44,28 @@ final class TouchControlsView extends View {
 
     private final RuntimeActivity activity;
     private final SharedPreferences preferences;
+    private final InputManager inputManager;
+    private final TouchControllerVisibility visibility;
+    private final Handler controllerHandler = new Handler(Looper.getMainLooper());
+    private final Runnable controllerPoll = new Runnable() {
+        @Override public void run() {
+            if (!hostResumed || !isAttachedToWindow()) return;
+            refreshControllers();
+            controllerHandler.postDelayed(this, CONTROLLER_POLL_MS);
+        }
+    };
+    private final InputManager.InputDeviceListener deviceListener = new InputManager.InputDeviceListener() {
+        @Override public void onInputDeviceAdded(int deviceId) { refreshControllers(); }
+        @Override public void onInputDeviceRemoved(int deviceId) { refreshControllers(); }
+        @Override public void onInputDeviceChanged(int deviceId) { refreshControllers(); }
+    };
     private final SparseArray<Pointer> pointers = new SparseArray<>();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private TouchControlLayout layout, draft;
-    private boolean enabled, editing, customLayout;
+    private CheckBox settingsToggle;
+    private TextView controllerHint;
+    private boolean settingsChoiceEdited, syncingSettingsToggle;
+    private boolean editing, customLayout, hostResumed, deviceListenerRegistered;
     private int settingsPointer = -1, dragPointer = -1, toolbarPointer = -1;
     private int selected = -1, toolbarPressed = -1;
     private float dragOffsetX, dragOffsetY, baseUnit;
@@ -53,10 +75,73 @@ final class TouchControlsView extends View {
         super(activity);
         this.activity = activity;
         preferences = activity.getSharedPreferences("touch_controls", Context.MODE_PRIVATE);
-        enabled = preferences.getBoolean("enabled", true);
+        visibility = new TouchControllerVisibility(preferences.getBoolean("enabled", true));
+        inputManager = (InputManager) activity.getSystemService(Context.INPUT_SERVICE);
         customLayout = preferences.getInt("layout_version", 0) == 1;
         setClickable(true);
         setContentDescription("Touch controller settings");
+    }
+
+    private void refreshControllers() {
+        int controllers = 0;
+        if (inputManager != null) {
+            for (int deviceId : inputManager.getInputDeviceIds()) {
+                InputDevice device = inputManager.getInputDevice(deviceId);
+                if (device == null || device.isVirtual()) continue;
+                int sources = device.getSources();
+                if ((sources & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+                    (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
+                    ++controllers;
+                }
+            }
+        }
+        if (RuntimeActivity.nativeHasConnectedController()) controllers = Math.max(controllers, 1);
+        if (!visibility.setControllerCount(controllers)) return;
+        clearTouches();
+        if (settingsToggle != null && !settingsChoiceEdited) {
+            syncingSettingsToggle = true;
+            settingsToggle.setChecked(visibility.visible());
+            syncingSettingsToggle = false;
+        }
+        if (controllerHint != null)
+            controllerHint.setVisibility(visibility.controllerPresent() ? VISIBLE : GONE);
+        invalidate();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        startControllerWatch();
+    }
+
+    private void startControllerWatch() {
+        if (!hostResumed || !isAttachedToWindow()) return;
+        if (inputManager != null && !deviceListenerRegistered) {
+            inputManager.registerInputDeviceListener(deviceListener, controllerHandler);
+            deviceListenerRegistered = true;
+        }
+        refreshControllers();
+        controllerHandler.removeCallbacks(controllerPoll);
+        controllerHandler.postDelayed(controllerPoll, CONTROLLER_POLL_MS);
+    }
+
+    private void stopControllerWatch() {
+        controllerHandler.removeCallbacks(controllerPoll);
+        if (inputManager != null && deviceListenerRegistered) {
+            inputManager.unregisterInputDeviceListener(deviceListener);
+            deviceListenerRegistered = false;
+        }
+    }
+
+    void onHostResume() {
+        hostResumed = true;
+        startControllerWatch();
+    }
+
+    void onHostPause() {
+        hostResumed = false;
+        stopControllerWatch();
+        clearTouches();
     }
 
     private static float bounded(float value, float minimum, float maximum,
@@ -154,7 +239,7 @@ final class TouchControlsView extends View {
     private void publish() {
         int buttons = 0, lt = 0, rt = 0, lx = 0, ly = 0, rx = 0, ry = 0;
         boolean leftAssigned = false, rightAssigned = false;
-        if (enabled && !editing && layout != null && baseUnit > 0f) {
+        if (visibility.visible() && !editing && layout != null && baseUnit > 0f) {
             float unit = unit();
             for (int i = 0; i < pointers.size(); ++i) {
                 Pointer pointer = pointers.valueAt(i);
@@ -201,8 +286,10 @@ final class TouchControlsView extends View {
 
     private void setControlsEnabled(boolean value) {
         clearTouches();
-        enabled = value;
-        preferences.edit().putBoolean("enabled", value).apply();
+        boolean previous = visibility.enabledPreference();
+        visibility.applyShow(value);
+        if (visibility.enabledPreference() != previous)
+            preferences.edit().putBoolean("enabled", visibility.enabledPreference()).apply();
         invalidate();
     }
 
@@ -239,8 +326,18 @@ final class TouchControlsView extends View {
 
         CheckBox toggle = new CheckBox(activity);
         toggle.setText("Show touch controls");
-        toggle.setChecked(enabled);
+        toggle.setChecked(visibility.visible());
+        settingsChoiceEdited = false;
+        toggle.setOnCheckedChangeListener((button, checked) -> {
+            if (!syncingSettingsToggle) settingsChoiceEdited = true;
+        });
         content.addView(toggle);
+        TextView hint = new TextView(activity);
+        hint.setText("Physical controller connected. Touch controls hide automatically; turn them on here to use both together.");
+        hint.setVisibility(visibility.controllerPresent() ? VISIBLE : GONE);
+        content.addView(hint);
+        settingsToggle = toggle;
+        controllerHint = hint;
 
         TextView sizeLabel = new TextView(activity);
         SeekBar size = new SeekBar(activity);
@@ -262,7 +359,7 @@ final class TouchControlsView extends View {
         content.addView(opacityLabel);
         content.addView(opacity);
 
-        new AlertDialog.Builder(activity)
+        AlertDialog settingsDialog = new AlertDialog.Builder(activity)
             .setTitle("Controller settings")
             .setView(content)
             .setPositiveButton("Apply", (dialog, which) ->
@@ -274,7 +371,13 @@ final class TouchControlsView extends View {
                 enterEditor();
             })
             .setNegativeButton("Cancel", null)
-            .show();
+            .create();
+        settingsDialog.setOnDismissListener(ignored -> {
+            settingsToggle = null;
+            controllerHint = null;
+            settingsChoiceEdited = false;
+        });
+        settingsDialog.show();
     }
 
     private interface ProgressChanged { void update(int value); }
@@ -411,7 +514,7 @@ final class TouchControlsView extends View {
                 settingsPointer = id;
                 return true;
             }
-            if (!enabled) return action == MotionEvent.ACTION_POINTER_DOWN;
+            if (!visibility.visible()) return action == MotionEvent.ACTION_POINTER_DOWN;
             int element = elementAt(x, y, false);
             if (element < 0) return action == MotionEvent.ACTION_POINTER_DOWN;
             pointers.put(id, new Pointer(element, x, y));
@@ -455,6 +558,7 @@ final class TouchControlsView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        stopControllerWatch();
         clearTouches();
         super.onDetachedFromWindow();
     }
@@ -602,11 +706,10 @@ final class TouchControlsView extends View {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (baseUnit <= 0f || activeLayout() == null) return;
-        if (enabled || editing) {
+        if (visibility.visible() || editing) {
             for (int id = 0; id < TouchControlLayout.COUNT; ++id) drawElement(canvas, id);
         }
         if (editing) drawEditorToolbar(canvas);
-        else drawButton(canvas, settingX(), settingY(), unit() * .45f,
-                        enabled ? "CTRL" : "OFF", false, 1f);
+        else drawButton(canvas, settingX(), settingY(), unit() * .45f, "CTRL", false, 1f);
     }
 }

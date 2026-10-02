@@ -181,6 +181,9 @@ target_precompile_headers(LostOdysseyRecomp PRIVATE stdafx.h)
 target_compile_features(LostOdysseyRecomp PRIVATE cxx_std_20)
 target_compile_options(LostOdysseyRecomp PRIVATE -fno-strict-aliasing -Wno-switch -Wno-unused-function)
 target_compile_definitions(LostOdysseyRecomp PRIVATE NOMINMAX LO_SOURCE_VERSION="${LO_SOURCE_VERSION}")
+if(LO_ANDROID_SHADER_PACK_HOST)
+    target_compile_definitions(LostOdysseyRecomp PRIVATE LO_SHADER_VERTEX_BDA=1)
+endif()
 
 target_link_libraries(LostOdysseyRecomp PRIVATE
     lo_portable_shader_pack
@@ -435,12 +438,32 @@ target_link_libraries(LoGuestPrintfTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRec
 
 # Offline shader translator check (shares gpu/shader with the runtime).
 add_executable(LoHidTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/hid_test.cpp ${LO_RUNTIME_ROOT}/hid/hid.cpp)
+if(ANDROID)
+    target_sources(LoHidTest PRIVATE ${LO_RUNTIME_ROOT}/hid/android_touch.cpp)
+endif()
 target_include_directories(LoHidTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
 target_compile_definitions(LoHidTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_DEFINITIONS>)
 target_compile_options(LoHidTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_OPTIONS>)
 target_compile_features(LoHidTest PRIVATE cxx_std_20)
 set_target_properties(LoHidTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
-target_link_libraries(LoHidTest PRIVATE fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+if(ANDROID)
+    target_link_libraries(LoHidTest PRIVATE fmt::fmt SDL2::SDL2 xxHash::xxhash)
+else()
+    target_link_libraries(LoHidTest PRIVATE fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+endif()
+
+if(NOT ANDROID)
+    # Compile the production HID merger's Android branch with host SDL virtual pads.
+    add_executable(LoAndroidTouchInputTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/android_touch_input_test.cpp
+        ${LO_RUNTIME_ROOT}/hid/android_touch.cpp)
+    target_include_directories(LoAndroidTouchInputTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(LoAndroidTouchInputTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_DEFINITIONS>)
+    target_compile_options(LoAndroidTouchInputTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_OPTIONS>)
+    target_compile_features(LoAndroidTouchInputTest PRIVATE cxx_std_20)
+    set_target_properties(LoAndroidTouchInputTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
+    target_link_libraries(LoAndroidTouchInputTest PRIVATE fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+endif()
 
 add_executable(LoShaderTool
     ${CMAKE_SOURCE_DIR}/tools/xenos_shader_tool/main.cpp

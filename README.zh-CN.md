@@ -47,6 +47,8 @@ Android 运行时现在能在测试平板加载开发资源、播放开场视频
 
 运行时保留 SDL 实体手柄支持，并加入 Android 屏幕触摸手柄。源码实现现在支持 `Controller settings` 中的大小／透明度设置，以及可拖动、保存、重置和逐个显示或隐藏控件的 `Edit layout` 页面；布局模型检查和设备 UI 流程已在测试平板验证。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
 
+连接 USB 或蓝牙手柄后会自动隐藏触摸控件，并保留 `CTRL` 入口；打开 **Show touch controls** 可让两者同时使用，最后一只手柄断开后恢复已保存的触摸偏好。Android 也会隐藏不可用的桌面画面选项，并在从后台返回时重建 Vulkan Surface。Vulkan shader 可在电脑上按 Android 专用接口预编译，桌面 Vulkan bundle 与其不兼容；生成和安装方法见 [Android 说明](packaging/android/README.md)。
+
 ### 最新更新
 
 [v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) 在 F1 调试菜单加入按钮，可在分队期间随时存档再读档后恢复 RB 换人（#74）；修复“东方部族的遗产”区域开启 TAA 或 FSR 时的天空闪烁（#102），并在日志中记录类似的闪烁嫌疑；加固运行时对异常游戏请求的处理；Windows ZIP 清单为旧版 updater 写入 SHA-256 值（#105）；并用全部界面语言说明 Flatpak 的更新方法。源码还包含上文实验性的 Apple Silicon macOS 路径，但不发布 macOS 安装包。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。

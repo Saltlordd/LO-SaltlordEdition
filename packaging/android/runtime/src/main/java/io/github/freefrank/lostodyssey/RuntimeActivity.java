@@ -12,6 +12,7 @@ public final class RuntimeActivity extends SDLActivity {
 
     static native void nativeSetTouchInput(int buttons, int leftTrigger, int rightTrigger,
                                            int leftX, int leftY, int rightX, int rightY);
+    static native boolean nativeHasConnectedController();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,8 +28,14 @@ public final class RuntimeActivity extends SDLActivity {
 
     @Override
     protected void onPause() {
-        if (touchControls != null) touchControls.clearTouches();
+        if (touchControls != null) touchControls.onHostPause();
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (touchControls != null) touchControls.onHostResume();
     }
 
     @Override

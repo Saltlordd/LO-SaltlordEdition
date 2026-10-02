@@ -4,6 +4,8 @@
 #include <mutex>
 
 #if defined(__ANDROID__)
+#include <stdafx.h>
+#include "hid.h"
 #include <jni.h>
 #endif
 
@@ -52,5 +54,12 @@ Java_io_github_freefrank_lostodyssey_RuntimeActivity_nativeSetTouchInput(
 {
     hid::android_touch::Update(buttons, leftTrigger, rightTrigger,
                                leftX, leftY, rightX, rightY);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_io_github_freefrank_lostodyssey_RuntimeActivity_nativeHasConnectedController(
+    JNIEnv*, jclass)
+{
+    return hid::HasConnectedController() ? JNI_TRUE : JNI_FALSE;
 }
 #endif

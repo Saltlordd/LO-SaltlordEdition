@@ -20,6 +20,8 @@ extern std::atomic<uint32_t> g_presentedSwaps;
 namespace
 {
     std::vector<SDL_GameController*> g_controllers;
+    std::vector<SDL_JoystickID> g_physicalControllerIds;
+    std::atomic<uint32_t> g_physicalControllerCount{0};
     hid::prompts::ActiveController g_promptController;
     std::atomic<bool> g_playStationPrompts{false};
     void PublishPromptStyle() { g_playStationPrompts.store(g_promptController.PlayStation(), std::memory_order_relaxed); }
@@ -54,9 +56,15 @@ namespace
                 return SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == id;
             });
             if (opened || !SDL_IsGameController(i)) continue;
+            const bool physical = SDL_JoystickIsVirtual(i) == SDL_FALSE;
             if (auto* pad = SDL_GameControllerOpen(i))
             {
                 g_controllers.push_back(pad);
+                if (physical)
+                {
+                    g_physicalControllerIds.push_back(id);
+                    g_physicalControllerCount.store(uint32_t(g_physicalControllerIds.size()), std::memory_order_relaxed);
+                }
                 g_promptController.Connected(id, SDL_GameControllerGetType(pad));
                 PublishPromptStyle();
                 LOG_INFO("controller added: {} instance={} ({} connected)", SDL_GameControllerName(pad), id, g_controllers.size());
@@ -112,6 +120,8 @@ void hid::HandleControllerEvent(uint32_t eventType, int32_t which)
         std::erase_if(g_controllers, [&](auto* pad) {
             if (SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) != which) return false;
             LOG_INFO("controller removed: instance={}", which);
+            std::erase(g_physicalControllerIds, which);
+            g_physicalControllerCount.store(uint32_t(g_physicalControllerIds.size()), std::memory_order_relaxed);
             g_promptController.Disconnected(which);
             PublishPromptStyle();
             SDL_GameControllerClose(pad);
@@ -131,6 +141,7 @@ void hid::HandleKeyboardEvent(int32_t scancode, bool pressed)
 }
 
 bool hid::UsesPlayStationPrompts() { return g_playStationPrompts.load(std::memory_order_relaxed); }
+bool hid::HasConnectedController() { return g_physicalControllerCount.load(std::memory_order_relaxed) != 0; }
 
 void hid::ClearKeyboardState()
 {

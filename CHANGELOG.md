@@ -8,6 +8,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- Android automatically hides the virtual controller when a USB or Bluetooth controller connects, retains `CTRL`, and lets users enable simultaneous touch and physical input. Unsupported graphics settings are hidden; foreground return reuses the Activity and recreates the Vulkan surface. A host build path generates Android-compatible Vulkan shader bundles. SDL2 is updated to the revision from PR #97 for issue #103. Physical-device hot-plug and extended gameplay coverage remain pending.
 - Added an experimental Android ARM64 SDL/Vulkan runtime with app-owned game-data storage, SDL physical-controller support and a hideable touch controller whose setting is saved automatically. On the development tablet it now plays the opening video, reaches the first battle, and completes two touch-driven attacks with visible damage. Longer play, physical-controller validation and broader device coverage remain pending ([details](docs/notes/android-port-research-2026-10-02.md)).
 - Added source support for a configurable virtual controller: `Controller settings` exposes control size and opacity, while `Edit layout` can drag, save, cancel, reset and show or hide individual controls. Layout model checks and the editor flow are verified on the development tablet; broader multitouch, physical-controller and longer-play validation remain pending ([details](docs/notes/android-port-research-2026-10-02.md)).
 - Corrected Android BDA shader alignment and an Adreno 750 vertex-stage push-address mapping issue, with focused DXC/validation/readback evidence and an updated shader-cache contract. These checks support the Android path but do not establish complete gameplay ([details](docs/notes/android-port-research-2026-10-02.md)).
@@ -36,6 +37,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### 简体中文
 
+- Android 在连接 USB 或蓝牙手柄时自动隐藏虚拟手柄并保留 `CTRL`，用户可重新开启触摸并与实体手柄同时使用；隐藏不支持的画面设置，返回前台时复用 Activity 并重建 Vulkan Surface，提供电脑端生成 Android 专用 Vulkan shader bundle 的构建路径。SDL2 同步至 PR #97 的版本，接入 issue #103 的手柄支持更新。实体设备热插拔和长时间游玩仍待验证。
 - 新增实验性的 Android ARM64 SDL/Vulkan 运行时，包含应用专属游戏数据存储、SDL 实体手柄支持，以及可关闭并自动保存设置的屏幕触摸手柄。开发平板现在能播放开场视频、进入首战，并通过触摸完成两次攻击且显示伤害。长时间游玩、实体手柄和更广设备覆盖仍待验证（[详情](docs/notes/android-port-research-2026-10-02.md)）。
 - 新增可配置的虚拟手柄源码支持：`Controller settings` 可调整控件大小和透明度，`Edit layout` 可拖动、保存、取消、重置，以及逐个显示或隐藏控件。布局模型检查和编辑器流程已在测试平板验证；更广多点触控、实体手柄和长时间游玩仍待验证（[详情](docs/notes/android-port-research-2026-10-02.md)）。
 - 修正 Android BDA shader 对齐问题和 Adreno 750 vertex-stage push 地址映射问题，并保留 DXC／校验／readback 证据及更新后的 shader cache contract。这些检查支持 Android 路径，但不代表完整游戏流程已通过（[详情](docs/notes/android-port-research-2026-10-02.md)）。

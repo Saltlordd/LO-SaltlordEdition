@@ -66,8 +66,8 @@ also pass. These checks prove packaging and static toolchain output only; they
 do not establish device compatibility or full-game support.
 
 The build copies the pinned SDL Java sources into Gradle's generated sources
-and applies a narrow local shim: it guards malformed USB broadcast intents and
-uses AndroidX `ContextCompat.registerReceiver` with
+and applies a narrow local shim to guard malformed USB broadcast intents and
+validate USB permission responses. SDL's own API-guarded receiver helper uses
 `RECEIVER_NOT_EXPORTED`. The lint baseline contains exactly 26 upstream SDL
 `MissingPermission` findings (Bluetooth, audio and vibration paths). It does
 not suppress application or receiver errors introduced by the probe.
@@ -163,3 +163,67 @@ capture packaging are not supported by this development target. A successful
 native link or Gradle package is not gameplay acceptance; install the APK and
 record resource loading, shader compilation, input, audio, lifecycle and a
 bounded game-flow test separately.
+
+USB and Bluetooth controllers use the same touch visibility policy. Connecting
+one automatically hides touch controls while retaining `CTRL`; enable **Show
+touch controls** to use touch and physical input together. Disconnecting the
+last controller restores the saved touch preference. Android input events and
+SDL's connected-controller state cover framework and HIDAPI controller paths.
+The SDL fallback is checked once a second while the Activity is resumed; the
+watch stops in the background. Physical hot-plug verification remains pending.
+
+Android's graphics menu omits desktop backend, window, output-size, aspect,
+VRR and frame-generation controls. Render resolution, supported antialiasing,
+filtering, RGB range, frame rate and brightness remain available. FSR choices
+appear only in builds that include FSR; the current development build does not.
+Returning through the launcher reuses the top runtime Activity, preventing the
+duplicate SDL startup observed with the previous default launch mode. On
+foreground return, the renderer recreates the Vulkan surface and swapchain
+after draining queued GPU work instead of presenting to the abandoned Surface.
+
+The Android branch now uses SDL2 revision
+`b7502f1a884c055f8535cf8d2be3f44c41669a43` (2.33.0), matching the controller
+update from [PR #97](https://github.com/freefrank/LostOdysseyRecomp/pull/97)
+referenced by [issue #103](https://github.com/freefrank/LostOdysseyRecomp/issues/103).
+This includes upstream controller mappings and drivers, but does not establish
+Android compatibility for each controller or USB/Bluetooth mode.
+`tools/android/build-runtime.sh` also applies
+`tools/patches/sdl-android-surface-lock.patch`: native-window queries use SDL's
+Activity mutex, and Vulkan surface creation retains the native window while
+calling the driver. Direct CMake invocations must apply this patch first.
+
+## Prebuild Android Vulkan shaders on a host
+
+Android uses the vertex-BDA/u32-push shader contract. A desktop Vulkan bundle
+does not match this contract and is rejected. With the normal host build
+dependencies, generated PPC sources, decrypted `image_disc1.bin` and your game
+files present, run on a Linux Vulkan-capable host (including a suitable WSL
+configuration):
+
+```sh
+CC=clang CXX=clang++ tools/android/build-shader-pack.sh \
+  /path/to/game/disc1 /path/to/android-shader-pack
+```
+
+The script enables `LO_ANDROID_SHADER_PACK_HOST`, builds the host runtime and
+pack tool, prepares the known shaders in an isolated cache, and verifies
+`portable_vk.lospv` with `LoShaderPackTool verify-runtime --android`. It writes
+the contract and verification reports beside the bundle and refuses to replace
+an existing output bundle. `LO_ANDROID_SHADER_HOST_BUILD_DIR` selects the host
+build directory; `LO_ANDROID_SHADER_HOST_CACHE_DIR` selects its shader cache.
+`LO_ANDROID_SHADER_FFMPEG_SOURCE_DIR` can reuse the pinned FFmpeg source.
+
+For the development APK, install the verified bundle into app-owned internal
+storage while the game is stopped, preserving game files, settings and saves:
+
+```sh
+adb push /path/to/android-shader-pack/portable_vk.lospv /data/local/tmp/lo-android-portable_vk.lospv
+adb shell run-as io.github.freefrank.lostodyssey mkdir -p files/shaders
+adb shell run-as io.github.freefrank.lostodyssey cp /data/local/tmp/lo-android-portable_vk.lospv files/shaders/portable_vk.lospv
+adb shell rm /data/local/tmp/lo-android-portable_vk.lospv
+```
+
+The existing loader validates the Android contract before use. This avoids
+on-device DXC work for covered shaders; driver pipeline creation and shaders
+outside the bundle may still require preparation. Desktop automatic bundle
+download is not enabled on Android.

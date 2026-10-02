@@ -260,3 +260,21 @@ Adreno 750 真机上的独立 Plume vertex-stage probe 使用 24-byte push const
 Android 源码新增了可配置的十五个虚拟手柄控件，并保留 SDL 实体手柄路径。`Controller settings` 提供 `Show touch controls`、`Control size`（60–140%）、`Opacity`（25–100%）、`Apply`、`Cancel` 和 `Edit layout`；编辑器提供 `SAVE`、`CANCEL`、`RESET` 及按当前选择切换的 `HIDE`／`SHOW`。控件可独立拖动，隐藏控件在编辑器中仍以淡化状态可选；重置位置和可见性时保留全局大小与透明度，顶部中央的 `CTRL` 入口保留可达空间。
 
 `TouchControlLayout` 的模型检查已通过，覆盖默认参考布局、草稿隔离、缩放坐标和边缘限制；最终 APK 的 `assembleDebug`／`lintDebug` 也通过。真机已验证默认参考布局、拖动 A 并保存、隐藏／显示 Y、取消拖动、布局跨 APK 更新与冷启动保留、全局隐藏、尺寸 80%、透明度 59% 及 RESET+SAVE 恢复参考布局；A、START 的 guest input trace 也分别读到 `0x1000`、`0x0010`，释放回零。完整多点触控边缘覆盖、实体手柄和长时间游玩仍待验证。
+
+## 手柄、Surface 与预编译包增量（2026-10-02）
+
+开发在独立 worktree 的 `trail/android-port-research` 继续，保留原 checkout、私有资源和用户配置。同步 [PR #97](https://github.com/freefrank/LostOdysseyRecomp/pull/97) 的 SDL2 pin `b7502f1a884c055f8535cf8d2be3f44c41669a43`（2.33.0），接入 [issue #103](https://github.com/freefrank/LostOdysseyRecomp/issues/103) 请求的上游手柄更新。该版本有 8BitDo `2dc8:6012` 的 HIDAPI 驱动；Android 默认的 framework 输入路径和不同连接模式仍需硬件验证，不能把源码更新等同于该型号已在 Android 验收。
+
+USB／蓝牙使用同一自动隐藏策略：实体手柄连接时隐藏虚拟控件并保留 `CTRL`，用户可重新显示并同时操作；最后一只实体手柄断开时恢复保存的触摸偏好。Android InputManager 事件与每秒一次的 SDL controller 状态补查共同检测连接，补查在后台停止。自动隐藏不把临时状态写成用户关闭偏好。Java 可见性模型检查通过；新 SDL 下 `LoHidTest`、`LoAndroidTouchInputTest` 均通过，覆盖按键合并、扳机取强、左右摇杆独立取活动来源，以及清空触摸不清空 SDL 输入。虚拟扳机测试使用 SDL 映射后的实际轴值，避免假设原始 `[-32768,32767]` 等于 GameController 的 `[0,32767]`。实体 USB／蓝牙热插拔按用户安排暂未验收。真机手动隐藏至仅 `CTRL`、再重新显示已通过。
+
+Android shader bundle 在隔离的宿主构建和缓存目录生成：28,484 条记录、27,674 个唯一二进制、240,411,592 bytes、失败 0 条，完整 payload 和 Android runtime 合同验证通过。SHA-256 为 `d8ac36aab5a697af75836155788745f13be3efc1b390361116ebaf6cbfbe18f3`。复制到平板 `files/shaders/portable_vk.lospv` 后，设备 hash 一致。默认启动无跳过编译的 ADB extras，日志确认 bundle 命中、startup DXC actual calls 0，标题画面正常。一次启动的 197 条 pipeline recipe 中 67 ready、130 missing shaders、0 failed；driver pipeline 准备与未覆盖运行期 shader 仍可能需要处理。包目前手动安装，未内置 APK，也未接入 Android 在线下载。构建与部署方法见 [Android README](../../packaging/android/README.md)。
+
+后台返回问题分为两处：默认 Activity launch mode 允许桌面图标创建第二个 SDLActivity，导致同一进程重复运行 SDL_main；`singleTop` 已避免这条重复入口。其后仍可复现相同 PID／Activity 下黑屏，logcat 明确记录 Surface 已销毁并创建新实例，而 Vulkan 继续向旧 BufferQueue 提交。运行时现按前后台与窗口变化重建完整 Vulkan surface／swapchain，等待 GPU 后释放旧图像信号量，并让 shader 准备画面复用同一路径。SDL Android 局部补丁在 Activity mutex 下读取 native window，并持有额外 ANativeWindow 引用完成 Vulkan surface 创建，避免与 UI 销毁回调并发释放。
+
+功耗排查读取了平板实际配置：60 FPS、720p、FXAA、2× AF，保留这些用户设置。较早前台快照中 GPU command thread 与 guest thread 合计约一个 CPU 核心量级，设备有严重热状态，但 USB 充电和缺少固定场景基线使其不能作为瓦数对比。Home 后进程 CPU 为 0.0%、线程休眠，未发现后台持续运行；不能据此宣称前台功耗已降低。预编译包消除了本次启动的 DXC 工作，持续游戏耗电仍需固定场景的 30／60 FPS、分辨率与温度控制对比。
+
+最终 APK 的 SHA-256 为 `1fdaa30c67c8e29ca7ae84e327f29641681b5ee11a5411b5099f8f23e6b8ab7b`，NDK runtime 构建、runtime／probe 两个模块的 assembleDebug 与 lintDebug、v2 签名、16 KB ZIP 对齐均通过；已覆盖安装到平板。Graphics 真机页面现仅显示 Render resolution、四种受支持 AA、AF、Scaling filter、RGB Range、Frame rate、Brightness 和 Save，导航落在第一个可见行；此前只跳过光标而仍绘制隐藏行的遗漏已修正。
+
+同一最终 APK 上，无 bundle 的准备画面恢复检查通过：测试临时改名 bundle，Home 前显示 indexed shader extraction，HOT 返回后继续显示 Preparing shaders，PID 17893 未变且交换链重建成功。测试结束已恢复原 bundle。随后默认冷启动再次记录 28,484 条 pack 命中和 startup DXC actual calls 0。设置界面连续两次 Home／launcher 往返保持 PID 18223、Activity `e2af09d` 和原页面；两次都记录新 Surface 与成功重建交换链，截取的 logcat 未出现 abandoned BufferQueue 或崩溃。最终 `settings.ini` 与测试前逐行一致，仍为用户的 60 FPS／720p。以上未覆盖系统杀进程后的游戏状态恢复。
+
+本轮本地证据集中于 `out/android-followup/`：`shader-pack-build.log`、`shader-pack/android-pack-report.json`、`shader-pack-test-results.txt`、`build-final-locked.log`、`probe-sdl233-build.log`、`runtime-prepare-resume.log`、`runtime-final-delivery.log`、`graphics-final.png`、`graphics-after-resume.png`。构建、自动测试、有限真机流程与实体手柄／长时间玩法验收分开记录；未 push 或发布。
