@@ -215,7 +215,7 @@ Standalone bundles installed directly from `.flatpak` files do not configure an 
 
 ## Building on macOS
 
-Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). DLSS, FSR and frame generation are rejected at configure time on macOS. This branch has no published Mac package, and CI cannot link the complete runtime without private game data.
+Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). DLSS, FSR and frame generation are rejected at configure time on macOS. v0.7.35 published the first Mac package ([MACOS_RELEASE.md](MACOS_RELEASE.md)); CI cannot link the complete runtime without private game data.
 
 ### Prerequisites
 
@@ -250,7 +250,7 @@ cmake -S . -B out/build/macos-gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 cmake --build out/build/macos-gpu --target LostOdysseyRecomp
 ```
 
-The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 14.0; hardware validation is recorded separately in [development status](STATUS.md).
+The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 14.0. The bundled `libdxcompiler.dylib` is built for macOS 15.0 but loads and compiles shaders on macOS 14 ([details](MACOS_RELEASE.md#macos-14-and-the-bundled-dxc)); hardware validation is recorded separately in [development status](STATUS.md).
 
 ### Run
 

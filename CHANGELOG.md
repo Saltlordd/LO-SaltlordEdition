@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- Checked the shader compiler bundled with the macOS app on macOS 14, the app's declared minimum. The DXC library (`libdxcompiler.dylib`) is built for macOS 15, but everything it uses from the system is present in macOS 14.0, and on a macOS 14.8.9 test machine the library from the v0.7.35 disk image loaded and compiled shaders. The minimum therefore stays at macOS 14.0. The v0.7.35 app also started there up to the point where it looks for game data; the game itself has still only run on macOS 26.6.2. macOS CI now compiles shaders with the bundled library on every run ([details](docs/MACOS_RELEASE.md#macos-14-and-the-bundled-dxc)).
+
+### 简体中文
+
+- 在 macOS 应用声明的最低系统 macOS 14 上核对了内置的着色器编译器。DXC 库（`libdxcompiler.dylib`）按 macOS 15 构建，但它用到的系统接口在 macOS 14.0 中都有；在一台 macOS 14.8.9 测试机上，v0.7.35 磁盘映像中的这个库能加载并编译着色器，因此最低系统仍为 macOS 14.0。v0.7.35 应用在那台机器上也能启动到查找游戏数据这一步；游戏本身仍只在 macOS 26.6.2 上运行过。macOS CI 现在每次运行都会用内置的这个库编译着色器（[详情](docs/MACOS_RELEASE.md#macos-14-and-the-bundled-dxc)）。
+
 ## [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) — 2026-10-02
 
 ### English
