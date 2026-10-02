@@ -155,7 +155,7 @@ jobs:
           $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
           foreach ($item in @(
               @{ Path = 'out/build-input'; Ref = '77f076e0e03966736cbf8919ce793bafadce82d9'; Pattern = '/default.xex' },
-              @{ Path = 'out/shader-input'; Ref = '54538f7fd0f47d0f0383c2091c0a483598432706'; Pattern = 'shaders/' })) {
+              @{ Path = 'out/shader-input'; Ref = '5fae27a5a3c05262e7b64631f141ebcd19d5f656'; Pattern = 'shaders/' })) {
             if (Test-Path $item.Path) { Remove-Item -Recurse -Force $item.Path }
             git init -q $item.Path
             git -C $item.Path remote add origin https://github.com/freefrank/LostOdysseyRecomp-build-inputs.git
@@ -391,7 +391,7 @@ jobs:
           github-server-url: https://github.com
           token: ${{ secrets.LO_GITHUB_TOKEN }}
           repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 54538f7fd0f47d0f0383c2091c0a483598432706
+          ref: 5fae27a5a3c05262e7b64631f141ebcd19d5f656
           path: out/shader-input
           sparse-checkout: |
             shaders/

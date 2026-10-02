@@ -143,7 +143,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 54538f7fd0f47d0f0383c2091c0a483598432706
+          ref: 5fae27a5a3c05262e7b64631f141ebcd19d5f656
           path: out/shader-input
           sparse-checkout: |
             shaders/
@@ -328,7 +328,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 54538f7fd0f47d0f0383c2091c0a483598432706
+          ref: 5fae27a5a3c05262e7b64631f141ebcd19d5f656
           path: out/shader-input
           sparse-checkout: |
             shaders/

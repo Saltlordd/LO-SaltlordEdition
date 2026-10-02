@@ -11,6 +11,22 @@ Release measurements below are dated evidence. The initial implementation was
 based on `menu@257f3866e9f9f5d3e65550c86dce453290cf7ee4`; its delivery archive and
 unverified boundaries are retained in the final historical sections.
 
+## Runtime contract and release check (after v0.7.25)
+
+v0.7.25 shipped the Vulkan pack pinned for v0.7.10, although its runtime had moved from shader translator version 24 to 26 (the macOS merge changed predicate-push translation). The game rejected the pack (`portable shader pack rejected; local cache fallback: portable shader contract mismatch`) and compiled all 28,549 shaders on first launch: 180 s with 15 workers on a 16-thread CPU. Nothing in the release compared the pack with the runtime, and `verify-runtime` could not do it in general. The runtime hashed its guest image after `XexLoader` had written host-assigned import addresses into it, so the tool relied on one audited contract pair, which the next translator change made useless.
+
+The contract now hashes the first `0x185C60` bytes of the image as parsed, before import binding (`XexLoader::UnboundIdentityPrefix()`). That prefix equals the start of `tools/xexdump` output, so `RuntimeContract`, shared by the renderer, its export and `LoShaderPackTool`, gives the same value offline. `verify-runtime` now checks SPIR-V and DXIL packs exactly, and the audited exception is gone from it and from `merge`. Packs made with the old definition are rejected. The local startup bundle still keys on the bound image, so local caches stay valid.
+
+Release CI fetches the pinned pack before building and passes it as `LO_PORTABLE_SHADER_PACK`. The runtime build then runs `verify-runtime` against `LostOdysseyRecompLib/private/image_disc1.bin` and stages the pack only if it matches, so a stale pack fails the release build. `tools/release/sync_shader_pack.py` runs the same check before it pushes, when the image is present.
+
+To refresh the pack after a translator, option or discovery change:
+
+1. Build the runtime from the release source and run it with `--prepare-shaders-only` and `LO_SHADER_EXPORT_PACK=<path>.lospv`. A complete local `startup_vk12_v1.bundle` made by that source is streamed without DXC; without one, the run compiles every shader.
+2. Run `LoShaderPackTool verify-runtime <pack> LostOdysseyRecompLib/private/image_disc1.bin`.
+3. Push the pack with `python tools/release/sync_shader_pack.py --pack <pack>` and pin the printed build-inputs commit for `out/shader-input` in `.gitea/workflows/release.yml` and `.github/workflows/release.yml`.
+
+The pack refreshed on 2026-10-01 was exported in 18 s from the startup bundle that v0.7.25 had just built (no guest shader DXC calls). It has 28,549 records and 27,793 unique binaries, is 180,052,919 bytes, SHA-256 `f5eadb4fcc27a40bf4d76bae6bf83224bfb730fab8f49581ba3254c2d2f17c25`, contract `4e123a08e148937e41b1b7dc636608377bd15a0043fb506a43a75cb6930ea6ae`, and is pinned as build-inputs commit `5fae27a5a3c05262e7b64631f141ebcd19d5f656`. `verify-runtime` passed. A `--prepare-shaders-only` run with an empty cache reported a pack hit for all 28,549 records. The release build check failed with the v0.7.25 pack and passed with this one. The optional DX12 pack has not been regenerated for the new contract.
+
 ## v0.7.10 shader-pack release
 
 The v0.7.10 shader-pack work added backend-specific selection and a DX12
@@ -45,7 +61,7 @@ with SHA-256
 It is byte-identical to the v0.6.0 pack and contains 28,482 records under the v0.6.1
 asset name; this is release provenance rather than a claim of new shader coverage.
 
-The source-side verifier now permits the audited exception for the raw image
+At v0.6.1 the source-side verifier permitted the audited exception for the raw image
 contract `d5a2fab10441a46444b6b41ffcb4f1ba562bea75668a7b445fd43688aec67507`
 mapping to runtime contract
 `f6fd1179b50f6ff9b63d6be84c662d1337af6b7dfa78865a9a6c025509c9b77f`; other
@@ -54,7 +70,9 @@ patches import thunks before runtime shader preparation. The current local
 verification covered a real 28,482-record pack with all payloads and runtime
 compatibility, and `portable_shader_release_test.py` passed. Previous runtime
 logs also recorded pack hits in two runs, but they came from a 0.5.14 dirty
-source and are retained as supporting evidence only.
+source and are retained as supporting evidence only. The exception was removed
+after v0.7.25, when the contract moved to the image before import binding (see
+the runtime contract section above).
 
 The uploaded pack matches the audited contract through the release verifier and
 the published asset's sidecar and GitHub digest match. Native Linux GPU, Steam
@@ -161,6 +179,7 @@ read it. Ship it only with this patched client.
 ```sh
 LoShaderPackTool inspect shaders/portable_vk.lospv
 LoShaderPackTool verify shaders/portable_vk.lospv
+LoShaderPackTool verify-runtime shaders/portable_vk.lospv LostOdysseyRecompLib/private/image_disc1.bin
 ```
 
 `inspect` reads structure/index. `verify` also visits all payload blocks and checks
@@ -168,9 +187,10 @@ SPIR-V framing. JSON reports raw bytes, deduplicated bytes, compressed bytes,
 index bytes, omitted source/diagnostic bytes and final file size. Omitted HLSL
 is the sum of reconstructed input strings; the old bundle shares its prelude,
 so this is NOT a measurement of bytes saved from that old file. Use `file_bytes`
-for the actual distribution size. The tool explicitly
-reports `runtime_compatibility_verified: false`: real executable/XEX matching is
-checked by the runtime, not inferred from an artifact's own header.
+for the actual distribution size. `inspect` and `verify` report
+`runtime_compatibility_verified: false`: they never trust an artifact's own header.
+`verify-runtime` computes the runtime contract for the pack's format from a
+`tools/xexdump` image and reports `true` only when the pack matches it.
 
 To stage automatically during normal builds, add this CMake cache option to the
 existing build configuration:
@@ -182,8 +202,9 @@ existing build configuration:
 This opt-in CMake path builds `LoShaderPackTool`, runs `verify-runtime` against
 the configured private image, and copies the file to
 `<executable-directory>/shaders/portable_vk.lospv`. Linux install uses `bin/shaders`.
-The separate Python ZIP/AppImage staging helper checks presence and size and
-copies the optional file; it does not require a native verification pass.
+Release CI uses this path, so a pack that does not match fails the release build.
+The separate Python ZIP/AppImage staging helper then checks presence and size and
+copies the file.
 Use the explicit tool commands above when changed pack inputs require inspection.
 
 For a standalone downloaded pack, put it under `shaders` beside the final game
