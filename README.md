@@ -49,7 +49,7 @@ This branch includes an experimental arm64 macOS path using Metal. Local Windows
 | :--- | :--- |
 | Import and setup | Folder, XEX, ISO and GOD sources; supported DLC; selective disc replacement; language and graphics setup before the first game launch. Original source files remain untouched. |
 | Languages | English, Japanese, Korean, Traditional Chinese and Simplified Chinese interface options. Game languages depend on the installed edition. |
-| Display and image quality | 16:9 and 21:9 resolution presets, a Widescreen toggle, Off/FXAA/SMAA/experimental TAA, DLSS or FSR 3.1 upscaling, filtering and RGB Range options. On Linux, DLSS was reported unavailable on an NVIDIA GPU with the v0.7.25 packages ([#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)); the fix is merged and unreleased. |
+| Display and image quality | 16:9 and 21:9 resolution presets, a Widescreen toggle, Off/FXAA/SMAA/experimental TAA, DLSS or FSR 3.1 upscaling, filtering and RGB Range options. Unreleased source builds also fill screens taller than 16:9 (such as 16:10, 3:2 and 4:3) with the 3D scene, keep menus and movies in a 16:9 layout, move the minimap toward the top on taller screens, and add side bars to menus on ultrawide screens ([technical note](docs/notes/tall-aspect-layout.md)). On Linux, DLSS was reported unavailable on an NVIDIA GPU with the v0.7.25 packages ([#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)); the fix is merged and unreleased. |
 | Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR controls. Actual performance depends on the scene and hardware. |
 | Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. Unreleased source also offers Off/DLSS with fixed 2×–6× on Windows Vulkan (enabling it after starting with it off, or switching providers, needs a restart), plus experimental Vulkan FSR 2× (source builds only) and experimental macOS MetalFX 2× (not run on Mac hardware); see the [technical note](docs/notes/vulkan-fg-fsr4-metalfx.md). |
 | Settings | Original game fonts, scrollable lists, and Save/apply controls. On the Graphics page, **Start/Enter** moves focus to **Save**; confirm that item to save. Options that require a restart offer **Now/Later**. |
@@ -57,7 +57,7 @@ This branch includes an experimental arm64 macOS path using Metal. Local Windows
 | Mods | Mod API v1, LOTEX1/PNG tools, native-menu atlas and font-page replacements, and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md) for supported replacements and installation. |
 | Input and tools | SDL-mapped controllers, keyboard input and rumble; an English/Simplified Chinese [Debug Menu](#debug-menu) for captures, same-map teleport, speed controls and game-data editing. |
 
-Fullscreen, mixed-DPI displays, broader upscaler coverage, Linux hardware and later-disc progression still need more testing. Current work is tracked in the [roadmap](docs/ROADMAP.md) and [Project board](https://github.com/users/freefrank/projects/3).
+Fullscreen, mixed-DPI displays, broader upscaler coverage, Linux hardware, the unreleased tall/ultrawide layout across more hardware, and later-disc progression still need more testing. Current work is tracked in the [roadmap](docs/ROADMAP.md) and [Project board](https://github.com/users/freefrank/projects/3).
 
 ## Controls
 
