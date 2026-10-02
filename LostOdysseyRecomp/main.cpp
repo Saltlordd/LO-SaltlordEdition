@@ -30,6 +30,7 @@
 #include "settings/restart.h"
 #include "updater/update.h"
 #include "updater/game_prompt.h"
+#include "updater/shader_pack_download.h"
 #include "updater/apply_mode.h"
 #include "version.h"
 #include "install/host.h"
@@ -401,6 +402,16 @@ int main(int argc, char* argv[])
     uint32_t entry = XexLoader::Load(gameRoot / "default.xex");
     if (entry == 0)
         return 1;
+
+    // After the update check and before shader preparation: when no installed
+    // distribution pack matches the configured renderer, offer the published one.
+    {
+        updater::shader_pack::StartupRequest packRequest;
+        packRequest.configuredBackend = settings::GetConfig().graphicsBackend;
+        packRequest.uiLanguage = settings::GetConfig().uiLanguage;
+        packRequest.unboundXex = XexLoader::UnboundIdentityPrefix();
+        LOG_INFO("shader pack: {}", updater::shader_pack::PrepareAtStartup(packRequest));
+    }
 
     // Exercise the same renderer preparation as ordinary startup, without
     // starting guest threads or opening game saves/profiles. This also provides

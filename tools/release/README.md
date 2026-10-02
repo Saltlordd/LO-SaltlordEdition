@@ -70,3 +70,7 @@ results are retained as release history. Evidence:
 `out/release-workflow-reuse/flatpak-package.log`, `flatpak-source.json`, and
 `install-check.log`. The Linux job compiles the source once, retains the
 AppImage AppDir, and exports the stable Flatpak by reusing its `usr` tree.
+
+Shader packs for the runtime's startup download are published apart from
+version releases, with `tools/release/publish_shader_packs.py`, to the
+`shader-packs` prerelease ([procedure](../../docs/PORTABLE_SHADER_PACK.md#publishing)).
