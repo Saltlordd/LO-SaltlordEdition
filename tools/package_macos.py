@@ -20,7 +20,7 @@ from portable_shader_pack_payload import stage_shader_pack_license
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = "io.github.freefrank.LostOdysseyRecomp"
 ICON = ROOT / "packaging/linux/io.github.freefrank.LostOdysseyRecomp.png"
-MINIMUM_MACOS = "14.0"
+MINIMUM_MACOS = "15.0"
 
 
 def git(*args):

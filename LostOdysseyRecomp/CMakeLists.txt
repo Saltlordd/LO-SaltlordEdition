@@ -443,6 +443,20 @@ target_compile_features(LoShaderTool PRIVATE cxx_std_20)
 target_compile_definitions(LoShaderTool PRIVATE NOMINMAX)
 target_link_libraries(LoShaderTool PRIVATE fmt::fmt)
 
+# Translates and compiles HLSL with DXC, without a GPU or game assets. On macOS
+# it loads the bundled libdxcompiler.dylib the way the runtime does.
+if(WIN32 OR APPLE)
+    add_executable(LoRenderResolutionShaderTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/render_resolution_shader_test.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/xenos_translator.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+    target_include_directories(LoRenderResolutionShaderTest PRIVATE ${LO_RUNTIME_ROOT}
+        ${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/inc)
+    target_compile_features(LoRenderResolutionShaderTest PRIVATE cxx_std_20)
+    target_compile_definitions(LoRenderResolutionShaderTest PRIVATE NOMINMAX)
+    target_link_libraries(LoRenderResolutionShaderTest PRIVATE fmt::fmt)
+endif()
+
 # Tests packed mip block origins without game assets.
 add_executable(LoXmaLoopTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/xma_loop_test.cpp)
 target_include_directories(LoXmaLoopTest PRIVATE ${LO_RUNTIME_ROOT})
@@ -491,16 +505,6 @@ if(WIN32)
     target_include_directories(LoMemoryFailureTest PRIVATE ${LO_RUNTIME_ROOT})
     target_compile_features(LoMemoryFailureTest PRIVATE cxx_std_20)
     target_compile_definitions(LoMemoryFailureTest PRIVATE NOMINMAX)
-
-    # Translates and compiles HLSL with DXC, without a GPU or game assets.
-    add_executable(LoRenderResolutionShaderTest EXCLUDE_FROM_ALL
-        ${CMAKE_SOURCE_DIR}/tools/tests/render_resolution_shader_test.cpp
-        ${LO_RUNTIME_ROOT}/gpu/shader/xenos_translator.cpp
-        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
-    target_include_directories(LoRenderResolutionShaderTest PRIVATE ${LO_RUNTIME_ROOT})
-    target_compile_features(LoRenderResolutionShaderTest PRIVATE cxx_std_20)
-    target_compile_definitions(LoRenderResolutionShaderTest PRIVATE NOMINMAX)
-    target_link_libraries(LoRenderResolutionShaderTest PRIVATE fmt::fmt)
 
     add_executable(LoShaderAluTest EXCLUDE_FROM_ALL
         ${CMAKE_SOURCE_DIR}/tools/tests/shader_alu_test.cpp
@@ -872,7 +876,7 @@ elseif(UNIX AND LO_BUILD_GPU)
     if(EXISTS "${LO_DXC_SO}")
         install(FILES "${LO_DXC_SO}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
     endif()
-    foreach(target LostOdysseyRecomp LoShaderTool)
+    foreach(target LostOdysseyRecomp LoShaderTool LoRenderResolutionShaderTest)
         if(TARGET ${target} AND EXISTS "${LO_DXC_SO}")
             add_custom_command(TARGET ${target} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different

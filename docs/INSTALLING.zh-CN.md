@@ -107,7 +107,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## macOS（Apple Silicon，实验性）
 
-[v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)提供 `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 Apple Silicon Mac，游戏使用 Metal 渲染。应用声明的最低系统是 macOS 14.0，但只在 macOS 26.6.2 上运行过；内置的着色器编译器（DXC）按 macOS 15 构建，在 macOS 14 上编译着色器尚未测试。应用仅做 ad-hoc 签名、未经公证，因此 macOS 会拦截首次启动。
+[v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)提供 `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，因此 macOS 会拦截首次启动。
 
 1. 下载磁盘映像并打开。
 2. 把 `LostOdysseyRecomp.app` 拖到窗口中的 Applications 链接上，然后推出磁盘映像。
