@@ -60,7 +60,10 @@ inline int PositionVPSlot(uint64_t shader) {
     case 0x69e9adcf2e1b6887ull:case 0x6a8c2c78737dc94cull:case 0xa20d6099a44e2cd5ull:
     // f2548-f2550: static material companion of f7fd depth; c7-c10
     // feed only position/o4 clip copy. Separate fetch94 lighting is unchanged.
-    case 0xa027ab99fa3e3b0dull:return 7;
+    case 0xa027ab99fa3e3b0dull:
+    // f25276 Burning Cave: static material over f7fd depth; c7-c10 feed only oPos
+    // and o4, of which PS 042e reads only W. fetch94 light and c11 eye stay intact.
+    case 0x61bc9947f1e88573ull:return 7;
     case 0x1da1ddc75da8e994ull:case 0x22557143e0f243ddull:case 0x4c87bb5b986defc8ull:case 0xa6c8c11c6dd07144ull:
     case 0xe8c0d438c690c784ull:case 0x576d669b2ad3c898ull:
     case 0x188061ace0615678ull:case 0xdc7f83af67c53ba1ull:case 0x68014a17a2a9a4bdull:
@@ -145,6 +148,9 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Old Sorceress' Mansion (#121): the #67 VS with the #102 PS over b030 depth,
     // from two runtime suspect logs. Same VS, so the same motion fallback as #67.
     {0xbda41a11626a545cull, 0x02ee5f0608be581aull, true},
+    // Ice Canyon - Snowy Plateau (F1 f12139): the #67 VS with PS 1dee over b030
+    // depth. 1dee reads only the clip W copy; same VS, same fallback as #67.
+    {0xbda41a11626a545cull, 0x1dee52ba32155a53ull, true},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)
