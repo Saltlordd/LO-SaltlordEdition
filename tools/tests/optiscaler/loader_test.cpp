@@ -29,6 +29,7 @@ int wmain(int argc, wchar_t** argv) {
     full.resize(copied);
     const std::filesystem::path fixture(full);
     const auto cwd = std::filesystem::current_path();
+    const auto errorMode = GetThreadErrorMode();
     Check(_putenv_s("LO_FG_PROVIDER", "off") == 0, "set internal FG owner");
     SetEnvironmentVariableW(L"LO_OPTISCALER_PATH", full.c_str());
     bool ngxCompiled = true;
@@ -59,6 +60,7 @@ int wmain(int argc, wchar_t** argv) {
     Check(result.requested == (scenario != L"disabled"), "explicit opt-in only");
     Check(result.loaded == (scenario == L"loaded"), "only admissible DLL was attached");
     Check(std::filesystem::current_path() == cwd, "loader preserves caller working directory");
+    Check(GetThreadErrorMode() == errorMode, "loader restores caller thread error mode");
     if (scenario == L"loaded") {
         Check(result.path.parent_path().filename() == L"\u63d2\u5e27 space", "Unicode path preserved");
         const auto module = GetModuleHandleW(result.path.c_str());

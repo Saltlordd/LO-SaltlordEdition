@@ -119,7 +119,8 @@ int main(int argc, char** argv) {
         settings::tab=tab;
         const int count=tab==0?7:tab==1?3:tab==2?int(settings::GraphicsRow::Count):3;
         for(int row=0;row<count;++row){
-            if(settings::graphics_menu::IsAction(tab,row))continue;
+            // A on HDR peak opens its calibration page by design.
+            if(settings::graphics_menu::IsAction(tab,row) || (tab==2 && row==int(settings::GraphicsRow::HdrPeak)))continue;
             settings::row=row;auto before=settings::edit;uint32_t words[8];
             for(int i=0;i<8;++i)words[i]=PPC_LOAD_U32(ConfigData+i*4);
             auto oldSaves=saves,oldApplies=applies;

@@ -1,4 +1,5 @@
 #include "update.h"
+#include "http.h"
 #include "progress.h"
 
 #ifdef _WIN32
@@ -112,7 +113,10 @@ bool OpenRequest(std::string_view url, InternetHandle &session, InternetHandle &
     }
     return true;
 }
+#endif
+} // namespace
 
+#ifdef _WIN32
 bool ReadResponse(std::string_view url, size_t limit, std::string &body, std::string &error)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
@@ -136,9 +140,10 @@ bool ReadResponse(std::string_view url, size_t limit, std::string &body, std::st
     return true;
 }
 
-bool Download(std::string_view url, const std::filesystem::path &destination, uint64_t expectedSize,
-              ProgressWindow &progress, std::string &error, bool &cancelled)
+bool DownloadFile(std::string_view url, const std::filesystem::path &destination, uint64_t expectedSize,
+                  const DownloadProgress &progress, std::string &error, bool &cancelled)
 {
+    cancelled = false;
     InternetHandle session, connection, request;
     if (!OpenRequest(url, session, connection, request, error)) return false;
     std::ofstream output(destination, std::ios::binary | std::ios::trunc);
@@ -147,20 +152,33 @@ bool Download(std::string_view url, const std::filesystem::path &destination, ui
     uint64_t total = 0;
     while (true)
     {
-        if (progress.Cancelled()) { cancelled = true; error = "update cancelled by user"; return false; }
+        if (!progress(total, expectedSize)) { cancelled = true; error = "update cancelled by user"; return false; }
         DWORD read = 0;
         if (!WinHttpReadData(request.value, buffer.data(), DWORD(buffer.size()), &read))
             return WindowsApiFailure("WinHttpReadData(update download)", GetLastError(), error);
         if (!read) break;
         output.write(buffer.data(), read);
         total += read;
-        progress.SetDownloadProgress(total, expectedSize);
     }
+    progress(total, expectedSize);
     output.flush();
     if (!output) { error = "could not write update download"; return false; }
     return true;
 }
 
+bool Download(std::string_view url, const std::filesystem::path &destination, uint64_t expectedSize,
+              ProgressWindow &progress, std::string &error, bool &cancelled)
+{
+    return DownloadFile(url, destination, expectedSize, [&progress](uint64_t completed, uint64_t total) {
+        if (completed) progress.SetDownloadProgress(completed, total);
+        return !progress.Cancelled();
+    }, error, cancelled);
+}
+#endif
+
+namespace
+{
+#ifdef _WIN32
 std::wstring WideUtf8(std::string_view text)
 {
     if (text.empty()) return {};

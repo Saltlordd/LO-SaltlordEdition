@@ -20,9 +20,15 @@ TOKEN = re.compile(r"\b(r\d+|i\d+|xePV|ps)(?:\.([xyzw]{1,4}))?\b")
 ASSIGN = re.compile(r"^\s*(r\d+|xePV|ps|oC\d+|oDepthVec)(?:\.([xyzw]{1,4}))?\s*=\s*(.*);\s*$")
 FETCH = re.compile(r"XeTex\w*\(tex(?:2D|3D|Cube)_(\d+),\s*XeSampler\(\d+u\),\s*(r\d+(?:\.[xyzw]+)?)")
 CLIP_CALL = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
+# The translator's guest kill (texkill, alpha test): one comparison inside any().
+KILL = re.compile(r"clip\(any\((.+?)\s*(?:==|!=|>=|<=|>|<)\s*(.+)\)\s*\?\s*-1\s*:\s*1\)\s*;")
+# The translator's conditional move: one comparison as select()'s first argument.
+# Its result depends on every operand, which the union of dependencies covers.
+SELECT_CONDITION = re.compile(r"select\(([^,()]*(?:\([^()]*\)[^,()]*)*?)\s*(?:==|!=|>=|<=|>|<)\s*"
+                              r"([^,()]*(?:\([^()]*\)[^,()]*)*),")
 CLIP_KNOWN_CALLS = {
     "abs", "clamp", "cos", "dot", "exp2", "float", "float2", "float3", "float4",
-    "frac", "log2", "max", "min", "rcp", "rsqrt", "saturate", "sin", "sqrt",
+    "frac", "log2", "max", "min", "rcp", "rsqrt", "saturate", "select", "sin", "sqrt",
     "XeConst", "XeSampler", "XeTex2D", "XeTex2DLevelZero", "XeTex3D",
     "XeTex3DLevelZero", "XeTexCube", "XeTexCubeLevelZero", "XeTextureResult",
 }
@@ -58,6 +64,22 @@ def analyze_clip_reads(text, explicit_clip_inputs):
         line = original.split("//", 1)[0].strip()
         if not line or line in ("{", "}"):
             continue
+        kill = KILL.fullmatch(line)
+        if kill:
+            # Reviewed like a read: a kill whose operands carry clip X/Y depends
+            # on the screen position, one that reads only W or no copy does not.
+            operands = " ".join(kill.groups())
+            deps = dependencies(operands)
+            xy = sorted(d for d in deps if d.endswith((".x", ".y")))
+            w = sorted(d for d in deps if d.endswith(".w"))
+            if xy:
+                xy_reads.append({"line": line_no, "inputs": xy, "text": line})
+            if w:
+                w_reads.append({"line": line_no, "inputs": w, "text": line})
+            unknown_calls = sorted(set(CLIP_CALL.findall(operands)) - CLIP_KNOWN_CALLS)
+            if unknown_calls or re.search(r"<<|>>|[&|^~%<>=!?]", operands):
+                unsupported.append({"line": line_no, "reason": "unknown kill operand", "text": line})
+            continue
         if re.search(r"\b(if|else|for|while|switch|do|discard|return|break|continue)\b|\?", line):
             unsupported.append({"line": line_no, "reason": "main control flow", "text": line})
         declaration = re.fullmatch(r"(?:float|float[234])\s+(r\d+|xePV|ps|xeDbgTex)\s*=\s*(?:0(?:\.0)?|float[234]\(0(?:\.0)?\))\s*;", line)
@@ -86,7 +108,8 @@ def analyze_clip_reads(text, explicit_clip_inputs):
         unknown_calls = sorted(set(CLIP_CALL.findall(expression)) - CLIP_KNOWN_CALLS)
         if unknown_calls:
             unsupported.append({"line": line_no, "reason": "unknown call: " + ", ".join(unknown_calls), "text": line})
-        if re.search(r"<<|>>|[&|^~%]|==|!=|<=|>=|(?<![<>=])[<>](?![<>=])", expression):
+        operators = SELECT_CONDITION.sub(lambda m: f"select({m[1]}, {m[2]},", expression)
+        if re.search(r"<<|>>|[&|^~%]|==|!=|<=|>=|(?<![<>=])[<>](?![<>=])", operators):
             unsupported.append({"line": line_no, "reason": "unknown expression operator", "text": line})
         values = state.setdefault(target, [set() for _ in "xyzw"])
         for component in swizzle or ("x" if target == "ps" else "xyzw"):

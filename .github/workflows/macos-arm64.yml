@@ -8,8 +8,14 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
 
 permissions:
   contents: read
@@ -54,7 +60,7 @@ jobs:
       - name: Build libraries and tests
         run: |
           # Tests that compile runtime sources or generated PPC headers need game data.
-          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoQuitActionHookTest)$'
+          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoQuitActionHookTest|LoPresentationTest)$'
           ninja -C out/build/macos -t targets all | grep -oE '^Lo[A-Za-z0-9]+(Test|Probe|Tool):' | tr -d ':' | sort -u |
             grep -vE "$excluded" > out/build/macos/ci-targets.txt
           ninja -C out/build/macos plume spirv-cross-msl SDL2-static XenonUtils lo_portable_shader_pack lo_menu_lzo \

@@ -7,6 +7,16 @@
 
 namespace settings::graphics_menu
 {
+inline bool HdrAvailable(GraphicsBackend backend)
+{
+#ifdef _WIN32
+    return backend == GraphicsBackend::D3D12 || backend == GraphicsBackend::Vulkan;
+#elif LO_PLATFORM_MACOS
+    return backend == GraphicsBackend::Metal;
+#else
+    return backend == GraphicsBackend::Vulkan;
+#endif
+}
 // UI indices only. Keep the persisted AA/provider/quality IDs independent.
 // macOS offers no DLSS/FSR (Metal); its fifth choice is MetalFX Temporal.
 #if LO_PLATFORM_MACOS

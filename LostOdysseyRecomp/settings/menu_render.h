@@ -1,4 +1,5 @@
 #pragma once
+#include "menu.h"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -43,6 +44,7 @@ struct MenuSnapshot
     std::vector<std::wstring> dialogChoices;
     int dialogSelection = 0;
     uint64_t revision = 0;
+    HdrCalibration calibration;
     std::shared_ptr<const menu_assets::Assets> assets;
 };
 // Render glyphs at output resolution, fitting the existing 1280x720 logical layout.

@@ -99,12 +99,8 @@ struct OutputRegion {
 
 inline constexpr OutputRegion ResolveOutputRegion(resolution::Size drawable) {
     if (!drawable.width || !drawable.height) return {{}, 0, 0, 0, 0};
-    // Preserve configured wide output. Taller outputs present the 16:9 logical
-    // surface in the centered content region, leaving top/bottom bars outside it.
-    if (uint64_t(drawable.width) * 9 < uint64_t(drawable.height) * 16) {
-        const uint32_t height = uint32_t((uint64_t(drawable.width) * 9) / 16);
-        return {drawable, 0, (drawable.height - height) / 2, drawable.width, height};
-    }
+    // The scene fills the drawable. Menus and movies fit their own 16:9
+    // content inside it; their bars must not constrain the 3D render target.
     return {drawable, 0, 0, drawable.width, drawable.height};
 }
 

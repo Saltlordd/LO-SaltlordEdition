@@ -36,11 +36,13 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 
 2026-10-01 Vulkan 插帧：补丁新增 `enableFrameInterpolationFeatures` 开关。只有打开时，Plume 才启用 FidelityFX 插帧依赖的 timeline semaphore、float16/int8、16-bit storage 和 subgroup size control 扩展及对应 feature；普通设备与 Streamline 路径的扩展列表不变。队列族加入 `reserve`/`release`（分配与释放加锁，预留队列不再分给虚拟队列，`createCommandQueue` 在无可用队列时返回空），`externalSwapchainSynchronization` 让替换 WSI 自行同步 present，`destroySwapchainBeforeResize` 让 resize 先销毁旧 swapchain 再创建新的，`resize()` 也会检查 `vkDeviceWaitIdle` 的结果。新补丁在固定 HEAD `d890ac8` 的临时干净 worktree 上重放，7 个文件按 LF 规范化后与本地依赖源码一致。
 
+2026-10-01 遮挡查询（#118）：补丁新增 `RenderDevice::createOcclusionQueryPool`、`RenderCommandList::beginOcclusionQuery`/`endOcclusionQuery` 以及 `occlusionQueries`、`occlusionQueryPrecise` 两项能力；三个新方法在接口中都有默认实现（不支持时返回空池、空操作），因此 Metal 后端和 `plume-macos.patch` 无需改动。D3D12 使用 `OCCLUSION` 查询堆，每个查询结束时把结果解析进回读缓冲；Vulkan 使用 `VK_QUERY_TYPE_OCCLUSION`，开始查询前先确保 render pass 已开始，设备支持时使用 `PRECISE`，读取结果时带可用性标志（未使用的查询返回 `ResultUnavailable`）。新补丁同样在固定 HEAD `d890ac8` 的临时干净 worktree 上重放，7 个文件按 LF 规范化后与本地依赖源码一致，`plume-macos.patch` 仍可叠加应用。设计与验证见 [occlusion-queries.md](../../docs/notes/occlusion-queries.md)。
+
 2026-09-27 Issue #70 状态缓存改动：Plume 的 D3D12 graphics/compute root signature 与 root descriptor table 去重，以及 descriptor heap、原生 root signature 变化、native `Reset`/`Close` 和外部状态失效路径已同步到本项目补丁。runtime、NGX/FSR D3D12 fixture、AF measurement fixture 和 root binding fixture 验证通过；独立临时 index 从固定干净 Plume 基线应用补丁并与本地依赖修改一致。未进行补丁发布或目标游戏性能验收。
 
 ## macOS: plume Metal patch
 
-`plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes only `plume_metal.cpp` and `plume_metal.h`:
+`plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes `plume_metal.cpp`, `plume_metal.h`, `plume_apple.h`, `plume_apple.mm` and plume's `CMakeLists.txt` (the Apple files and the CMake change come with HDR output, PR #145):
 
 - `MetalShader` also accepts SPIR-V and translates it to MSL with SPIRV-Cross (`thirdparty/SPIRV-Cross`), using the options of plume's reference converter (`examples/cmake/tools/spirv_cross_msl.cpp`) so the output matches the backend's binding model. MSL 2.3 is used instead of 2.1 because the runtime's SPIR-V reads 64-bit device addresses. Fast math is disabled to match DXC.
 - `MetalDevice::createShader` returns null when translation or compilation fails, as failed Vulkan and D3D12 shader creation does.
@@ -68,7 +70,7 @@ ref=$(mktemp -d)/plume
 git -C thirdparty/plume worktree add --detach "$ref" HEAD
 git -C "$ref" apply "$PWD/tools/patches/plume-lostodyssey.patch"
 git -C "$ref" add -A && git -C "$ref" -c user.name=ref -c user.email=ref@local commit -qm ref
-cp thirdparty/plume/plume_metal.cpp thirdparty/plume/plume_metal.h "$ref/"
+cp thirdparty/plume/plume_metal.cpp thirdparty/plume/plume_metal.h thirdparty/plume/plume_apple.h thirdparty/plume/plume_apple.mm thirdparty/plume/CMakeLists.txt "$ref/"
 git -C "$ref" diff > tools/patches/plume-macos.patch
 git -C thirdparty/plume worktree remove --force "$ref"
 ```

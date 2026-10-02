@@ -6,7 +6,7 @@
 
 **An experimental native PC port of Lost Odyssey for Xbox 360.**
 
-Windows x64 · Linux x64 · Direct3D 12 · Vulkan
+Windows x64 · Linux x64 · macOS arm64 (experimental) · Direct3D 12 · Vulkan · Metal
 
 ### [Download](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [Installation guide](docs/INSTALLING.md) · [简体中文](README.zh-CN.md)
 
@@ -21,27 +21,32 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 ## Start playing
 
-Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.7.25**.
+Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.7.35**.
 
 | Platform | Package | First launch |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.25.zip` | Extract the complete ZIP to a writable folder, then run `LostOdysseyRecomp.exe`. Requires an AVX-capable CPU; Direct3D 12 is the default backend, with Vulkan available. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage` | Make the file executable with `chmod +x`, then run it. Uses Vulkan. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.flatpak` | Install the Freedesktop 26.08 runtime, then the downloaded bundle. See the [Flatpak commands](docs/INSTALLING.md#flatpak). Uses Vulkan. |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.35.zip` | Extract the complete ZIP to a writable folder, then run `LostOdysseyRecomp.exe`. Requires an AVX-capable CPU; Direct3D 12 is the default backend, with Vulkan available. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.35.AppImage` | Make the file executable with `chmod +x`, then run it. Uses Vulkan. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.35.flatpak` | Install the Freedesktop 26.08 runtime, then the downloaded bundle. See the [Flatpak commands](docs/INSTALLING.md#flatpak). Uses Vulkan. |
+| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` | Open the disk image and drag `LostOdysseyRecomp.app` to the Applications link. The app is not notarized, so macOS blocks the first launch: try to open it, then open System Settings → Privacy & Security and choose **Open Anyway**. Requires an Apple Silicon Mac; it has only run on macOS 26.6.2. Uses Metal. See the [macOS steps](docs/INSTALLING.md#macos). |
 
 1. **Import your game data.** The built-in importer opens when no usable game installation is found. Use **Files** or **Folder** to select an extracted game folder, `default.xex`, an XDVDFS ISO or GOD data.
-2. **Choose the interface language, game language and graphics options.** The game starts after setup and shader preparation. Later launches reuse the shader cache.
+2. **Choose the interface language, game language and graphics options.** The game starts after setup and shader preparation. If no precompiled shaders for the selected renderer are installed, it first offers to download them; skipping compiles them on your PC. Later launches reuse the shader cache.
 3. **Add the remaining discs and DLC when needed.** Open **Gameplay → Import discs & DLC** in Settings. With all four matching discs imported, the game selects the requested disc automatically.
 
 Disc 1 is required to start. Use one of the audited Asian multilingual or USA/Europe four-disc sets; do not mix editions. The [installation guide](docs/INSTALLING.md) covers disc identification, Linux setup, file locations and updates. Release packages need neither Python nor Visual Studio. Keep your saves and profiles when updating.
 
-### macOS Apple Silicon (experimental, build from source)
+### macOS Apple Silicon (experimental)
 
-This branch includes an experimental arm64 macOS path using Metal. Local Windows and Mac runtime builds now compile and link, and a limited new-game/first-battle test has passed. There is no published macOS package yet. Use the [macOS build instructions](docs/BUILDING.md#building-on-macos) to build it locally. Long play, broader scenes, image quality and performance validation are still pending.
+v0.7.35 is the first release with a macOS package: an experimental arm64 path that renders with Metal. Open `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`, drag `LostOdysseyRecomp.app` to the Applications link and start it. The app is ad-hoc signed and not notarized, so macOS blocks the first launch. Try to open the app once, then open System Settings → Privacy & Security, choose **Open Anyway** for it and confirm; or run `xattr -dr com.apple.quarantine /Applications/LostOdysseyRecomp.app`. The [installation guide](docs/INSTALLING.md#macos) has the steps and file locations. The game's update check only offers to open the release page, so you replace the app yourself. Validation so far is one Mac: on the maintainer's M1 Max (macOS 26.6.2) the opening new-game battle ran with Metal, and the Metal shader pack was downloaded and used. Long play, broader scenes, other Macs, image quality and performance have not been tested. To build it yourself, use the [macOS build instructions](docs/BUILDING.md#building-on-macos).
+
+### Experimental HDR
+
+v0.7.35 includes experimental HDR output paths for Windows D3D12/Vulkan, Linux Vulkan and macOS Metal. Enable **HDR** in Graphics, save and restart. **HDR peak brightness** opens a frozen frame of the current game scene: the left view is an SDR brightness preview clipped at reference white, while the right view uses normal HDR tone mapping and updates the peak live. Switch between the Scene and Test pattern with the mouse or controller **X** button; if no valid scene is available, the standard pattern is used. Auto follows the active display's reported peak when available; if none is available, it uses a 1000-nit content reference. The current Linux Vulkan path has no display-peak report, so Auto uses that fallback. On macOS, Auto derives a relative EDR headroom estimate, not a measured panel brightness. Peak adjustments preview on the calibration page; peak and paper-white changes apply after saving without a restart. The initial path requires anti-aliasing Off, upscaling Off, frame generation Off and a non-MetalFX spatial filter; unsupported surface format/color-space pairs fall back to SDR. The maintainer confirmed on-device HDR validation on 2026-10-02; exact platform, backend and display coverage was not recorded, so this does not establish cross-platform coverage. On a Mac whose external display had no EDR headroom, HDR requested in the game stayed in SDR, and Metal HDR output itself has not been seen. See the [HDR technical note](docs/notes/hdr-output.md) for output semantics and validation limits.
 
 ### Latest changes
 
-[v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) adds an F1 button that restores RB party switching after a split-party Save Anywhere load (#74), fixes the Legacy of the Eastern Tribe sky flicker with TAA or FSR (#102) and logs similar flicker suspects, hardens the runtime against malformed game requests, writes SHA-256 values into Windows ZIP manifests for older updaters (#105), and explains Flatpak updates in every interface language. The source also gains the experimental Apple Silicon macOS path above; no macOS package is published. See the [changelog](CHANGELOG.md) for earlier releases and the [development status](docs/STATUS.md) for validation coverage.
+[v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) is the first release with a macOS package, an experimental Apple Silicon disk image (see above). Packages no longer bundle a shader pack: the game offers to download the pack for its renderer at startup, and shaders compiled on your PC are now kept in one file per renderer. It adds experimental HDR output with brightness calibration, a layout that fills screens taller than 16:9 with the 3D scene, Vulkan DLSS frame generation at 2× to 6×, and GPU occlusion queries on Direct3D 12 and Vulkan, so the sun and its lens flare no longer show through terrain (#118; checked on an NVIDIA GPU only). It fixes the battle camera jumping at 90 and 120 FPS (#117), DLSS being unavailable on NVIDIA GPUs in the Linux packages (#116), and TAA, FSR and DLSS flicker in several skies, caves and cutscenes (#121 and places found by a map tour). The flicker fixes are checked by tests and have not been replayed in the game, and reporters have not yet confirmed #116, #118 or #121. See the [changelog](CHANGELOG.md) for the full list and earlier releases and the [development status](docs/STATUS.md) for validation coverage.
 
 ## Current features
 
@@ -49,15 +54,15 @@ This branch includes an experimental arm64 macOS path using Metal. Local Windows
 | :--- | :--- |
 | Import and setup | Folder, XEX, ISO and GOD sources; supported DLC; selective disc replacement; language and graphics setup before the first game launch. Original source files remain untouched. |
 | Languages | English, Japanese, Korean, Traditional Chinese and Simplified Chinese interface options. Game languages depend on the installed edition. |
-| Display and image quality | 16:9 and 21:9 resolution presets, a Widescreen toggle, Off/FXAA/SMAA/experimental TAA, DLSS or FSR 3.1 upscaling, filtering and RGB Range options. |
+| Display and image quality | 16:9 and 21:9 resolution presets, a Widescreen toggle, Off/FXAA/SMAA/experimental TAA, DLSS or FSR 3.1 upscaling, filtering and RGB Range options. Since v0.7.35, screens taller than 16:9 (such as 16:10, 3:2 and 4:3) are filled with the 3D scene, menus and movies keep a 16:9 layout, the minimap moves toward the top on taller screens, and menus on ultrawide screens get side bars ([technical note](docs/notes/tall-aspect-layout.md)). Experimental HDR is also available for Windows D3D12/Vulkan, Linux Vulkan and macOS Metal, with automatic or manual peak calibration; see the [HDR technical note](docs/notes/hdr-output.md). Linux HDR hardware validation is pending. On Linux, DLSS was reported unavailable on an NVIDIA GPU with the v0.7.25 packages ([#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)); v0.7.35 contains the fix, which has not yet run on an NVIDIA GPU under Linux. |
 | Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR controls. Actual performance depends on the scene and hardware. |
-| Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. Unreleased source also offers Off/DLSS with fixed 2×–6× on Windows Vulkan (enabling it after starting with it off, or switching providers, needs a restart), plus experimental Vulkan FSR 2× (source builds only) and experimental macOS MetalFX 2× (not run on Mac hardware); see the [technical note](docs/notes/vulkan-fg-fsr4-metalfx.md). |
+| Frame generation | Windows D3D12 offers Off/DLSS/FSR, supported DLSS multipliers and fixed 2× FSR. Save applies supported changes; switching from DLSS FG to FSR FG requires a restart. Since v0.7.35, Windows Vulkan also offers Off/DLSS with fixed 2×–6× (enabling it after starting with it off, or switching providers, needs a restart), plus experimental Vulkan FSR 2× (source builds only) and experimental macOS MetalFX 2× (not run on Mac hardware); see the [technical note](docs/notes/vulkan-fg-fsr4-metalfx.md). |
 | Settings | Original game fonts, scrollable lists, and Save/apply controls. On the Graphics page, **Start/Enter** moves focus to **Save**; confirm that item to save. Options that require a restart offer **Now/Later**. |
-| Shader preparation | Bundled portable Vulkan shaders, parallel compilation, a skip option and cache reuse. The optional [v0.7.10 DX12 pack](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10) belongs at `shaders/portable_dx12.lospd`; it is not a separate v0.7.25 asset. |
+| Shader preparation | Parallel compilation, a skip option and cache reuse. The v0.7.25 packages bundled a Vulkan pack that did not match their runtime, so their first launch compiled every shader (about 3 minutes on a 16-thread CPU). The v0.7.35 packages carry no shader pack: when none matching the selected renderer is installed, the game offers to download it at startup, and skipping compiles the shaders on your PC instead ([details](docs/PORTABLE_SHADER_PACK.md#startup-download)). |
 | Mods | Mod API v1, LOTEX1/PNG tools, native-menu atlas and font-page replacements, and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md) for supported replacements and installation. |
 | Input and tools | SDL-mapped controllers, keyboard input and rumble; an English/Simplified Chinese [Debug Menu](#debug-menu) for captures, same-map teleport, speed controls and game-data editing. |
 
-Fullscreen, mixed-DPI displays, broader upscaler coverage, Linux hardware and later-disc progression still need more testing. Current work is tracked in the [roadmap](docs/ROADMAP.md) and [Project board](https://github.com/users/freefrank/projects/3).
+Fullscreen, mixed-DPI displays, broader upscaler coverage, Linux hardware, the tall/ultrawide layout across more hardware, and later-disc progression still need more testing. Current work is tracked in the [roadmap](docs/ROADMAP.md) and [Project board](https://github.com/users/freefrank/projects/3).
 
 ## Controls
 
@@ -147,7 +152,7 @@ On Linux, set `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` to move the
 | Logs | log folder: `logs/runtime-*.log` and `logs/shader-*.jsonl` | The current run and the two previous runs are kept. |
 | F1 render captures | config folder: `captures/` | `.zip` on Windows, `.tar.gz` on Linux and macOS. |
 | Mods | `mods/`: beside the program when portable, otherwise in the data folder | `LO_MODS_DIR` overrides it. |
-| Bundled shader packs | program folder: `shaders/portable_vk.lospv` | Place the optional DX12 pack at `shaders/portable_dx12.lospd`. |
+| Shader packs | install folder: `shaders/` beside the program when portable, otherwise `shaders/` in the data folder | The game downloads the pack for the selected renderer here (`portable_vk.lospv`, `portable_dx12.lospd` or `portable_metal.lospv`); skipping the offer is remembered in `declined-downloads.txt` in the same folder. v0.7.25 and earlier bundled `shaders/portable_vk.lospv` beside the program. |
 | Updater work files | Windows: `.update\` beside the program. AppImage: log folder `.update/` | Flatpak and macOS packages are updated manually. |
 
 **How the game is found** when `--game` is not given:
@@ -174,7 +179,7 @@ Options must be spelled exactly. Write `--game <path>` as two arguments; `--game
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
@@ -185,7 +190,7 @@ Environment variables give more launch options. Each one overrides the saved set
 | :--- | :--- |
 | `LO_GRAPHICS_API` | `d3d12` or `vulkan` on Windows. Linux always uses Vulkan and macOS always uses Metal. |
 | `LO_FPS` | Frame-rate cap from 0 to 1000; `0` means uncapped. |
-| `LO_FG_PROVIDER`, `LO_FG_MODE`, `LO_FG_MULTIPLIER`, `LO_FG_TARGET_FPS` | Frame generation on Windows: `off`/`dlss`/`fsr`; `off`/`fixed`/`dynamic`; 2–6; target FPS. In unreleased source, Vulkan accepts DLSS fixed 2–6 and, in builds with `LO_ENABLE_VULKAN_FSR_FG`, FSR fixed 2; macOS accepts `metalfx` (fixed 2, experimental). Dynamic mode is D3D12 DLSS only. [Details](docs/notes/vulkan-fg-fsr4-metalfx.md). |
+| `LO_FG_PROVIDER`, `LO_FG_MODE`, `LO_FG_MULTIPLIER`, `LO_FG_TARGET_FPS` | Frame generation on Windows: `off`/`dlss`/`fsr`; `off`/`fixed`/`dynamic`; 2–6; target FPS. Since v0.7.35, Vulkan accepts DLSS fixed 2–6 and, in builds with `LO_ENABLE_VULKAN_FSR_FG`, FSR fixed 2; macOS accepts `metalfx` (fixed 2, experimental). Dynamic mode is D3D12 DLSS only. [Details](docs/notes/vulkan-fg-fsr4-metalfx.md). |
 | `LO_OPTISCALER_PATH` | Experimental Windows OptiScaler loading: absolute path to your `OptiScaler.dll`. Requires DLSS/NGX in the build and `LO_FG_PROVIDER=off`; select DLSS in-game. [Setup and limits](docs/notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows). |
 | `LO_NO_UPDATE` | Any value other than `0` skips the update check. |
 | `LO_PROFILE_DIR`, `LO_SHADER_CACHE_DIR`, `LO_MODS_DIR` | Use another profile, shader cache or mods folder. An empty `LO_SHADER_CACHE_DIR` disables the shader cache. |
