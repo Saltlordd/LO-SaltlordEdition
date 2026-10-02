@@ -60,9 +60,48 @@ not user accepted.
   process was stopped deliberately after capture; exit code -1 records that
   controlled stop rather than a crash.
 
+## Review changes — 2026-10-02
+
+The review of PR #146 changed four things before merging.
+
+- **Render size on taller outputs.** The first version fixed the total height,
+  so a taller output rendered fewer pixels for the 16:9 area than before (a
+  16:10 MacBook at its default went from 1280x720 to about 1107x720). A
+  render-resolution mode now sets the 16:9 area instead: wider outputs keep its
+  height and widen, taller ones keep its width and grow taller. 720 renders
+  1280x800 on 16:10 and 1280x960 on 4:3. Auto follows the output with the 16:9
+  area capped at 2160 rows (3840x2400 stays 3840x2400, 5120x3200 renders
+  3840x2400), and portrait rasters stop at 4320 rows. Targets whose role is not
+  catalogued scale by the plan's 16:9 area. Every exact 16:9 output keeps its
+  previous size; a test sweeps them.
+- **Menu bars.** The bars call the game's tile drawing. That call ran on a
+  2 KiB private stack, which a deeper call chain could overrun; it now uses a
+  frame below the live guest stack, after the menu dispatcher has returned.
+- **Scissor.** A one-pixel clip could round to an empty rectangle, which the
+  game reads as clipping off. A fitted axis now keeps at least one pixel.
+- **Resolve readback.** `LO_RESOLVE_READBACK` renders 1280x720 on any output;
+  the layout now uses 16:9 for it instead of the drawable's aspect.
+
+Scope: every output taller than 16:9 takes this layout, including 16:10
+(Steam Deck, MacBooks), 5:4 and portrait. Frame generation, which stayed off on
+these outputs while they had bars, now runs on them; that has not been tested.
+
+Checks after these changes: the aspect-layout, render-resolution, frame-plan,
+DLAA and DLSS planner tests pass with GCC and clang under ASan and UBSan. On
+Windows Vulkan with the Uhra save and render resolution 720, a 1280x960 window
+rendered 1280x960 and a 1280x800 window 1280x800; in both the scene filled the
+window and the menu and Status pages had bars of 120 and 40 pixels above and
+below.
+
 ## Pending validation
 
 - The recorded runtime scope is Uhra ordinary menu and Status on Vulkan. Movies,
-  battle UI, title screen, Direct3D 12 and broader hardware remain untested.
+  battle UI, title screen, Direct3D 12, Metal, frame generation on taller outputs
+  and broader hardware remain untested.
+- Draws the camera and Canvas classifiers miss are stretched on taller outputs,
+  as they already were horizontally on ultrawide ones; battle overlays placed by
+  projecting world points are the likeliest case and have not been checked.
+- Windows within about a pixel of 16:9 (for example 1360x768) take the new
+  layout and resample the HUD by a fraction of a percent.
 - Record player/maintainer acceptance separately; local builds and runtime
   captures do not establish that acceptance.
