@@ -1,6 +1,6 @@
 # One-file shader store and the 2026-10-02 packs
 
-Status: implemented on `feat/shader-packs-20261002`. Checked with `LoShaderStoreTest` and three runtime runs on a copy of a real cache; not yet run through a play session.
+Status: implemented on `feat/shader-packs-20261002`, merged as PR #141 (`f844492`) and part of v0.7.35 (tag `v0.7.35`). Checked with `LoShaderStoreTest` and three runtime runs on a copy of a real cache; not yet run through a play session.
 
 ## Why
 

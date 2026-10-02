@@ -2,6 +2,8 @@
 
 Release packaging assembles the Windows ZIP, Linux AppImage and Flatpak bundle.
 Shader packs are not part of them; see the end of this page.
+The macOS disk image is not built here: it is made on a Mac and uploaded to the
+release by hand ([macOS releases](../../docs/MACOS_RELEASE.md)).
 The current release workflow checks that the expected package files exist and
 are nonempty before publication. It does not require a repository-wide hash,
 provenance manifest or SHA-256 sidecar.
@@ -49,7 +51,11 @@ Windows ZIP and AppImage. Since 2026-10-01 the workflow runs on Gitea
 (`.gitea/workflows/release.yml`, see [Pull request checks and releases on
 Gitea](../../docs/notes/ci-gitea.md)): after both platform jobs succeed, the
 publication job uploads the three Gitea artifacts to the GitHub release, then
-checks that exactly the three packages are uploaded and nonempty. Re-runs validate an
+checks that the release holds those three packages and at most one more asset,
+`LostOdysseyRecomp-macos-arm64-<tag>.dmg`, which is built on a Mac and uploaded
+by hand ([macOS releases](../../docs/MACOS_RELEASE.md#disk-image-v0735)), and
+that every asset is uploaded and nonempty. Any other asset fails the check; the
+shader packs live on the `shader-packs` release. Re-runs validate an
 existing public release without changing its publication state.
 The v0.7.9 Release CI [36378342125](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36378342125)
 passed all five jobs. Its Linux job installed `clang-tools-18` 18.1.8, built

@@ -215,7 +215,7 @@ Standalone bundles installed directly from `.flatpak` files do not configure an 
 
 ## Building on macOS
 
-Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). DLSS, FSR and frame generation are rejected at configure time on macOS. v0.7.35 published the first Mac package ([MACOS_RELEASE.md](MACOS_RELEASE.md)); CI cannot link the complete runtime without private game data.
+Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). CMake rejects the DLSS, FSR and Streamline options (`LO_ENABLE_DLSS`, `LO_ENABLE_FSR`, `LO_ENABLE_STREAMLINE_FG`) and the Windows-only DLSS and FSR frame-generation adapters at configure time on macOS. MetalFX frame generation (fixed 2×) is built by default (`LO_ENABLE_METALFX_FG`): its MetalFX calls compile only with the macOS 26 SDK, it needs macOS 26 and a supported GPU at run time, and it is experimental and has not been run on Mac hardware ([technical note](notes/vulkan-fg-fsr4-metalfx.md#metalfx-fg-on-the-existing-macos-port)). v0.7.35 is the first release with a macOS package: an ad-hoc signed disk image that is not notarized and is built on a Mac ([macOS releases](MACOS_RELEASE.md)). CI cannot link the complete runtime without private game data.
 
 ### Prerequisites
 
@@ -264,10 +264,13 @@ A writable build folder uses the portable layout (settings, saves, cache and log
 ### Package
 
 ```bash
-python3 -B tools/package_macos.py   # out/releases/LostOdysseyRecomp-macos-arm64-<tag>.zip
+python3 -B tools/package_macos.py         # out/releases/LostOdysseyRecomp-macos-arm64-v<version>-<commit>-dev.zip
+python3 -B tools/package_macos.py --dmg   # the same name ending in .dmg
 ```
 
-The `.app` is ad-hoc signed and runs on the building Mac; distribution would need a Developer ID signature and notarization.
+`--dmg` writes a compressed disk image that holds `LostOdysseyRecomp.app` and a link to `/Applications`, instead of the ZIP. Without `--identity` the `.app` is ad-hoc signed and runs on the building Mac. macOS blocks the first launch of a downloaded app that is not notarized until the player approves it ([steps](INSTALLING.md#macos)); a Developer ID signature with notarization would remove that step ([signed release workflow](MACOS_RELEASE.md#signed-release-workflow)).
+
+v0.7.35 ships an ad-hoc signed, not notarized disk image. It is built on a Mac and uploaded to the release by hand, because CI cannot link the runtime without game data; the release workflow's publish step accepts it as one optional asset next to the three CI packages. [macOS releases](MACOS_RELEASE.md#disk-image-v0735) has the release command, the asset name the in-game updater looks for and the validation boundary.
 
 ## Launch with a consistent working directory
 

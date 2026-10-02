@@ -1303,7 +1303,7 @@
         "Evidence": "Public latest v0.5.0 Release 385591785, non-draft/non-prerelease, published 2026-09-09T22:18:20Z from main/source 0.5.0/tag f78f64fea8707b1447ada044abec2e0da4e6e9bc. LostOdysseyRecomp-windows-x64-v0.5.0.zip: 44,137,866 bytes, SHA256 1767dd1ab6cf675e48f28e00c64c8ce48b2f6dabd9706a3ee699f8039d60387b; anonymous download matched. Publication does not establish real-scene verification of the formal binary, player acceptance, whole-game/cross-GPU coverage, unknown-shader coverage, or c230 enemy-death repair."
       },
       "title": "Prepare v0.5.0 backend packages and documentation",
-      "body_sha256": "fa280da894321f4db778bb3059c1bef149f5db1d2285df5db5e78a2d1904dde2"
+      "body_sha256": "0e500f62c2c5fde164ae47b15f2141f56683ef3cd67905d33c0dd05d0b19420c"
     },
     "council-reporter-validation": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56ecA",
@@ -1651,13 +1651,14 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Paused",
-        "Delivery": "Deferred",
+        "Status": "In Progress",
+        "Delivery": "Released",
         "Source key": "hdr-output-tonemapping",
-        "Evidence": "Open Issue #90 requests HDR and save states. The maintainer said HDR is for a future release, without a version, implementation or validation evidence. HDR remains deferred backlog; save states are separately unplanned."
+        "Evidence": "Released as an experimental option in v0.7.35 (PR #145; published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted) for Windows D3D12 and Vulkan, Linux Vulkan and macOS Metal. Needs AA, upscaling and frame generation Off. The maintainer confirmed on-device HDR validation on 2026-10-02 without recording platform, backend or display, so cross-platform coverage is not established. Windows Vulkan negotiated HDR10/PQ; WSLg only fell back to SDR; on an M1 Max the external display had no EDR headroom, so Metal HDR output was not seen. Linux and Mac HDR displays are untried. Issue #90 stays open for save states (separate record).",
+        "Release": "v0.7.35"
       },
       "title": "Add HDR output and tone mapping",
-      "body_sha256": "4b3e92b7a29ef6a8843dfcb7fcaa89c607759debea448999875de4e31605919c"
+      "body_sha256": "623ec0c4f2c1126483d7c5c3e9d6a768d64c89bf07b7c0c5bda9a21294ae09d9"
     },
     "higher-resolution-shadows": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56e7o",
@@ -2293,14 +2294,14 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Paused",
-        "Delivery": "Deferred",
+        "Status": "In Progress",
+        "Delivery": "Released",
         "Source key": "native-macos-platform",
-        "Release": "v0.8.0",
-        "Evidence": "Open Issue #96 discusses an external Apple Silicon/Metal fork and focused upstream PRs. Maintainer plans review after renderer work and may merge selected PRs, but the main repository has no accepted macOS platform implementation, package, validation or release. Keep the platform target deferred."
+        "Release": "v0.7.35",
+        "Evidence": "First macOS package shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted), ahead of the v0.8.0 plan: LostOdysseyRecomp-macos-arm64-v0.7.35.dmg (60,429,795 bytes, SHA-256 4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94), experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand. The arm64/Metal source-build path was in v0.7.25. Validated only on one M1 Max (macOS 26.6.2): the opening new-game battle with Metal and the downloaded Metal shader pack. The app declares macOS 14.0 but has only run on 26.6.2. Long play, broader scenes, other Macs, performance, notarization and Metal HDR or MetalFX output on Mac hardware are open. Issue #96 closed as completed on 2026-10-01."
       },
       "title": "Establish a native macOS (AArch64 / Apple Silicon) port",
-      "body_sha256": "26353e7e690216c54a84701bd3b77318537dcd7aa8de26b9a5401389204da1d8"
+      "body_sha256": "5e4f82cfc85649a96cbe3dcc319124d18b2f51ce8af37bec4eae1651fc84bd7a"
     },
     "intermittent-fullscreen-underscan": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6Ku0U",
@@ -2344,7 +2345,7 @@
         "Target date": "2026-09-15"
       },
       "title": "Diagnose observed 4K runtime performance",
-      "body_sha256": "d99cf368fac9071d92e215567eab8ab3d9fcf7393024af2a250d397ac8c2b1b6"
+      "body_sha256": "b75a9438b6a529f8b48c869c95fedc16081b06430849961b31ee7e31fd57814b"
     },
     "4k-taa-ground-shadow-diagnosis": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6K5Kg",
@@ -2747,7 +2748,7 @@
         "Status": "In Progress",
         "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "Windows Vulkan fixed 2× DLSS Frame Generation is integrated at 81fe304 (PR #72). The authorized 70-second Uhra run recorded 48 enabled periods, 2,830 generated intervals and zero SDK errors. P4 remains In Progress for provider combinations, lifecycle recovery, pacing, visual quality and external-display validation; the known SDK exception is separately deferred.",
+        "Evidence": "Windows Vulkan fixed 2× DLSS Frame Generation is integrated at 81fe304 (PR #72). The authorized 70-second Uhra run recorded 48 enabled periods, 2,830 generated intervals and zero SDK errors. P4 remains In Progress for provider combinations, lifecycle recovery, pacing, visual quality and external-display validation; the known SDK exception is separately deferred. PR #119 shipped in v0.7.35 (published 2026-10-02T09:13:35Z; not accepted): Vulkan DLSS frame generation follows the Graphics menu and settings.ini with fixed 2× to 6× limited to the SDK-reported maximum (one RTX 5080, 2560x1440 window, Uhra save). Experimental Vulkan FSR FG and MetalFX FG exist only in source builds; MetalFX FG has not run on Mac hardware. AMD and Intel GPUs, exclusive fullscreen and image quality are unchecked.",
         "Source key": "temporal-phased-p4-dlss-fg-2x"
       },
       "title": "P4: Deliver fixed 2× DLSS Frame Generation on Windows Vulkan",
@@ -3271,7 +3272,7 @@
         "Area": "Save & Storage",
         "Status": "Paused",
         "Delivery": "Deferred",
-        "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog.",
+        "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog. The HDR half shipped in v0.7.35 (see hdr-output-tonemapping); on 2026-10-02 the maintainer said save states are still open and kept the issue for them.",
         "Source key": "save-state-support"
       },
       "title": "Evaluate save-state support",
@@ -3297,9 +3298,10 @@
         "Kind": "Bug",
         "Area": "Field interaction",
         "Status": "Awaiting validation",
-        "Delivery": "Implemented",
-        "Evidence": "PR #135 (merged 2026-10-02, unreleased) makes the touch-entry check (C1) take its original rejection branch while a battle request is queued or loading. A 264-check fixture with the original game functions and a full runtime link passed. The maintainer said on 2026-10-02 that an in-game check was done in a Codex session; the repository has no record of it. The full softlock mechanism and reporter confirmation remain open.",
-        "Source key": "issue-114-container-enemy-softlock"
+        "Delivery": "Released",
+        "Evidence": "The PR #135 guard shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): the touch-entry check (C1) takes its original rejection branch while a battle request is queued or loading. A 264-check fixture with the original game functions and a full runtime link passed. Gameplay validation of the reported softlock is pending: the maintainer said on 2026-10-01 that the bug could come from the original game rather than the recomp, and on 2026-10-02 that an in-game check was done in a Codex session, which has no repository record. The full softlock mechanism and reporter confirmation remain open.",
+        "Source key": "issue-114-container-enemy-softlock",
+        "Release": "v0.7.35"
       }
     },
     "issue-116-linux-nvidia-dlss": {
@@ -3308,9 +3310,10 @@
         "Kind": "Bug",
         "Area": "Linux",
         "Status": "Awaiting validation",
-        "Delivery": "Implemented",
-        "Evidence": "PR #120 (merged 2026-10-02, unreleased) fixes the DLSS library lookup and ships the unmodified NGX snippet in the AppImage and Flatpak. DLSS has not run on an NVIDIA GPU under Linux. Reporter confirmation needs a release.",
-        "Source key": "issue-116-linux-nvidia-dlss"
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #120 makes the game look for DLSS in its own folder and ships NVIDIA's unmodified NGX snippet in the AppImage and Flatpak; packaging fails if the AppImage copy differs. Awaiting reporter confirmation of the packaged build; the maintainer posted the v0.7.35 notice on 2026-10-02. The reporter's 2026-10-02 06:30 UTC log (v0.7.25 with LO_DLSS_RUNTIME_PATH) shows DLAA active on an RTX 4070 SUPER under Linux; that is the workaround, not the packaged v0.7.35 path, which has not run on an NVIDIA GPU under Linux.",
+        "Source key": "issue-116-linux-nvidia-dlss",
+        "Release": "v0.7.35"
       }
     },
     "issue-117-battle-camera-flicker": {
@@ -3319,9 +3322,10 @@
         "Kind": "Bug",
         "Area": "High frame rate",
         "Status": "Done",
-        "Delivery": "Validated",
-        "Evidence": "Closed as completed by the PR #132 merge (2026-10-02, unreleased). PR #132 updates the battle camera's rotation smoother once per 12.5 ms above 80 FPS. In-game A/B in the opening battle at about 100 FPS: 33 bursts of random angles with the fix off, none with it on. Reporters have not confirmed; not released.",
-        "Source key": "issue-117-battle-camera-flicker"
+        "Delivery": "Released",
+        "Evidence": "Closed as completed by the PR #132 merge (2026-10-02T04:20Z). Shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): the battle camera's rotation smoother updates once per 12.5 ms above 80 FPS. In-game A/B in the opening battle at about 100 FPS: 33 bursts of random angles with the fix off, none with it on. Reporters have not confirmed; closure and release are not reporter acceptance.",
+        "Source key": "issue-117-battle-camera-flicker",
+        "Release": "v0.7.35"
       }
     },
     "issue-118-sun-occlusion-lens-flare": {
@@ -3330,9 +3334,10 @@
         "Kind": "Bug",
         "Area": "Rendering",
         "Status": "Awaiting validation",
-        "Delivery": "Validated",
-        "Evidence": "PR #122 (merged 2026-10-02, unreleased) runs the game's occlusion queries on the host GPU (Direct3D 12 and Vulkan). On an RTX 5080 the sun and glare no longer show through the cliff at the #118 spot (Vulkan). AMD and Intel GPUs, including the reporter's RX 6600, are unchecked. Reporter confirmation needs a release.",
-        "Source key": "issue-118-sun-occlusion-lens-flare"
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #122 runs the game's occlusion queries on the host GPU on Direct3D 12 and Vulkan (Metal keeps the old counts). On an RTX 5080 the sun and glare no longer show through the cliff at the #118 spot (Vulkan; strict mode not run there). AMD and Intel GPUs, including the reporter's RX 6600, are unchecked. Awaiting reporter confirmation above and under water; the maintainer posted the v0.7.35 notice on 2026-10-02.",
+        "Source key": "issue-118-sun-occlusion-lens-flare",
+        "Release": "v0.7.35"
       }
     },
     "issue-121-old-sorceress-mansion-sky-flicker": {
@@ -3341,9 +3346,10 @@
         "Kind": "Bug",
         "Area": "Temporal rendering",
         "Status": "Awaiting validation",
-        "Delivery": "Implemented",
-        "Evidence": "PR #128 (merged 2026-10-02, unreleased) adds the exact sky pair to SkyMaterialPairs, checked with banks from the reporter's runtime logs. Not rechecked in the game. Reporter confirmation needs a release.",
-        "Source key": "issue-121-old-sorceress-mansion-sky-flicker"
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #128 adds the exact sky pair to SkyMaterialPairs, checked with the shader banks from the reporter's two runtime logs. Not rechecked in the game (there is no save at the mansion). The same PR also jitters the f6814 cutscene passes (recorded under taa-jitter-fixes-20261001). Awaiting reporter confirmation; the maintainer posted the v0.7.35 notice on 2026-10-02.",
+        "Source key": "issue-121-old-sorceress-mansion-sky-flicker",
+        "Release": "v0.7.35"
       }
     },
     "taa-jitter-fixes-20261001": {
@@ -3352,12 +3358,13 @@
         "Kind": "Bug",
         "Area": "Temporal rendering",
         "Status": "Awaiting validation",
-        "Delivery": "Implemented",
-        "Evidence": "PRs #130, #133, #134 and #136 are merged (2026-10-02) and unreleased. Captured-constant LoTemporalJitterTest cases cover the mapped shaders. Only the PR #136 battle mapping was checked in the game: the motion-vector replay was aborted in 62 of 63 summaries before and in none after. The other places were not rechecked in the game.",
-        "Source key": "taa-jitter-fixes-20261001"
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PRs #128 (f6814 cutscene passes), #130, #133, #134 and #136 map the passes that missed TAA/FSR/DLSS jitter. Captured-constant LoTemporalJitterTest cases cover the mapped shaders. Only the PR #136 battle mapping was checked in the game: the motion-vector replay was aborted in 62 of 63 summaries before and in none after. The other places, including the f6814 cutscene (its capture was taken paused), were not rechecked in the game. No reporter or player confirmation.",
+        "Source key": "taa-jitter-fixes-20261001",
+        "Release": "v0.7.35"
       },
       "title": "TAA/FSR/DLSS jitter fixes from F1 captures and map tours",
-      "body_sha256": "fee79a109cef09e17b4a82fcf0b1bc2f1c7813890e702c16bf30471a861e88d2"
+      "body_sha256": "49139b99da087818b74a24a088f7441c859230dc6b231ac65f6b5f5c96807c76"
     },
     "flicker-triage-tooling-20261001": {
       "id": "PVTI_lAHOAAsUY84Biy1azg-D8Ec",
@@ -3366,11 +3373,11 @@
         "Area": "Temporal rendering",
         "Status": "Done",
         "Delivery": "Implemented",
-        "Evidence": "Merged in PRs #131, #133 and #136 (2026-10-02, unreleased). Both jitter tests are in the Gitea review-regressions suite and test_ps_clip_reads.py is in CI. Developer tooling and regression coverage; no in-game acceptance applies.",
+        "Evidence": "Merged in PRs #131, #133 and #136 (2026-10-02) and included in the v0.7.35 source (tag commit 95f2c89). Both jitter tests are in the Gitea review-regressions suite and test_ps_clip_reads.py is in CI. Developer tooling and regression coverage; no in-game acceptance applies.",
         "Source key": "flicker-triage-tooling-20261001"
       },
       "title": "Flicker triage tooling and review-regressions coverage",
-      "body_sha256": "a11bd5c9e91a1e76f084d6a3275d4054a2b79752e0045eb1dc177f67bbe24c7f"
+      "body_sha256": "9e45b0eb349c5bd6745684d6fa98f3baa8aeadf48ed2b1d941d6e131b884c954"
     },
     "shader-delivery-v080": {
       "id": "PVTI_lAHOAAsUY84Biy1azg-Exrs",
@@ -3381,11 +3388,55 @@
         "Delivery": "In progress",
         "Release": "v0.8.0",
         "Start date": "2026-10-02",
-        "Evidence": "PR #141 (one-file shader store), PR #142 (startup pack download) and PR #144 (release packages without packs, plus a published-index check) are merged (2026-10-02) and unreleased. The three packs are published to the shader-packs prerelease and downloads from it worked on Windows and on an M1 Max Mac; the local cache cleanup is not started.",
+        "Evidence": "PR #141 (one-file shader store), PR #142 (startup pack download) and PR #144 (release packages without packs, plus a published-index check) are merged (2026-10-02) and shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). Its release run (Gitea run 135) passed the pack-contract check, and the packages carry no shader pack (Windows ZIP 77.1 MB, AppImage 76.3 MB, Flatpak 54.1 MB). The three packs are in the shader-packs prerelease; downloads worked on Windows and an M1 Max Mac; the Linux download path was not run. Local cache cleanup is not started and stays in v0.8.0. No player confirmation.",
         "Source key": "shader-delivery-v080"
       },
       "title": "Shader delivery: one-file store, startup pack download and cache cleanup (v0.8.0)",
-      "body_sha256": "5f3f364d21d6830aabc45a7a8e22f29e47d637129af135b397c511eaafca9f95"
+      "body_sha256": "4fbb90fc4e4b93e9011965cca3d5c0f4561992b1e1a428fedd6306b2c80b0660"
+    },
+    "release-v0-7-35": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-GUuc",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.35",
+        "Start date": "2026-10-02",
+        "Target date": "2026-10-02",
+        "Evidence": "Published v0.7.35 at 2026-10-02T09:13:35Z: public latest release, tag at commit 95f2c89 (main), built and published by Gitea Actions run 135 (five jobs succeeded; its Linux job's shader-pack contract check passed). Assets: Windows ZIP 77,109,842 B (SHA-256 927f19ee…), Linux AppImage 76,270,072 B (9fa0622a…), Flatpak 54,113,384 B (cc4e5c12…) and the first macOS package, a DMG of 60,429,795 B (SHA-256 4c8998fe…6d94; experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand). Packages no longer bundle shader packs. Published, not accepted: reporter confirmations for #116, #118 and #121 and the #114 softlock check are pending.",
+        "Source key": "release-v0-7-35"
+      },
+      "title": "Publish the first macOS package, HDR and tall-screen layouts in v0.7.35",
+      "body_sha256": "6e8f467ad3084fb34f3079c9593d72f766322a82b77a5be10215c42c16f4fe19"
+    },
+    "tall-ultrawide-layout-20261002": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-GUyE",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics presentation",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.7.35",
+        "Evidence": "Released in v0.7.35 (PR #146; published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). The 3D scene fills screens taller than 16:9 with a taller field of view, menus and movies keep 16:9 with bars, and ultrawide menus get side bars. Checked on Windows Vulkan in Uhra at 4:3, 3:2, 16:10 and 21:9 (scene, menu, Status) with AA, upscaling and frame generation off; CPU layout checks passed. Battles, movies, the title screen, Direct3D 12, Metal and frame generation on these screens were not checked. No player confirmation.",
+        "Source key": "tall-ultrawide-layout-20261002"
+      },
+      "title": "Fill tall and ultrawide screens with the 3D scene and bar the menus",
+      "body_sha256": "a202012b1cf8a1f149487fc1e65248d66d4533e71507c2c583d9ad5a6d77dea2"
+    },
+    "portable-shader-pack-contract-20261002": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-GU1M",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shaders",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.7.35",
+        "Evidence": "Released in v0.7.35 (PR #127, with the packs-not-bundled change of PR #144; published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). The v0.7.25 Vulkan pack did not match the shader translator, which had moved from version 24 to 26, so the game rejected it and compiled all 28,549 shaders at first launch (180 s). The runtime contract now uses the image before import binding, verify-runtime accepts the new pack and rejects the v0.7.25 pack, and run 135's Linux job passed the published-index check. The DX12 pack was regenerated. No player confirmation of a first launch on the packaged v0.7.35.",
+        "Source key": "portable-shader-pack-contract-20261002"
+      },
+      "title": "Fix the shader pack contract mismatch behind the full first-launch compile",
+      "body_sha256": "4fbba8ccfcd21a58244ffe659adde0156ecfcb14a38ff05f60cd4296d73eb14a"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"

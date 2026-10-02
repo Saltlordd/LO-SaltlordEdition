@@ -2,7 +2,7 @@
 
 [文档总入口](../README.md) · [当前状态](../STATUS.md) · [路线图](../ROADMAP.zh-CN.md) · [历史归档](../archive/README.md)
 
-2026-10-02 整理：本目录收录全部 **156 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
+2026-10-02 整理：本目录收录全部 **160 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
 
 ## 如何使用
 
@@ -13,7 +13,7 @@
 | 调查 | 问题分析及其证据边界；此标记不等于对应 Issue 仍开放，现状以 STATUS / 路线图为准。 |
 | 草案 | 设计、研究、需求或发布文案；不代表已实施，也不因年代久远自动取消。 |
 
-分类合计：参考 26、历史 106、调查 14、草案 10。
+分类合计：参考 28、历史 106、调查 16、草案 10。
 
 先用当前状态确认实施、验证、验收和发布，再从下方进入证据。旧命令执行前核对源码、工具及输入；`out/`、本机绝对路径和截图编号是原调查的定位信息，不随仓库分发。已缺失的本地产物标为历史路径，不能视作本次复验。
 
@@ -100,9 +100,11 @@
 | [Live anisotropic filtering](anisotropic-filtering.md) | 参考 |
 | [Fire-hit lighting investigation (2026-09-05)](fire-hit-rendering.md) | 调查 |
 | [GPU 当前说明（2026-09-05）](gpu.md) | 历史 |
+| [Experimental HDR output](hdr-output.md) | 参考 |
 | [Issue #70 DX12/Vulkan optimization](issue-70-dx12-vulkan-optimization.md) | 历史 |
 | [Kaim body-shadow flicker: v0.4.0 investigation](kaim-body-shadow-v040.md) | 历史 |
 | [光照 / 阴影续修（2026-09-04）](lighting-stencil-depth-clear.md) | 调查 |
+| [Linux/Vulkan HDR research — 2026-10-02](linux-vulkan-hdr.md) | 调查 |
 | [Map12 poster black-patch repair — 2026-09-05](map12-poster-depth.md) | 历史 |
 | [Host GPU occlusion queries (#118)](occlusion-queries.md) | 参考 |
 | [角色黑色剪影：物理地址别名与遮挡查询（2026-09-04）](physical-alias-rendering.md) | 历史 |
@@ -113,6 +115,7 @@
 | [渲染验证（2026-09-04）](rendering-validation.md) | 历史 |
 | [阴影纹理采样 LOD（2026-09-05）](shadow-texture-lod.md) | 调查 |
 | [启动时深度清除导致驱动退出（2026-09-05）](startup-depth-clear-crash.md) | 历史 |
+| [Tall and non-standard aspect layout — 2026-10-01](tall-aspect-layout.md) | 参考 |
 | [标题动态背景恢复（2026-09-04）](title-packed-mips.md) | 历史 |
 | [Xenia 实机画面对照（2026-09-04）](xenia-render-comparison.md) | 历史 |
 
@@ -184,6 +187,7 @@
 | [Issue #12 交接（2026-09-09）：根因已定位，生产交花路径已通过](issue12-handoff-2026-09-09.md) | 历史 |
 | [Issue #12 root cause: garbage-collected materials drawn by a stale scene proxy](issue12-root-cause.md) | 历史 |
 | [Issue #7: cutscene closure and missing crash diagnostics](issue7-cutscene-crash.md) | 历史 |
+| [Issue #114: field interaction during a pending battle request](ISSUE_114_FIELD_INTERACTION_20261001.md) | 调查 |
 | [Issue #53 Disc 2 loading investigation](ISSUE_53_DISC2_HANG_FIX_REPORT.md) | 历史 |
 | [Project review fixes — 2026-09-30](PROJECT_REVIEW_FIXES_20260930.md) | 历史 |
 | [内核 HLE 当前说明（2026-09-05）](kernel.md) | 历史 |

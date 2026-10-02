@@ -81,11 +81,24 @@ ones the release does not have yet, so a failed platform leaves the draft
 without a partial package set. Unlike the GitHub workflow, the build jobs do
 not upload to the release themselves.
 
-Since PR #127, both build jobs fetch the pinned Vulkan shader pack before
-compiling and pass it as `LO_PORTABLE_SHADER_PACK`; the runtime build runs
-`LoShaderPackTool verify-runtime` against the private disc 1 image and fails
-if the pack does not match ([refresh procedure](../PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
-Build-only run 485 printed `runtime_compatibility_verified: true` on both.
+Packages carry no shader pack: the game downloads the one for its renderer
+from the `shader-packs` prerelease (PR #144, first shipped in v0.7.35). Between
+PR #127 and PR #144 both build jobs fetched a pinned Vulkan pack from the private
+build-inputs repository, passed it as `LO_PORTABLE_SHADER_PACK` and ran
+`LoShaderPackTool verify-runtime` against the private disc 1 image during the
+runtime build (build-only run 485 printed `runtime_compatibility_verified: true`
+on both). That fetch is gone. Instead the Linux job builds `LoShaderPackTool` and
+its "Check published shader packs" step runs
+`tools/release/publish_shader_packs.py --check` against the same image: a tagged
+release stops unless the published index lists a pack for each of the runtime's
+three contracts (Vulkan, DirectX 12 and Metal), and a branch build only warns
+([procedure](../PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
+
+The publish job's set check requires the three CI packages and accepts at most
+one more asset, `LostOdysseyRecomp-macos-arm64-<tag>.dmg`. CI cannot link the
+Mac runtime without game data, so that disk image is built on a Mac and
+uploaded to the release by hand (for v0.7.35, to the draft before the publish
+job ran; see [macOS releases](../MACOS_RELEASE.md)).
 
 The Gitea job token cannot reach GitHub, so every GitHub operation uses
 `LO_GITHUB_TOKEN` with `GH_REPO` pinned to `freefrank/LostOdysseyRecomp`:
@@ -115,6 +128,23 @@ the first real GitHub write (draft creation, upload, publication) through
 rehearsal (run 55). A separate check of the published Windows ZIP found its
 SHA-256 equal to GitHub's digest and a manifest with version `v0.7.25`; see
 [STATUS](../STATUS.md#v0725-published--2026-10-01). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
+Second release, 2026-10-02: v0.7.35 (tag commit `95f2c89`) was built and
+published by [run 135](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/135)
+(API id 525), and all five jobs succeeded: create draft 0.2 min, FSR inputs
+1.8 min, Windows build and ZIP 7.9 min (`win-t640`), Linux AppImage and Flatpak
+10.4 min (privileged docker runner) and publish 1.0 min, which uploaded the
+three CI packages to the draft, verified the set and published it with
+`--latest`. About 13.5 minutes passed from the tag push to publication at
+2026-10-02T09:13:35Z (v0.7.25: about 19). The Linux job's "Check published
+shader packs" step printed the d3d12, metal and vulkan contracts and "The
+shader-packs index lists packs for all renderers of this runtime."; v0.7.35 is
+the first version release held to that check. The macOS disk image was already
+on the draft, uploaded by hand (GitHub dates the asset 09:01:25Z), and the set
+check accepted it as the one optional asset. The `shader-packs` prerelease did
+not change, and no game run was made with the packages; see
+[STATUS](../STATUS.md#v0735-published--2026-10-02). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
 Differences from the GitHub release workflow:

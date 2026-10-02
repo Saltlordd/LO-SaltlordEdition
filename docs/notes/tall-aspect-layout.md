@@ -1,8 +1,8 @@
 # Tall and non-standard aspect layout — 2026-10-01
 
-> **Development checkpoint.** The implementation is present in the unreleased
-> source tree. This note records bounded validation and does not claim player
-> acceptance or release availability.
+> **Development checkpoint.** The implementation is part of v0.7.35 (tag
+> `v0.7.35`, 2026-10-02). This note records bounded validation and does not
+> claim player acceptance.
 
 ## Intended behavior
 
@@ -28,8 +28,8 @@ two-axis fit policy with bars.
 
 The minimap uses the dedicated tall-output top anchor, while the other HUD
 elements remain centered with the 16:9 canvas. The full field menu uses native
-quads for aspect-specific bars. The source behavior remains unreleased and is
-not user accepted.
+quads for aspect-specific bars. The behavior is part of v0.7.35 and is not
+user accepted.
 
 ## Validation recorded so far
 
