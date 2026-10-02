@@ -121,11 +121,13 @@ InstallResult Install(const Job &job, Session &session)
     } cleanup{temp};
 
     std::string failure;
-    bool cancelled = false;
-    const bool downloaded = DownloadFile(job.url, temp, job.entry.size, [&session](uint64_t completed, uint64_t) {
+    bool cancelled = false, oversize = false;
+    const bool downloaded = DownloadFile(job.url, temp, job.entry.size, [&](uint64_t completed, uint64_t) {
         session.completed = completed;
-        return !session.cancel.load();
+        oversize = completed > job.entry.size;
+        return !oversize && !session.cancel.load();
     }, failure, cancelled);
+    if (oversize) return {false, "the server sent more than the " + std::to_string(job.entry.size) + " bytes the index lists"};
     if (!downloaded) return {cancelled, cancelled ? std::string("cancelled") : failure};
     {
         std::lock_guard lock(session.mutex);
