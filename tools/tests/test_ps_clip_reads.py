@@ -76,6 +76,17 @@ class PsClipReadsTest(unittest.TestCase):
             "  r4 = i4;\n  clip(any(r0.x > r1.x > r2.x) ? -1 : 1);\n  oC0 = r0;"), [4])
         self.assertTrue(any("kill" in item["reason"] for item in chained["unsupported"]))
 
+    def test_select_is_reviewed_as_a_read(self):
+        constant = audit_ps.analyze_clip_reads(shader(
+            "  r4 = i4;\n  xePV.xyz = select(XeConst(255).xyy == 0.0, r0.xxx, r1.xxx);\n"
+            "  oC0.w = max(r4.w, r4.w);"), [4])
+        self.assertTrue(constant["candidate_no_clip_xy_reads"])
+        self.assertFalse(constant["unsupported"])
+        screen = audit_ps.analyze_clip_reads(shader(
+            "  r4 = i4;\n  r0.x = select(r4.y > 0.0, 1.0, 0.0);\n  oC0 = r0;"), [4])
+        self.assertFalse(screen["candidate_no_clip_xy_reads"])
+        self.assertEqual(screen["clip_xy_reads"][0]["inputs"], ["i4.y"])
+
     def test_cli_from_other_cwd_is_opt_in_and_validates_index(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

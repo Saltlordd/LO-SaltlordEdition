@@ -91,13 +91,13 @@ For every suspect pair in the logs, `triage_suspect.py` collects in one run what
 - the static audits: the `oPos` matrix slot from `audit_vs.py` and its `vp_outputs` (other outputs that carry the position matrix, such as a clip copy), then from `audit_ps.py` any read of their X/Y, texture coordinates derived from them, and use of `SV_Position`;
 - the production map.
 
-Translator scaffolding is ignored: declarations, debug texture copies and the host alpha-test epilogue. Guest control flow holds the pair.
+Translator scaffolding is ignored: declarations, debug texture copies and the host alpha-test epilogue. The guest kill `clip(any(a op b) ? -1 : 1)` (alpha test) and the conditional move `select(a op b, x, y)` are reviewed as reads, so they hold a pair only when an operand carries the clip copy's X/Y. Other guest control flow holds the pair.
 
 The suggestion for each pair is one of:
 
 - `map_vs_wide`;
-- `map_exact_pair`, when the VS is already mapped per PS in `SkyMaterialPairs`;
-- `hold`, with its reasons;
+- `map_exact_pair`, when the VS is already mapped per PS in `SkyMaterialPairs`, or a review manifest in `tools/shader_analysis/reviews/` marks it `held`;
+- `hold`, with its reasons, including a manifest `hold` decision for a VS that must stay unmapped for a reason the static review cannot see (for example `25d2`, whose slot-2 window no mapped shader uses);
 - `already_mapped_vs` or `already_mapped_pair`, listed only with `--include-mapped`.
 
 Each mapping suggestion comes with the fixture command and the `temporal_scene.h` and test snippets. HLSL comes from the captures' `shaders/` or from `--hlsl-dir`, a directory of `<hash>.hlsl`, `vs_<hash>.hlsl` or `ps_<hash>.hlsl` files such as a run with `LO_SHADER_HLSL_DIR` writes. The suggestions are review packets and never edit the map.
