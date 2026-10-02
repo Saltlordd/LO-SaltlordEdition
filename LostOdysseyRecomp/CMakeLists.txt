@@ -21,6 +21,7 @@ function(lo_add_header_test name source)
         target_compile_options(${name} PRIVATE -UNDEBUG)
     endif()
 endfunction()
+if(NOT ANDROID)
 lo_add_header_test(LoPollWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/poll_wait_test.cpp)
 lo_add_header_test(LoTimeFieldsTest ${CMAKE_SOURCE_DIR}/tools/tests/time_fields_test.cpp)
 lo_add_header_test(LoNotifiedWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/notified_wait_test.cpp)
@@ -110,6 +111,7 @@ target_include_directories(LoUpdaterGamePromptTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoUpdaterGamePromptTest PRIVATE cxx_std_20)
 target_compile_definitions(LoUpdaterGamePromptTest PRIVATE SDL_MAIN_HANDLED)
 target_link_libraries(LoUpdaterGamePromptTest PRIVATE SDL2::SDL2-static)
+endif()
 
 set(LO_PRIVATE_DIR ${CMAKE_SOURCE_DIR}/LostOdysseyRecompLib/private)
 
@@ -133,8 +135,14 @@ add_custom_command(
     COMMENT "Generating kernel import stubs"
     VERBATIM)
 
-add_executable(LostOdysseyRecomp ${LO_RUNTIME_SOURCES} ${LO_IMPORT_STUBS})
-lo_stage_portable_shader_pack(LostOdysseyRecomp)
+if(ANDROID)
+    add_library(LostOdysseyRecomp SHARED ${LO_RUNTIME_SOURCES} ${LO_IMPORT_STUBS})
+    set_target_properties(LostOdysseyRecomp PROPERTIES OUTPUT_NAME main)
+    target_link_options(LostOdysseyRecomp PRIVATE "-Wl,-z,max-page-size=16384")
+else()
+    add_executable(LostOdysseyRecomp ${LO_RUNTIME_SOURCES} ${LO_IMPORT_STUBS})
+    lo_stage_portable_shader_pack(LostOdysseyRecomp)
+endif()
 set(LO_BUILD_REVISION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/lo_build_revision.h")
 add_custom_target(LoBuildRevision
     COMMAND ${CMAKE_COMMAND} "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}" "-DOUTPUT=${LO_BUILD_REVISION_HEADER}"
@@ -182,8 +190,10 @@ target_link_libraries(LostOdysseyRecomp PRIVATE
     fmt::fmt
     xxHash::xxhash
     o1heap
-    SDL2::SDL2-static)
-if(UNIX)
+    SDL2::SDL2)
+if(ANDROID)
+    target_link_libraries(LostOdysseyRecomp PRIVATE android log dl nlohmann_json::nlohmann_json)
+elseif(UNIX)
     set_target_properties(LostOdysseyRecomp PROPERTIES
         INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
     find_package(CURL REQUIRED)
@@ -219,6 +229,7 @@ if(LO_RENDERER_P2_SELFTEST)
     target_compile_definitions(LostOdysseyRecomp PRIVATE LO_RENDERER_P2_SELFTEST=1)
 endif()
 
+if(NOT ANDROID)
 if(WIN32)
     target_link_libraries(LostOdysseyRecomp PRIVATE winmm onecore bcrypt winhttp ole32 shell32)
 
@@ -827,6 +838,8 @@ if(WIN32 AND LO_BUILD_GPU)
     target_link_libraries(LoPresentCaptureTest PRIVATE plume d3d12 dxgi fmt::fmt SDL2::SDL2-static xxHash::xxhash)
 endif()
 
+endif() # NOT ANDROID: desktop test executables
+
 # Package the same SPIR-V-capable DXC beside runtime and compiler/GPU fixtures.
 # The Windows SDK compiler is allowed as an explicit fallback, but is not the release contract.
 if(WIN32 AND LO_BUILD_GPU)
@@ -840,7 +853,7 @@ if(WIN32 AND LO_BUILD_GPU)
             endforeach()
         endif()
     endforeach()
-elseif(UNIX AND LO_BUILD_GPU)
+elseif(UNIX AND NOT ANDROID AND LO_BUILD_GPU)
     if(LO_TARGET_PLATFORM STREQUAL "macos")
         # Universal (arm64 + x86_64) build shipped with dxc-bin.
         set(LO_DXC_SO "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64/libdxcompiler.dylib")

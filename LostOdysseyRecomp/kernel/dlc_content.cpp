@@ -1,7 +1,7 @@
 #include <stdafx.h>
 #include "dlc_content.h"
 #include <kernel/io/file_system.h>
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 #include <optional>
 
 namespace DlcContent

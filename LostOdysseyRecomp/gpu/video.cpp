@@ -50,6 +50,9 @@
 #include <os/shader_log.h>
 #include <os/user_paths.h>
 #include <hid/hid.h>
+#if defined(__ANDROID__)
+#include <hid/android_touch.h>
+#endif
 #include <debug/battle_menu.h>
 #include <debug/menu_overlay.h>
 #include <host_ui/host_ui.h>
@@ -2299,6 +2302,12 @@ namespace gpu::video
         const bool phaseChanged = (progress >> 56) != (shownProgress >> 56);
         const uint32_t total = uint32_t((progress >> 28) & kProgressMask);
         const uint32_t done = uint32_t(progress & kProgressMask);
+#if defined(__ANDROID__)
+        // The virtual pad publishes JNI snapshots, not SDL controller events.
+        if (total && !ShaderPreparationSkipped() &&
+            (hid::android_touch::Snapshot().buttons & XAMINPUT_GAMEPAD_B))
+            RequestSkipShaderPreparation();
+#endif
         if (g_window && progress != shownProgress &&
             (phaseChanged || done == total || now-lastProgressPaint >= std::chrono::milliseconds(100))) {
             const auto stage=PreparationStage((progress>>56)&15);
@@ -2908,7 +2917,18 @@ namespace gpu::video
 #endif
         // Empty is recoverable: minimized Vulkan surfaces may have zero extent.
         // Never return for isEmpty() before giving resize() a chance to recover.
-        if (g_forceSwapResize || g_swapChain->isEmpty() || g_swapChain->needsResize()) {
+#if defined(__ANDROID__)
+        // Android WSI can mandate a native currentExtent larger than SDL's
+        // requested size. Plume's needsResize() compares those two extents and
+        // would rebuild the same swapchain on every frame. SDL resize events
+        // set g_forceSwapResize; preserve out-of-date and present-mode requests.
+        const auto* androidSwap = static_cast<const plume::VulkanSwapChain*>(g_swapChain.get());
+        const bool backendNeedsResize = androidSwap->surfaceOutOfDate ||
+            androidSwap->requiredPresentMode != androidSwap->createdPresentMode;
+#else
+        const bool backendNeedsResize = g_swapChain->needsResize();
+#endif
+        if (g_forceSwapResize || g_swapChain->isEmpty() || backendNeedsResize) {
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (g_d3dFg) g_d3dFg->Quiesce();
 #endif

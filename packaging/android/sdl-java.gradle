@@ -1,0 +1,61 @@
+def sdlJavaSource = file('../../../thirdparty/SDL/android-project/app/src/main/java')
+def generatedSdlJava = layout.buildDirectory.dir('generated/sdl-java')
+def prepareSdlJava = tasks.register('prepareSdlJava', Sync) {
+    from sdlJavaSource
+    into generatedSdlJava
+    doLast {
+        def hidJava = new File(generatedSdlJava.get().asFile, 'org/libsdl/app/HIDDeviceManager.java')
+        def patched = hidJava.getText('UTF-8').replace('\r\n', '\n')
+        def replaceOnce = { String anchor, String replacement ->
+            if (!patched.contains(anchor) || patched.indexOf(anchor) != patched.lastIndexOf(anchor)) {
+                throw new GradleException("Pinned SDL HID source anchor missing or duplicated: ${anchor.lines().first()}")
+            }
+            patched = patched.replace(anchor, replacement)
+        }
+        replaceOnce('''            String action = intent.getAction();
+            if (action.equals(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
+                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                handleUsbDeviceAttached(usbDevice);
+            } else if (action.equals(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                handleUsbDeviceDetached(usbDevice);
+            } else if (action.equals(HIDDeviceManager.ACTION_USB_PERMISSION)) {
+                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                handleUsbDevicePermission(usbDevice, intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false));
+            }''', '''            if (intent == null) {
+                return;
+            }
+            String action = intent.getAction();
+            UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            if (action == null || usbDevice == null) {
+                return;
+            }
+            if (action.equals(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
+                handleUsbDeviceAttached(usbDevice);
+            } else if (action.equals(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+                handleUsbDeviceDetached(usbDevice);
+            } else if (action.equals(HIDDeviceManager.ACTION_USB_PERMISSION)) {
+                boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    && mUsbManager != null && mUsbManager.hasPermission(usbDevice);
+                handleUsbDevicePermission(usbDevice, granted);
+            }''')
+        replaceOnce('''        mContext.registerReceiver(mUsbBroadcast, filter);''', '''        androidx.core.content.ContextCompat.registerReceiver(mContext, mUsbBroadcast, filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);''')
+        replaceOnce('''                if (Build.VERSION.SDK_INT >= 33 /* Android 14.0 (U) */) {
+                   Intent intent = new Intent(HIDDeviceManager.ACTION_USB_PERMISSION);
+                   intent.setPackage(mContext.getPackageName());
+                   mUsbManager.requestPermission(usbDevice, PendingIntent.getBroadcast(mContext, 0, intent, flags));
+               } else {
+                   mUsbManager.requestPermission(usbDevice, PendingIntent.getBroadcast(mContext, 0, new Intent(HIDDeviceManager.ACTION_USB_PERMISSION), flags));
+               }''', '''                Intent intent = new Intent(HIDDeviceManager.ACTION_USB_PERMISSION);
+                intent.setPackage(mContext.getPackageName());
+                mUsbManager.requestPermission(usbDevice, PendingIntent.getBroadcast(mContext, 0, intent, flags));''')
+        hidJava.setText(patched, 'UTF-8')
+    }
+}
+
+tasks.configureEach {
+    if ((name.startsWith('compile') && name.endsWith('JavaWithJavac')) || name.startsWith('lint')) {
+        dependsOn prepareSdlJava
+    }
+}

@@ -5,7 +5,7 @@
 #include <tlhelp32.h>
 #include <fstream>
 #include <iterator>
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 
 namespace updater
 {

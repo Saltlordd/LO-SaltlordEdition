@@ -12,6 +12,7 @@ extern std::atomic<uint32_t> g_presentedSwaps;
 #include <debug/frame_timing.h>
 #include "test_input_pulse.h"
 #include "controller_prompts.h"
+#include "android_touch.h"
 
 // SDL game controller -> XInput state. Player 1 only for now; the keyboard
 // mirrors the pad so the game can be driven without a controller.
@@ -228,6 +229,12 @@ void hid::PumpHostInput()
         if (g_externalPump) SDL_GameControllerUpdate();
         buttons = ReadRawButtonsLocked(lt, rt);
     }
+#if LO_PLATFORM_ANDROID
+    const auto touch = hid::android_touch::Snapshot();
+    buttons |= touch.buttons;
+    lt = std::max(lt, touch.leftTrigger);
+    rt = std::max(rt, touch.rightTrigger);
+#endif
     ProcessHostInput(buttons, lt, rt);
 }
 
@@ -298,6 +305,17 @@ uint32_t hid::GetState(uint32_t dwUserIndex, XAMINPUT_STATE* pState)
         PublishPromptStyle();
         keys = g_keys;
     }
+
+#if LO_PLATFORM_ANDROID
+    // A quiet touch source leaves the physical controller untouched. Active
+    // sticks follow the same larger-magnitude policy as multiple SDL pads.
+    const auto touch = android_touch::Snapshot();
+    gp.wButtons |= touch.buttons;
+    gp.bLeftTrigger = std::max(gp.bLeftTrigger, touch.leftTrigger);
+    gp.bRightTrigger = std::max(gp.bRightTrigger, touch.rightTrigger);
+    MergeStick(gp.sThumbLX, gp.sThumbLY, touch.leftX, touch.leftY, 7849);
+    MergeStick(gp.sThumbRX, gp.sThumbRY, touch.rightX, touch.rightY, 8689);
+#endif
 
     {
         static const bool trace = getenv("LO_TRACE_INPUT") != nullptr;

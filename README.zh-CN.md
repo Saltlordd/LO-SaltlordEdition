@@ -39,13 +39,13 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 本分支加入了使用 Metal 的 arm64 macOS 实验性路径。Windows 和 Mac 的本地运行时已完成编译链接，有限的新游戏和首战测试也已通过，但目前没有已发布的 macOS 安装包。需要时请按[macOS 构建说明](docs/BUILDING.md#building-on-macos)自行构建；长时间游玩、更广场景、画质和性能验证仍待完成。
 
-### Android ARM64 探针（实验性，需从源码构建）
+### Android ARM64 运行时（实验性，需从源码构建）
 
-本分支现在包含一个 arm64 Android 诊断 APK，通过小型 SDL activity 检查主机内存页行为和 Vulkan 能力。它不会运行游戏，也不代表已具备广泛设备兼容性、16 KB 页面、性能或实际游玩支持。工具链和当前验证边界见 [Android 探针说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
+本分支现在除了诊断 APK，还包含实验性的 arm64 Android 运行时目标。运行时使用 SDL Android activity、应用专属 external storage、Android ARM64 FFmpeg 配置和 Android DXC 构建。这是开发构建，不是已发布或普遍支持的 Android 版本。工具链和当前验证边界见 [Android 构建说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
 
-探针在一台 Lenovo TB321FU（Android 16、Adreno 750、4 KB 页面）上通过了小型内存别名、Vulkan 清屏呈现、重复检查和后台恢复测试。设备的 storage-buffer 上限为 128 MiB，低于当前渲染器的 1 GiB vertex arena，需要适配后才能运行游戏。详见[设备报告](docs/notes/android-probe-tb321fu-2026-10-02.txt)；完整游戏、性能、手柄和 16 KB 真机验证仍待完成。
+Android 运行时现在能在测试平板加载开发资源并进入 shader 准备。新版 APK 已验证每帧 resize 修复只发生一次 resize，但游戏画面仍为黑屏。触摸设置跨 force-stop、APK 覆盖更新和冷启动保持；L3/R3 guest 输入 trace 与 host menu 恢复也已通过，实体手柄和可玩流程仍待验证。详见[Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)及 [Android DXC 构建记录](docs/notes/android-dxc-build-2026-10-02.md)。
 
-生成的 PPC 代码也已通过 NDK 编译为 Android ARM64/PIC 静态库。这是独立的开发目标，完整 Android 运行时尚未链接或运行，构建方法见[重编译库说明](packaging/android/README.md#android-arm64-recompiled-library)。
+运行时保留 SDL 实体手柄支持，并加入可以关闭且自动保存设置的 Android 屏幕触摸手柄。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
 
 ### 最新更新
 

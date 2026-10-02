@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <os/atomic_ref.h>
 #include <bit>
 #include <cstdint>
 
@@ -22,7 +23,7 @@ inline void Increment(int32_t& recursion)
 
 inline bool TryEnter(int32_t& recursion, uint32_t& owner, uint32_t thread)
 {
-    std::atomic_ref owningThread(owner);
+    os::AtomicRef<uint32_t> owningThread(owner);
     const uint32_t encodedThread = Encode(thread);
     uint32_t previousOwner = 0;
     if (owningThread.compare_exchange_strong(previousOwner, encodedThread) || previousOwner == encodedThread)
@@ -35,7 +36,7 @@ inline bool TryEnter(int32_t& recursion, uint32_t& owner, uint32_t thread)
 
 inline void Enter(int32_t& recursion, uint32_t& owner, uint32_t thread)
 {
-    std::atomic_ref owningThread(owner);
+    os::AtomicRef<uint32_t> owningThread(owner);
     const uint32_t encodedThread = Encode(thread);
     for (;;)
     {
@@ -55,7 +56,7 @@ inline void Leave(int32_t& recursion, uint32_t& owner)
     recursion = std::bit_cast<int32_t>(Encode(remaining));
     if (remaining != 0)
         return;
-    std::atomic_ref owningThread(owner);
+    os::AtomicRef<uint32_t> owningThread(owner);
     owningThread.store(0);
     owningThread.notify_one();
 }

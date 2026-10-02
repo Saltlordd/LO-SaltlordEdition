@@ -1,15 +1,17 @@
-# Android ARM64 probe
+# Android ARM64 development builds
 
-This directory builds the Android development probe for the Lost Odyssey Recomp
-Android port. It is a diagnostic APK, not a playable Android release: the
-probe reports host memory-page behavior and Vulkan device limits, formats and
-heaps, and exercises one clear/present frame per check run. It does not load game files,
-compile game shaders, or run the full game.
+This directory builds the Android development probe and experimental full
+runtime for the Lost Odyssey Recomp Android port. The probe is a diagnostic APK
+that reports host memory-page behavior and Vulkan device limits, formats and
+heaps, and exercises one clear/present frame per check run. The runtime is an
+arm64 development APK path and is not a published Android release.
 
-The current prototype targets **arm64-v8a** with API 26+, compile/target SDK
+The targets use **arm64-v8a** with API 26+, compile/target SDK
 35, Android Gradle Plugin 8.9.3, Gradle 8.11.1 and NDK 28.2.13676358. The
-source CMake entry accepts `Android` only for the probe path and explicitly
-refuses to build the full game for Android until its platform work is complete.
+source CMake entry accepts `Android` for the probe and for the explicitly
+opt-in `LO_BUILD_ANDROID_RUNTIME=ON` runtime path. The runtime remains
+experimental and requires host-generated PPC sources plus the Android FFmpeg,
+DXC and staged native-library inputs described below.
 
 ## Prerequisites
 
@@ -34,6 +36,19 @@ From this directory, run:
 ```sh
 ./gradlew assembleDebug lintDebug
 ```
+
+The probe and runtime are separate Gradle modules. Build the probe with
+`:app:assembleDebug`; build the runtime shell with `:runtime:assembleDebug`
+after staging its native libraries with `tools/android/build-runtime.sh`.
+The runtime Gradle task is a packaging step. The current runtime APK has passed
+the debug build, lint, v2 signature and 16 KB zip-alignment checks and has been
+installed with ADB. On the development tablet, the four-disc resources are in
+the app's external files directory with readable permissions; the runtime has
+loaded the XEX, created the Vulkan device and swapchain, and entered real DXC
+shader preparation. The [Android DXC build note](../../docs/notes/android-dxc-build-2026-10-02.md)
+records the native compiler staging details. The newer APK verified the
+swapchain-resize fix with one resize, but the game image remains black; shader
+counts and host-menu input do not establish playable-game support.
 
 On Windows PowerShell use:
 
@@ -66,7 +81,7 @@ adb exec-out run-as io.github.freefrank.lostodyssey.probe \
 adb logcat -d -s LOAndroidProbe
 ```
 
-The Activity provides **Run checks**, **Test audio** and **Copy report**
+The probe Activity provides **Run checks**, **Test audio** and **Copy report**
 controls. The native report is stored at
 `files/probe-report.txt`; native diagnostics use the `LOAndroidProbe` logcat
 tag. Capture the device model, SDK, ABI, page size, Vulkan features and limits
@@ -106,8 +121,38 @@ cmake --build out/build/android-ppc --target LostOdysseyRecompLib -j 4
 
 The Release build passed with NDK 28.2: the archive contains 247 AArch64 ELF
 objects (246 generated files plus the function mapping), all compiled with
-PIC. Android configurations that request the full runtime or host tools are
-explicitly rejected. This proves target compilation of the game-code library;
-it does not provide a linked or running Android runtime. Full runtime work remains blocked by the
-Android FFmpeg configuration, plume/SDL platform integration, app-specific
-storage and updater replacement, and lifecycle handling.
+PIC. This remains a separate library-only target. The opt-in full runtime
+target links `libmain.so` for the Android shell after staging the Android
+FFmpeg, DXC and other native libraries; the development build has passed the
+runtime library link and focused host checks. It does not yet establish APK
+installation, resource loading or a playable game flow.
+
+## Experimental full runtime
+
+From the repository root, generate PPC sources on the host and stage the
+Android native dependencies before invoking the runtime CMake path:
+
+```sh
+tools/android/build-runtime.sh
+```
+
+The Gradle shell can then be packaged from this directory:
+
+```sh
+./gradlew :runtime:assembleDebug
+```
+
+The runtime uses app-owned external files for game data and keeps physical SDL
+controller input. It also provides an on-screen touch controller which can be
+hidden from the Android UI; visibility is persisted with
+`SharedPreferences`. Disabling the controls has been verified on the device;
+restart persistence, game input and physical hardware remain unverified. The
+BDA vertex-fetch path avoids requiring the complete
+1 GiB vertex arena as one storage-buffer descriptor on devices with a smaller
+reported range. Host HLSL remains unchanged for the desktop path.
+
+Android online updating, desktop-style automatic restart and automatic tar
+capture packaging are not supported by this development target. A successful
+native link or Gradle package is not gameplay acceptance; install the APK and
+record resource loading, shader compilation, input, audio, lifecycle and a
+bounded game-flow test separately.

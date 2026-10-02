@@ -157,7 +157,7 @@ adb shell getconf PAGE_SIZE
 
 ## 开发 checkpoint（2026-10-02）
 
-在初始研究之后，`trail/android-port-research` 已开始实现一个受限的 Android ARM64 诊断路径。根 CMake 现在识别 Android，并在 `LO_BUILD_ANDROID_PROBE` 路径提前构建探针；完整游戏目标仍被明确拒绝。探针位于 [`tools/android_probe`](../../tools/android_probe/)，APK 工程位于 [`packaging/android`](../../packaging/android/)。它使用 SDL2 的 `SDLActivity` 和 native report UI，提供 **Run checks**、**Test audio** 与 **Copy report** 操作，并将报告写入 `files/probe-report.txt`，native 日志使用 `LOAndroidProbe` 标签。
+在初始研究之后，`trail/android-port-research` 已开始实现一个受限的 Android ARM64 诊断路径。根 CMake 当时只在 `LO_BUILD_ANDROID_PROBE` 路径提前构建探针，并拒绝完整游戏目标；后续完整 runtime 已改为独立的 opt-in 路径。探针位于 [`tools/android_probe`](../../tools/android_probe/)，APK 工程位于 [`packaging/android`](../../packaging/android/)。它使用 SDL2 的 `SDLActivity` 和 native report UI，提供 **Run checks**、**Test audio** 与 **Copy report** 操作，并将报告写入 `files/probe-report.txt`，native 日志使用 `LOAndroidProbe` 标签。
 
 当前工具链固定为 Gradle 8.11.1（wrapper 含官方 SHA-256 校验）、Android Gradle Plugin 8.9.3、NDK 28.2.13676358、SDK 35、Build Tools 35.0.0、CMake 3.22.1、minSdk 26，且只生成 `arm64-v8a`。WSL 中已确认可复用 `/home/freefrank/Android/Sdk`；不需要另装一套 SDK。构建命令和安装/取证命令见 [`packaging/android/README.md`](../../packaging/android/README.md)。
 
@@ -191,7 +191,7 @@ cmake -S . -B out/build/android-ppc -G Ninja \
 cmake --build out/build/android-ppc --target LostOdysseyRecompLib -j 4
 ```
 
-根 CMake 已开放这个 library-only 路径，强制 Android ARM64 和 PIC，拒绝将 XenonRecomp/XenosRecomp 编为 Android 工具；完整 runtime 仍明确拒绝。NDK 28.2 / Clang 19 的 Release configure/build 通过，247 条编译命令均使用 `aarch64-none-linux-android26` 与 `-fPIC`，归档中的全部 247 个对象均为 ELF64 little-endian AArch64 relocatable。静态库为 438,257,042 bytes，SHA-256 `4f9a3a304033527fbccc70457c5071a9c1540b1da593e3c1cec8bd1ef7d47bbd`；本地证据为 `out/android-device-probe/ppc-library-validation.json`。默认 runtime 和 tools=ON 的 configure 拒绝检查，以及原有 probe 根目录 configure 均通过。完整 runtime 尚未链接或执行，仍受 FFmpeg Android 配置、plume/SDL Android 平台边界、应用专属存储/updater 和生命周期适配阻塞。
+根 CMake 已开放这个 library-only 路径，强制 Android ARM64 和 PIC，拒绝将 XenonRecomp/XenosRecomp 编为 Android 工具；这段验证当时仍使用完整 runtime 拒绝检查。NDK 28.2 / Clang 19 的 Release configure/build 通过，247 条编译命令均使用 `aarch64-none-linux-android26` 与 `-fPIC`，归档中的全部 247 个对象均为 ELF64 little-endian AArch64 relocatable。静态库为 438,257,042 bytes，SHA-256 `4f9a3a304033527fbccc70457c5071a9c1540b1da593e3c1cec8bd1ef7d47bbd`；本地证据为 `out/android-device-probe/ppc-library-validation.json`。默认 runtime 和 tools=ON 的 configure 拒绝检查，以及原有 probe 根目录 configure 均通过。之后的完整 runtime opt-in 链接结果见第三阶段 checkpoint。
 
 ### 生产内存实现的设备 shell 检查
 
@@ -203,4 +203,23 @@ cmake --build out/build/android-ppc --target LostOdysseyRecompLib -j 4
 
 host 侧已用 `motion_replay_fixture.h` 经真实 translator 和 host DXC 生成 SPIR-V：VS 6992 bytes、PS 4224 bytes；fixture 记录了 `Shader`、`Int64`、`PhysicalStorageBufferAddresses`、`PhysicalStorageBuffer64 GLSL450`，以及 VS 的 descriptor set 0 / binding 0 顶点 arena 合约。证据保存在 `out/android-device-probe/next-gpu-shader/fixture-compile.json`。这只是 host shader 编译证据，尚无新设备 draw/readback。
 
-下一步应在 native probe 中使用这些 SPIR-V 完成真实 draw + readback，继续保持 24-byte push constants 和 3 个 BDA 常量的 contract，再评估真正的 BDA vertex fetch 和 shader-pack ABI 变化。当前 vertex SSBO 需要完整 1 GiB descriptor range，而设备只报告 128 MiB；不能盲目降为 128 MiB，两个 64 MiB slot 加 slack 仍可能容纳不了最大 fetch，arena 生命周期和分段策略需先设计。
+这段记录属于 BDA 适配前的计划：当时建议在 native probe 中使用这些 SPIR-V 完成真实 draw + readback，并评估 BDA vertex fetch 和 shader-pack ABI 变化。之后 runtime 已采用 BDA vertex fetch，保持 24-byte push constants 和 3 个 BDA 常量 contract；真实设备 draw/readback 与完整 shader 覆盖仍未验证。
+
+## 第三阶段 checkpoint：完整运行时开发切片（2026-10-02，未完成）
+
+后续开发已把完整运行时改为明确的 opt-in 路径：配置 Android runtime 时设置
+`LO_BUILD_ANDROID_RUNTIME=ON`；诊断 APK 仍使用 `LO_BUILD_ANDROID_PROBE=ON`，两者不能混为同一个验证结论。Android 壳和 native runtime 分在 Gradle 的 `:runtime` 模块，诊断 APK 保留在 `:app` 模块。`libmain.so` 已使用 NDK 28.2、API 26、ARM64 完成链接，运行时的 focused host 检查也已通过；完整 APK 已构建并安装，但资源加载和可玩流程仍未验收。
+
+随后 `tools/android/build-runtime.sh`、`:runtime:assembleDebug` 和 `:runtime:lintDebug` 均成功；运行版 APK 通过 v2 签名及 16 KB zip 对齐检查，并已用 ADB 安装成功。最初从共享 Download 目录迁移资源时，shell 所有者和 `0660` 权限导致应用首次读取 `default.xex` 失败；为应用专属 external files 目录补充可读权限后，运行版成功加载 XEX。当前仍没有完整可玩流程证据。
+
+本切片加入固定版本的 Android FFmpeg 配置与隐藏符号边界、Android ARM64 DXC 构建，以及 `libc++` 的 `atomic_ref`／`jthread` 兼容处理。vertex fetch 改为 BDA 路径，避免把完整 1 GiB vertex arena 声明成单一 storage-buffer descriptor，同时保持桌面 HLSL 原文不变。开发平板报告的 128 MiB `maxStorageBufferRange` 因此不再是原先的直接 descriptor 阻塞项；真实 shader draw/readback、设备性能和完整 shader 覆盖仍需验证。Android runtime 的 FFmpeg/DXC 构建细节见 [Android DXC 构建记录](android-dxc-build-2026-10-02.md)。
+
+运行时保留 SDL 的实体手柄路径，并加入屏幕触摸手柄。触摸控件可以在 Android UI 中关闭，开关保存在 `SharedPreferences`；这只证明实现范围，尚未证明在游戏内菜单、战斗和恢复流程中可用。资源开发测试将使用应用专属 external files 目录；设备上已有的约 20.27 GiB 四张光盘资源会迁移到该目录，文档不记录设备序列号或游戏私有数据。
+
+2026-10-02 的 runtime session 已在 Lenovo TB321FU 上加载 XEX，创建 Adreno 750 Vulkan 设备和 2560×1600 swapchain，并进入真实 DXC 编译的 28,484 个 shader 准备阶段；屏幕显示 `Preparing shaders` 和触摸控件。通过 Android UI 关闭触摸控件后，控件消失而 OFF 入口保留，`SharedPreferences` 记录 `enabled=false`。尚未验证重启后的持久化、游戏内输入、实体手柄硬件、音频或完整可玩流程；shader 准备期间的结果也不等于游戏验收。共享 SDL 重构后的 `:app:assembleDebug`／`:app:lintDebug` 仍已通过。
+
+后续 session 跳过首轮预编译后报告 4,325 个游戏 shader ready、0 个失败，4,344 次 DXC 调用成功；不能把这组数字扩展为完整约 28K shader 已完成。guest entry `0x827ca440` 已运行，SDL OpenSL ES 48,000 Hz stereo 与 320 个 FFmpeg XMA context 已初始化。新版 APK 验证每帧 resize 修复只发生一次 resize，但游戏画面仍为黑屏。host debug UI 可以正常显示。触摸 D-pad 下、A、B 已在真机驱动 host debug menu 导航、确认并触发 capture、关闭菜单，截图证据为 `touch-menu-down.png`、`touch-menu-confirm.png` 和 `capture first-black-capture`；这些是 host UI 操作证据，不是游戏玩法验收。
+
+在 session `1790936548149152` 中，触摸关闭设置跨 force-stop、APK 覆盖更新和冷启动保持；OFF 入口的新位置也避开状态栏。L3/R3 通过 guest input trace 分别读到 `0x0040`／`0x0080`，释放后回到 `0`。Home 后回到同一 task，host menu 可以恢复显示。实体手柄未连接，尚未验证实体硬件；新版 APK 中 L3/R3、mouse 过滤和 CTRL 位置的静态检查已通过。`RuntimeActivity` 新增仅 debuggable 的 ADB extras（`LO_VS_DEBUG`、`LO_PS_DEBUG`、`LO_NO_ALPHATEST`、`LO_DEBUG_CAPTURE_SWAP`、`LO_TRACE_INPUT`），需用 `--es key value` 并 force-stop 后切换；固定 VS/PS diagnostic 仍为黑屏，GPU debug 继续进行。
+
+当前明确的 Android 边界是：桌面在线 updater、桌面自动 restart 和自动 tar capture 打包暂不支持。`app:assembleDebug` 与 `:runtime` 的 Gradle 构建是独立目标；native link、APK 打包、资源加载或 shader 准备成功都不能代替实体／触摸输入、音频、前后台恢复和新游戏／首战流程验证。未发布、未 push、无用户验收。

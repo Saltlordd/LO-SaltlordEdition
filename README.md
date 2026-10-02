@@ -39,13 +39,13 @@ Disc 1 is required to start. Use one of the audited Asian multilingual or USA/Eu
 
 This branch includes an experimental arm64 macOS path using Metal. Local Windows and Mac runtime builds now compile and link, and a limited new-game/first-battle test has passed. There is no published macOS package yet. Use the [macOS build instructions](docs/BUILDING.md#building-on-macos) to build it locally. Long play, broader scenes, image quality and performance validation are still pending.
 
-### Android ARM64 probe (experimental, build from source)
+### Android ARM64 runtime (experimental, build from source)
 
-The branch now includes an arm64 Android diagnostic APK that checks host memory-page behavior and Vulkan capabilities through a small SDL activity. It does not run the game or claim broad device compatibility, 16 KB, performance or gameplay support. See the [Android probe instructions](packaging/android/README.md) and the [Android port research note](docs/notes/android-port-research-2026-10-02.md) for the pinned toolchain and current validation limits.
+The branch now includes an experimental arm64 Android runtime target alongside the diagnostic APK. The runtime uses an SDL Android activity, app-owned external storage, the Android ARM64 FFmpeg configuration and an Android DXC build. It is a development build, not a published or generally supported Android release. See the [Android build instructions](packaging/android/README.md) and the [Android port research note](docs/notes/android-port-research-2026-10-02.md) for the pinned toolchain and current validation limits.
 
-The probe passed small memory-alias checks, Vulkan clear/present, repeated checks and background recovery on one Lenovo TB321FU (Android 16, Adreno 750, 4 KB pages). Its 128 MiB storage-buffer limit is below the renderer's current 1 GiB vertex arena, which needs adaptation before the game can run. See the [device report](docs/notes/android-probe-tb321fu-2026-10-02.txt); full-game, performance, controller and 16 KB device validation remain pending.
+The Android runtime now loads the development resources and reaches shader preparation on the test tablet. The newer APK verified the per-frame resize fix with one resize, but the game image remains black. Touch settings survive force-stop, APK replacement and cold start; L3/R3 guest input traces and host-menu recovery also pass, while physical hardware and playable-flow validation remain pending. See the [Android port research note](docs/notes/android-port-research-2026-10-02.md) and [Android DXC build note](docs/notes/android-dxc-build-2026-10-02.md).
 
-The generated PPC code also builds as an Android ARM64/PIC static library with the NDK. This is a separate development target; the full Android runtime has not been linked or run. See the [library build instructions](packaging/android/README.md#android-arm64-recompiled-library).
+The runtime keeps SDL physical-controller support and adds an Android on-screen touch controller that can be hidden and saves its setting automatically. This source path has not yet been accepted through a complete game session. The generated PPC code also remains available as a separate Android ARM64/PIC static-library target.
 
 ### Latest changes
 

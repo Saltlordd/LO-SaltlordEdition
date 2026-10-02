@@ -21,6 +21,8 @@ namespace os::user_paths
         g_executableDirectory = executableDirectory;
 #ifdef _WIN32
         g_usePortableLayout = true;
+#elif LO_PLATFORM_ANDROID
+        g_usePortableLayout = false;
 #elif LO_PLATFORM_MACOS
         // Never write into an app bundle: it may be user-writable, but changing
         // its contents breaks the code signature. Plain folders stay portable.
@@ -52,6 +54,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_ANDROID
+        return g_executableDirectory / "config";
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Application Support");
 #else
@@ -64,6 +68,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_ANDROID
+        return g_executableDirectory;
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Application Support");
 #else
@@ -78,6 +84,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_ANDROID
+        return g_executableDirectory / "state";
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Logs");
 #else

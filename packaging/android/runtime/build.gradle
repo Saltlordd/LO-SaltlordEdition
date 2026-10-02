@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.application'
+}
+
+apply from: '../sdl-java.gradle'
+
+// The full runtime requires host-generated PPC sources and CMake 3.28+.
+// tools/android/build-runtime.sh builds/stages its NDK libraries first.
+def stagedLibraries = rootProject.layout.buildDirectory.dir('runtime-jni')
+def runtimeLibraries = ['libmain.so', 'libSDL2.so', 'libc++_shared.so', 'libdxcompiler.so']
+def checkNativeLibraries = tasks.register('checkNativeLibraries') {
+    doLast {
+        runtimeLibraries.each { name ->
+            if (!new File(stagedLibraries.get().asFile, "arm64-v8a/${name}").isFile()) {
+                throw new GradleException("Missing ${name}; run tools/android/build-runtime.sh first")
+            }
+        }
+        fileTree(stagedLibraries).matching { include '**/*.so' }.each { library ->
+            if (library.parentFile.name != 'arm64-v8a' || !runtimeLibraries.contains(library.name)) {
+                throw new GradleException("Unexpected staged native library: ${library}")
+            }
+        }
+    }
+}
+
+android {
+    namespace 'io.github.freefrank.lostodyssey'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    ndkVersion '28.2.13676358'
+    defaultConfig {
+        applicationId 'io.github.freefrank.lostodyssey'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-dev'
+        ndk { abiFilters 'arm64-v8a' }
+    }
+    sourceSets.main {
+        java.srcDir layout.buildDirectory.dir('generated/sdl-java')
+        jniLibs.srcDir stagedLibraries
+    }
+    lint { baseline = file('../app/lint-baseline.xml') }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging { jniLibs { useLegacyPackaging = false } }
+    buildTypes { release { minifyEnabled false } }
+}
+
+tasks.named('preBuild') { dependsOn checkNativeLibraries }
+dependencies { implementation 'androidx.core:core:1.15.0' }

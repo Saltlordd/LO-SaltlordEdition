@@ -51,6 +51,9 @@ extern char** environ;
 #if LO_PLATFORM_MACOS
 #include <mach-o/dyld.h>
 #endif
+#if LO_PLATFORM_ANDROID
+#include <SDL_system.h>
+#endif
 
 // Runtime entry: set up guest memory, load default.xex and run its entry point
 // on the first guest thread. Everything else is driven by the game through the
@@ -58,7 +61,12 @@ extern char** environ;
 
 static std::filesystem::path ExecutableDirectory()
 {
-#if defined(_WIN32)
+#if LO_PLATFORM_ANDROID
+    // app_process is the executable on Android. SDL supplies the app-owned
+    // writable directory, independent of the APK/native library installation.
+    const char* path = SDL_AndroidGetInternalStoragePath();
+    return path ? std::filesystem::path(path) : std::filesystem::path{};
+#elif defined(_WIN32)
     wchar_t executable[32768]{};
     if (GetModuleFileNameW(nullptr, executable, 32768))
         return std::filesystem::path(executable).parent_path();
@@ -122,14 +130,18 @@ static int RunGuest(uint32_t entry)
     std::_Exit(EXIT_SUCCESS);
 }
 
+#if LO_PLATFORM_ANDROID
+extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char* argv[])
+#else
 int main(int argc, char* argv[])
+#endif
 {
-#if LO_PLATFORM_POSIX
+#if LO_PLATFORM_POSIX && !LO_PLATFORM_ANDROID
     // Park a restart child before even the updater's startup cleanup runs.
     if (settings::restart::WaitForParentIfRestartChild(argc, argv) == settings::restart::ChildHandshake::Invalid)
         return 1;
 #endif
-#if defined(_WIN32) || defined(__linux__)
+#if !LO_PLATFORM_ANDROID && (defined(_WIN32) || defined(__linux__))
     if (const auto applyResult = updater::TryRunApplyMode()) return *applyResult;
 #ifdef _WIN32
     // A restart child must park before touching logs, settings, profiles,
@@ -187,6 +199,14 @@ int main(int argc, char* argv[])
         requestedInstall |= strcmp(argv[i],"--install")==0;
     }
     const auto executableDirectory = ExecutableDirectory();
+#if LO_PLATFORM_ANDROID
+    if (executableDirectory.empty()) return 1;
+    // Relative caches and diagnostics must never be written into app_process's
+    // working directory, including explicit --game launches.
+    std::filesystem::current_path(executableDirectory);
+    std::freopen((executableDirectory / "native-stderr.log").c_str(), "a", stderr);
+    std::setvbuf(stderr, nullptr, _IONBF, 0);
+#endif
     os::user_paths::Initialize(executableDirectory);
     const auto modsRoot = os::user_paths::UsePortableLayout()
         ? executableDirectory / "mods"
@@ -264,7 +284,7 @@ int main(int argc, char* argv[])
     }
     os::diagnostics::LogStartupEnvironment();
 
-#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
+#if !LO_PLATFORM_ANDROID && (defined(_WIN32) || defined(__linux__) || defined(__APPLE__))
     // Check for a newer runtime before opening the content importer or setup.
     if (!getenv("LO_HEADLESS") && !getenv("LO_BACKGROUND"))
     {
@@ -403,6 +423,7 @@ int main(int argc, char* argv[])
     if (entry == 0)
         return 1;
 
+#if !LO_PLATFORM_ANDROID
     // After the update check and before shader preparation: when no installed
     // distribution pack matches the configured renderer, offer the published one.
     {
@@ -412,6 +433,7 @@ int main(int argc, char* argv[])
         packRequest.unboundXex = XexLoader::UnboundIdentityPrefix();
         LOG_INFO("shader pack: {}", updater::shader_pack::PrepareAtStartup(packRequest));
     }
+#endif
 
     // Exercise the same renderer preparation as ordinary startup, without
     // starting guest threads or opening game saves/profiles. This also provides

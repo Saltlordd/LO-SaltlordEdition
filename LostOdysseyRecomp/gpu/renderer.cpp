@@ -7,6 +7,7 @@
 #include "scene_copy_promotion_shaders.h"
 #include "bloom_prefilter.h"
 #include <stdafx.h>
+#include <os/atomic_ref.h>
 #include "renderer.h"
 #include <os/user_paths.h>
 #include "render_resolution.h"
@@ -1643,7 +1644,14 @@ namespace gpu::renderer
                 uint32_t samplerIndex[32];
                 uint32_t textureInfo[32];
                 uint32_t textureSize[32]; // packed guest width/height; physical resolves may be larger.
+#if LO_SHADER_VERTEX_BDA
+                uint64_t vertexArenaAddress;
+#endif
             };
+#if LO_SHADER_VERTEX_BDA
+            static_assert(offsetof(SharedConstants,vertexArenaAddress)==xenos::VertexArenaAddressOffset);
+            static_assert(gpu::render_arena::kVertexArenaSize == 1073741824ull);
+#endif
 
             static_assert(offsetof(SharedConstants,ndcScale)==160);
             static_assert(offsetof(SharedConstants,transfer)==240);
@@ -1912,8 +1920,12 @@ namespace gpu::renderer
                     !hostOcclusion ? "fake" : occlusionMode == gpu::occlusion::Mode::Strict ? "host-strict" : "host-fast",
                     device->getCapabilities().occlusionQueryPrecise, getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "unset");
                 BindGpuSlot();
-                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, RenderBufferFlag::STORAGE));
+                const auto vertexFlags = RenderBufferFlag::STORAGE |
+                    (vulkan && xenos::VertexFetchUsesDeviceAddress ? RenderBufferFlag::DEVICE_ADDRESSABLE : RenderBufferFlag::NONE);
+                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, vertexFlags));
                 if (!vertexArena) return InitFailure("vertex_arena.create", gpu::render_arena::kVertexArenaSize);
+                if (vulkan && xenos::VertexFetchUsesDeviceAddress && !vertexArena->getDeviceAddress())
+                    return InitFailure("vertex_arena.device_address");
                 arenaMapped = static_cast<uint8_t*>(vertexArena->map());
                 if (!arenaMapped) return InitFailure("vertex_arena.map", gpu::render_arena::kVertexArenaSize);
                 readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(kReadbackSize));
@@ -1980,7 +1992,8 @@ namespace gpu::renderer
                 staticSet0 = setBuilders[0].create(device);
                 if (!staticSet0) return InitFailure("vertex_fetch_set.create");
                 for (uint32_t i = 0; i < (vulkan?1:kVertexFetchSlots); i++)
-                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), gpu::render_arena::kVertexArenaSize);
+                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(),
+                        vulkan && xenos::VertexFetchUsesDeviceAddress ? 16 : gpu::render_arena::kVertexArenaSize);
                 defaultSampler = device->createSampler(sampling::Describe(sampling::DefaultKey));
                 if (!defaultSampler) return InitFailure("default_sampler.create");
                 for (uint32_t i = 0; i < kSamplerPalette; i++)
@@ -3598,7 +3611,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     words[0] = r.totalA; words[1] = r.totalB;
                     words[2] = r.zfailA; words[3] = r.zfailB;
                     words[6] = r.stencilFailA; words[7] = r.stencilFailB;
-                    std::atomic_ref<uint64_t>(*reinterpret_cast<uint64_t*>(words + 4)).store(
+                    os::AtomicRef<uint64_t>(*reinterpret_cast<uint64_t*>(words + 4)).store(
                         uint64_t(r.zpassA) | (uint64_t(r.zpassB) << 32), std::memory_order_release);
                 }
             }
@@ -6651,6 +6664,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 std::optional<temporal::SceneAnchor> temporalDrawAnchor;
 
                 SharedConstants shared{};
+#if LO_SHADER_VERTEX_BDA
+                shared.vertexArenaAddress = vertexArena->getDeviceAddress();
+#endif
                 for (uint32_t i = 0; i < 8; i++) shared.bools[i] = Reg(REG_BOOL_CONSTANTS + i);
                 for (uint32_t i = 0; i < 32; i++) shared.loops[i] = Reg(REG_LOOP_CONSTANTS + i);
                 shared.transfer[0] = Reg(REG_PA_SU_POINT_SIZE);

@@ -1,4 +1,5 @@
 #pragma once
+#include "vertex_fetch_contract.h"
 
 // Shared verbatim by translation and the offline/runtime pack contract.
 namespace xenos {
@@ -172,7 +173,41 @@ uint XeLoopConst(uint id)
 #endif
 }
 
-// ---- vertex fetch ----
+)HLSL"
+#if LO_SHADER_VERTEX_BDA
+R"HLSL(
+#ifdef __spirv__
+// Android GPUs may cap storage-buffer descriptors at 128 MiB. Keep the
+// existing arena and recycling policy, but fetch through its device address.
+// The shared constant block appends this address at byte 1024 on this variant.
+struct XeVertexDeviceBuffer
+{
+    uint unused;
+    uint Load(uint a) {
+        if (a > 1073741824u - 4u) return 0u;
+        uint64_t base = vk::RawBufferLoad<uint64_t>(xePush.SharedConstants + 1024);
+        return vk::RawBufferLoad<uint>(base + uint64_t(a));
+    }
+    uint2 Load2(uint a) {
+        if (a > 1073741824u - 8u) return uint2(0u, 0u);
+        return uint2(Load(a), Load(a + 4u));
+    }
+    uint3 Load3(uint a) {
+        if (a > 1073741824u - 12u) return uint3(0u, 0u, 0u);
+        return uint3(Load(a), Load(a + 4u), Load(a + 8u));
+    }
+    uint4 Load4(uint a) {
+        if (a > 1073741824u - 16u) return uint4(0u, 0u, 0u, 0u);
+        return uint4(Load(a), Load(a + 4u), Load(a + 8u), Load(a + 12u));
+    }
+};
+static const XeVertexDeviceBuffer xeVertexDeviceBuffer = (XeVertexDeviceBuffer)0;
+#define xeVertexArena xeVertexDeviceBuffer
+#define ByteAddressBuffer XeVertexDeviceBuffer
+#endif
+)HLSL"
+#endif
+R"HLSL(// ---- vertex fetch ----
 // Data is little-endian after the CPU applied the fetch constant's endian swap.
 float XeNorm(uint v, uint bits, bool sgn, bool nrm)
 {
@@ -275,7 +310,15 @@ float4 XeVF_32_32_32_32_FLOAT(ByteAddressBuffer b, uint a, bool sgn, bool nrm)
     return asfloat(b.Load4(a));
 }
 
-// ---- texture fetch ----
+)HLSL"
+#if LO_SHADER_VERTEX_BDA
+R"HLSL(
+#ifdef __spirv__
+#undef ByteAddressBuffer
+#endif
+)HLSL"
+#endif
+R"HLSL(// ---- texture fetch ----
 float2 XeTextureDimensions(Texture2D<float4> t, uint slot)
 {
     #ifdef __spirv__
