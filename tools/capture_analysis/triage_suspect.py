@@ -183,9 +183,11 @@ def suggest(pair: dict, slots: dict[str, int], sky_pairs: dict, decisions: dict 
         reasons.append("writes main scene depth under jitter (no companion seen)")
     if blockers:
         return "hold", blockers + reasons
+    review = (decisions or {}).get(vs)
+    if review and review["decision"] == "hold":
+        return "hold", [f"{review['manifest']} holds this VS entirely ({review['reason'][:160]})"] + reasons
     if any(vs == other_vs for other_vs, _ in sky_pairs):
         return "map_exact_pair", reasons + ["this VS is already mapped per PS; keep exact pairs"]
-    review = (decisions or {}).get(vs)
     if review and review["decision"] == "held":
         return "map_exact_pair", reasons + [f"{review['manifest']} holds this VS ({review['reason'][:160]}); "
                                             "map only this reviewed pair"]
