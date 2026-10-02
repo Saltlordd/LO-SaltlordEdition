@@ -318,6 +318,16 @@ namespace gpu
         m_waitProgress.notify_all();
     }
 
+    void CommandProcessor::Wake()
+    {
+        {
+            std::lock_guard lock(m_writePtrMutex);
+            m_wake.store(true, std::memory_order_release);
+        }
+        m_writePtrChanged.notify_all();
+        m_waitProgress.notify_all();
+    }
+
     void CommandProcessor::Shutdown()
     {
         host_ui::RequestStop();
@@ -630,11 +640,15 @@ namespace gpu
                 {
                     std::unique_lock lock(m_writePtrMutex);
                     notified_wait::For(m_writePtrChanged, lock, std::chrono::microseconds(500), [&] {
-                        return !m_running || m_writePtrIndex.load() != writePtr;
+                        return !m_running || m_writePtrIndex.load() != writePtr ||
+                            m_wake.exchange(false, std::memory_order_acq_rel);
                     });
                 }
                 if (m_running)
                 {
+                    // Nothing left to execute: a guest polling an occlusion
+                    // query result can only be released from here.
+                    renderer::ServiceOcclusionQueries();
                     video::PumpEvents();
                     if (video::IsHostOverlayActive())
                     {
@@ -1199,6 +1213,9 @@ namespace gpu
                 }
                 if (matched)
                     break;
+                // The guest thread this wait depends on may itself be polling an
+                // occlusion query result: complete it before blocking further.
+                renderer::ServiceOcclusionQueries();
                 video::PumpEvents();
                 if (video::IsHostOverlayActive())
                 {
@@ -1222,7 +1239,8 @@ namespace gpu
                     // rather than always sleeping the whole poll interval.
                     std::unique_lock lock(m_waitProgressMutex);
                     m_waitProgress.wait_for(lock, std::chrono::milliseconds(wait / 0x100), [&] {
-                        return m_interruptsCompleted.load(std::memory_order_relaxed) != progress || !m_running;
+                        return m_interruptsCompleted.load(std::memory_order_relaxed) != progress || !m_running ||
+                            m_wake.exchange(false, std::memory_order_acq_rel);
                     });
                 }
                 else
@@ -1345,8 +1363,10 @@ namespace gpu
             // ZFail_A/B, ZPass_A/B, StencilFail_A/B) at RB_SAMPLE_COUNT_ADDR. D3D
             // issues one event for the BEGIN record and one for the END record and
             // reports end - begin as the occlusion query result; UE3 culls objects
-            // whose query says zero pixels. Without real queries, hand out a
-            // growing count like Xenia's fake mode so every query reads as visible.
+            // whose query says zero pixels, and lens flares fade with the count.
+            // By default the renderer counts the draws in between with host GPU
+            // queries (gpu/occlusion_queries.h). LO_ZPD_MODE fake modes, or a
+            // backend without occlusion queries, hand out made-up counts instead.
             uint32_t initiator = reader.ReadAndSwap();
             WriteRegister(REG_VGT_EVENT_INITIATOR, initiator & 0x3F);
             reader.Advance(count - 1);
@@ -1357,7 +1377,10 @@ namespace gpu
                 // Record layout after Xenia's XenosZPDReport: 32-byte records in
                 // 64-byte slots, END record at the slot base, BEGIN record at +0x20;
                 // D3D stamps 0xFFFFFEED into ZPass_A (or ZFail_A) of a record it is
-                // waiting for. LO_ZPD_MODE selects how the counters are faked:
+                // waiting for. LO_ZPD_MODE selects the counts:
+                //   host  - (default) host GPU queries, answered with the last
+                //           measured count; grow when the backend has none
+                //   strict- host GPU queries, exact results the game waits for
                 //   grow  - every event overwrites its record with a growing count
                 //           (previous behaviour; BEGIN records get clobbered too)
                 //   xenia - Xenia's conventional fake: only records still carrying
@@ -1367,7 +1390,7 @@ namespace gpu
                 //           real-query path does, so end - begin stays positive
                 //   none  - leave the records alone (what the guest does then tells
                 //           us whether it gates rendering on them)
-                static const char* zpdMode = getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "grow";
+                static const char* zpdMode = getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "host";
                 const uint32_t recordBase = address & ~0x1Fu;
                 const bool isBegin = (recordBase & 0x3F) == 0x20;
                 auto* record = reinterpret_cast<uint32_t*>(TranslatePhysical(recordBase));
@@ -1383,6 +1406,8 @@ namespace gpu
                     LOG_INFO("occlusion query event #{}: addr {:#x} ({} record) before=[{:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x} {:#x}] sentinel={} mode={}",
                         logged, address, isBegin ? "BEGIN" : "END", record[0], record[1], record[2], record[3], record[4], record[5], record[6], record[7], sentinel, zpdMode);
                 }
+                if (renderer::OcclusionQueryEvent(address))
+                    return true;
                 auto writeCount = [&](uint32_t n)
                 {
                     record[0] = n; record[1] = 0;   // Total

@@ -63,6 +63,8 @@ int main()
     // A missing executable directory selects the same non-portable branch as
     // an AppImage's read-only mount, without relying on root permission checks.
     os::user_paths::Initialize(root / "missing");
+    // Runtime libraries are found from here even when the layout is not portable.
+    Check(os::user_paths::ExecutableDir() == root / "missing", "executable directory not kept");
     const auto profile = root / "xdg/data/lost-odyssey-recomp/profile";
     Check(os::user_paths::ProfileDir() == profile, "non-portable profile is not in XDG data");
     const auto previousDirectory = fs::current_path();
