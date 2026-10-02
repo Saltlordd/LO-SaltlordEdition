@@ -1,6 +1,6 @@
 # Sky pairs and a depth VS from the map tour — 2026-10-01
 
-Status: mapped in `temporal_scene.h`, checked by `LoTemporalJitterTest --captured-tour-sky`. Not rechecked in the game, and no player has reported these spots yet.
+Status: mapped in `temporal_scene.h`, checked by `LoTemporalJitterTest --captured-tour-sky` and `--captured-tour-batch2`. Not rechecked in the game, and no player has reported these spots yet.
 
 ## How they were found
 
@@ -47,3 +47,30 @@ This VS draws to the main scene depth with the scene camera at slot 4 (Uhra - Ar
 - `LoTemporalJitterTest --captured-tour-sky`: 6 × 33,029 checks with the logged banks, max jitter error 0.0001–0.002 px against an old separation of about 0.488 px. It also checks that `b9b8` and `8d3c` map to slot 4.
 - The case fails against the previous `temporal_scene.h`; the full run passes (4,298,844 checks).
 - Not rechecked in the game.
+
+## Second pass: runtime-only variants (2026-10-01)
+
+Thirty-two of the suspect shaders were not among the known shaders, so the HLSL dump did not contain them. These are mostly the stride and attribute-order variants that the 2026-09-30 sweep held for a runtime capture. A second tour visited only the 22 maps where they had appeared, with `LO_SHADER_DUMP_DIR`. That variable keeps the portable pack and writes the microcode of every new shader. `LoShaderTool` translated the 29 that were found, after renaming each file to the renderer's byte FNV hash.
+
+| VS + PS | Seen at | Depth | Mapping |
+|---|---|---|---|
+| `24418a5936c2d236` + `d7f3f85d208dc73d` | Snow-Covered Trail | `52e4` | VS-wide slot 7 |
+| `f8b1457ed05cacdf` + `e5b735783b09888b` | Astral Square, Numara Palace - Facade | `52e4` | VS-wide slot 7 |
+| `cbadff38155833b6` + `311b14004ee00284` | Gohtza - Southernmost Cape | `f7fd` | exact sky pair, no fallback |
+| `f964d2661094b1a0` | Experimental Staff Marine Division | (depth writer) | slot 4 with `fe3e` |
+
+The four were reviewed as follows:
+
+- **2441 and f8b1.** In both, c7-c10 reach only `oPos` and the `o4` copy, and their only observed PS reads just `i4.w` and samples at mesh UVs. In telemetry and in the tour each VS appeared with that one PS, so they map VS-wide like `61bc`.
+- **cbad.** This is the #102 sky program `db23` with a different vertex component order (`r2.xyz` against `r2.zxy`); the position matrix chain is the same. It gets the same exact-pair policy as `db23`.
+- **f964.** Its HLSL is the alpha-tested depth VS `fe3e` line for line, except for the 14-dword vertex stride.
+
+Held from this pass:
+
+- **Clip X/Y reads.** Most of the remaining pairs read the clip copy's X/Y and sample at clip-derived coordinates. Among them are the stride variants `3fbb`, `dd47`, `ef71`, `c189`, `0d90`, `2214`, `9bde`, `da5b`, `c4a2` and `83f8`. Those are screen-space consumers, not this class.
+- **`25d2/725f`.** Its `oPos` uses slot 2, which no mapped shader uses yet.
+- **`7def` and `8d66`.** Another PS partner has unreviewed guest control flow.
+- **Not reproduced.** `1c00`, `4cca`, `3305`, `ac32` and `c9ed` were not drawn again, or were logged only on map-transition frames with non-finite cameras.
+- **Different camera window.** The slot-3 VS whose camera window is 230/233 are a different camera.
+
+Validation: `--captured-tour-batch2` passes (2441 66,241 checks, max 0.0010 px; f8b1 66,241 checks, max 0.0001 px; cbad 33,029 checks, max 0.0026 px, the same with GCC 16 and clang 22 under ASan/UBSan) and fails against the previous map; the full run passes (4,464,365 checks). Not rechecked in the game.
