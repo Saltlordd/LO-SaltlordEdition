@@ -52,9 +52,10 @@ python -B tools/asset_inventory/inventory.py report `
 ```powershell
 python -B -m unittest tools.tests.asset_inventory_test -v
 python -B tools/tests/asset_decoder_test.py --decoder out/asset-inventory-build/asset_decoder.exe -v
+python -B -m unittest tools.tests.mod_catalog_test tools.tests.mod_tools_test -v
 ```
 
-The first command checks synthetic FPI traversal, content variants, queries, replay and input/output boundaries. The second exercises the actual decoder with synthetic UE3/CPX data, UTF-16 names, texture metadata, and damaged bounds/references. Neither requires original game data.
+The first command checks synthetic FPI traversal, content variants, queries, replay and input/output boundaries. The second exercises the actual decoder with synthetic UE3/CPX data, UTF-16 names, texture metadata, and damaged bounds/references. The third checks SQLite catalog selection, filters, image keys, manifest/overlay layouts, and LOTEX1 packaging; it requires Pillow but no game data. None of these checks requires original game data.
 
 ## Querying the catalog
 
@@ -75,6 +76,19 @@ The UI column is an additional usage hint derived from export class or package/p
 The report distinguishes file occurrences, distinct virtual paths, unique complete payloads, decoded exports, and path/content/export variants. A package copied to more than one disc path is therefore visible in both its occurrence count and its content-deduplicated count. Same-key content variants are retained and must be selected using path, disc, and SHA-256. Imports are dependency references and are not counted as assets.
 
 The catalog does not establish runtime replacement support. The current Mod API wires the native settings `UI_MAIN_00` atlas and selected native font texture pages. Arbitrary guest textures, models, fonts/metrics, movies, and other listed resources remain extension points until a runtime consumer is implemented. Object names containing unsupported key characters are retained with `key_error` and an empty `mod_key`; the inventory does not invent a replacement key.
+
+## Feeding the Mod API
+
+`tools/modding/lo_mod.py catalog` and `init` accept the completed `catalog.sqlite` directly. The `--database` and legacy `--manifest` inputs are mutually exclusive. The database must be schema 1 with `complete=true` and is opened read-only. Catalog skips `key_error`, `property_error`, missing dimensions, and non-`Texture2D` rows; the legacy CSV path retains its `status=exported` filter. Output is limited to 100 rows by default; `--runtime-only` includes font-page candidates, while `--object`, `--package`, and `--content-sha256` select a narrower identity/content variant. The SHA filter selects the package variant used to derive authoring identity and dimensions; it is not written into the key or LOTEX1 payload.
+
+```powershell
+python tools/modding/lo_mod.py catalog --database catalog.sqlite --runtime-only --limit 100
+python tools/modding/lo_mod.py init --database catalog.sqlite --object UI_MAIN_00 --package bin/xenon/loc/int/menu/rpmenurescommon_int.xxx --image art.png --id example --output mod.json
+```
+
+The confirmed consumer accepted by `init` is the native settings atlas `UI_MAIN_00`. Native font-page rows for the `Maru23`, `LocTit1`, and `Abc` owners are candidates only; `init` rejects them by default because native references are not indexed as complete runtime support. Other rows are marked `no_runtime_consumer`; `--allow-unwired` is required for an explicitly experimental specification. `init` requires exactly one identity and one content variant; `--content-sha256` chooses the variant used to derive the authoring identity and dimensions, while the key and LOTEX1 payload do not bind runtime resolution to that SHA. This connects the catalog to the existing `AssetProvider`/manifest/overlay contract; it does not register a new runtime provider or make the game load SQLite. The resulting JSON continues through the existing LOTEX1 `pack` command and supports `standalone` or `overlay` layouts.
+
+The scanner covers the complete disc set passed to it. The `sources` field is auxiliary evidence for checking package provenance and does not change runtime resolution. The native settings-menu loader tries `gameRoot/disc1` first and falls back to `gameRoot`.
 
 The offset in a catalog row is the original FPD archive extent. It must not be confused with a decoded or unpacked UE3 object offset. Reports contain metadata and hashes only; they do not include original artwork or package contents.
 

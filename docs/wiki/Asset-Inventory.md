@@ -81,6 +81,25 @@ python -B tools/asset_inventory/inventory.py query --db "out/asset-inventory/cat
 python -B tools/asset_inventory/inventory.py query --db "out/asset-inventory/catalog.sqlite" --search UI_MAIN_00 --ui
 ```
 
+## Mod 候选 / Mod candidates
+
+资源统计目录也可以直接作为 Mod API 的输入。`tools/modding/lo_mod.py catalog` 和 `init` 接受 `--database catalog.sqlite`，并与旧的 `--manifest manifest.csv` 输入互斥。数据库必须是 schema 1 且 `complete=true`；工具以只读方式打开。默认结果最多 100 条，包含 canonical key、尺寸、完整内容 SHA-256、consumer 标签、overlay path 和来源包。`--runtime-only` 会包含 native menu 和 font-page candidate 标签，但 `init` 默认只接受已确认 consumer；`--object`、`--package` 和 `--content-sha256` 可继续缩小范围。后者只用于选择推导资源标识和尺寸所用的包内容变体，key 和 LOTEX1 不会在运行时绑定该 SHA。
+
+The inventory database can be passed directly to the Mod API tools. `tools/modding/lo_mod.py catalog` and `init` accept `--database catalog.sqlite`, mutually exclusive with the legacy `--manifest manifest.csv` input. The database must be schema 1 with `complete=true` and is opened read-only. Results are limited to 100 by default and include the canonical key, dimensions, complete-content SHA-256, consumer label, overlay path, and source packages. `--runtime-only` includes native menu and font-page candidate labels, but `init` accepts only a confirmed consumer by default. Use `--object`, `--package`, and `--content-sha256` to narrow candidates; the last option selects the package-content variant used to derive the authoring identity and dimensions, while the key and LOTEX1 payload do not bind runtime resolution to that SHA.
+
+```powershell
+python tools/modding/lo_mod.py catalog --database catalog.sqlite --runtime-only --limit 100
+python tools/modding/lo_mod.py init --database catalog.sqlite --object UI_MAIN_00 --package bin/xenon/loc/int/menu/rpmenurescommon_int.xxx --image art.png --id example --output mod.json
+```
+
+已确认可供 `init` 使用的 consumer 是原生设置菜单图集 `UI_MAIN_00`（已核验 5 种语言、512x1024，且每种都有四盘来源）。统计目录只提供 key、尺寸和来源元数据，不导出原始 artwork，Mod 作者必须自行提供 PNG。`Maru23`、`LocTit1`、`Abc` 字体 owner 只标为 native font-page candidate；字体 native refs 尚未索引为完整运行时支持，`init` 默认拒绝这些候选，因此不能把 63 个字体资源称为已支持替换。其余条目标记为 `no_runtime_consumer`，只有明确使用 `--allow-unwired` 才能生成实验性规格。`pack` 仍复用现有 JSON → LOTEX1 ZIP 流程，并支持 `standalone` 和 `overlay` 两种布局。
+
+The confirmed consumer accepted by `init` is the native settings atlas `UI_MAIN_00` (verified in five languages at 512x1024, with four-disc sources for each). The inventory supplies keys, dimensions, and provenance metadata only; it does not export original artwork, so mod authors must provide their own PNG. The `Maru23`, `LocTit1`, and `Abc` owners are labeled only as native font-page candidates; native font references are not indexed as complete runtime support, and `init` rejects these candidates by default. The 63 font resources must not be described as already replaceable. Other rows are marked `no_runtime_consumer`; `--allow-unwired` is required for an explicitly experimental specification. `pack` continues to convert the JSON specification into LOTEX1 ZIPs with `standalone` and `overlay` layouts.
+
+目录输入会跳过 `key_error`、`property_error`、缺少尺寸和非 `Texture2D` 条目；旧的 CSV manifest 路径仍按 `status=exported` 筛选。此接入复用现有 `AssetProvider`、manifest 和 overlay 契约，不会自动注册新的 runtime provider，也不会让游戏在运行时加载 SQLite。资源扫描覆盖传入的完整光盘集合；`sources` 只用于辅助核对来源，不改变运行时解析。原生设置菜单 loader 会优先尝试 `gameRoot/disc1`，否则使用 `gameRoot`。
+
+The catalog path skips `key_error`, `property_error`, missing dimensions, and non-`Texture2D` rows; the legacy CSV manifest path still filters by `status=exported`. This connects the catalog to the existing `AssetProvider`, manifest, and overlay contracts; it does not auto-register a runtime provider or make the game load SQLite. Scanning covers the complete disc set passed to the tool. `sources` is auxiliary provenance evidence and does not change runtime resolution. The native settings-menu loader tries `gameRoot/disc1` first and falls back to `gameRoot`.
+
 ## 分类和统计口径 / Categories and counting
 
 分类以 UE3 export class 为主，包括 `models`、`scene_actors`、`world_geometry`、`textures`、`fonts`、`materials`、`animations`、`effects`、`audio`、`ui_objects`、`sequences`、`script_objects`、`shader_caches`、`worlds_levels`、`default_templates` 等。电影、声音流、字幕、摄像机、事件脚本和本地化数据等非 UE3 文件按文件级用途单独记录。
