@@ -1,0 +1,48 @@
+Lost Odyssey Android port probe 0.1
+No game/runtime compatibility claim.
+
+Device: Lenovo TB321FU, Android 16 / API 36, arm64-v8a
+Host page size: 4096 bytes
+
+memory.page_size=4096
+memory.e_view_alignment=PASS (backing offset delta=4096)
+memory.fixed_4g_reservation=PASS (virtual address only)
+memory.memfd=PASS (sparse backing size=8192)
+memory.alias_ac=PASS (bidirectional sentinel writes)
+memory.alias_e=PASS (shifted sentinel writes)
+memory.status=PASS (small-map feasibility only; production full mapping and protection untested)
+
+Vulkan probe (clear/present only; game renderer and assets not initialized)
+loader API=1.4.0
+device 0: Adreno (TM) 750 (vendor=0x00005143 device=0x43051401)
+  API=1.3.128 driverVersion=0x802fa028 driver=Qualcomm Technologies Inc. Adreno Vulkan Driver
+  shaderInt64=yes bufferDeviceAddress=yes scalarBlockLayout=yes
+  limits: sets=7 samplers=16777216 sampledImages=16777216 storageBuffers=16777216 pushConstants=256 maxStorageBufferRange=134217728 bytes vertexArena=1073741824 bytes
+  BC1 UNORM: optimal sampled=yes color=no depth/stencil=no storage=no required=yes
+  BC1 SRGB: optimal sampled=yes color=no depth/stencil=no storage=no required=yes
+  BC2 UNORM: optimal sampled=yes color=no depth/stencil=no storage=no required=yes
+  BC2 SRGB: optimal sampled=yes color=no depth/stencil=no storage=no required=yes
+  BC3 UNORM: optimal sampled=yes color=no depth/stencil=no storage=no required=yes
+  BC3 SRGB: optimal sampled=yes color=no depth/stencil=no storage=no required=yes
+  D32S8: optimal sampled=yes color=no depth/stencil=yes storage=no required=yes
+  RGBA16F: optimal sampled=yes color=yes depth/stencil=no storage=yes required=yes
+  memory heaps=2 types=9
+    heap 0: 15275 MiB flags=0x00000001
+    heap 1: 4095 MiB flags=0x00000001
+    type 0: heap=0 flags=0x00000001
+    type 1: heap=0 flags=0x00000001
+    type 2: heap=0 flags=0x00000001
+    type 3: heap=0 flags=0x0000000b
+    type 4: heap=0 flags=0x00000007
+    type 5: heap=0 flags=0x00000007
+    type 6: heap=0 flags=0x0000000f
+    type 7: heap=1 flags=0x00000021
+    type 8: heap=0 flags=0x00000011
+  renderer layout gate (backend_selection.h): PASS
+  vertex arena range gate (render_arena_policy.h): FAIL
+  sampled/render format probe: PASS
+  clear/present queue family=0: clear submit and present succeeded; 2560x1600
+
+Audio device: opened (use Test audio to hear a tone)
+SDL controllers: 0
+Report: app internal files/probe-report.txt; logcat tag LOAndroidProbe

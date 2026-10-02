@@ -7,7 +7,7 @@
 #include <fstream>
 #include <set>
 
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 
 namespace updater
 {

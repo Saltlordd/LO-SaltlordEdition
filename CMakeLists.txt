@@ -27,6 +27,14 @@ set(BUILD_SHARED_LIBS OFF)
 
 # LO_TARGET_PLATFORM / LO_TARGET_ISA for every platform-specific decision below.
 include(cmake/LoPlatform.cmake)
+option(LO_BUILD_ANDROID_PROBE "Build the Android SDL/Vulkan/memory diagnostic app (no game data)" OFF)
+if(LO_BUILD_ANDROID_PROBE)
+    if(NOT ANDROID OR NOT LO_TARGET_ISA STREQUAL "aarch64")
+        message(FATAL_ERROR "The Android probe requires the NDK arm64-v8a toolchain")
+    endif()
+    add_subdirectory(tools/android_probe)
+    return()
+endif()
 # Sandy Bridge baseline (AVX): lets simde map VMX ops to real SSE4.1/AVX intrinsics
 # instead of scalar fallbacks (which pull in C23 roundeven*). Same as UnleashedRecomp.
 # Guarded to x86 so non-x86 Clang builds do not receive an invalid -march; on
@@ -53,14 +61,28 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # CMake 结构拆成 LostOdysseyRecompLib（重编译产物）与 LostOdysseyRecomp（运行时）。
 option(LO_BUILD_TOOLS "Build XenonRecomp / XenosRecomp (use tools/build_tools.bat with MSVC instead)" OFF)
 option(LO_BUILD_RECOMP_LIB "Build the recompiled game code library from LostOdysseyRecompLib/ppc" ON)
+option(LO_BUILD_RUNTIME "Build the LostOdysseyRecomp runtime executable" ON)
+option(LO_BUILD_GPU "Build the plume-based GPU backend" ON)
+option(LO_BUILD_ANDROID_RUNTIME "Enable the experimental Android game runtime shared library" OFF)
+
+if(ANDROID)
+    if(NOT LO_TARGET_ISA STREQUAL "aarch64")
+        message(FATAL_ERROR "Android currently requires the NDK arm64-v8a toolchain")
+    endif()
+    if(LO_BUILD_TOOLS)
+        message(FATAL_ERROR "Android builds use host-generated PPC sources; build XenonRecomp/XenosRecomp separately for the host")
+    endif()
+    if(LO_BUILD_RUNTIME AND NOT LO_BUILD_ANDROID_RUNTIME)
+        message(FATAL_ERROR "The Android game runtime is experimental; explicitly set -DLO_BUILD_ANDROID_RUNTIME=ON, or use -DLO_BUILD_ANDROID_PROBE=ON for diagnostics")
+    endif()
+    # These archives will be linked into the Android runtime shared library.
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 if(LO_BUILD_TOOLS)
     add_subdirectory(tools/XenonRecomp)
     add_subdirectory(tools/XenosRecomp)
 endif()
-
-option(LO_BUILD_RUNTIME "Build the LostOdysseyRecomp runtime executable" ON)
-option(LO_BUILD_GPU "Build the plume-based GPU backend" ON)
 
 if(LO_BUILD_RECOMP_LIB)
     add_subdirectory(LostOdysseyRecompLib)
@@ -89,7 +111,7 @@ if(LO_BUILD_RUNTIME)
                 ${CMAKE_SOURCE_DIR}/LostOdysseyRecomp/modding/mod_api.cpp)
         endif()
     endforeach()
-    if(LO_BUILD_GPU AND NOT LO_TARGET_PLATFORM STREQUAL "macos")
+    if(LO_BUILD_GPU AND NOT ANDROID AND NOT LO_TARGET_PLATFORM STREQUAL "macos")
         add_subdirectory(tools/tests/native_dlss)
     endif()
     if(TARGET LoPpcAutoSync)
@@ -116,7 +138,7 @@ if(LO_BUILD_MOD_TESTS)
     add_test(NAME LoModApiTest COMMAND LoModApiTest)
 endif()
 
-if(UNIX AND LO_BUILD_RUNTIME)
+if(UNIX AND NOT ANDROID AND LO_BUILD_RUNTIME)
     install(TARGETS LostOdysseyRecomp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES
         packaging/linux/io.github.freefrank.LostOdysseyRecomp.desktop

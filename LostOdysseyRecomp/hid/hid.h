@@ -13,6 +13,8 @@ namespace hid
     void PumpHostInput();
     // Atomic presentation hint for host UI; does not change the guest's buttons.
     bool UsesPlayStationPrompts();
+    // Physical SDL controllers may be discovered through HIDAPI without an Android InputDevice.
+    bool HasConnectedController();
 
     uint32_t GetState(uint32_t dwUserIndex, XAMINPUT_STATE* pState);
     uint32_t SetState(uint32_t dwUserIndex, XAMINPUT_VIBRATION* pVibration);

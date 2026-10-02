@@ -6,7 +6,7 @@
 #include <set>
 #include <utility>
 
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 
 namespace updater::shader_pack
 {

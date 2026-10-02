@@ -50,6 +50,9 @@
 #include <os/shader_log.h>
 #include <os/user_paths.h>
 #include <hid/hid.h>
+#if defined(__ANDROID__)
+#include <hid/android_touch.h>
+#endif
 #include <debug/battle_menu.h>
 #include <debug/menu_overlay.h>
 #include <host_ui/host_ui.h>
@@ -116,6 +119,21 @@ namespace gpu::video
 
 #if !defined(LO_VIDEO_SUBMISSION_UNIT)
         SDL_Window* g_window = nullptr;
+#if defined(__ANDROID__)
+        std::atomic<uintptr_t> g_androidNativeWindowIdentity{0};
+        std::atomic<uint64_t> g_androidSurfaceChangeSerial{0};
+        std::atomic<bool> g_androidSurfaceReady{false};
+        bool g_androidWasBackgrounded = false; // SDL event thread only.
+
+        uintptr_t CurrentAndroidNativeWindow()
+        {
+            if (!g_window) return 0;
+            SDL_SysWMinfo info{};
+            SDL_VERSION(&info.version);
+            if (!SDL_GetWindowWMInfo(g_window, &info) || info.subsystem != SDL_SYSWM_ANDROID) return 0;
+            return reinterpret_cast<uintptr_t>(info.info.android.window);
+        }
+#endif
 #if LO_PLATFORM_MACOS
         // Main-thread owned; the swap chain presents to the view's CAMetalLayer.
         SDL_MetalView g_metalView = nullptr;
@@ -152,6 +170,12 @@ namespace gpu::video
             g_cocoaWindow = g_metalLayer = nullptr;
 #endif
             if (g_window) { SDL_DestroyWindow(g_window); g_window = nullptr; }
+#if defined(__ANDROID__)
+            g_androidNativeWindowIdentity = 0;
+            g_androidSurfaceChangeSerial = 0;
+            g_androidSurfaceReady = false;
+            g_androidWasBackgrounded = false;
+#endif
             g_displayRefreshHz = 0;
             g_nextRefreshPoll = {};
             if (g_videoSubsystemOwned) {
@@ -369,6 +393,10 @@ namespace gpu::video
         bool g_hasPresentedImage=false;
         bool g_presentPending=false;
         bool g_forceSwapResize=false;
+#if defined(__ANDROID__)
+        uint64_t g_androidAppliedSurfaceChangeSerial = 0; // Presentation thread only.
+        bool g_androidSurfaceRebuildFailureLogged = false;
+#endif
         struct PresentCaptureCopy {
             bool queued = false;
             std::string failure;
@@ -1611,6 +1639,10 @@ namespace gpu::video
         g_temporalUpscaler.reset();
         g_dlssController.reset();
         g_hasPresentedImage = false; g_lastPresentedImage = 0; g_forceSwapResize = false;
+#if defined(__ANDROID__)
+        g_androidAppliedSurfaceChangeSerial = 0;
+        g_androidSurfaceRebuildFailureLogged = false;
+#endif
         g_presentationDisplay = {};
 #endif
     }
@@ -1679,6 +1711,14 @@ namespace gpu::video
                 LOG_WARNING("video: window creation failed: {}", SDL_GetError());
                 return false;
             }
+#if defined(__ANDROID__)
+            const auto nativeWindow = CurrentAndroidNativeWindow();
+            g_androidNativeWindowIdentity = nativeWindow;
+            g_androidSurfaceChangeSerial = 0;
+            g_androidSurfaceReady = nativeWindow != 0;
+            g_androidWasBackgrounded = false;
+            LOG_INFO("video: Android native surface initial window={:#x}", nativeWindow);
+#endif
 
             // The game never accepts host text entry. Keep SDL text input/IME
             // disabled so an active IME cannot consume gameplay key presses.
@@ -1915,6 +1955,9 @@ namespace gpu::video
             g_acquireSemaphore = g_device->createCommandSemaphore();
             g_releaseSemaphore = g_device->createCommandSemaphore();
             if (!g_commandList || !g_fence || !g_acquireSemaphore || !g_releaseSemaphore) return "command/synchronization initialization failed";
+#if defined(__ANDROID__)
+            const auto initialSurfaceSerial = g_androidSurfaceChangeSerial.load();
+#endif
 #ifdef _WIN32
             plume::RenderSwapChainDesc swapDescription(g_nativeWindow, kSwapChainFormat, kSwapChainBuffers);
 #elif LO_PLATFORM_MACOS
@@ -1934,6 +1977,9 @@ namespace gpu::video
             }
             g_swapChain = g_queue->createSwapChain(swapDescription);
             if (!g_swapChain || g_swapChain->isEmpty()) return "window surface/swapchain initialization failed";
+#if defined(__ANDROID__)
+            g_androidAppliedSurfaceChangeSerial = initialSurfaceSerial;
+#endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (g_d3dFg) g_fgWindowSynchronization = true;
 #endif
@@ -2256,17 +2302,49 @@ namespace gpu::video
 
     namespace {
 #if defined(LO_GPU_PLUME) && !defined(_WIN32)
+#if defined(__ANDROID__)
+    static bool EnsureAndroidSurfaceSwapChain()
+    {
+        if (GpuWorkStopped() || (!g_available && !g_initializing) || !g_androidSurfaceReady.load())
+            return false;
+        const auto surfaceSerial = g_androidSurfaceChangeSerial.load();
+        if (surfaceSerial == g_androidAppliedSurfaceChangeSerial && g_swapChain) return true;
+        if (!g_queue || !g_window || !WaitForPresentGpu()) return false;
+        g_swapChain.reset();
+        g_presentSemaphores.clear();
+        g_hasPresentedImage = false;
+        g_lastPresentedImage = 0;
+        g_swapChain = g_queue->createSwapChain(
+            plume::RenderSwapChainDesc(g_window, kSwapChainFormat, kSwapChainBuffers));
+        if (!g_swapChain || g_swapChain->isEmpty()) {
+            g_swapChain.reset();
+            if (!g_androidSurfaceRebuildFailureLogged)
+                LOG_WARNING("video: Android native surface swapchain recreation pending serial={}", surfaceSerial);
+            g_androidSurfaceRebuildFailureLogged = true;
+            return false;
+        }
+        g_androidAppliedSurfaceChangeSerial = surfaceSerial;
+        g_androidSurfaceRebuildFailureLogged = false;
+        g_presentationDisplay.nativeVsyncInitialized = false;
+        LOG_INFO("video: Android native surface swapchain recreated window={:#x} serial={}",
+            g_androidNativeWindowIdentity.load(), surfaceSerial);
+        return true;
+    }
+#endif
     static bool UploadAndPresentPixels(const std::vector<uint32_t>& pixels, uint32_t width, uint32_t height,
                                        bool isMenu, uint64_t displayTicket, const PresentationOptions& presentationOptions,
                                        const gpu::present_capture::Ticket *captureTicket, gpu::present_capture::Result *captureResult);
-    static void RenderPreparationScreen(PreparationStage stage, PreparationUnit unit, uint32_t done, uint32_t total)
+    static bool RenderPreparationScreen(PreparationStage stage, PreparationUnit unit, uint32_t done, uint32_t total)
     {
+#if defined(__ANDROID__)
+        if (!EnsureAndroidSurfaceSwapChain()) return false;
+#endif
         if (!g_swapChain || g_swapChain->isEmpty() || (!g_available && !g_initializing) || !g_presentation)
-            return;
+            return false;
         const uint32_t width = g_swapChain->getWidth();
         const uint32_t height = g_swapChain->getHeight();
         if (!width || !height)
-            return;
+            return false;
 
         static std::vector<uint32_t> s_prepPixels;
         const size_t pixelCount = size_t(width) * height;
@@ -2308,7 +2386,7 @@ namespace gpu::video
         r.DrawWString((int(width) - hint2W) / 2, centerY + 68, line2, hintColor, 1.0f);
         r.DrawWString((int(width) - hint3W) / 2, centerY + 91, line3, hintColor, 1.0f);
 
-        UploadAndPresentPixels(s_prepPixels, width, height, true, 0, PresentationOptions{}, nullptr, nullptr);
+        return UploadAndPresentPixels(s_prepPixels, width, height, true, 0, PresentationOptions{}, nullptr, nullptr);
     }
 #endif
 
@@ -2399,6 +2477,12 @@ namespace gpu::video
         }
         static uint64_t shownProgress = 0;
         static auto lastProgressPaint = std::chrono::steady_clock::time_point{};
+#if defined(__ANDROID__)
+        static uint64_t shownSurfaceSerial = 0;
+        const bool surfaceChangePending = shownSurfaceSerial != g_androidSurfaceChangeSerial.load();
+#else
+        const bool surfaceChangePending = false;
+#endif
         const uint64_t progress = g_shaderProgress.load();
         const auto now = std::chrono::steady_clock::now();
         // Scanning can publish hundreds of updates per second. Keep UI updates
@@ -2406,7 +2490,13 @@ namespace gpu::video
         const bool phaseChanged = (progress >> 56) != (shownProgress >> 56);
         const uint32_t total = uint32_t((progress >> 28) & kProgressMask);
         const uint32_t done = uint32_t(progress & kProgressMask);
-        if (g_window && progress != shownProgress &&
+#if defined(__ANDROID__)
+        // The virtual pad publishes JNI snapshots, not SDL controller events.
+        if (total && !ShaderPreparationSkipped() &&
+            (hid::android_touch::Snapshot().buttons & XAMINPUT_GAMEPAD_B))
+            RequestSkipShaderPreparation();
+#endif
+        if (g_window && (progress != shownProgress || surfaceChangePending) &&
             (phaseChanged || done == total || now-lastProgressPaint >= std::chrono::milliseconds(100))) {
             const auto stage=PreparationStage((progress>>56)&15);
             const auto unit=PreparationUnit(progress>>60);
@@ -2434,9 +2524,20 @@ namespace gpu::video
                 DestroyWindow(g_preparationWindow); g_preparationWindow=nullptr;
             }
 #elif defined(LO_GPU_PLUME)
-            if (total && g_swapChain && !g_swapChain->isEmpty() && (g_available || g_initializing) && g_presentation) {
-                RenderPreparationScreen(stage, unit, done, total);
-            } else if (!total && shownProgress != 0 && g_swapChain && !g_swapChain->isEmpty() && (g_available || g_initializing) && g_presentation) {
+#if defined(__ANDROID__)
+            const bool canPaintPreparation = g_queue && (g_available || g_initializing) && g_presentation;
+#else
+            const bool canPaintPreparation = g_swapChain && !g_swapChain->isEmpty() &&
+                (g_available || g_initializing) && g_presentation;
+#endif
+            [[maybe_unused]] bool preparationPainted = false;
+            if (total && canPaintPreparation) {
+                preparationPainted = RenderPreparationScreen(stage, unit, done, total);
+            } else if (!total && shownProgress != 0 && canPaintPreparation
+#if defined(__ANDROID__)
+                && EnsureAndroidSurfaceSwapChain()
+#endif
+                && g_swapChain && !g_swapChain->isEmpty()) {
                 const uint32_t width = g_swapChain->getWidth();
                 const uint32_t height = g_swapChain->getHeight();
                 if (width && height) {
@@ -2444,9 +2545,14 @@ namespace gpu::video
                     const size_t count = size_t(width) * height;
                     if (s_clearPixels.size() != count)
                         s_clearPixels.assign(count, host_ui::MakeColor(255, 0, 0, 0));
-                    UploadAndPresentPixels(s_clearPixels, width, height, true, 0, PresentationOptions{}, nullptr, nullptr);
+                    preparationPainted = UploadAndPresentPixels(s_clearPixels, width, height, true, 0,
+                        PresentationOptions{}, nullptr, nullptr);
                 }
             }
+#if defined(__ANDROID__)
+            if (preparationPainted || (!total && !shownProgress))
+                shownSurfaceSerial = g_androidSurfaceChangeSerial.load();
+#endif
 #endif
             shownProgress = progress;
             lastProgressPaint = now;
@@ -2541,6 +2647,28 @@ namespace gpu::video
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
+#if defined(__ANDROID__)
+            if (event.type == SDL_APP_WILLENTERBACKGROUND || event.type == SDL_APP_DIDENTERBACKGROUND) {
+                g_androidWasBackgrounded = true;
+                g_androidSurfaceReady = false;
+            }
+            if (event.type == SDL_APP_DIDENTERFOREGROUND ||
+                (event.type == SDL_WINDOWEVENT && event.window.windowID == SDL_GetWindowID(g_window) &&
+                 (event.window.event == SDL_WINDOWEVENT_RESIZED || event.window.event == SDL_WINDOWEVENT_RESTORED ||
+                  event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED))) {
+                const auto nativeWindow = CurrentAndroidNativeWindow();
+                if (nativeWindow) {
+                    const auto previous = g_androidNativeWindowIdentity.exchange(nativeWindow);
+                    if (previous != nativeWindow || g_androidWasBackgrounded) {
+                        const auto serial = g_androidSurfaceChangeSerial.fetch_add(1) + 1;
+                        LOG_INFO("video: Android native surface changed old={:#x} new={:#x} serial={}",
+                            previous, nativeWindow, serial);
+                        g_androidWasBackgrounded = false;
+                    }
+                }
+                g_androidSurfaceReady = nativeWindow != 0;
+            }
+#endif
             if (event.type == SDL_DISPLAYEVENT ||
                 (event.type == SDL_WINDOWEVENT &&
                  (event.window.event == SDL_WINDOWEVENT_MOVED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
@@ -2630,6 +2758,9 @@ namespace gpu::video
             }
             if (event.type == SDL_WINDOWEVENT && event.window.windowID == SDL_GetWindowID(g_window) &&
                 (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED ||
+#if defined(__ANDROID__)
+                 event.window.event == SDL_WINDOWEVENT_RESIZED ||
+#endif
                  event.window.event == SDL_WINDOWEVENT_RESTORED)) {
 #ifdef _WIN32
                 if (!getenv("LO_BACKGROUND") && state.applied.windowMode == settings::WindowMode::Borderless)
@@ -2922,8 +3053,12 @@ namespace gpu::video
             g_fgWindowChange = 2;
         }
 #endif
-        if (!g_available || !g_swapChain || GpuWorkStopped())
+        if (!g_available || GpuWorkStopped())
             return false;
+#if defined(__ANDROID__)
+        if (!EnsureAndroidSurfaceSwapChain()) return false;
+#endif
+        if (!g_swapChain) return false;
         UpdateHdrOutput();
         // Shared by real game frames and paused host overlays. Saving a new
         // cap applies here before any swapchain acquire, even while paused.
@@ -3035,7 +3170,18 @@ namespace gpu::video
 #endif
         // Empty is recoverable: minimized Vulkan surfaces may have zero extent.
         // Never return for isEmpty() before giving resize() a chance to recover.
-        if (g_forceSwapResize || g_swapChain->isEmpty() || g_swapChain->needsResize()) {
+#if defined(__ANDROID__)
+        // Android WSI can mandate a native currentExtent larger than SDL's
+        // requested size. Plume's needsResize() compares those two extents and
+        // would rebuild the same swapchain on every frame. SDL resize events
+        // set g_forceSwapResize; preserve out-of-date and present-mode requests.
+        const auto* androidSwap = static_cast<const plume::VulkanSwapChain*>(g_swapChain.get());
+        const bool backendNeedsResize = androidSwap->surfaceOutOfDate ||
+            androidSwap->requiredPresentMode != androidSwap->createdPresentMode;
+#else
+        const bool backendNeedsResize = g_swapChain->needsResize();
+#endif
+        if (g_forceSwapResize || g_swapChain->isEmpty() || backendNeedsResize) {
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (g_d3dFg) g_d3dFg->Quiesce();
 #endif
@@ -3110,6 +3256,9 @@ namespace gpu::video
                                        bool isMenu, uint64_t displayTicket, const PresentationOptions& presentationOptions,
                                        const gpu::present_capture::Ticket *captureTicket, gpu::present_capture::Result *captureResult)
     {
+#if defined(__ANDROID__)
+        if (!EnsureAndroidSurfaceSwapChain()) return false;
+#endif
         if (GpuWorkStopped() || (!g_available && !g_initializing) || !g_swapChain || g_swapChain->isEmpty())
             return false;
         g_fgPresent.CancelAll(frame_generation::HandoffCancel::AlternatePresent);

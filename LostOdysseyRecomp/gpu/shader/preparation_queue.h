@@ -101,11 +101,27 @@ namespace xenos::preparation
         std::string startError;
     };
 
+    // NDK libc++ has no jthread yet. The queue owns cancellation itself and
+    // only needs joining destruction; keep that guarantee during unwinding.
+#if defined(__cpp_lib_jthread)
+    using WorkerThread = std::jthread;
+#else
+    class WorkerThread
+    {
+        std::thread thread_;
+    public:
+        explicit WorkerThread(std::function<void()> work) : thread_(std::move(work)) {}
+        WorkerThread(WorkerThread&&) noexcept = default;
+        ~WorkerThread() { if (thread_.joinable()) thread_.join(); }
+        void join() { thread_.join(); }
+    };
+#endif
+
     struct ThreadLauncher
     {
-        std::jthread operator()(std::function<void()> work) const
+        WorkerThread operator()(std::function<void()> work) const
         {
-            return std::jthread(std::move(work));
+            return WorkerThread(std::move(work));
         }
     };
 
@@ -166,7 +182,7 @@ namespace xenos::preparation
             }
         };
 
-        std::vector<std::jthread> workers;
+        std::vector<WorkerThread> workers;
         struct CancelBeforeWorkersJoin
         {
             std::atomic<bool>& cancelled;

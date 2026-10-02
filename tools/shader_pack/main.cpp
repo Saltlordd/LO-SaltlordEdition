@@ -20,10 +20,19 @@ static std::vector<uint8_t> ReadRuntimeImage(const char* argument) {
 int main(int argc,char** argv) try {
     const auto command = argc > 1 ? std::string_view(argv[1]) : std::string_view{};
     if (command == "merge") return Merge(argc, argv);
-    if (command == "contract" && argc == 3) {
+    if (command == "contract" && (argc == 3 || (argc == 4 && std::string_view(argv[3]) == "--android"))) {
+        const bool androidContract = argc == 4;
+        if (androidContract && !xenos::VertexFetchUsesDeviceAddress)
+            throw std::runtime_error("--android requires a pack tool built with LO_ANDROID_SHADER_PACK_HOST=ON");
         // The contract each renderer's startup download looks up in index.json.
         namespace pack = xenos::portable_pack;
         const auto image = ReadRuntimeImage(argv[2]);
+        if (androidContract) {
+            std::cout << "{\n  \"android-vulkan\": \""
+                      << xenos::resources::Sha256Hex(pack::FlavorContract(image, pack::Flavor::Vulkan))
+                      << "\"\n}\n";
+            return 0;
+        }
         const char* separator = "{\n";
         for (const auto flavor : {pack::Flavor::Vulkan, pack::Flavor::D3D12, pack::Flavor::Metal}) {
             std::cout << separator << "  \"" << pack::FlavorName(flavor) << "\": \""
@@ -36,15 +45,18 @@ int main(int argc,char** argv) try {
     const bool runtime = command == "verify-runtime";
     // Metal consumes SPIR-V compiled at -O1, a separate contract (cache::MetalOptions).
     const bool metal = runtime && argc == 5 && std::string_view(argv[4]) == "--metal";
-    if ((runtime ? argc != 4 && !metal : argc != 3) ||
+    const bool android = runtime && argc == 5 && std::string_view(argv[4]) == "--android";
+    if ((runtime ? argc != 4 && !metal && !android : argc != 3) ||
         (command != "inspect" && command != "verify" && !runtime)) {
         std::cerr << "Usage: LoShaderPackTool <inspect|verify> pack.lospv|pack.lospd\n"
-                     "       LoShaderPackTool verify-runtime pack.lospv|pack.lospd xexdump-image.bin [--metal]\n"
-                     "       LoShaderPackTool contract xexdump-image.bin\n"
+                     "       LoShaderPackTool verify-runtime pack.lospv|pack.lospd xexdump-image.bin [--metal|--android]\n"
+                     "       LoShaderPackTool contract xexdump-image.bin [--android]\n"
                      "       LoShaderPackTool merge baseline.lospv xexdump-image.bin manifest.tsv output-dir\n";
         return 2;
     }
     const bool verified = command != "inspect";
+    if (android && !xenos::VertexFetchUsesDeviceAddress)
+        throw std::runtime_error("--android requires a pack tool built with LO_ANDROID_SHADER_PACK_HOST=ON");
     const auto path = std::filesystem::path(reinterpret_cast<const char8_t*>(argv[2]));
     xenos::portable_pack::Report r;
     if (runtime) {
@@ -54,6 +66,8 @@ int main(int argc,char** argv) try {
             xenos::cache::Backend::D3D12 : xenos::cache::Backend::Vulkan;
         if (metal && backend != xenos::cache::Backend::Vulkan)
             throw std::runtime_error("--metal applies to SPIR-V packs only");
+        if (android && backend != xenos::cache::Backend::Vulkan)
+            throw std::runtime_error("--android applies to SPIR-V packs only");
         auto identity = xenos::cache::MakeIdentity(backend, "");
         if (metal) identity.options = xenos::cache::MetalOptions();
         const auto expected = xenos::portable_pack::RuntimeContract(image, identity, format);
@@ -62,7 +76,7 @@ int main(int argc,char** argv) try {
         r = reader.Info();
     } else r = xenos::portable_pack::Reader::Inspect(path, verified);
     std::cout<<"{\n  \"schema\": "<<xenos::portable_pack::Schema
-        <<",\n  \"format\": \""<<(r.format == xenos::portable_pack::PackFormat::Spirv ? (metal ? "spirv-metal" : "spirv") : "dxil")<<"\""
+        <<",\n  \"format\": \""<<(r.format == xenos::portable_pack::PackFormat::Spirv ? (metal ? "spirv-metal" : android ? "spirv-android" : "spirv") : "dxil")<<"\""
         <<",\n  \"contract\": \""<<xenos::resources::Sha256Hex(r.contract)<<"\""
         <<",\n  \"records\": "<<r.records<<",\n  \"unique_binaries\": "<<r.uniqueBinaries
         <<",\n  \"blocks\": "<<r.blocks<<",\n  \"failures_omitted\": "<<r.failuresOmitted

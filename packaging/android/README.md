@@ -1,0 +1,229 @@
+# Android ARM64 development builds
+
+This directory builds the Android development probe and experimental full
+runtime for the Lost Odyssey Recomp Android port. The probe is a diagnostic APK
+that reports host memory-page behavior and Vulkan device limits, formats and
+heaps, and exercises one clear/present frame per check run. The runtime is an
+arm64 development APK path and is not a published Android release.
+
+The targets use **arm64-v8a** with API 26+, compile/target SDK
+35, Android Gradle Plugin 8.9.3, Gradle 8.11.1 and NDK 28.2.13676358. The
+source CMake entry accepts `Android` for the probe and for the explicitly
+opt-in `LO_BUILD_ANDROID_RUNTIME=ON` runtime path. The runtime remains
+experimental and requires host-generated PPC sources plus the Android FFmpeg,
+DXC and staged native-library inputs described below.
+
+## Prerequisites
+
+Install these SDK packages with `sdkmanager` (or select the same versions in
+Android Studio):
+
+```sh
+sdkmanager "platform-tools" "platforms;android-35" \
+  "build-tools;35.0.0" "cmake;3.22.1" \
+  "ndk;28.2.13676358"
+```
+
+Set `ANDROID_HOME` or `ANDROID_SDK_ROOT` to the SDK directory. The Gradle
+wrapper downloads the pinned Gradle 8.11.1 distribution and verifies its
+SHA-256 checksum from `gradle-wrapper.properties`. Use JDK 17 for the Android
+Gradle Plugin 8.9.3 build.
+
+## Build and lint
+
+From this directory, run:
+
+```sh
+./gradlew assembleDebug lintDebug
+```
+
+The probe and runtime are separate Gradle modules. Build the probe with
+`:app:assembleDebug`; build the runtime shell with `:runtime:assembleDebug`
+after staging its native libraries with `tools/android/build-runtime.sh`.
+The runtime Gradle task is a packaging step. The current runtime APK has passed
+the debug build, lint, v2 signature and 16 KB zip-alignment checks and has been
+installed with ADB. On the development tablet, the four-disc resources are in
+the app's external files directory with readable permissions; the runtime has
+loaded the XEX, created the Vulkan device and swapchain, and entered real DXC
+shader preparation. The [Android DXC build note](../../docs/notes/android-dxc-build-2026-10-02.md)
+records the native compiler staging details. The current development APK has loaded the XEX, played the opening video,
+reached the first battle and completed two touch-driven attacks with visible
+damage on the development tablet. One initial-battle shader preparation pause
+of about 40 seconds was observed. Longer play, audio beyond native queue
+evidence, other GPUs, 16 KB devices and physical-controller validation remain
+open; these checks do not establish complete-game support.
+
+On Windows PowerShell use:
+
+```powershell
+.\gradlew.bat assembleDebug lintDebug
+```
+
+The debug APK is written to
+`app/build/outputs/apk/debug/app-debug.apk`. The current host build has passed
+`assembleDebug` and `lintDebug`; APK signature and 16 KB zip alignment checks
+also pass. These checks prove packaging and static toolchain output only; they
+do not establish device compatibility or full-game support.
+
+The build copies the pinned SDL Java sources into Gradle's generated sources
+and applies a narrow local shim to guard malformed USB broadcast intents and
+validate USB permission responses. SDL's own API-guarded receiver helper uses
+`RECEIVER_NOT_EXPORTED`. The lint baseline contains exactly 26 upstream SDL
+`MissingPermission` findings (Bluetooth, audio and vibration paths). It does
+not suppress application or receiver errors introduced by the probe.
+
+## Install and collect a report
+
+With an ARM64 Android device connected and visible to ADB:
+
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n io.github.freefrank.lostodyssey.probe/.ProbeActivity
+adb exec-out run-as io.github.freefrank.lostodyssey.probe \
+  cat files/probe-report.txt
+adb logcat -d -s LOAndroidProbe
+```
+
+The probe Activity provides **Run checks**, **Test audio** and **Copy report**
+controls. The native report is stored at
+`files/probe-report.txt`; native diagnostics use the `LOAndroidProbe` logcat
+tag. Capture the device model, SDK, ABI, page size, Vulkan features and limits
+alongside the report. No game files or storage permissions are required.
+
+The probe's memory check is deliberately limited: it uses a fixed 4 GiB
+virtual-address reservation with small aliases. The current experiment marks
+the **E alias** path unsupported on 16 KiB hosts; its A/C checks can still run.
+This is not evidence for full guest mapping, protection, or runtime
+compatibility. Vulkan coverage stops at capability discovery and one
+clear/present frame per check run; shaders, pipelines and game rendering remain
+future work.
+
+## Android ARM64 recompiled library
+
+The library build separates host code generation from Android target
+compilation. XenonRecomp and its tools run on the Windows host; the generated
+PPC sources are then compiled by the Android NDK into the PIC static target
+`LostOdysseyRecompLib`. The repository's generated `LostOdysseyRecompLib/ppc`
+sources are private build inputs and must not be added to a commit.
+
+Use a WSL system CMake **3.28 or newer** for this slice. The Gradle project's
+CMake 3.22.1 requirement is for the probe APK and is separate from this
+cross-build. From the repository root, with `ANDROID_NDK_ROOT` pointing to the
+pinned NDK directory:
+
+```sh
+cmake --version
+cmake -S . -B out/build/android-ppc -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+  -DLO_BUILD_RUNTIME=OFF -DLO_BUILD_GPU=OFF \
+  -DLO_BUILD_TOOLS=OFF -DLO_BUILD_RECOMP_LIB=ON \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build out/build/android-ppc --target LostOdysseyRecompLib -j 4
+```
+
+The Release build passed with NDK 28.2: the archive contains 247 AArch64 ELF
+objects (246 generated files plus the function mapping), all compiled with
+PIC. This remains a separate library-only target. The opt-in full runtime
+target links `libmain.so` for the Android shell after staging the Android
+FFmpeg, DXC and other native libraries; the development build has passed the
+runtime library link and focused host checks. It does not yet establish APK
+installation, resource loading or a playable game flow.
+
+## Experimental full runtime
+
+From the repository root, generate PPC sources on the host and stage the
+Android native dependencies before invoking the runtime CMake path:
+
+```sh
+tools/android/build-runtime.sh
+```
+
+The Gradle shell can then be packaged from this directory:
+
+```sh
+./gradlew :runtime:assembleDebug
+```
+
+The runtime uses app-owned external files for game data and keeps physical SDL
+controller input. Its source touch-controller implementation provides a
+`Controller settings` dialog with **Show touch controls**, **Control size**
+(60–140%), **Opacity** (25–100%), **Apply**, **Cancel** and **Edit layout**.
+The editor provides **SAVE**, **CANCEL**, **RESET** and **HIDE**/**SHOW**;
+controls can be dragged independently, and hidden controls remain selectable
+in the editor. The pure layout model checks and the configurable editor flow
+were verified on the development tablet; broader multitouch and physical
+controller coverage remain pending. The
+BDA vertex-fetch path avoids requiring the complete
+1 GiB vertex arena as one storage-buffer descriptor on devices with a smaller
+reported range. Host HLSL remains unchanged for the desktop path.
+
+Android online updating, desktop-style automatic restart and automatic tar
+capture packaging are not supported by this development target. A successful
+native link or Gradle package is not gameplay acceptance; install the APK and
+record resource loading, shader compilation, input, audio, lifecycle and a
+bounded game-flow test separately.
+
+USB and Bluetooth controllers use the same touch visibility policy. Connecting
+one automatically hides touch controls while retaining `CTRL`; enable **Show
+touch controls** to use touch and physical input together. Disconnecting the
+last controller restores the saved touch preference. Android input events and
+SDL's connected-controller state cover framework and HIDAPI controller paths.
+The SDL fallback is checked once a second while the Activity is resumed; the
+watch stops in the background. Physical hot-plug verification remains pending.
+
+Android's graphics menu omits desktop backend, window, output-size, aspect,
+VRR and frame-generation controls. Render resolution, supported antialiasing,
+filtering, RGB range, frame rate and brightness remain available. FSR choices
+appear only in builds that include FSR; the current development build does not.
+Returning through the launcher reuses the top runtime Activity, preventing the
+duplicate SDL startup observed with the previous default launch mode. On
+foreground return, the renderer recreates the Vulkan surface and swapchain
+after draining queued GPU work instead of presenting to the abandoned Surface.
+
+The Android branch now uses SDL2 revision
+`b7502f1a884c055f8535cf8d2be3f44c41669a43` (2.33.0), matching the controller
+update from [PR #97](https://github.com/freefrank/LostOdysseyRecomp/pull/97)
+referenced by [issue #103](https://github.com/freefrank/LostOdysseyRecomp/issues/103).
+This includes upstream controller mappings and drivers, but does not establish
+Android compatibility for each controller or USB/Bluetooth mode.
+`tools/android/build-runtime.sh` also applies
+`tools/patches/sdl-android-surface-lock.patch`: native-window queries use SDL's
+Activity mutex, and Vulkan surface creation retains the native window while
+calling the driver. Direct CMake invocations must apply this patch first.
+
+## Prebuild Android Vulkan shaders on a host
+
+Android uses the vertex-BDA/u32-push shader contract. A desktop Vulkan bundle
+does not match this contract and is rejected. With the normal host build
+dependencies, generated PPC sources, decrypted `image_disc1.bin` and your game
+files present, run on a Linux Vulkan-capable host (including a suitable WSL
+configuration):
+
+```sh
+CC=clang CXX=clang++ tools/android/build-shader-pack.sh \
+  /path/to/game/disc1 /path/to/android-shader-pack
+```
+
+The script enables `LO_ANDROID_SHADER_PACK_HOST`, builds the host runtime and
+pack tool, prepares the known shaders in an isolated cache, and verifies
+`portable_vk.lospv` with `LoShaderPackTool verify-runtime --android`. It writes
+the contract and verification reports beside the bundle and refuses to replace
+an existing output bundle. `LO_ANDROID_SHADER_HOST_BUILD_DIR` selects the host
+build directory; `LO_ANDROID_SHADER_HOST_CACHE_DIR` selects its shader cache.
+`LO_ANDROID_SHADER_FFMPEG_SOURCE_DIR` can reuse the pinned FFmpeg source.
+
+For the development APK, install the verified bundle into app-owned internal
+storage while the game is stopped, preserving game files, settings and saves:
+
+```sh
+adb push /path/to/android-shader-pack/portable_vk.lospv /data/local/tmp/lo-android-portable_vk.lospv
+adb shell run-as io.github.freefrank.lostodyssey mkdir -p files/shaders
+adb shell run-as io.github.freefrank.lostodyssey cp /data/local/tmp/lo-android-portable_vk.lospv files/shaders/portable_vk.lospv
+adb shell rm /data/local/tmp/lo-android-portable_vk.lospv
+```
+
+The existing loader validates the Android contract before use. This avoids
+on-device DXC work for covered shaders; driver pipeline creation and shaders
+outside the bundle may still require preparation. Desktop automatic bundle
+download is not enabled on Android.
