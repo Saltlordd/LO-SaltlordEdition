@@ -18,6 +18,7 @@
 #include "issue121_sky_ge1_jitter_capture.h"
 #include "f12139_sky_jitter_capture.h"
 #include "f25276_cave_jitter_capture.h"
+#include "tour_sky_20261001_capture.h"
 #include "feedback_mapping_cases.h"
 #include "screen_batch_cases.h"
 
@@ -1755,6 +1756,21 @@ static void CapturedF25276Cave()
     CapturedMaterialOverDepth({"f25276 cave",0x61bc9947f1e88573ull,0x042ef823a22e1498ull,0xf7fd88506d704a3dull,273,10},
         gs4_cave_f25276::draws[0]);
 }
+// Map tour 2026-10-01: six more PS partners of the #67 sky VS over b030 depth,
+// with banks from runtime suspect lines (first reported draw of each pair).
+// b9b8 is the mapped depth VS 8d3c with a 12-dword vertex stride.
+static void CapturedTourSky()
+{
+    for (const auto& draw:tour_sky_20261001::draws)
+    {
+        char label[32];
+        std::snprintf(label,sizeof(label),"tour sky %04x",unsigned(draw.ps>>48));
+        CapturedSky({label,0xbda41a11626a545cull,draw.ps,0xb030ab4e17a20783ull,draw.draw,draw.depthDraw,
+            true,0x4013372b6413788full},draw);
+    }
+    Check(PositionVPSlot(0xb9b8056050a4c194ull)==4 && PositionVPSlot(0x8d3c80b318235b22ull)==4,
+        "tour depth VS b9b8 maps to slot 4 with 8d3c, its 10-dword stride twin");
+}
 // Runtime suspect locator (no F1 capture): camera slot choice, same-frame
 // companion lookup, per-pair settling and the fixture-bearing log format.
 static void SuspectLocator()
@@ -2009,6 +2025,7 @@ static const NamedCase namedCases[]{
     {"--captured-issue121-sky",CapturedIssue121Sky,true},
     {"--captured-f12139-sky",CapturedF12139Sky,true},
     {"--captured-f25276-cave",CapturedF25276Cave,true},
+    {"--captured-tour-sky",CapturedTourSky,true},
     {"--suspect-tracker",SuspectLocator,true},
     {"--feedback-mapping-batch",FeedbackMappingBatch,true},
     {"--screen-mapping-batch",ScreenMappingBatch,true},
