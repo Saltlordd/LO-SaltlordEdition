@@ -69,7 +69,7 @@ Held from this pass:
 
 - **Clip X/Y reads.** Most of the remaining pairs read the clip copy's X/Y and sample at clip-derived coordinates. Among them are the stride variants `3fbb`, `dd47`, `ef71`, `c189`, `0d90`, `2214`, `9bde`, `da5b`, `c4a2` and `83f8`. Those are screen-space consumers, not this class.
 - **`25d2/725f`.** Its `oPos` uses slot 2, which no mapped shader uses yet.
-- **`7def` and `8d66`.** Another PS partner has unreviewed guest control flow.
+- **`7def` and `8d66`.** Another PS partner had guest control flow the clip review could not follow (an alpha-test kill or a `select`). Both were mapped on 2026-10-02 once the review learned those forms; see [the battle depth writers note](jitter-battle-depth-2026-10-01.md).
 - **Not reproduced.** `1c00`, `4cca`, `3305`, `ac32` and `c9ed` were not drawn again, or were logged only on map-transition frames with non-finite cameras.
 - **Different camera window.** The slot-3 VS whose camera window is 230/233 are a different camera.
 
