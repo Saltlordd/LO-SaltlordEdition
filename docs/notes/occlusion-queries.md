@@ -1,8 +1,8 @@
 # Host GPU occlusion queries (#118)
 
 Status 2026-10-01: implemented on `feat/occlusion-queries` for Direct3D 12 and
-Vulkan; Metal keeps the old fake counts. Checked in the frozen Uhra save on an
-RTX 5080. The world-map lens flare from #118 has not been run yet.
+Vulkan; Metal keeps the old fake counts. Checked in the frozen Uhra save and at
+the #118 spot on the world map on an RTX 5080.
 
 ## Why the flare showed through terrain
 
@@ -89,7 +89,12 @@ shutdown) writes the waiting records as visible, so a guest never waits forever.
 - The query proxy draws have no pixel shader. NVIDIA counts their samples; Xenia
   binds an empty pixel shader for such draws because some drivers do not, which
   this change does not do yet.
-- Not checked: the #118 world-map flare, AMD and Intel GPUs, exclusive
-  fullscreen. The disc 1 jail scene and the disc 3 train fight, which Xenia's
+- #118 world-map flare, Vulkan, 1600x900: the user saved at the reported spot
+  (slot 08, Twilight Ocean, disc 4), where the sun sits behind a cliff next to
+  the Nautilus. Loading it with `LO_ZPD_MODE=grow` drew the sun disc and a warm
+  glare over the cliff in all three screenshots taken 3–6 s after loading; the
+  default mode showed the dark cliff with no sun and no glare in all three.
+  Strict mode was not run there.
+- Not checked: AMD and Intel GPUs, exclusive fullscreen. The disc 1 jail scene and the disc 3 train fight, which Xenia's
   "Disable Occlusion Queries" patch for this game mentions, have not been run
   in strict mode.
