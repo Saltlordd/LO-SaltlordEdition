@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
-from portable_shader_pack_payload import stage_portable_shader_pack
+from portable_shader_pack_payload import stage_shader_pack_license
 from release.version import normalize_release_version, valid_source_version
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -120,7 +120,7 @@ def main():
             shutil.copy2(fsr_license, licenses / fsr_license.name)
         stage_frame_generation_runtime(runtime.parent, package, licenses,
                                        args.streamline_sdk_root.resolve())
-        stage_portable_shader_pack(runtime.parent, package, licenses)
+        stage_shader_pack_license(licenses)
         shutil.copy2(ROOT / 'LICENSE', licenses / 'LostOdysseyRecomp.txt')
         shutil.copy2(ROOT / 'thirdparty/miniz-UNLICENSE.txt', licenses / 'miniz-UNLICENSE.txt')
         shutil.copy2(ROOT / 'thirdparty/nlohmann-json-LICENSE.txt', licenses / 'nlohmann-json-LICENSE.txt')
