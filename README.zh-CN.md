@@ -49,11 +49,11 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 | :--- | :--- |
 | 导入与首次设置 | 支持文件夹、XEX、ISO、GOD 和受支持的 DLC，可替换所选光盘；首次启动前设置语言和图形选项。原始来源文件保持不变。 |
 | 语言 | 界面提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于安装的版本。 |
-| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。 |
+| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。在 Linux 上，v0.7.25 安装包在 NVIDIA 显卡上被报告无法使用 DLSS（[#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)）；修复已合并但尚未发布。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
 | 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。尚未发布的源码在 Windows Vulkan 上也提供关／DLSS（固定 2×–6×；启动时为关而之后开启，或切换提供者，需要重启），另有实验性的 Vulkan FSR 2×（仅限源码构建）和实验性的 macOS MetalFX 2×（尚未在 Mac 硬件上运行），见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |
-| 着色器预编译 | 内置便携式 Vulkan 着色器、多线程编译、跳过和缓存复用。[v0.7.10 的可选 DX12 包](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10)应放在 `shaders/portable_dx12.lospd`；v0.7.25 未单独提供该资产。 |
+| 着色器预编译 | 内置便携式 Vulkan 着色器、多线程编译、跳过和缓存复用。v0.7.25 安装包内的 Vulkan 着色器包与该版本运行时不匹配而被忽略，因此首次启动会编译全部着色器（16 线程 CPU 上约 3 分钟）；尚未发布的源码已修复这一问题，并在构建发布包时校验附带的着色器包（[详情](docs/PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)）。[v0.7.10 的可选 DX12 包](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.10)应放在 `shaders/portable_dx12.lospd`；v0.7.25 未单独提供该资产，尚未发布的源码会拒绝按旧规则生成的包，直到重新生成 DX12 包。 |
 | Mod | Mod API v1、LOTEX1／PNG 工具、原生菜单图集和字体纹理页替换，以及 PlayStation 按键提示。支持范围和安装方法见 [Mod 指南](docs/wiki/Modding.md)。 |
 | 输入与工具 | SDL 已映射手柄、键盘输入和震动；英文／简体中文[调试菜单](#调试菜单)，提供画面捕获、同地图传送、快进和游戏数据修改。 |
 
