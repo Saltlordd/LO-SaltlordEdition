@@ -260,7 +260,7 @@ TRIAGE_PS = """void main(
 
 
 class TriageSuspectTest(unittest.TestCase):
-    def run_triage(self, root, ps_text=TRIAGE_PS, mapping_extra="", pairs="", include_mapped=False):
+    def run_triage(self, root, ps_text=TRIAGE_PS, mapping_extra="", pairs="", include_mapped=False, held=False):
         log = root / "runtime.log"
         log.write_text(suspect_lines()[0])
         hlsl = root / "hlsl"
@@ -273,7 +273,13 @@ class TriageSuspectTest(unittest.TestCase):
                            "default:return -1; }}\n"
                            f"inline constexpr SkyMaterialPair SkyMaterialPairs[]{{\n{pairs}}};\n")
         output = root / f"triage-{len(list(root.glob('triage-*.json')))}.json"
-        args = ["--log", str(log), "--hlsl-dir", str(hlsl), "--mapping", str(mapping), "--output", str(output)]
+        reviews = root / "reviews"
+        reviews.mkdir(exist_ok=True)
+        decision = "held" if held else "implemented"
+        (reviews / "manifest.json").write_text(json.dumps({"candidates": [
+            {"vs": MATERIAL, "decision": decision, "reason": "another PS samples the clip copy"}]}))
+        args = ["--log", str(log), "--hlsl-dir", str(hlsl), "--mapping", str(mapping), "--reviews", str(reviews),
+                "--output", str(output)]
         triage_suspect.main(args + (["--include-mapped"] if include_mapped else []))
         return json.loads(output.read_text())["pairs"]
 
@@ -293,6 +299,12 @@ class TriageSuspectTest(unittest.TestCase):
             pair, = self.run_triage(Path(tmp), pairs=f"    {{0x{MATERIAL}ull, 0x{'4'*16}ull, true}},\n")
             self.assertEqual(pair["action"], "map_exact_pair")
             self.assertIn(f"0x{PIXEL}ull, true", pair["snippets"]["temporal_scene.h"])
+
+    def test_vs_held_by_a_review_manifest_gets_exact_pairs_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pair, = self.run_triage(Path(tmp), held=True)
+            self.assertEqual(pair["action"], "map_exact_pair")
+            self.assertTrue(any("manifest.json holds this VS" in reason for reason in pair["reasons"]))
 
     def test_clip_xy_sampling_or_screen_position_holds(self):
         with tempfile.TemporaryDirectory() as tmp:

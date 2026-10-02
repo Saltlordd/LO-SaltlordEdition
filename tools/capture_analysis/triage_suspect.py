@@ -36,7 +36,7 @@ import trace  # noqa: E402
 SKY_PAIR = re.compile(r"\{\s*0x([0-9a-fA-F]{16})ull\s*,\s*0x([0-9a-fA-F]{16})ull\s*,\s*(true|false)\s*\}")
 DECLARATION = re.compile(r"^(?:float[234]?|int|uint|bool|CubeMapData)\s+\w+\s*=\s*[^;]*;$")
 DEBUG_COPY = re.compile(r"^xeDbgTex\s*=\s*r\d+\s*;$")
-GUEST_REGISTER = re.compile(r"\b(?:r\d+|i\d+|xePV|ps)\b")
+GUEST_REGISTER = re.compile(r"\b(?:r\d+|xePV|ps)\b")
 SCREEN_POSITION = re.compile(r"\biPos\b")
 
 
@@ -45,6 +45,21 @@ def mapping_state(header: Path) -> tuple[dict[str, int], dict[tuple[str, str], b
     text = header.read_text(encoding="utf-8")
     pairs = {(vs.lower(), ps.lower()): fallback == "true" for vs, ps, fallback in SKY_PAIR.findall(text)}
     return slots, pairs
+
+
+def review_decisions(directory: Path) -> dict[str, dict]:
+    """Latest reviewed decision per VS from the review manifests; a later
+    manifest (by name) overrides an earlier one."""
+    decisions = {}
+    if not directory.is_dir():
+        return decisions
+    for path in sorted(directory.glob("*.json")):
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for item in data.get("candidates", []):
+            if isinstance(item, dict) and "vs" in item and "decision" in item:
+                decisions[item["vs"].lower()] = {"decision": item["decision"], "reason": item.get("reason", ""),
+                                                 "manifest": path.name}
+    return decisions
 
 
 def finite_words(values) -> bool:
@@ -97,12 +112,14 @@ def review_shaders(vs_text: str | None, ps_text: str | None, scratch: Path) -> d
         signature_end = body.index("{")
         review = ps.get("clip_input_review") or {}
         # Translator scaffolding the clip review cannot parse: declarations,
-        # debug texture copies and the host alpha-test epilogue, which uses no
-        # guest register. Guest control flow keeps its registers and stays.
+        # debug texture copies, the host alpha-test epilogue and the host debug
+        # view (xeFlags, i15), none of which use a guest register or the clip
+        # copy. Guest control flow keeps its registers and stays.
+        clip_inputs = {f"i{n}" for n in copies}
         unsupported = [entry for entry in review.get("unsupported", [])
                        if not DECLARATION.match(entry["text"]) and not DEBUG_COPY.match(entry["text"])
-                       and GUEST_REGISTER.search(entry["text"])]
-        clip_inputs = {f"i{n}" for n in copies}
+                       and (GUEST_REGISTER.search(entry["text"]) or
+                            any(re.search(rf"\b{name}\b", entry["text"]) for name in clip_inputs))]
         screen_fetches = [f for f in ps["fetches"] if any(
             dep.split(".")[0] in clip_inputs and dep.endswith((".x", ".y")) for dep in f["coordinate_dependencies"])]
         result["ps"] = {
@@ -118,7 +135,7 @@ def review_shaders(vs_text: str | None, ps_text: str | None, scratch: Path) -> d
     return result
 
 
-def suggest(pair: dict, slots: dict[str, int], sky_pairs: dict) -> tuple[str, list[str]]:
+def suggest(pair: dict, slots: dict[str, int], sky_pairs: dict, decisions: dict | None = None) -> tuple[str, list[str]]:
     vs, ps = pair["vs"], pair["ps"]
     if vs in slots:
         return "already_mapped_vs", [f"PositionVPSlot maps {vs} to slot {slots[vs]}"]
@@ -168,6 +185,10 @@ def suggest(pair: dict, slots: dict[str, int], sky_pairs: dict) -> tuple[str, li
         return "hold", blockers + reasons
     if any(vs == other_vs for other_vs, _ in sky_pairs):
         return "map_exact_pair", reasons + ["this VS is already mapped per PS; keep exact pairs"]
+    review = (decisions or {}).get(vs)
+    if review and review["decision"] == "held":
+        return "map_exact_pair", reasons + [f"{review['manifest']} holds this VS ({review['reason'][:160]}); "
+                                            "map only this reviewed pair"]
     return "map_vs_wide", reasons + ["no other reviewed PS policy for this VS; check its other PS partners first"]
 
 
@@ -209,6 +230,8 @@ def main(argv=None) -> int:
     parser.add_argument("--hlsl-dir", action="append", default=[], type=Path,
                         help="directory with <hash>.hlsl (e.g. LoShaderTool output) when no capture has the shader")
     parser.add_argument("--mapping", type=Path, default=Path("LostOdysseyRecomp/gpu/temporal_scene.h"))
+    parser.add_argument("--reviews", type=Path, default=Path("tools/shader_analysis/reviews"),
+                        help="review manifests; a VS held there is only ever suggested as exact pairs")
     parser.add_argument("--include-mapped", action="store_true", help="also list pairs the map already covers")
     parser.add_argument("--output", required=True, type=Path, help="new JSON report")
     parser.add_argument("--markdown", type=Path, help="optional new Markdown table")
@@ -220,6 +243,7 @@ def main(argv=None) -> int:
         parser.error("pass at least one --log or --capture")
 
     slots, sky_pairs = mapping_state(args.mapping)
+    decisions = review_decisions(args.reviews)
     rows = [row for log in args.log for row in suspect_log.parse_log(log)]
     pairs = {}
     for row in rows:
@@ -245,7 +269,7 @@ def main(argv=None) -> int:
         for (vs, ps), log_rows in sorted(pairs.items()):
             pair = {"vs": vs, "ps": ps, "log_rows": log_rows, "capture_draws": draws.get((vs, ps), [])}
             pair["shaders"] = review_shaders(hlsl.get(vs), hlsl.get(ps), scratch)
-            pair["action"], pair["reasons"] = suggest(pair, slots, sky_pairs)
+            pair["action"], pair["reasons"] = suggest(pair, slots, sky_pairs, decisions)
             if pair["action"].startswith("already") and not args.include_mapped:
                 continue
             vs_slots = (pair["shaders"].get("vs") or {}).get("slots") or []
