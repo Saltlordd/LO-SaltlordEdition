@@ -19,9 +19,8 @@ TEMPLATE = ROOT / "packaging/linux/io.github.freefrank.LostOdysseyRecomp.json"
 APP_ID = "io.github.freefrank.LostOdysseyRecomp"
 REQUIRED = {
     "bin/LostOdysseyRecomp",
-    "bin/libnvidia-ngx-dlss.so.310.9.1",
-    "bin/libnvidia-ngx-dlss.so",
-    "bin/libnvidia-ngx-dlss.so.1",
+    # Signed by NVIDIA and verified unmodified by package_appimage.py.
+    "bin/ngx/libnvidia-ngx-dlss.so.310.9.1",
     "bin/shaders/portable_vk.lospv",
     "lib/libdxcompiler.so",
     "share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/LICENSE.txt",
@@ -60,7 +59,7 @@ for root in ('/app/bin', '/app/lib'):
                                         ('not found', 'undefined symbol', 'symbol lookup error')):
                 sys.exit('Unresolved runtime dependency in ' + str(path) + ':\n' + result.stdout)
             checked += 1
-for library in ('/app/lib/libdxcompiler.so', '/app/bin/libnvidia-ngx-dlss.so.310.9.1',
+for library in ('/app/lib/libdxcompiler.so', '/app/bin/ngx/libnvidia-ngx-dlss.so.310.9.1',
                 'libpipewire-0.3.so.0', 'libpulse.so.0'):
     ctypes.CDLL(library)
 print('Flatpak runtime probe: ' + str(checked) + ' ELF files and four dlopen libraries resolved')
@@ -118,10 +117,8 @@ def inspect_payload_tree(files: Path) -> None:
     missing = REQUIRED - found
     if missing:
         raise ValueError(f"Missing required AppDir payload: {sorted(missing)}")
-    for alias in ("libnvidia-ngx-dlss.so", "libnvidia-ngx-dlss.so.1"):
-        link = files / "bin" / alias
-        if not link.is_symlink() or os.readlink(link) != "libnvidia-ngx-dlss.so.310.9.1":
-            raise ValueError(f"NGX alias is not relative to its runtime: {link}")
+    if (files / "bin/ngx/libnvidia-ngx-dlss.so.310.9.1").is_symlink():
+        raise ValueError("NGX snippet must be NVIDIA's file, not a link")
     if not (files / "bin/LostOdysseyRecomp").is_file():
         raise ValueError("Runtime ELF missing")
 

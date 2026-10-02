@@ -1,5 +1,7 @@
 """AppImage packager collects linuxdeploy output before the temp dir is deleted."""
+import contextlib
 import importlib.util
+import io
 import os
 import tempfile
 import unittest
@@ -285,7 +287,25 @@ class PackageAppImageTests(unittest.TestCase):
             module.validate_apprun(appdir)
 
 
-    def test_dlss_runtime_bundled_with_license_and_symlinks(self):
+    def test_ngx_snippet_must_match_nvidia_bytes(self):
+        module = load_packager()
+        with tempfile.TemporaryDirectory(prefix='lo-ngx-snippet-') as tmp:
+            base = Path(tmp)
+            source = base / module.NGX_SNIPPET
+            source.write_bytes(b'signed snippet')
+            appdir = base / 'AppDir'
+            with self.assertRaisesRegex(SystemExit, 'snippet missing'):
+                module.validate_ngx_snippet(source, appdir)
+            packaged = appdir / module.NGX_DIRECTORY / module.NGX_SNIPPET
+            packaged.parent.mkdir(parents=True)
+            # An RPATH rewrite can keep the size; only the bytes tell.
+            packaged.write_bytes(b'signed snippeT')
+            with self.assertRaisesRegex(SystemExit, 'modified the signed NGX snippet'):
+                module.validate_ngx_snippet(source, appdir)
+            packaged.write_bytes(b'signed snippet')
+            module.validate_ngx_snippet(source, appdir)
+
+    def test_dlss_runtime_bundled_with_license_in_ngx_folder(self):
         module = load_packager()
         with tempfile.TemporaryDirectory(prefix='lo-dlss-appimage-') as tmp:
             base = Path(tmp)
@@ -316,10 +336,17 @@ class PackageAppImageTests(unittest.TestCase):
             sdk_dir.mkdir(parents=True, exist_ok=True)
             (sdk_dir / 'LICENSE.txt').write_text('mock license', encoding='utf-8')
 
+            listing = io.StringIO()
             with patch.object(module, 'ROOT', fake_root):
-                with patch.object(sys, 'argv', argv):
+                with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(listing):
                     # Dry layout creates layout and prints paths without linuxdeploy
                     module.main()
+            files = set(listing.getvalue().splitlines())
+            self.assertIn('usr/bin/ngx/libnvidia-ngx-dlss.so.310.9.1', files)
+            self.assertIn('usr/share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/LICENSE.txt', files)
+            # Nothing linuxdeploy rewrites may hold or alias the snippet.
+            self.assertEqual([name for name in files
+                              if 'ngx-dlss' in name and not name.startswith('usr/bin/ngx/')], [])
 
 
 if __name__ == '__main__':
