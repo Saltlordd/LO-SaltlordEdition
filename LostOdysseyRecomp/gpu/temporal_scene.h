@@ -20,6 +20,9 @@ inline int PositionVPSlot(uint64_t shader) {
     // f13429-f13431: alpha-tested depth shares ff9da/a27a geometry; c4-c7
     // feed only position, while its object UV and alpha color remain unchanged.
     case 0x8d3c80b318235b22ull:
+    // Map tour 2026-10-01 (Uhra - Army Sewers, Eastern Gohtza Railroad Track):
+    // the 8d3c program with a 12-dword vertex stride, a scene depth writer.
+    case 0xb9b8056050a4c194ull:
     // f5914: stride-56 static depth companion of 799c/eeae; c4-c7 position only.
     case 0x52e4405f97159d2full:
     // f16385-f16387: alpha-tested depth; UV/color outputs are independent of VP.
@@ -151,6 +154,20 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Ice Canyon - Snowy Plateau (F1 f12139): the #67 VS with PS 1dee over b030
     // depth. 1dee reads only the clip W copy; same VS, same fallback as #67.
     {0xbda41a11626a545cull, 0x1dee52ba32155a53ull, true},
+    // Map tour 2026-10-01: the #67 VS over b030 depth with six more PS that read
+    // only the clip W copy and sample at mesh UVs (triage_suspect.py review).
+    // e086: Numara Palace, Ghost Town, Armored Vehicle, Ipsilon Mountains hut.
+    {0xbda41a11626a545cull, 0xe086f5f676c72482ull, true},
+    // e2b8: Saman - Main Street, Port of Saman.
+    {0xbda41a11626a545cull, 0xe2b89a553d00ef47ull, true},
+    // 72bc: Experimental Staff Marine Division, Ice Canyon - Glacier Fang, White Boa.
+    {0xbda41a11626a545cull, 0x72bcd05d7ab61ce1ull, true},
+    // bbba: Uhra - Amphitheater of the Sky, Grand Staff - Central Connector.
+    {0xbda41a11626a545cull, 0xbbbac6693e441760ull, true},
+    // 4049: The White Boa - Main Deck.
+    {0xbda41a11626a545cull, 0x40496f0784d54689ull, true},
+    // 1693: Aurora-Bound Train - Engine Car.
+    {0xbda41a11626a545cull, 0x1693d368b809e65dull, true},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)

@@ -40,6 +40,11 @@ lo_review_test(LoUserPathsTest user_paths_test.cpp)
 lo_review_test(LoRuntimeLibrariesTest runtime_libraries_test.cpp)
 lo_review_test(LoExternalUpdateNoticeTest external_update_notice_test.cpp)
 lo_review_test(LoOcclusionQueriesTest occlusion_queries_test.cpp)
+# TAA/FSR/DLSS jitter map: every reviewed flicker fix has a case here.
+lo_review_test(LoTemporalJitterTest temporal_jitter_test.cpp)
+# Offline capture, suspect-log and triage tools (standard-library Python).
+add_test(NAME LoJitterCaptureTools COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/jitter_capture_tools_test.py")
+set_tests_properties(LoJitterCaptureTools PROPERTIES TIMEOUT 60)
 
 if(LO_REVIEW_SDL_TESTS)
     if(LO_REVIEW_SDL_LIBRARY)

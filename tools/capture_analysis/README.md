@@ -77,6 +77,35 @@ python -B tools/capture_analysis/suspect_log.py --log /path/to/runtime.log --out
 
 `--log` may repeat. Truncated or malformed lines are skipped with a warning unless `--strict` is given. The JSON lists every suspect with its map, depth state, camera slot, position evidence and depth companion; the banks line also carries the 16-word `camera` window for slots outside the fixture range. `--fixture` writes the compact header described below for pairs whose companion uses slot 4 with the same world and camera; the banks come from the first reported draw, so non-position constants such as animated PS values can differ from a capture of another frame. A suspect line is a lead for review, not a mapping decision: the HLSL, every PS pairing and a same-scene A/B still decide whether a pair is mapped.
 
+## Suspect triage in one pass
+
+```sh
+python -B tools/capture_analysis/triage_suspect.py --log /path/to/runtime.log --capture /path/to/render-capture.zip --output out/local-triage.json --markdown out/local-triage.md
+python -B tools/capture_analysis/triage_suspect.py --log /path/to/runtime.log --hlsl-dir /path/to/hlsl --output out/local-triage.json
+```
+
+For every suspect pair in the logs, `triage_suspect.py` collects in one run what a review otherwise gathers by hand:
+
+- the log rows: map, depth state, depth companion, and whether the logged camera window is finite (a pair first drawn during a map transition logs ±inf there, so its banks cannot be a fixture);
+- the pair's draws in each capture, from `jitter_candidates.py`: the slot that holds the exact scene VP, strict and geometry depth companions, and the recorded jitter state;
+- the static audits: the `oPos` matrix slot from `audit_vs.py` and its `vp_outputs` (other outputs that carry the position matrix, such as a clip copy), then from `audit_ps.py` any read of their X/Y, texture coordinates derived from them, and use of `SV_Position`;
+- the production map.
+
+Translator scaffolding is ignored: declarations, debug texture copies and the host alpha-test epilogue. Guest control flow holds the pair.
+
+The suggestion for each pair is one of:
+
+- `map_vs_wide`;
+- `map_exact_pair`, when the VS is already mapped per PS in `SkyMaterialPairs`;
+- `hold`, with its reasons;
+- `already_mapped_vs` or `already_mapped_pair`, listed only with `--include-mapped`.
+
+Each mapping suggestion comes with the fixture command and the `temporal_scene.h` and test snippets. HLSL comes from the captures' `shaders/` or from `--hlsl-dir`, a directory of `<hash>.hlsl`, `vs_<hash>.hlsl` or `ps_<hash>.hlsl` files such as a run with `LO_SHADER_HLSL_DIR` writes. The suggestions are review packets and never edit the map.
+
+As a backtest against the map from before PR #130, with the user's runtime logs and the F1 captures f12139 and f25276, it suggested exactly the two mappings that PR made after manual review.
+
+To add a reviewed case to `LoTemporalJitterTest`, export the fixture, include it, and add one `namedCases` row that calls `CapturedSky` (exact sky pairs) or `CapturedMaterialOverDepth` (VS-wide slot-7 materials over a slot-4 depth prepass). The test and the Python tool tests run in review-regressions.
+
 ## Jitter candidate triage and reviewed fixtures
 
 `trace.py` reads register deltas and shader IDs from an F1 ZIP or extracted capture. `iter_draw_states` reconstructs each draw's cumulative register state without retaining a full copy per draw. The following tools use that parser and read only capture metadata and shaders; they do not extract binary render surfaces or run the game.
