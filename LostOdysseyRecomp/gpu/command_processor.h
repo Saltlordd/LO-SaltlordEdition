@@ -132,7 +132,7 @@ namespace gpu
         {
             bool active = false;
             uint32_t surfaceInfo = 0, colorInfo = 0;
-            uint32_t x = 0, y = 0, width = 0, height = 0, safeLeft = 0, safeRight = 0;
+            uint32_t x = 0, y = 0, width = 0, height = 0, safeLeft = 0, safeRight = 0, safeTop = 0, safeBottom = 0;
         } m_movieClear;
         gpu::frame_plan::wire::PlanStage m_framePlan;
         gpu::frame_plan::wire::CatalogStage m_catalog;

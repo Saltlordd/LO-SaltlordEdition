@@ -139,17 +139,6 @@ jobs:
         env:
           LO_BUILD_XEX_PATH: out/build-input/default.xex
         run: python tools/release/fetch_build_input.py
-      - name: Retrieve pinned portable shader pack input
-        uses: actions/checkout@v4
-        with:
-          repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 5fae27a5a3c05262e7b64631f141ebcd19d5f656
-          path: out/shader-input
-          sparse-checkout: |
-            shaders/
-          sparse-checkout-cone-mode: false
-          ssh-key: ${{ secrets.LO_BUILD_INPUT_KEY }}
-          persist-credentials: false
       - name: Fetch NVIDIA DLSS SDK
         run: python tools/release/fetch_dlss_sdk.py --dest out/deps/nvidia-dlss
       - name: Fetch pinned NVIDIA Streamline SDK
@@ -166,15 +155,6 @@ jobs:
           call tools\build_tools.bat || exit /b 1
           out\build\tools\xexdump.exe LostOdysseyRecompLib\private\disc1\default.xex LostOdysseyRecompLib\private\image_disc1.bin || exit /b 1
           python tools\ppc_codegen.py generate || exit /b 1
-      - name: Fetch portable shader pack
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          # The pinned input takes priority over a pack left by an earlier run. The
-          # build stages it only after verify-runtime accepts it for this runtime.
-          Remove-Item -LiteralPath out/shader-pack/portable_vk.lospv -ErrorAction SilentlyContinue
-          python tools/release/fetch_shader_pack.py --target-dir out/shader-pack --tag "$env:RELEASE_TAG"
       - name: Build Release
         shell: cmd
         env:
@@ -324,17 +304,6 @@ jobs:
         env:
           LO_BUILD_XEX_PATH: out/build-input/default.xex
         run: python tools/release/fetch_build_input.py
-      - name: Retrieve pinned portable shader pack input
-        uses: actions/checkout@v4
-        with:
-          repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 5fae27a5a3c05262e7b64631f141ebcd19d5f656
-          path: out/shader-input
-          sparse-checkout: |
-            shaders/
-          sparse-checkout-cone-mode: false
-          ssh-key: ${{ secrets.LO_BUILD_INPUT_KEY }}
-          persist-credentials: false
       - name: Apply dependency patches
         run: |
           git -C tools/XenonRecomp apply --reverse --check ../patches/XenonRecomp-lostodyssey.patch >/dev/null 2>&1 || git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
@@ -361,20 +330,12 @@ jobs:
         run: |
           out/build/tools/xexdump LostOdysseyRecompLib/private/disc1/default.xex LostOdysseyRecompLib/private/image_disc1.bin
           python tools/ppc_codegen.py generate --executable out/build/tools/XenonRecomp/XenonRecomp/XenonRecomp
-      - name: Fetch portable shader pack
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # The build stages it only after verify-runtime accepts it for this runtime.
-          rm -f out/shader-pack/portable_vk.lospv
-          python tools/release/fetch_shader_pack.py --target-dir out/shader-pack --tag "$RELEASE_TAG"
       - name: Build Linux runtime
         run: |
           cmake -S . -B out/build/linux -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=clang-18 \
             -DCMAKE_CXX_COMPILER=clang++-18 \
-            -DLO_PORTABLE_SHADER_PACK="$LO_PORTABLE_SHADER_PACK" \
             -DLO_ENABLE_DLSS=ON \
             -DLO_REQUIRE_DLSS=ON \
             -DLO_DLSS_SDK_ROOT="$GITHUB_WORKSPACE/out/deps/nvidia-dlss" \
@@ -386,6 +347,17 @@ jobs:
           grep -q '^#define SDL_AUDIO_DRIVER_PIPEWIRE 1' out/build/linux/thirdparty/SDL/include-config-release/SDL2/SDL_config.h
           grep -q '^#define SDL_AUDIO_DRIVER_PIPEWIRE_DYNAMIC ' out/build/linux/thirdparty/SDL/include-config-release/SDL2/SDL_config.h
           cmake --build out/build/linux --target LostOdysseyRecomp --parallel 2
+      # Packages carry no shader pack: the game downloads the one for its
+      # renderer from the shader-packs prerelease. A version needs packs for
+      # all three contracts of its runtime published first.
+      - name: Check published shader packs
+        run: |
+          cmake --build out/build/linux --target LoShaderPackTool --parallel 20
+          tool=$(find out/build/linux -name LoShaderPackTool -type f | head -n 1)
+          if ! python3 tools/release/publish_shader_packs.py --check --tool "$tool" --image LostOdysseyRecompLib/private/image_disc1.bin; then
+            if [ -n "$RELEASE_TAG" ]; then exit 1; fi
+            echo "::warning::No published shader packs for this runtime; a version release would stop here."
+          fi
       - name: Install linuxdeploy
         run: |
           mkdir -p out/tools/linuxdeploy
@@ -509,8 +481,9 @@ jobs:
               f'LostOdysseyRecomp-linux-x64-{tag}.flatpak',
           }
           names = {asset['name'] for asset in assets}
-          optional = {'portable_dx12.lospd'}
-          assert expected <= names <= expected | optional, 'Expected installable packages and optional DX12 shader pack'
+          # The macOS disk image is built on a Mac and uploaded separately.
+          optional = {f'LostOdysseyRecomp-macos-arm64-{tag}.dmg'}
+          assert expected <= names <= expected | optional, 'Expected the installable packages and at most the macOS disk image; shader packs live on the shader-packs release'
           assert all(asset['size'] > 0 and asset['state'] == 'uploaded' for asset in assets), 'Incomplete release upload'
           PY
           if [ "$(jq -r '.isDraft' release.json)" != true ]; then

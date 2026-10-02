@@ -42,7 +42,7 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 
 ## macOS: plume Metal patch
 
-`plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes only `plume_metal.cpp` and `plume_metal.h`:
+`plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes `plume_metal.cpp`, `plume_metal.h`, `plume_apple.h`, `plume_apple.mm` and plume's `CMakeLists.txt` (the Apple files and the CMake change come with HDR output, PR #145):
 
 - `MetalShader` also accepts SPIR-V and translates it to MSL with SPIRV-Cross (`thirdparty/SPIRV-Cross`), using the options of plume's reference converter (`examples/cmake/tools/spirv_cross_msl.cpp`) so the output matches the backend's binding model. MSL 2.3 is used instead of 2.1 because the runtime's SPIR-V reads 64-bit device addresses. Fast math is disabled to match DXC.
 - `MetalDevice::createShader` returns null when translation or compilation fails, as failed Vulkan and D3D12 shader creation does.
@@ -70,7 +70,7 @@ ref=$(mktemp -d)/plume
 git -C thirdparty/plume worktree add --detach "$ref" HEAD
 git -C "$ref" apply "$PWD/tools/patches/plume-lostodyssey.patch"
 git -C "$ref" add -A && git -C "$ref" -c user.name=ref -c user.email=ref@local commit -qm ref
-cp thirdparty/plume/plume_metal.cpp thirdparty/plume/plume_metal.h "$ref/"
+cp thirdparty/plume/plume_metal.cpp thirdparty/plume/plume_metal.h thirdparty/plume/plume_apple.h thirdparty/plume/plume_apple.mm thirdparty/plume/CMakeLists.txt "$ref/"
 git -C "$ref" diff > tools/patches/plume-macos.patch
 git -C thirdparty/plume worktree remove --force "$ref"
 ```

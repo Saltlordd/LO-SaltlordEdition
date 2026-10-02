@@ -67,6 +67,12 @@ inline std::atomic<State> state{State::Idle};
 inline bool Required(const Config &before, const Config &after)
 {
     return before.gameLanguage != after.gameLanguage || before.graphicsBackend != after.graphicsBackend ||
+           before.hdr != after.hdr ||
+           ((before.hdr || after.hdr) &&
+            (before.frameGenerationProvider != after.frameGenerationProvider ||
+             before.frameGenerationMode != after.frameGenerationMode ||
+             before.frameGenerationMultiplier != after.frameGenerationMultiplier ||
+             before.frameGenerationTargetFps != after.frameGenerationTargetFps)) ||
            (before.graphicsBackend == GraphicsBackend::D3D12 &&
             before.frameGenerationProvider == framegen::Provider::Dlss &&
             after.frameGenerationProvider == framegen::Provider::Fsr);

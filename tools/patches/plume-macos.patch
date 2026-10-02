@@ -1,5 +1,158 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0789c20..3f520ec 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -106,6 +106,8 @@ if(APPLE)
+         target_compile_definitions(plume PRIVATE PLUME_APPLE_RETINA_ENABLED)
+     endif()
+ 
++    target_link_libraries(plume PUBLIC "-framework CoreGraphics")
++
+     target_include_directories(plume PRIVATE
+         ${CMAKE_CURRENT_SOURCE_DIR}/contrib/metal-cpp
+     )
+diff --git a/plume_apple.h b/plume_apple.h
+index 731d3c4..b4daba2 100644
+--- a/plume_apple.h
++++ b/plume_apple.h
+@@ -8,6 +8,7 @@
+ #pragma once
+ 
+ #include <atomic>
++#include <memory>
+ #include <mutex>
+ #include "plume_render_interface_types.h"
+ 
+@@ -20,7 +21,13 @@ namespace plume {
+     };
+ 
+     class CocoaWindow {
++        struct EDRCache {
++            std::atomic<float> current{1.0f};
++            std::atomic<float> potential{1.0f};
++            std::atomic<bool> updateQueued{false};
++        };
+         void* windowHandle;
++        std::shared_ptr<EDRCache> edrCache = std::make_shared<EDRCache>();
+         CocoaWindowAttributes cachedAttributes;
+         std::atomic<int> cachedRefreshRate;
+         mutable std::mutex attributesMutex;
+@@ -37,6 +44,9 @@ namespace plume {
+         // Get cached refresh rate, may trigger async update
+         int getRefreshRate() const;
+ 
++        bool configureEDRLayer(void* layer) const;
++        void getEDRHeadroom(float &current, float &potential) const;
++
+         // Toggle fullscreen
+         void toggleFullscreen();
+     };
+diff --git a/plume_apple.mm b/plume_apple.mm
+index 1384fe9..32a2032 100644
+--- a/plume_apple.mm
++++ b/plume_apple.mm
+@@ -7,9 +7,12 @@
+ 
+ #include "plume_apple.h"
+ 
++#include <algorithm>
++
+ #import <AppKit/AppKit.h>
+ #import <Foundation/Foundation.h>
+ #import <IOKit/IOKitLib.h>
++#import <QuartzCore/CAMetalLayer.h>
+ 
+ static uint32_t plumeGetEntryProperty(io_registry_entry_t entry, CFStringRef propertyName) {
+     uint32_t value = 0;
+@@ -29,6 +32,17 @@ static uint32_t plumeGetEntryProperty(io_registry_entry_t entry, CFStringRef pro
+ }
+ 
+ namespace plume {
++    static void readEDRHeadroom(NSWindow *window, float &current, float &potential) {
++        current = potential = 1.0f;
++        if (@available(macOS 10.15, *)) {
++            NSScreen *screen = [window screen];
++            if (screen != nil) {
++                current = std::max(1.0f, float([screen maximumExtendedDynamicRangeColorComponentValue]));
++                potential = std::max(1.0f, float([screen maximumPotentialExtendedDynamicRangeColorComponentValue]));
++            }
++        }
++    }
++
+     RenderDeviceVendor getRenderDeviceVendor(uint64_t registryID) {
+         io_service_t entry = IOServiceGetMatchingService(MACH_PORT_NULL, IORegistryEntryIDMatching(registryID));
+ 
+@@ -62,6 +76,10 @@ namespace plume {
+ 
+         if ([NSThread isMainThread]) {
+             NSWindow *nsWindow = (__bridge NSWindow *)windowHandle;
++            float current, potential;
++            readEDRHeadroom(nsWindow, current, potential);
++            edrCache->current.store(current);
++            edrCache->potential.store(potential);
+             NSRect contentFrame = [[nsWindow contentView] frame];
+             CGFloat scaleFactor = getScaleFactor(nsWindow);
+ 
+@@ -77,11 +95,57 @@ namespace plume {
+         } else {
+             updateWindowAttributesInternal(true);
+             updateRefreshRateInternal(true);
++            dispatch_sync(dispatch_get_main_queue(), ^{
++                float current, potential;
++                readEDRHeadroom((__bridge NSWindow *)windowHandle, current, potential);
++                edrCache->current.store(current);
++                edrCache->potential.store(potential);
++            });
+         }
+     }
+ 
+     CocoaWindow::~CocoaWindow() {}
+ 
++    bool CocoaWindow::configureEDRLayer(void* layerHandle) const {
++        __block bool configured = false;
++        auto configure = ^{
++            if (@available(macOS 10.15, *)) {
++                CAMetalLayer *metalLayer = (__bridge CAMetalLayer *)layerHandle;
++                CGColorSpaceRef colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearSRGB);
++                if (metalLayer != nil && colorSpace != nullptr) {
++                    [metalLayer setColorspace:colorSpace];
++                    [metalLayer setWantsExtendedDynamicRangeContent:YES];
++                    CGColorSpaceRelease(colorSpace);
++                    configured = true;
++                }
++            }
++        };
++        if ([NSThread isMainThread]) configure();
++        else dispatch_sync(dispatch_get_main_queue(), configure);
++        return configured;
++    }
++
++    void CocoaWindow::getEDRHeadroom(float &current, float &potential) const {
++        auto cache = edrCache;
++        NSWindow *window = (__bridge NSWindow *)windowHandle;
++        if ([NSThread isMainThread]) {
++            float actual, maximum;
++            readEDRHeadroom(window, actual, maximum);
++            cache->current.store(actual);
++            cache->potential.store(maximum);
++        } else if (!cache->updateQueued.exchange(true)) {
++            dispatch_async(dispatch_get_main_queue(), ^{
++                float actual, maximum;
++                readEDRHeadroom(window, actual, maximum);
++                cache->current.store(actual);
++                cache->potential.store(maximum);
++                cache->updateQueued.store(false);
++            });
++        }
++        current = cache->current.load();
++        potential = cache->potential.load();
++    }
++
+     void CocoaWindow::updateWindowAttributesInternal(bool forceSync) {
+         auto updateBlock = ^{
+             NSWindow *nsWindow = (__bridge NSWindow *)windowHandle;
 diff --git a/plume_metal.cpp b/plume_metal.cpp
-index 373c87e..863e582 100644
+index 373c87e..0d08645 100644
 --- a/plume_metal.cpp
 +++ b/plume_metal.cpp
 @@ -8,16 +8,25 @@
@@ -28,7 +181,29 @@ index 373c87e..863e582 100644
  
  extern "C" {
      void *objc_autoreleasePoolPush(void);
-@@ -1329,19 +1338,140 @@ namespace plume {
+@@ -182,6 +191,10 @@ namespace plume {
+                     return RenderFormat::R32G32B32A32_UINT;
+                 case MTL::PixelFormatRGBA32Sint:
+                     return RenderFormat::R32G32B32A32_SINT;
++                case MTL::PixelFormatRGB10A2Unorm:
++                    return RenderFormat::R10G10B10A2_UNORM;
++                case MTL::PixelFormatBGR10A2Unorm:
++                    return RenderFormat::B10G10R10A2_UNORM;
+                 case MTL::PixelFormatRGBA16Float:
+                     return RenderFormat::R16G16B16A16_FLOAT;
+                 case MTL::PixelFormatRGBA16Unorm:
+@@ -313,6 +326,10 @@ namespace plume {
+                 return MTL::PixelFormatRGBA32Sint;
+             case RenderFormat::R16G16B16A16_TYPELESS:
+                 return MTL::PixelFormatRGBA16Float;
++            case RenderFormat::R10G10B10A2_UNORM:
++                return MTL::PixelFormatRGB10A2Unorm;
++            case RenderFormat::B10G10R10A2_UNORM:
++                return MTL::PixelFormatBGR10A2Unorm;
+             case RenderFormat::R16G16B16A16_FLOAT:
+                 return MTL::PixelFormatRGBA16Float;
+             case RenderFormat::R16G16B16A16_UNORM:
+@@ -1329,19 +1346,140 @@ namespace plume {
  
      // MetalShader
  
@@ -171,7 +346,7 @@ index 373c87e..863e582 100644
          const dispatch_data_t dispatchData = dispatch_data_create(data, size, dispatch_get_main_queue(), ^{});
          library = device->mtl->newLibrary(dispatchData, &error);
  
-@@ -1353,8 +1483,12 @@ namespace plume {
+@@ -1353,8 +1491,12 @@ namespace plume {
  
      MetalShader::~MetalShader() {
          MetalAutoreleasePool releasePool;
@@ -186,7 +361,7 @@ index 373c87e..863e582 100644
  
          if (debugName != nullptr) {
              debugName->release();
-@@ -1370,10 +1504,15 @@ namespace plume {
+@@ -1370,10 +1512,15 @@ namespace plume {
          debugName = NS::String::string(name.c_str(), NS::UTF8StringEncoding);
          debugName->retain();
  
@@ -203,7 +378,7 @@ index 373c87e..863e582 100644
          MTL::FunctionConstantValues *values = MTL::FunctionConstantValues::alloc()->init();
          if (specConstants != nullptr) {
              for (uint32_t i = 0; i < specConstantsCount; i++) {
-@@ -1494,7 +1633,15 @@ namespace plume {
+@@ -1494,7 +1641,15 @@ namespace plume {
  
          MetalAutoreleasePool releasePool;
          MTL::RenderPipelineDescriptor *descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
@@ -220,7 +395,7 @@ index 373c87e..863e582 100644
          descriptor->setRasterSampleCount(desc.multisampling.sampleCount);
          descriptor->setAlphaToCoverageEnabled(desc.alphaToCoverageEnabled);
          descriptor->setDepthAttachmentPixelFormat(mapPixelFormat(desc.depthTargetFormat));
-@@ -1909,6 +2056,9 @@ namespace plume {
+@@ -1909,6 +2064,9 @@ namespace plume {
          this->layer = static_cast<CA::MetalLayer*>(desc.renderWindow.view);
          layer->setDevice(commandQueue->device->mtl);
          layer->setPixelFormat(mapPixelFormat(desc.format));
@@ -230,7 +405,18 @@ index 373c87e..863e582 100644
  
          this->commandQueue = commandQueue;
          this->desc = desc;
-@@ -1935,6 +2085,22 @@ namespace plume {
+@@ -1917,6 +2075,10 @@ namespace plume {
+         this->drawables.resize(MAX_DRAWABLES);
+ 
+         this->windowWrapper = std::make_unique<CocoaWindow>(desc.renderWindow.window);
++        if (desc.outputMode == RenderOutputMode::HDR_LINEAR &&
++            desc.format == RenderFormat::R16G16B16A16_FLOAT) {
++            edrLayerConfigured = windowWrapper->configureEDRLayer(desc.renderWindow.view);
++        }
+         getWindowSize(width, height);
+ 
+         // Set the layer's drawable size to match the window size
+@@ -1935,6 +2097,22 @@ namespace plume {
      }
  
      MetalSwapChain::~MetalSwapChain() {
@@ -253,7 +439,7 @@ index 373c87e..863e582 100644
      }
  
      bool MetalSwapChain::present(const uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, const uint32_t waitSemaphoreCount) {
-@@ -1959,19 +2125,30 @@ namespace plume {
+@@ -1959,19 +2137,30 @@ namespace plume {
          // According to Apple, presenting via scheduled handler is more performant than using the presentDrawable method.
          // We grab the underlying drawable because we might've acquired a new one by now and the old one would have been released.
          CA::MetalDrawable *drawableMtl = drawable.mtl->retain();
@@ -293,7 +479,7 @@ index 373c87e..863e582 100644
          });
  
          presentBuffer->commit();
-@@ -1984,14 +2161,16 @@ namespace plume {
+@@ -1984,14 +2173,16 @@ namespace plume {
  
          MetalAutoreleasePool releasePool;
          if (currentPresentId >= desc.maxFrameLatency) {
@@ -313,7 +499,29 @@ index 373c87e..863e582 100644
          MetalAutoreleasePool releasePool;
          getWindowSize(width, height);
  
-@@ -2066,6 +2245,7 @@ namespace plume {
+@@ -2038,6 +2229,21 @@ namespace plume {
+         return height;
+     }
+ 
++    RenderDisplayState MetalSwapChain::getDisplayState() const {
++        RenderDisplayState state;
++        if (desc.outputMode != RenderOutputMode::HDR_LINEAR ||
++            desc.format != RenderFormat::R16G16B16A16_FLOAT) return state;
++
++        state.encoding = RenderOutputEncoding::EDR;
++        float currentHeadroom = 1.0f, potentialHeadroom = 1.0f;
++        windowWrapper->getEDRHeadroom(currentHeadroom, potentialHeadroom);
++        state.hdrSupported = edrLayerConfigured && potentialHeadroom > 1.0f;
++        state.hdrActive = state.hdrSupported && currentHeadroom > 1.0f;
++        state.headroom = state.hdrActive ? currentHeadroom : 1.0f;
++        // EDR's 1.0 is the current SDR white, which AppKit does not expose in nits.
++        return state;
++    }
++
+     RenderTexture *MetalSwapChain::getTexture(const uint32_t textureIndex) {
+         assert(textureIndex < drawables.size());
+         return &drawables[textureIndex];
+@@ -2066,6 +2272,7 @@ namespace plume {
          // Set the texture index and drawable data
          *textureIndex = currentAvailableDrawableIndex;
          MetalDrawable &drawable = drawables[currentAvailableDrawableIndex];
@@ -321,7 +529,7 @@ index 373c87e..863e582 100644
          drawable.desc.width = width;
          drawable.desc.height = height;
          drawable.desc.flags = RenderTextureFlag::RENDER_TARGET;
-@@ -2725,6 +2905,12 @@ namespace plume {
+@@ -2725,6 +2932,12 @@ namespace plume {
      }
  
      void MetalCommandList::setFramebuffer(const RenderFramebuffer *framebuffer) {
@@ -334,7 +542,7 @@ index 373c87e..863e582 100644
          MetalAutoreleasePool releasePool;
          endOtherEncoders(EncoderType::Render);
          endActiveRenderEncoder();
-@@ -2775,6 +2961,13 @@ namespace plume {
+@@ -2775,6 +2988,13 @@ namespace plume {
      }
  
      void MetalCommandList::clearColor(const uint32_t attachmentIndex, RenderColor colorValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -348,7 +556,7 @@ index 373c87e..863e582 100644
          assert(targetFramebuffer != nullptr);
          assert(attachmentIndex < targetFramebuffer->colorAttachments.size());
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -2864,6 +3057,12 @@ namespace plume {
+@@ -2864,6 +3084,12 @@ namespace plume {
      }
  
      void MetalCommandList::clearDepthStencil(const bool clearDepth, const bool clearStencil, const float depthValue, const uint32_t stencilValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -361,7 +569,7 @@ index 373c87e..863e582 100644
          assert(targetFramebuffer != nullptr);
          assert(targetFramebuffer->depthAttachment.format != RenderFormat::UNKNOWN);
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -3022,6 +3221,44 @@ namespace plume {
+@@ -3022,6 +3248,44 @@ namespace plume {
                  dstOrigin
              );
              activeBlitEncoder->popDebugGroup();
@@ -406,7 +614,7 @@ index 373c87e..863e582 100644
          } else {
              assert(dstTexture != nullptr);
              assert(srcTexture != nullptr);
-@@ -3818,6 +4055,10 @@ namespace plume {
+@@ -3818,6 +4082,10 @@ namespace plume {
          // TODO: Support Raytracing.
          // capabilities.raytracing = mtl->supportsRaytracing();
          capabilities.maxTextureSize = mtl->supportsFamily(MTL::GPUFamilyApple3) ? 16384 : 8192;
@@ -417,7 +625,7 @@ index 373c87e..863e582 100644
          capabilities.sampleLocations = mtl->programmableSamplePositionsSupported();
          capabilities.resolveRegion = true;
          capabilities.resolveModes = false;
-@@ -3885,7 +4126,13 @@ namespace plume {
+@@ -3885,7 +4153,13 @@ namespace plume {
      }
  
      std::unique_ptr<RenderShader> MetalDevice::createShader(const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format) {
@@ -432,7 +640,7 @@ index 373c87e..863e582 100644
      }
  
      std::unique_ptr<RenderSampler> MetalDevice::createSampler(const RenderSamplerDesc &desc) {
-@@ -4222,6 +4469,212 @@ namespace plume {
+@@ -4222,6 +4496,212 @@ namespace plume {
  
      // Global creation function.
  
@@ -646,7 +854,7 @@ index 373c87e..863e582 100644
          std::unique_ptr<MetalInterface> createdInterface = std::make_unique<MetalInterface>();
          return createdInterface->isValid() ? std::move(createdInterface) : nullptr;
 diff --git a/plume_metal.h b/plume_metal.h
-index 59ae129..bb2df88 100644
+index 59ae129..e5886a6 100644
 --- a/plume_metal.h
 +++ b/plume_metal.h
 @@ -7,6 +7,8 @@
@@ -658,7 +866,15 @@ index 59ae129..bb2df88 100644
  #include <set>
  #include <unordered_set>
  
-@@ -242,12 +244,22 @@ namespace plume {
+@@ -232,6 +234,7 @@ namespace plume {
+     struct MetalSwapChain : RenderSwapChain {
+         RenderSwapChainDesc desc;
+         CA::MetalLayer *layer = nullptr;
++        bool edrLayerConfigured = false;
+         MetalCommandQueue *commandQueue = nullptr;
+         uint32_t width = 0;
+         uint32_t height = 0;
+@@ -242,12 +245,22 @@ namespace plume {
  
          // Present wait
          uint64_t currentPresentId = 0;
@@ -684,7 +900,16 @@ index 59ae129..bb2df88 100644
          bool present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) override;
          void wait() override;
          bool resize() override;
-@@ -635,6 +647,8 @@ namespace plume {
+@@ -256,6 +269,8 @@ namespace plume {
+         bool isVsyncEnabled() const override;
+         uint32_t getWidth() const override;
+         uint32_t getHeight() const override;
++        RenderFormat getFormat() const override { return desc.format; }
++        RenderDisplayState getDisplayState() const override;
+         RenderTexture *getTexture(uint32_t textureIndex) override;
+         uint32_t getTextureCount() const override;
+         bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) override;
+@@ -635,6 +650,8 @@ namespace plume {
          RenderShaderFormat format = RenderShaderFormat::UNKNOWN;
          MTL::Library *library = nullptr;
          NS::String *debugName = nullptr;

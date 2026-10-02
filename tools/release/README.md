@@ -1,7 +1,7 @@
 # Release packaging
 
-Release packaging assembles the Windows ZIP, Linux AppImage and Flatpak bundle,
-with optional portable shader assets handled separately when enabled.
+Release packaging assembles the Windows ZIP, Linux AppImage and Flatpak bundle.
+Shader packs are not part of them; see the end of this page.
 The current release workflow checks that the expected package files exist and
 are nonempty before publication. It does not require a repository-wide hash,
 provenance manifest or SHA-256 sidecar.
@@ -36,17 +36,10 @@ not publish the Flatpak runtime archive, `release-source.json`, or standalone
 checksum/source-list assets; checksum and source records remain CI or local
 internal validation artifacts.
 
-For v0.7.10, bundle the refreshed Vulkan pack in the Windows ZIP and Linux
-packages. The DX12 `.lospd` pack is published as a separate fourth GitHub
-asset. Users place it at
-`shaders/portable_dx12.lospd` beside the runtime.
-
-After v0.7.25 shipped a pack its runtime rejected, the Windows and Linux jobs
-fetch the pinned Vulkan pack before building and pass it as
-`LO_PORTABLE_SHADER_PACK`. The runtime build runs `LoShaderPackTool
-verify-runtime` against the private disc 1 image and fails on a mismatch. A
-translator, option or discovery change therefore needs a refreshed pack and a new
-pinned build-inputs commit ([procedure](../../docs/PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
+Releases up to v0.7.25 bundled the Vulkan pack in the Windows ZIP and Linux
+packages; v0.7.10 also published the DX12 pack as a separate asset. After
+v0.7.25 shipped a pack its runtime rejected, the jobs verified a pinned pack
+from the private build-inputs repository before bundling it.
 
 Release workflow design: the Linux job compiles once, creates a persistent
 AppImage AppDir, and exports the stable Flatpak by reusing that AppDir's
@@ -56,8 +49,7 @@ Windows ZIP and AppImage. Since 2026-10-01 the workflow runs on Gitea
 (`.gitea/workflows/release.yml`, see [Pull request checks and releases on
 Gitea](../../docs/notes/ci-gitea.md)): after both platform jobs succeed, the
 publication job uploads the three Gitea artifacts to the GitHub release, then
-checks that the three base packages are uploaded and nonempty; optional
-shader assets are validated separately before publication. Re-runs validate an
+checks that exactly the three packages are uploaded and nonempty. Re-runs validate an
 existing public release without changing its publication state.
 The v0.7.9 Release CI [36378342125](https://github.com/freefrank/LostOdysseyRecomp/actions/runs/36378342125)
 passed all five jobs. Its Linux job installed `clang-tools-18` 18.1.8, built
@@ -70,3 +62,11 @@ results are retained as release history. Evidence:
 `out/release-workflow-reuse/flatpak-package.log`, `flatpak-source.json`, and
 `install-check.log`. The Linux job compiles the source once, retains the
 AppImage AppDir, and exports the stable Flatpak by reusing its `usr` tree.
+
+Shader packs are published apart from version releases, with
+`tools/release/publish_shader_packs.py`, to the `shader-packs` prerelease; the
+game downloads the pack for its renderer at startup
+([procedure](../../docs/PORTABLE_SHADER_PACK.md#publishing)). The Linux release
+job runs the script with `--check` after building: a version release stops
+unless the index lists all three contracts of its runtime, so a translator,
+option or discovery change needs new packs published first.

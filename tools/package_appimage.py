@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from portable_shader_pack_payload import stage_portable_shader_pack
+from portable_shader_pack_payload import stage_shader_pack_license
 from appimage_compat import CompatibilityError, compiler_libraries, validate_abi, validate_loader
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -130,8 +130,7 @@ def main():
             fsr_licenses = appdir / "usr/share/licenses/lost-odyssey-recomp"
             fsr_licenses.mkdir(parents=True, exist_ok=True)
             shutil.copy2(fsr_license, fsr_licenses / fsr_license.name)
-        stage_portable_shader_pack(runtime.parent, appdir / "usr/bin",
-                                   appdir / "usr/share/licenses/lost-odyssey-recomp")
+        stage_shader_pack_license(appdir / "usr/share/licenses/lost-odyssey-recomp")
         desktop = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.desktop"
         icon = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.png"
         metainfo = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.metainfo.xml"

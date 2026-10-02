@@ -56,16 +56,19 @@
 #include "shader/dxc_compiler.h"
 #include "shader/cache.h"
 #include "shader/binary_cache.h"
+#include "shader/shader_store.h"
 #include "shader/preparation_queue.h"
 #include "shader/retry_state.h"
 #include "shader/rect_list_hlsl.h"
 #include "shader/startup_cache.h"
 #include "shader/portable_shader_pack.h"
 #include "shader/portable_shader_contract.h"
+#include "shader/portable_shader_pack_location.h"
 #include "shader/resource_scan.h"
 #include "shader/source_store.h"
 #include "shader/resource_xex.h"
 #include "shader/resource_variants.h"
+#include "hdr_scene_shader.h"
 #include <kernel/io/file_system.h>
 #include <kernel/memory.h>
 #include <kernel/xex_loader.h>
@@ -128,6 +131,7 @@ namespace gpu::renderer
 {
     namespace binding = gpu::taa_collection::binding;
     namespace {
+        std::atomic<bool> hdrSceneEnabled{false};
         std::mutex framePlanMutex;
         frame_plan::FramePlan committedPlan{};
         std::mutex catalogMutex;
@@ -379,6 +383,10 @@ namespace gpu::renderer
             uint64_t sdrProducerFrame = ~0ull;
             uint32_t qualifiedSdrWidth = 0;
             uint32_t qualifiedSdrHeight = 0;
+            std::unique_ptr<HostTexture> hdrSidecar;
+            uint64_t hdrFrame = ~0ull;
+            bool hdrValid = false;
+            uint32_t hdrValidWidth = 0, hdrValidHeight = 0;
         };
 
         struct RenderTargetKey
@@ -397,6 +405,8 @@ namespace gpu::renderer
             std::unique_ptr<RenderShader> shader;
             xenos::TranslatedShader info;
             bool valid = false;
+            std::unique_ptr<RenderShader> hdrShader;
+            bool hdrShaderAttempted = false;
             position_evidence::Summary position;
             bool positionReady = false;
             xenos::retry::State retry;
@@ -612,6 +622,7 @@ namespace gpu::renderer
 
             std::unordered_map<uint64_t, Shader> shaders[2];
             std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> pipelines;
+            std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> hdrPipelines;
             // Full state recipes are portable; driver blobs and object pointers
             // are never persisted. Render maps stay on the command thread.
             static constexpr uint32_t kPipelineRecipeVersion = 1;
@@ -635,6 +646,9 @@ namespace gpu::renderer
                 uint64_t writeOrdinal = 0;
                 uint32_t writeX = 0, writeY = 0, writeWidth = 0, writeHeight = 0;
                 uint64_t sdrWriteOrdinal = 0;
+                std::unique_ptr<HostTexture> hdrTex;
+                uint64_t hdrWriteOrdinal = 0;
+                uint64_t hdrFrame = ~0ull;
                 frame_plan::FramePlan sourcePlan{};
                 bool sourcePlanValid = false;
                 uint64_t fgOwner = 0, fgEpoch = 0, fgSourceAllocation = 0, fgSourceGeneration = 0;
@@ -649,6 +663,10 @@ namespace gpu::renderer
             // first, so the composite's fetch of the FP16 surface missed and fell
             // back to guest memory.
             std::unordered_map<uint32_t, std::vector<ResolvedSurface>> resolved;
+            // SDR views that have an HDR companion in this frame. An arbitrary
+            // overlay sampling one would collapse highlights on replay.
+            std::unordered_set<RenderTexture*> hdrSdrSources;
+            uint64_t hdrSdrSourcesFrame = ~0ull;
             uint64_t resolveWriteOrdinal = 0;
             uint64_t nextTargetAllocation = 0;
             resolve_copy::ConsecutiveCopies consecutiveResolveCopies;
@@ -1028,7 +1046,11 @@ namespace gpu::renderer
                 if (it == resolved.end())
                     return;
                 for (auto rs = it->second.begin(); rs != it->second.end(); ++rs)
-                    if (rs->destFormat == destFormat) { it->second.erase(rs); break; }
+                    if (rs->destFormat == destFormat) {
+                        if (rs->hdrTex) Gpu().retiredTextures.push_back(std::move(rs->hdrTex));
+                        it->second.erase(rs);
+                        break;
+                    }
                 if (it->second.empty())
                     resolved.erase(it);
             }
@@ -1729,6 +1751,77 @@ namespace gpu::renderer
 
             // ---- lifecycle -----------------------------------------------------
             xenos::cache::Identity cacheIdentity;
+            // One-file local cache of compiled shaders (shader/shader_store.h), keyed
+            // by the compile input rather than the translator version. Opened on first
+            // use, after the backend and compiler identity are known.
+            xenos::cache::ShaderStore shaderStore;
+            std::once_flag shaderStoreOnce;
+            bool shaderStoreReady = false;
+            xenos::cache::ShaderStore* LocalShaderStore()
+            {
+                std::call_once(shaderStoreOnce, [this] {
+                    if (shaderCacheDir.empty() || !xenos::cache::ValidIdentity(cacheIdentity)) return;
+                    std::string error;
+                    const auto path = xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format);
+                    shaderStoreReady = shaderStore.Open(path, cacheIdentity.format, &error);
+                    if (!shaderStoreReady) {
+                        LOG_WARNING("renderer: shader store unavailable ({}); using per-shader cache files", error);
+                        return;
+                    }
+                    const auto stats = shaderStore.GetStats();
+                    LOG_INFO("renderer: shader store {}: {} records, {} bytes{}{}", path.string(), stats.records, stats.fileBytes,
+                        stats.writable ? "" : ", read-only (another instance holds it)",
+                        stats.recovered ? fmt::format(", dropped a torn {}-byte tail", stats.recovered) : std::string{});
+                });
+                return shaderStoreReady ? &shaderStore : nullptr;
+            }
+            // The compiled binary for this compile input: the store first, then a
+            // per-shader file from before the store, which is moved into the store.
+            struct StoredBinary { std::vector<uint8_t> binary; bool storeHit = false, legacyHit = false, legacyPresent = false; };
+            StoredBinary FindCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
+                const std::string& legacyPath)
+            {
+                StoredBinary result;
+                auto* store = LocalShaderStore();
+                if (store) {
+                    result.binary = store->Find(pixel, hash, digest);
+                    if (!result.binary.empty()) { result.storeHit = true; return result; }
+                }
+                if (legacyPath.empty()) return result;
+                result.binary = xenos::cache::ReadBinary(legacyPath, pixel, hash, cacheIdentity, &result.legacyPresent);
+                if (!result.binary.empty()) {
+                    result.legacyHit = true;
+                    if (store) store->Add(pixel, hash, digest, result.binary);
+                }
+                return result;
+            }
+            bool StoreCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
+                const std::string& legacyPath, std::span<const uint8_t> binary, std::string* error)
+            {
+                if (auto* store = LocalShaderStore()) return store->Add(pixel, hash, digest, binary, error);
+                return !legacyPath.empty() && xenos::cache::WriteBinary(legacyPath, pixel, hash, cacheIdentity, binary, error);
+            }
+            // Per-shader files the store has replaced: this format's files once a
+            // complete preparation has moved them into the store, and files of any
+            // format whose translator version can never be read again.
+            size_t RemoveLegacyShaderCacheFiles(bool includeCurrentFormat)
+            {
+                size_t removed = 0;
+                std::error_code ec;
+                std::vector<std::filesystem::path> doomed;
+                for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
+                    const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
+                    if (!legacy) continue;
+                    const bool currentFormat = legacy->extension == xenos::cache::Extension(cacheIdentity.format);
+                    if (legacy->version != cacheIdentity.translatorVersion || (includeCurrentFormat && currentFormat))
+                        doomed.push_back(file.path());
+                }
+                for (const auto& path : doomed) {
+                    std::error_code removeError;
+                    removed += std::filesystem::remove(path, removeError) ? 1 : 0;
+                }
+                return removed;
+            }
             bool initializationModuleFailure = false;
             bool InitFailure(const char* stage, uint64_t bytes = 0, int slot = -1) noexcept
             {
@@ -1766,7 +1859,13 @@ namespace gpu::renderer
                 if (!device || !queue)
                     return InitFailure("device_or_queue");
                 cacheIdentity = xenos::cache::MakeIdentity(vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12, xenos::DxcIdentity());
-                if (vulkan && !nativeVulkan) {
+                // Pack export for macOS from a Vulkan run: Metal consumes the same
+                // SPIR-V contract compiled at -O1. Honored only with an export path.
+                const bool exportMetalPack = nativeVulkan && getenv("LO_SHADER_EXPORT_PACK") &&
+                    getenv("LO_SHADER_EXPORT_METAL") && std::string_view(getenv("LO_SHADER_EXPORT_METAL")) == "1";
+                if (exportMetalPack)
+                    LOG_INFO("renderer: exporting the Metal shader contract (SPIR-V -O1) from Vulkan");
+                if ((vulkan && !nativeVulkan) || exportMetalPack) {
                     // Metal re-optimizes translated MSL; see SetSpirvOptimizationLevel.
                     xenos::SetSpirvOptimizationLevel(1);
                     cacheIdentity.options = xenos::cache::MetalOptions();
@@ -2097,6 +2196,7 @@ namespace gpu::renderer
             {
                 FlushMotionReplayQueue();
                 dst.sdrProducerFrame = ~0ull;
+                dst.hdrValid = false;
                 consecutiveResolveCopies.Invalidate();
                 // Only the 32-bit classes share a word layout; wider ones are left alone.
                 if (srcClass > kClass7e3 || dstClass > kClass7e3)
@@ -4315,7 +4415,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // A distribution pack is independent of the writable local cache, the local
                 // DXC identity and the host addresses that import binding wrote into the image.
                 const auto unboundXex = XexLoader::UnboundIdentityPrefix();
-                if (TryOpenPortableShaderPack(unboundXex)) { ResetTimers(); return; }
+                if (TryOpenPortableShaderPack(unboundXex)) {
+                    // Per-shader files of older translator versions can never be read again.
+                    if (!shaderCacheDir.empty())
+                        if (const auto removed = RemoveLegacyShaderCacheFiles(false))
+                            LOG_INFO("renderer: removed {} per-shader cache files of older translator versions", removed);
+                    ResetTimers();
+                    return;
+                }
                 if (shaderCacheDir.empty() || getenv("LO_NO_SHADER_PREPARE") || settings::GetConfig().skipShaderPrebuild) {
                     LOG_INFO("renderer: shader preparation skipped by configuration or environment");
                     return;
@@ -4336,8 +4443,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     !getenv("LO_SHADER_HLSL_DIR") && !retryFailures;
                 LOG_INFO("renderer: shader startup cache: {}, compiler identity {}", bundlePath.string(),
                     compilerIdentity.empty() ? "unavailable (persistent reuse disabled)" : compilerIdentity);
+                // The first start with the one-file store runs one preparation pass
+                // even on a bundle hit: it moves this format's per-shader files into
+                // the store (no DXC for valid files) and then deletes them.
+                bool moveLegacyFiles = false;
+                if (reuseBundle && !std::filesystem::exists(xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format))) {
+                    std::error_code ec;
+                    for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
+                        const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
+                        if (legacy && legacy->extension == xenos::cache::Extension(cacheIdentity.format)) { moveLegacyFiles = true; break; }
+                    }
+                    if (moveLegacyFiles)
+                        LOG_INFO("renderer: moving per-shader cache files into the shader store (one-time preparation pass)");
+                }
                 BeginPortableShaderExport(unboundXex);
-                if (reuseBundle) {
+                if (reuseBundle && !moveLegacyFiles) {
                     uint32_t modules = 0, cachedFailures = 0;
                     double moduleMs = 0;
                     // Metal module creation (SPIR-V to MSL plus the Metal compiler)
@@ -4447,7 +4567,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
                         LOG_INFO("renderer: startup bundle fallback: {}", e.what());
                     }
-                } else LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
+                } else if (!moveLegacyFiles)
+                    LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
                 BeginPortableShaderExport(unboundXex); // Discard any partial export after transactional bundle rejection.
                 video::SetShaderPreparationProgress(0, 1, video::PreparationStage::CacheValidation, video::PreparationUnit::Files);
                 video::PumpEvents();
@@ -4560,6 +4681,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bool compiled = false;
                     bool deterministicFailure = false;
                     bool cachedFailure = false;
+                    bool storeHit = false;
+                    bool migrated = false;
                     // Device module built on the worker (Metal only, see below).
                     std::unique_ptr<RenderShader> module;
                     uint64_t moduleUs = 0;
@@ -4592,15 +4715,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         item.sourceUs = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now() - sourceStarted).count();
 
-                        const auto cacheStarted = std::chrono::steady_clock::now();
-                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
-                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
-                        item.cacheChecked = true;
-                        item.bytecode = xenos::cache::ReadBinary(item.cachePath, item.pixel, item.hash, cacheIdentity, &item.cachePresent);
-                        item.cacheValid = !item.bytecode.empty();
-                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now() - cacheStarted).count();
-
                         std::vector<uint32_t> swapped(words.size());
                         std::transform(words.begin(), words.end(), swapped.begin(), [](uint32_t word) { return ByteSwap(word); });
                         const auto translateStarted = std::chrono::steady_clock::now();
@@ -4610,6 +4724,22 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (const char* hlslDir = getenv("LO_SHADER_HLSL_DIR"))
                             std::ofstream(fmt::format("{}/{}_{:016x}.hlsl", hlslDir,
                                 item.pixel ? "ps" : "vs", item.hash)) << item.info.hlsl;
+
+                        // The store is keyed by the generated HLSL, so a translator change
+                        // that leaves this shader's HLSL alone keeps its binary.
+                        const auto cacheStarted = std::chrono::steady_clock::now();
+                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
+                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
+                        item.cacheChecked = true;
+                        const auto inputDigest = xenos::cache::CompileInputDigest(item.info.hlsl, item.pixel, cacheIdentity);
+                        auto stored = FindCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath);
+                        item.bytecode = std::move(stored.binary);
+                        item.cachePresent = stored.storeHit || stored.legacyPresent;
+                        item.cacheValid = !item.bytecode.empty();
+                        item.storeHit = stored.storeHit;
+                        item.migrated = stored.legacyHit;
+                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - cacheStarted).count();
 
                         if (!item.cacheValid) {
                             const auto failurePath = item.cachePath + ".failed";
@@ -4639,7 +4769,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             } else {
                                 item.bytecode = std::move(compiled.bytecode);
                                 item.compiled = true;
-                                xenos::cache::WriteBinary(item.cachePath, item.pixel, item.hash, cacheIdentity,
+                                StoreCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath,
                                     item.bytecode, &item.cacheWriteError);
                             }
                         }
@@ -4664,6 +4794,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 uint32_t done = 0, failed = 0, modulesReady = 0, modulesFailed = 0;
                 size_t cacheHits = 0, cacheMissing = 0, cacheInvalid = 0, compileAttempts = 0, compiledCount = 0, cachedFailureCount = 0;
+                size_t storeHits = 0, migratedCount = 0, cacheWriteFailures = 0;
                 uint64_t sourceUs = 0, cacheUs = 0, translateUs = 0, compileUs = 0, moduleUs = 0;
                 auto install = [&](PreparedSource item) {
                     sourceUs += item.sourceUs;
@@ -4671,6 +4802,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     translateUs += item.translateUs;
                     compileUs += item.compileUs;
                     cacheHits += item.cacheValid;
+                    storeHits += item.storeHit;
+                    migratedCount += item.migrated;
+                    cacheWriteFailures += !item.cacheWriteError.empty();
                     cacheMissing += item.cacheChecked && !item.cachePresent;
                     cacheInvalid += item.cacheChecked && item.cachePresent && !item.cacheValid;
                     compileAttempts += item.compileAttempted;
@@ -4765,6 +4899,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_INFO("renderer: startup bundle published: {} records, {} bytes", done, std::filesystem::file_size(bundlePath));
                     } catch (const std::exception& e) { LOG_WARNING("renderer: startup bundle not published: {}", e.what()); }
                 }
+                if (auto* store = LocalShaderStore(); store && done == jobs.size() && !queueStats.cancelled &&
+                    !video::ShaderPreparationSkipped() && !initializationModuleFailure) {
+                    // Every prepared shader is in the store now, so this format's
+                    // per-shader files are redundant; records no shader used drop out.
+                    const auto stats = store->GetStats();
+                    const bool complete = stats.writable && !cacheWriteFailures;
+                    const auto removed = RemoveLegacyShaderCacheFiles(complete);
+                    std::string compactError;
+                    const auto dropped = complete ? store->CompactUnused(64ull << 20, &compactError) : 0;
+                    LOG_INFO("renderer: shader store: {} hits, {} moved from per-shader files, {} compiled; {} old per-shader files removed, {} unused records dropped{}",
+                        storeHits, migratedCount, compiledCount, removed, dropped,
+                        compactError.empty() ? std::string{} : "; compaction failed: " + compactError);
+                }
                 if (done) {
                     LOG_INFO("renderer: shader cache: {} valid, {} missing, {} invalid; {} DXC attempts, {} compiled",
                         cacheHits, cacheMissing, cacheInvalid, compileAttempts, compiledCount);
@@ -4845,14 +4992,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 std::vector<uint8_t> dxil;
                 std::string cachePath;
+                xenos::cache::InputDigest inputDigest{};
                 if (!shaderCacheDir.empty())
                 {
-                    // The cache name carries a translator version so changes to the
-                    // generated HLSL don't resurrect stale DXIL.
+                    // The store keys on the generated HLSL, so a changed translation never
+                    // resurrects a stale binary; cachePath names the pre-store file and
+                    // the failure diagnostic.
                     cachePath = (std::filesystem::path(shaderCacheDir) / xenos::cache::FileName(pixel, hash, cacheIdentity)).string();
-                    bool present = false;
-                    dxil = xenos::cache::ReadBinary(cachePath, pixel, hash, cacheIdentity, &present);
-                    if (present && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
+                    inputDigest = xenos::cache::CompileInputDigest(entry.info.hlsl, pixel, cacheIdentity);
+                    auto stored = FindCompiledShader(pixel, hash, inputDigest, cachePath);
+                    dxil = std::move(stored.binary);
+                    if (stored.legacyPresent && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
                 }
                 if (dxil.empty())
                 {
@@ -4882,7 +5032,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     dxil = std::move(compiled.bytecode);
                     if (!cachePath.empty()) {
                         std::string error;
-                        if (!xenos::cache::WriteBinary(cachePath, pixel, hash, cacheIdentity, dxil, &error))
+                        if (!StoreCompiledShader(pixel, hash, inputDigest, cachePath, dxil, &error))
                             SHADER_LOG_WARNING("cache-write-failed", None, "renderer: shader cache write failed: {}", error);
                     }
                 }
@@ -4903,6 +5053,31 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     SHADER_LOG_WARNING("translation-notes", RendererByteFnv, "renderer: {} shader {:016x} notes: {}", pixel ? "pixel" : "vertex", hash, entry.info.errors);
                 if(!pixel)PreparePositionEvidence(entry,words,count,hash);
                 return entry.valid ? &entry : nullptr;
+            }
+
+            RenderShader* HdrToneShader(Shader& entry, const uint32_t* words, uint32_t count)
+            {
+                if (entry.hdrShaderAttempted) return entry.hdrShader.get();
+                entry.hdrShaderAttempted = true;
+                std::vector<uint32_t> swapped(count);
+                for (uint32_t i = 0; i < count; ++i) swapped[i] = ByteSwap(words[i]);
+                auto translated = xenos::TranslateShader(swapped.data(), count, true);
+                if (!translated.errors.empty() || !hdr_scene::RewriteTonemap(translated.hlsl)) {
+                    LOG_WARNING("renderer HDR: tone-map translation changed; SDR fallback");
+                    return nullptr;
+                }
+                const auto compiled = xenos::CompileCachedHlsl(translated.hlsl, "main", "ps_6_0", binaryFormat);
+                if (!compiled.ok) {
+                    LOG_WARNING("renderer HDR: tone-map variant compile failed: {}", compiled.errors);
+                    return nullptr;
+                }
+                try {
+                    entry.hdrShader = device->createShader(compiled.bytecode.data(), compiled.bytecode.size(),
+                        "main", renderFormat);
+                } catch (const std::exception& error) {
+                    LOG_WARNING("renderer HDR: tone-map module creation failed: {}", error.what());
+                }
+                return entry.hdrShader.get();
             }
 
             bool PrepareRectListShader(Shader& vs, const uint32_t* words, uint32_t count, uint64_t hash)
@@ -6242,6 +6417,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         color->clearedFrame = frame;
                         commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                         commandList->clearColor(0, loud ? RenderColor(1.0f, 0.0f, 1.0f, 1.0f) : RenderColor(0.0f, 0.0f, 0.0f, 0.0f));
+                        color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                         HandleFsrAlphaRgbWriter(*color, "debug_clear_rt");
 #endif
@@ -8082,6 +8258,209 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         measured->guestWidth, measured->guestHeight, measured->width, measured->height, (surfaceInfo >> 16) & 3)});
                     LogOcclusionDraw(occlusionIndex, ps != nullptr, measured);
                 }
+                // Keep the guest SDR target untouched. The verified tone-map draw
+                // starts an extended-gamma FP16 copy; later UI/fade draws reproduce
+                // their original blend against it. Any unknown writer invalidates
+                // this frame's HDR resolve instead of presenting mixed content.
+                if (color && color->hdrFrame == frame && color->hdrValid &&
+                    (key.colorMask & 7u) &&
+                    (!hdrSceneEnabled.load(std::memory_order_relaxed) ||
+                     (color->format != RenderFormat::R8G8B8A8_UNORM &&
+                      color->format != RenderFormat::R16G16B16A16_FLOAT) ||
+                     activePlan.requestedUpscaler != upscaling::Upscaler::Off ||
+                     activePlan.effectiveAA != 0 ||
+                     activePlan.frameGeneration != upscaling::FrameGeneration::Off))
+                    color->hdrValid = false;
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) && color &&
+                    (color->format == RenderFormat::R8G8B8A8_UNORM ||
+                     color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u) &&
+                    activePlan.requestedUpscaler == upscaling::Upscaler::Off &&
+                    activePlan.effectiveAA == 0 &&
+                    activePlan.frameGeneration == upscaling::FrameGeneration::Off) {
+                    bool forwarded = false;
+                    if (fullSceneCopy && !depth && sceneCopyBank == 0 &&
+                        rasterViewport.x == 0 && rasterViewport.y == 0 &&
+                        std::floor(rasterViewport.width) == rasterViewport.width &&
+                        std::floor(rasterViewport.height) == rasterViewport.height &&
+                        rasterViewport.width <= color->width && rasterViewport.height <= color->height &&
+                        scissor.left == 0 && scissor.top == 0 &&
+                        scissor.right >= int32_t(rasterViewport.width) &&
+                        scissor.bottom >= int32_t(rasterViewport.height)) {
+                        const auto copyWidth = uint32_t(rasterViewport.width);
+                        const auto copyHeight = uint32_t(rasterViewport.height);
+                        const uint32_t fetch = Reg(REG_FETCH_CONSTANTS + 1);
+                        const auto* source = FindResolved((fetch >> 12) << 12, fetch & 0x3F);
+                        if (source && source->tex && source->hdrTex && source->hdrTex->texture &&
+                            source->hdrWriteOrdinal == source->writeOrdinal && source->hdrFrame == frame &&
+                            source->hdrTex->width >= copyWidth && source->hdrTex->height >= copyHeight &&
+                            textureBindings[0][0] == source->tex->texture.get()) {
+                            if (!color->hdrSidecar || !color->hdrSidecar->texture ||
+                                color->hdrSidecar->width != color->width ||
+                                color->hdrSidecar->height != color->height) {
+                                if (color->hdrSidecar)
+                                    Gpu().retiredTextures.push_back(std::move(color->hdrSidecar));
+                                color->hdrSidecar = std::make_unique<HostTexture>();
+                                auto& sidecar = *color->hdrSidecar;
+                                sidecar.width = color->width; sidecar.height = color->height;
+                                sidecar.format = RenderFormat::R16G16B16A16_FLOAT;
+                                sidecar.texture = device->createTexture(RenderTextureDesc::Texture2D(
+                                    sidecar.width, sidecar.height, 1, sidecar.format,
+                                    RenderTextureFlag::RENDER_TARGET));
+                            }
+                            if (color->hdrSidecar && color->hdrSidecar->texture) {
+                                Transition(*color->hdrSidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
+                                commandList->setFramebuffer(GetFramebuffer(color->hdrSidecar.get(), nullptr));
+                                commandList->clearColor(0, RenderColor(0, 0, 0, 1));
+                                Transition(*source->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                                Transition(*color->hdrSidecar, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                                RenderBox box{0, 0, int32_t(copyWidth), int32_t(copyHeight), 0, 1};
+                                commandList->copyTextureRegion(
+                                    RenderTextureCopyLocation::Subresource(color->hdrSidecar->texture.get()),
+                                    RenderTextureCopyLocation::Subresource(source->hdrTex->texture.get()),
+                                    0, 0, 0, &box);
+                                color->hdrFrame = frame;
+                                color->hdrValid = true;
+                                color->hdrValidWidth = copyWidth;
+                                color->hdrValidHeight = copyHeight;
+                                forwarded = true;
+                                commandList->setFramebuffer(framebuffer);
+                                commandList->setViewports(&rasterViewport, 1);
+                                commandList->setScissors(&scissor, 1);
+                                commandList->setPipeline(pipeline);
+                                static uint32_t forwardedLogs = 0;
+                                if (forwardedLogs++ < 8)
+                                    LOG_INFO("renderer HDR: full scene copy forwarded frame={} valid={}x{} allocation={}x{}",
+                                        frame, copyWidth, copyHeight, color->width, color->height);
+                            }
+                        }
+                    }
+                    const bool tone = key.vs == 0x9b81c55ca39bb529ull &&
+                        key.ps == 0xb4b4d54a7a2d6b96ull;
+                    const bool continuing = color->hdrFrame == frame && color->hdrValid;
+                    if (!forwarded && (tone || continuing)) {
+                        if (tone) {
+                            color->hdrFrame = frame;
+                            color->hdrValid = false;
+                            color->hdrValidWidth = color->hdrValidHeight = 0;
+                        }
+                        const auto desc = DescribePipeline(key, vs, ps, false);
+                        const auto& blend = desc.renderTargetBlend[0];
+                        const bool copyBlend = !blend.blendEnabled ||
+                            (blend.srcBlend == RenderBlend::ONE && blend.dstBlend == RenderBlend::ZERO &&
+                             blend.blendOp == RenderBlendOperation::ADD);
+                        const bool alphaBlend = blend.blendEnabled &&
+                            blend.srcBlend == RenderBlend::SRC_ALPHA &&
+                            blend.dstBlend == RenderBlend::INV_SRC_ALPHA &&
+                            blend.blendOp == RenderBlendOperation::ADD;
+                        bool aliasesTarget = false;
+                        bool samplesSdrHdrSource = false;
+                        for (const auto& bank : textureBindings)
+                            for (auto* texture : bank) {
+                                aliasesTarget |= texture == color->texture.get() ||
+                                    (color->hdrSidecar && texture == color->hdrSidecar->texture.get());
+                                samplesSdrHdrSource |= hdrSdrSourcesFrame == frame &&
+                                    hdrSdrSources.contains(texture);
+                            }
+                        const char* reject = nullptr;
+                        const bool depthMayPass = tone ?
+                            (!desc.depthEnabled || desc.depthFunction == RenderComparisonFunction::ALWAYS) :
+                            (!desc.depthEnabled && !desc.depthWriteEnabled);
+                        if (!ps || !vs->info.errors.empty() || !ps->info.errors.empty() ||
+                            ps->info.writesDepth || ps->info.colorTargetsWritten != 1u ||
+                            !depthMayPass || desc.stencilEnabled ||
+                            desc.geometryShader || (key.colorMask & 7u) != 7u ||
+                            aliasesTarget || (!tone && samplesSdrHdrSource))
+                            reject = "writer_state";
+                        else if (tone && color_qualification::CheckProducerPipeline({
+                            .vs = key.vs, .ps = key.ps,
+                            .c10xBits = psConstants[10 * 4],
+                            .colorMask = key.colorMask, .blend = key.blend,
+                            .depthControl = key.depthControl, .modeCull = key.modeCull,
+                            .colorControl = Reg(REG_RB_COLORCONTROL),
+                            .guestTargetFormat = (colorInfo >> 16) & 0xF,
+                            .targetExpBias = (colorInfo >> 20) & 0x3F,
+                            .vtxFmt = shared.vtxFmt, .sharedFlags = shared.flags,
+                            .debugOverrides = getenv("LO_DEBUG_NODEPTH") != nullptr
+                        }) != color_qualification::ProducerRejectReason::None)
+                            reject = "tone_pipeline";
+                        else if (tone && (color->format != RenderFormat::R16G16B16A16_FLOAT ||
+                            rasterViewport.x != 0 || rasterViewport.y != 0 ||
+                            rasterViewport.width <= 0 || rasterViewport.height <= 0 ||
+                            std::floor(rasterViewport.width) != rasterViewport.width ||
+                            std::floor(rasterViewport.height) != rasterViewport.height ||
+                            rasterViewport.width > color->width || rasterViewport.height > color->height ||
+                            scissor.left > 0 || scissor.top > 0 ||
+                            scissor.right < int32_t(rasterViewport.width) ||
+                            scissor.bottom < int32_t(rasterViewport.height)))
+                            reject = "tone_coverage";
+                        else if (tone ? !copyBlend : !alphaBlend)
+                            reject = "blend_state";
+                        else if (tone && (!psWords || !psCount ||
+                            !HdrToneShader(*ps, psWords, psCount)))
+                            reject = "tone_shader";
+                        if (!reject && (!color->hdrSidecar || !color->hdrSidecar->texture ||
+                            color->hdrSidecar->width != color->width ||
+                            color->hdrSidecar->height != color->height)) {
+                            if (color->hdrSidecar)
+                                Gpu().retiredTextures.push_back(std::move(color->hdrSidecar));
+                            color->hdrSidecar = std::make_unique<HostTexture>();
+                            auto& sidecar = *color->hdrSidecar;
+                            sidecar.width = color->width; sidecar.height = color->height;
+                            sidecar.format = RenderFormat::R16G16B16A16_FLOAT;
+                            sidecar.texture = device->createTexture(RenderTextureDesc::Texture2D(
+                                sidecar.width, sidecar.height, 1, sidecar.format,
+                                RenderTextureFlag::RENDER_TARGET));
+                            if (!sidecar.texture) { color->hdrSidecar.reset(); reject = "target_allocation"; }
+                        }
+                        if (!reject) {
+                            auto hdrDesc = desc;
+                            hdrDesc.pixelShader = tone ? ps->hdrShader.get() : ps->shader.get();
+                            hdrDesc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
+                            hdrDesc.depthEnabled = hdrDesc.depthWriteEnabled = hdrDesc.stencilEnabled = false;
+                            hdrDesc.depthTargetFormat = RenderFormat::UNKNOWN;
+                            auto& hdrPipeline = hdrPipelines[key];
+                            if (!hdrPipeline) hdrPipeline = device->createGraphicsPipeline(hdrDesc);
+                            if (!hdrPipeline) reject = "pipeline_creation";
+                            else {
+                                auto& sidecar = *color->hdrSidecar;
+                                Transition(sidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
+                                commandList->setFramebuffer(GetFramebuffer(&sidecar, nullptr));
+                                if (tone) commandList->clearColor(0, RenderColor(0, 0, 0, 1));
+                                commandList->setViewports(&rasterViewport, 1);
+                                commandList->setScissors(&scissor, 1);
+                                commandList->setPipeline(hdrPipeline.get());
+                                if (useIndices) {
+                                    RenderIndexBufferView view(RenderBufferReference(uploadRing, preparedIndexOffset),
+                                        uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
+                                    commandList->setIndexBuffer(&view);
+                                    commandList->drawIndexedInstanced(indexCount, 1, 0, baseVertex, 0);
+                                } else commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
+                                color->hdrValid = true;
+                                if (tone) {
+                                    color->hdrValidWidth = uint32_t(rasterViewport.width);
+                                    color->hdrValidHeight = uint32_t(rasterViewport.height);
+                                }
+                                // Later renderer paths expect the guest's target and pipeline.
+                                commandList->setFramebuffer(framebuffer);
+                                commandList->setViewports(&rasterViewport, 1);
+                                commandList->setScissors(&scissor, 1);
+                                commandList->setPipeline(pipeline);
+                                static uint32_t toneLogs = 0;
+                                if (tone && toneLogs++ < 8)
+                                    LOG_INFO("renderer HDR: tone-map sidecar recorded frame={} valid={}x{} allocation={}x{}",
+                                        frame, color->hdrValidWidth, color->hdrValidHeight,
+                                        color->width, color->height);
+                            }
+                        }
+                        if (reject) {
+                            color->hdrValid = false;
+                            static uint32_t rejected = 0;
+                            if (rejected++ < 24)
+                                LOG_INFO("renderer HDR: SDR fallback frame={} ps={:016x} reason={}",
+                                    frame, key.ps, reject);
+                        }
+                    }
+                }
                 if (fgUiBindingExpected && fgUiCapture) {
                     auto capture = fgUiCapture;
                     if (capture->Valid() && (capture->frame != frame ||
@@ -9189,6 +9568,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 color->sdrProducerFrame, color->qualifiedSdrWidth, color->qualifiedSdrHeight,
                                 frame, uint32_t(rasterViewport.width), uint32_t(rasterViewport.height));
                         } else {
+                            if (color->hdrFrame == frame) color->hdrValid = false;
                             color_qualification::InvalidateHostTextureProducer(
                                 color->sdrProducerFrame, color->qualifiedSdrWidth, color->qualifiedSdrHeight);
                             static color_qualification::ProducerRejectReason lastLoggedProducerReject = color_qualification::ProducerRejectReason::None;
@@ -9322,6 +9702,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             Transition(*tex, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                             commandList->setFramebuffer(GetFramebuffer(tex.get(), nullptr));
                             commandList->clearColor(0, value);
+                            tex->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                             HandleFsrAlphaRgbWriter(*tex, "depth_color_tile_clear");
                             if (fsrAlphaBridge && activePlan.requestedUpscaler == upscaling::Upscaler::Fsr)
@@ -9418,7 +9799,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (key.colorMask & 7) HandleFsrAlphaRgbWriter(*target,
                             "color_clear_rect", drawsThisFrame, key.vs, key.ps, key.blend, key.colorMask);
 #endif
-                        if ((key.colorMask & 7) != 0) target->sdrProducerFrame = ~0ull;
+                        if ((key.colorMask & 7) != 0) {
+                            target->sdrProducerFrame = ~0ull;
+                            target->hdrValid = false;
+                        }
                         if (trackBinding) {
                             // Replayed clear geometry uses a stretched viewport, so do not reuse the original transform.
                             if (key.colorMask) target->bindingProducer.Mixed(bindingEpoch, frame);
@@ -10037,6 +10421,42 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 } else {
                     color_qualification::InvalidateSurfaceResolved(rs.sdrWriteOrdinal);
                 }
+                rs.hdrWriteOrdinal = 0;
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) &&
+                    destFormat == 6 && fullResolved && color.hdrValid && color.hdrFrame == frame &&
+                    color.hdrValidWidth >= texW && color.hdrValidHeight >= texH &&
+                    color.hdrSidecar && color.hdrSidecar->texture &&
+                    color.hdrSidecar->width >= texW && color.hdrSidecar->height >= texH) {
+                    if (!rs.hdrTex || rs.hdrTex->width != texW || rs.hdrTex->height != texH) {
+                        if (rs.hdrTex) Gpu().retiredTextures.push_back(std::move(rs.hdrTex));
+                        auto target = std::make_unique<HostTexture>();
+                        target->width = texW; target->height = texH;
+                        target->format = RenderFormat::R16G16B16A16_FLOAT;
+                        target->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1,
+                            target->format, RenderTextureFlag::RENDER_TARGET));
+                        if (target->texture) rs.hdrTex = std::move(target);
+                    }
+                    if (rs.hdrTex && rs.hdrTex->texture) {
+                        Transition(*color.hdrSidecar, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                        Transition(*rs.hdrTex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                        RenderBox box{0, 0, int32_t(texW), int32_t(texH), 0, 1};
+                        commandList->copyTextureRegion(
+                            RenderTextureCopyLocation::Subresource(rs.hdrTex->texture.get()),
+                            RenderTextureCopyLocation::Subresource(color.hdrSidecar->texture.get()),
+                            0, 0, 0, &box);
+                        rs.hdrFrame = frame;
+                        rs.hdrWriteOrdinal = rs.writeOrdinal;
+                        if (hdrSdrSourcesFrame != frame) {
+                            hdrSdrSources.clear();
+                            hdrSdrSourcesFrame = frame;
+                        }
+                        hdrSdrSources.insert(rs.tex->texture.get());
+                        static uint32_t resolveLogs = 0;
+                        if (resolveLogs++ < 8)
+                            LOG_INFO("renderer HDR: extended resolve frame={} address={:#x} size={}x{} ordinal={}",
+                                frame, destBase, texW, texH, rs.hdrWriteOrdinal);
+                    }
+                }
                 WriteP2ResolveEvent("color", color, destBase, rs, resolveOperation);
 #if defined(LO_GPU_PLUME)
                 RecordFsrAlphaBridgeResolve(color, destBase, rs, resolveOperation);
@@ -10258,6 +10678,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                     RenderRect rect{ int32_t(color->ScaleX(x0)), int32_t(color->ScaleY(y0)), int32_t(color->ScaleX(x1)), int32_t(color->ScaleY(y1)) };
                     commandList->clearColor(0, c, &rect, 1);
+                    color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                     HandleFsrAlphaRgbWriter(*color, "resolve_color_clear");
 #endif
@@ -10286,10 +10707,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                                float x, float y, float width, float height, float safeLeft, float safeRight)
+                                float x, float y, float width, float height, float safeLeft, float safeRight,
+                                float safeTop, float safeBottom)
             {
                 if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height) ||
-                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || width <= 0.0f || height <= 0.0f)
+                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || !std::isfinite(safeTop) ||
+                    !std::isfinite(safeBottom) || width <= 0.0f || height <= 0.0f)
                     return;
 
                 const uint32_t pitch = surfaceInfo & 0x3FFF;
@@ -10312,19 +10735,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const int32_t targetBottom = std::clamp(scaleY(y + height), targetTop, int32_t(color->height));
                 const int32_t leftBarEnd = std::clamp(scaleX(safeLeft), targetLeft, targetRight);
                 const int32_t rightBarStart = std::clamp(scaleX(safeRight), targetLeft, targetRight);
-                if (targetBottom <= targetTop || (leftBarEnd <= targetLeft && rightBarStart >= targetRight))
+                const int32_t topBarEnd = std::clamp(scaleY(safeTop), targetTop, targetBottom);
+                const int32_t bottomBarStart = std::clamp(scaleY(safeBottom), topBarEnd, targetBottom);
+                if (targetBottom <= targetTop || targetRight <= targetLeft)
                     return;
 
-                std::array<RenderRect, 2> bars{};
+                std::array<RenderRect, 4> bars{};
                 uint32_t count = 0;
-                auto addBar = [&](int32_t left, int32_t right)
+                auto addBar = [&](int32_t left, int32_t top, int32_t right, int32_t bottom)
                 {
-                    if (right <= left)
+                    if (right <= left || bottom <= top)
                         return;
-                    bars[count++] = { left, targetTop, right, targetBottom };
+                    bars[count++] = { left, top, right, bottom };
                 };
-                addBar(targetLeft, leftBarEnd);
-                addBar(rightBarStart, targetRight);
+                addBar(targetLeft, targetTop, targetRight, topBarEnd);
+                addBar(targetLeft, bottomBarStart, targetRight, targetBottom);
+                addBar(targetLeft, topBarEnd, leftBarEnd, bottomBarStart);
+                addBar(rightBarStart, topBarEnd, targetRight, bottomBarStart);
                 if (!count)
                     return;
 
@@ -10332,6 +10759,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 Transition(*color, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                 commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                 commandList->clearColor(0, RenderColor(0.0f, 0.0f, 0.0f, 1.0f), bars.data(), count);
+                color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                 HandleFsrAlphaRgbWriter(*color, "movie_bars_clear");
 #endif
@@ -10718,6 +11146,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             return;
         if (!g_renderer->Begin()) return;
         g_renderer->Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+        if (hdrSceneEnabled.load(std::memory_order_relaxed) && rs->hdrTex &&
+            rs->hdrWriteOrdinal && rs->hdrWriteOrdinal == rs->writeOrdinal)
+            g_renderer->Transition(*rs->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
     }
 
     bool SuppressPresent()
@@ -10976,6 +11407,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (handoff) *handoff = {};
         return g_renderer ? g_renderer->AcquireResolvedForPresent(physicalAddress, width, height, format,
             sourcePlan, handoff) : nullptr;
+    }
+    void SetHdrSceneEnabled(bool enabled)
+    {
+        hdrSceneEnabled.store(enabled, std::memory_order_relaxed);
+    }
+    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
+    {
+        if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
+            g_renderer->PlanSuppressed()) return nullptr;
+        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
+        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture ||
+            rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
+            !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
+            !rs->sourcePlanValid || rs->hdrTex->width != rs->tex->width ||
+            rs->hdrTex->height != rs->tex->height) return nullptr;
+        width = rs->hdrTex->width; height = rs->hdrTex->height;
+        return rs->hdrTex->texture.get();
     }
     bool AcquireFgCompositeInputs(uint32_t physicalAddress, frame_generation::CompositeHandoff& handoff)
     {
@@ -11261,6 +11709,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     bool SceneAAApplied(uint32_t) { return false; }
     plume::RenderTexture* AcquireResolvedSurface(uint32_t, uint32_t&, uint32_t&, uint32_t&,
         frame_plan::FramePlan*, frame_generation::ResolvedHandoff*) { return nullptr; }
+    void SetHdrSceneEnabled(bool) {}
+    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
     bool AcquireFgCompositeInputs(uint32_t, frame_generation::CompositeHandoff&) { return false; }
     void CancelFgHandoffs() {}
     void SetFrameGenerationInputCaptureEnabled(bool) {}
@@ -11277,7 +11727,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     float ActiveOutputAspect()
     {
         const auto plan = frame_plan::CurrentProducerPlan();
-        if (!plan) return 16.0f / 9.0f;
+        // The resolve-readback path renders the native 16:9 raster on any output.
+        if (!plan || plan->requiresReadback) return 16.0f / 9.0f;
         const auto& output = plan->output;
         if (output.width && output.height) return float(output.width) / output.height;
         if (output.drawable.width && output.drawable.height) return float(output.drawable.width) / output.drawable.height;
@@ -11308,14 +11759,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     }
 
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                        float x, float y, float width, float height, float safeLeft, float safeRight)
+                        float x, float y, float width, float height, float safeLeft, float safeRight,
+                        float safeTop, float safeBottom)
     {
 #ifdef LO_GPU_PLUME
         if (g_renderer)
-            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight);
+            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight, safeTop, safeBottom);
 #else
         (void)surfaceInfo; (void)colorInfo; (void)x; (void)y;
-        (void)width; (void)height; (void)safeLeft; (void)safeRight;
+        (void)width; (void)height; (void)safeLeft; (void)safeRight; (void)safeTop; (void)safeBottom;
 #endif
     }
 #endif // !LO_RENDERER_P2_EMBEDDED_TEST
