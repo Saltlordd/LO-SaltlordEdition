@@ -16,8 +16,29 @@ int main() {
     Require(ResolveInternalSize(0, 1920, 1200) == Size{1920, 1200}, "Auto fills 16:10 output");
     Require(ResolveInternalSize(0, 1600, 1200) == Size{1600, 1200}, "Auto fills 4:3 output");
     Require(ResolveInternalSize(0, 1800, 1200) == Size{1800, 1200}, "Auto fills 3:2 output");
-    Require(ResolveInternalSize(1080, 1600, 1200) == Size{1440, 1080}, "manual internal height preserves 4:3");
-    Require(ResolveInternalSize(1080, 1800, 1200) == Size{1620, 1080}, "manual internal height preserves 3:2");
+    // A mode sets the 16:9 area; taller outputs keep its width and grow taller.
+    Require(ResolveInternalSize(1080, 1600, 1200) == Size{1920, 1440}, "1080 on 4:3 keeps the 16:9 width");
+    Require(ResolveInternalSize(1080, 1800, 1200) == Size{1920, 1280}, "1080 on 3:2 keeps the 16:9 width");
+    Require(ResolveInternalSize(720, 1600, 1200) == Size{1280, 960}, "720 on 4:3 keeps the 16:9 width");
+    Require(ResolveInternalSize(720, 1280, 800) == Size{1280, 800}, "720 fills a 1280x800 output natively");
+    Require(ResolveInternalSize(1080, 1920, 1200) == Size{1920, 1200}, "1080 fills a 1920x1200 output natively");
+    Require(ResolveInternalSize(0, 3840, 2400) == Size{3840, 2400}, "Auto keeps a 2160-row 16:9 area at 3840x2400");
+    Require(ResolveInternalSize(0, 5120, 3200) == Size{3840, 2400}, "Auto caps the 16:9 area at 2160 rows on tall outputs");
+    Require(ResolveInternalSize(720, 1080, 1920) == Size{1280, 2276}, "portrait keeps the 16:9 width");
+    Require(ResolveInternalSize(2160, 1080, 1920) == Size{2430, MaxTallHeight}, "portrait raster is bounded");
+    Require(TargetSizeForRole(TargetRole::Unknown, 1280, 720, Size{1280, 960}) == Size{1280, 720},
+        "unknown targets scale by the 16:9 area of a tall plan");
+    Require(TargetSizeForRole(TargetRole::Unknown, 1280, 720, Size{2560, 1080}) == Size{1920, 1080} &&
+        TargetSizeForRole(TargetRole::Unknown, 1280, 720, Size{1920, 1080}) == Size{1920, 1080},
+        "unknown targets keep the plan height at 16:9 and wider");
+    // Every exact 16:9 output keeps the sizes from before tall layouts.
+    for (uint32_t units = 1; units <= 2000; ++units)
+        for (const uint32_t mode : {0u, 720u, 1080u, 1440u, 2160u, 900u}) {
+            const bool fixed = mode == 720 || mode == 1080 || mode == 1440 || mode == 2160;
+            const uint32_t legacyUnits = (std::min)(units, 240u);
+            const Size legacy = fixed ? Size{mode * 16 / 9, mode} : Size{legacyUnits * 16, legacyUnits * 9};
+            Require(ResolveInternalSize(mode, units * 16, units * 9) == legacy, "16:9 output keeps the previous size");
+        }
     Require(ResolveInternalSize(0, 3440, 1440) == Size{3440, 1440}, "Auto retains the actual ultrawide aspect");
     Require(ResolveInternalSize(0, 2560, 1080) == Size{2560, 1080}, "Auto distinguishes 21:9 output aspects");
     Require(ResolveInternalSize(0, 7680, 4320) == Size{3840, 2160}, "Auto capped at 4K");

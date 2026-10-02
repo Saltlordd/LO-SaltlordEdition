@@ -172,7 +172,12 @@ int main() {
         Check(plan.effectiveAA == 0 && plan.legacyAA == 3, "no double AA, preserve requested fallback AA");
         Check(plan.dlssQuality == DlssQuality::Dlaa && plan.requestedUpscaler == Upscaler::Dlss, "DLAA selection survives planning");
         Check(plan.requestSignature == InputRequestSignature(input), "incoming and final signatures agree");
-        Check(plan.legacyHeight == 720 && plan.sizingRevision == 11, "legacy size and sizing revision preserved");
+        // The 720 fallback keeps its 16:9 width; taller outputs make it taller.
+        const auto legacy = resolution::ResolveInternalSize(720, output.width, output.height);
+        Check(plan.legacyWidth == legacy.width && plan.legacyHeight == legacy.height && plan.sizingRevision == 11,
+            "legacy size and sizing revision preserved");
+        Check(legacy.height == 720 || (drawable.height * 16 > drawable.width * 9 && legacy.width == 1280),
+            "the fallback widens or keeps the 1280-column 16:9 area");
         RoundTrip(plan);
         const auto repeat = planner.Begin(input);
         Check(repeat.geometryEpoch == plan.geometryEpoch, "stable DLAA must not reset every frame");

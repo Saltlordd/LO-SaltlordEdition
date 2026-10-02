@@ -135,5 +135,24 @@ int main()
     const auto tall = ForAspect(4.0f/3.0f);
     Require(Near(FitBoundary(0, NativeHeight, tall.y), 90) &&
             Near(FitBoundary(NativeHeight, NativeHeight, tall.y), 630), "4:3 movie bars cover the expected 90 guest pixels on each side");
+    // The renderer divides the integer drawable size; every exact 16:9 output
+    // must give the identity bit for bit, or HUD and scene would be resampled.
+    for (const auto [w, h] : std::array<std::array<uint32_t, 2>, 7>{{
+        {1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160}, {1600, 900}, {1024, 576}, {7680, 4320}}})
+        Require(ForAspect(float(w) / float(h)).IsIdentity(), "exact 16:9 outputs are an identity transform");
+    // An empty guest rectangle disables clipping, so a one-pixel clip must stay non-empty.
+    for (const float aspect : {16.0f / 10.0f, 3.0f / 2.0f, 4.0f / 3.0f, 64.0f / 27.0f})
+    {
+        const auto scale = ForAspect(aspect);
+        for (uint32_t at = 0; at < 1280; ++at)
+            for (const float anchor : {0.5f, 0.0f})
+            {
+                const uint32_t y = at % 720;
+                const auto row = FitScissor({0, y, 1280, y + 1}, scale, anchor);
+                const auto column = FitScissor({at, 0, at + 1, 720}, scale, anchor);
+                Require(row[1] < row[3] && row[0] < row[2], "a one-pixel row clip stays a clip");
+                Require(column[0] < column[2] && column[1] < column[3], "a one-pixel column clip stays a clip");
+            }
+    }
     std::printf("aspect layout: %d checks passed\n", checks);
 }

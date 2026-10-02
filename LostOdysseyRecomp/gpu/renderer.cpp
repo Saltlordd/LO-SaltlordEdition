@@ -11283,7 +11283,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     float ActiveOutputAspect()
     {
         const auto plan = frame_plan::CurrentProducerPlan();
-        if (!plan) return 16.0f / 9.0f;
+        // The resolve-readback path renders the native 16:9 raster on any output.
+        if (!plan || plan->requiresReadback) return 16.0f / 9.0f;
         const auto& output = plan->output;
         if (output.width && output.height) return float(output.width) / output.height;
         if (output.drawable.width && output.drawable.height) return float(output.drawable.width) / output.drawable.height;

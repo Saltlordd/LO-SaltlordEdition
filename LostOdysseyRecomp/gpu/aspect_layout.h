@@ -42,6 +42,13 @@ inline std::array<uint32_t, 4> FitScissor(std::array<uint32_t, 4> edges, Scale s
         edges[edge] = uint32_t(std::lround(FitBoundary(float(edges[edge]),
             vertical ? NativeHeight : NativeWidth, vertical ? scale.y : scale.x, vertical ? verticalAnchor : 0.5f)));
     }
+    // A clip narrower than a pixel after fitting must not become that sentinel.
+    for (uint32_t axis = 0; axis < 2; ++axis)
+        if (edges[axis] == edges[axis + 2])
+        {
+            if (edges[axis]) --edges[axis];
+            else ++edges[axis + 2];
+        }
     return edges;
 }
 

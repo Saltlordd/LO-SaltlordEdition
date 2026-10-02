@@ -255,7 +255,9 @@ void DrawMenuBars(const PPCContext& ctx, uint8_t* base, uint32_t canvas)
     {
         if (rect.width <= 0 || rect.height <= 0) continue;
         PPCContext draw = ctx;
-        draw.r1.u64 = scratch + 0x800;
+        // A call frame on the live guest stack: the dispatcher has returned, so
+        // nothing below r1 is in use. The colour stays on the scratch page.
+        draw.r1.u64 = (ctx.r1.u32 - 0x100) & ~0xFu;
         StoreWord(draw.r1.u32, ctx.r1.u32);
         StoreWord(draw.r1.u32 + 92, scratch); // FLinearColor RGBA
         StoreWord(draw.r1.u32 + 100, 0); // Native white texture fallback.
