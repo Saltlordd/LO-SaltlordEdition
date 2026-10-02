@@ -107,7 +107,7 @@ Keep the ELF directory as the working directory when you want portable `save/`, 
 
 ## macOS (Apple Silicon, experimental)
 
-The [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) provides `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 14 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. Its bundled shader compiler (DXC) is built for macOS 15, but in a test on macOS 14.8.9 it loaded and compiled shaders, and the app started up to the point where it looks for game data ([details](MACOS_RELEASE.md#macos-14-and-the-bundled-dxc)). The app is ad-hoc signed and not notarized, so macOS blocks the first launch.
+The [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) provides `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.7.35 app still declares macOS 14.0, but its bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, so macOS blocks the first launch.
 
 1. Download the disk image and open it.
 2. Drag `LostOdysseyRecomp.app` onto the Applications link in the window, then eject the disk image.

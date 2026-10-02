@@ -69,7 +69,7 @@ jobs:
         run: |
           cmake -S tools/tests/motion_replay -B out/build/metalfx-fg -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
             -DLO_ENABLE_DLSS=OFF -DLO_ENABLE_FSR=OFF \
             -DLO_P2_VIDEO_COMPILE_CHECK=ON \
             -DLO_P2_VIDEO_SDL_HEADERS="$PWD/thirdparty/SDL/include" \

@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.28)
 # Minimum macOS version; ignored elsewhere. Must precede project(), and keeps
-# plume from falling back to its own 10.15 default.
-set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
+# plume from falling back to its own 10.15 default. The bundled DXC library is
+# built for macOS 15.
+set(LO_MINIMUM_MACOS "15.0")
+set(CMAKE_OSX_DEPLOYMENT_TARGET "${LO_MINIMUM_MACOS}" CACHE STRING "Minimum macOS deployment target")
+if(CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS LO_MINIMUM_MACOS)
+    # Build trees configured before the minimum was raised keep the old cached value.
+    message(STATUS "Raising CMAKE_OSX_DEPLOYMENT_TARGET from ${CMAKE_OSX_DEPLOYMENT_TARGET} to ${LO_MINIMUM_MACOS}")
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "${LO_MINIMUM_MACOS}" CACHE STRING "Minimum macOS deployment target" FORCE)
+endif()
 project(LostOdysseyRecomp VERSION 0.7.35 LANGUAGES C CXX)
 include(GNUInstallDirs)
 # Source version, not a release/commit or clean-checkout assertion.

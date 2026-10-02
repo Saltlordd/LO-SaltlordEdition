@@ -219,7 +219,7 @@ Experimental, Apple Silicon only (arm64). The runtime renders through plume's Me
 
 ### Prerequisites
 
-- macOS 14 or later on Apple Silicon
+- macOS 15 or later on Apple Silicon
 - Xcode (Apple Clang and the Metal toolchain; set `DEVELOPER_DIR` to select a specific Xcode)
 - CMake 3.28+ and Ninja (`brew install cmake ninja`)
 - Python 3.11+
@@ -250,7 +250,7 @@ cmake -S . -B out/build/macos-gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 cmake --build out/build/macos-gpu --target LostOdysseyRecomp
 ```
 
-The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 14.0. The bundled `libdxcompiler.dylib` is built for macOS 15.0 but loads and compiles shaders on macOS 14 ([details](MACOS_RELEASE.md#macos-14-and-the-bundled-dxc)); hardware validation is recorded separately in [development status](STATUS.md).
+The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 15.0, the version the bundled `libdxcompiler.dylib` is built for; configuring a build directory that cached an older target raises it to 15.0 ([details](MACOS_RELEASE.md#minimum-macos-version)). Hardware validation is recorded separately in [development status](STATUS.md).
 
 ### Run
 

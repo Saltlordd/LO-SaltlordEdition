@@ -28,7 +28,7 @@ Windows x64 · Linux x64 · macOS arm64（实验性） · Direct3D 12 · Vulkan 
 | Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.35.zip` | 将完整 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU；默认使用 Direct3D 12，也可选择 Vulkan。 |
 | Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.35.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
 | Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.35.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
-| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` | 打开磁盘映像，把 `LostOdysseyRecomp.app` 拖到 Applications 链接（即“应用程序”文件夹）。应用未经公证，macOS 会拦截首次启动：先尝试打开应用，再到“系统设置 → 隐私与安全性”点击 **仍要打开**。需要 macOS 14 或更高版本的 Apple Silicon Mac；游戏目前只在 macOS 26.6.2 上运行过。使用 Metal。见 [macOS 安装步骤](docs/INSTALLING.zh-CN.md#macos)。 |
+| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` | 打开磁盘映像，把 `LostOdysseyRecomp.app` 拖到 Applications 链接（即“应用程序”文件夹）。应用未经公证，macOS 会拦截首次启动：先尝试打开应用，再到“系统设置 → 隐私与安全性”点击 **仍要打开**。需要 macOS 15 或更高版本的 Apple Silicon Mac；游戏目前只在 macOS 26.6.2 上运行过。使用 Metal。见 [macOS 安装步骤](docs/INSTALLING.zh-CN.md#macos)。 |
 
 1. **导入游戏数据。** 未找到可用的游戏安装时会打开内置导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、XDVDFS ISO 或 GOD 数据。
 2. **选择界面语言、游戏语言和图形设置。** 完成设置和着色器预编译后进入游戏；如果没有装好所选渲染器的预编译着色器，游戏会先询问是否下载，选择跳过则在本机编译。后续启动会复用着色器缓存。
