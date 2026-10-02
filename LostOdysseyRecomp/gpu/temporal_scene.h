@@ -27,6 +27,9 @@ inline int PositionVPSlot(uint64_t shader) {
     case 0x52e4405f97159d2full:
     // f16385-f16387: alpha-tested depth; UV/color outputs are independent of VP.
     case 0xfe3efe042c311110ull:
+    // Map tour 2026-10-01 (Experimental Staff Marine Division): the fe3e program
+    // with a 14-dword vertex stride, a scene depth writer.
+    case 0xf964d2661094b1a0ull:
     // f11745: static depth companion of a936; c4-c7 position only.
     case 0xb2eaed9ab75471f9ull:
     case 0xb030ab4e17a20783ull:case 0xf1b330b3ceea9a3bull:case 0xf7fd88506d704a3dull:return 4;
@@ -66,7 +69,11 @@ inline int PositionVPSlot(uint64_t shader) {
     case 0xa027ab99fa3e3b0dull:
     // f25276 Burning Cave: static material over f7fd depth; c7-c10 feed only oPos
     // and o4, of which PS 042e reads only W. fetch94 light and c11 eye stay intact.
-    case 0x61bc9947f1e88573ull:return 7;
+    case 0x61bc9947f1e88573ull:
+    // Map tour 2026-10-01: static materials over 52e4 depth whose c7-c10 feed only
+    // oPos and the o4 copy, of which their only seen PS reads just W.
+    // 2441 + d7f3: Snow-Covered Trail. f8b1 + e5b7: Astral Square, Numara Palace.
+    case 0x24418a5936c2d236ull:case 0xf8b1457ed05cacdfull:return 7;
     case 0x1da1ddc75da8e994ull:case 0x22557143e0f243ddull:case 0x4c87bb5b986defc8ull:case 0xa6c8c11c6dd07144ull:
     case 0xe8c0d438c690c784ull:case 0x576d669b2ad3c898ull:
     case 0x188061ace0615678ull:case 0xdc7f83af67c53ba1ull:case 0x68014a17a2a9a4bdull:
@@ -148,6 +155,9 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Legacy of the Eastern Tribe f1800-f1802 (#102), f7fd depth. Its PS reads
     // only the clip W copy; object motion replays like the depth companion.
     {0xdb23a2ad4493bbb4ull, 0x02ee5f0608be581aull, false},
+    // Map tour 2026-10-01, Gohtza - Southernmost Cape: the #102 sky program with
+    // another vertex component order, over f7fd depth; PS 311b reads only clip W.
+    {0xcbadff38155833b6ull, 0x311b14004ee00284ull, false},
     // Old Sorceress' Mansion (#121): the #67 VS with the #102 PS over b030 depth,
     // from two runtime suspect logs. Same VS, so the same motion fallback as #67.
     {0xbda41a11626a545cull, 0x02ee5f0608be581aull, true},

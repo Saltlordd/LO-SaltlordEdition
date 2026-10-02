@@ -19,6 +19,7 @@
 #include "f12139_sky_jitter_capture.h"
 #include "f25276_cave_jitter_capture.h"
 #include "tour_sky_20261001_capture.h"
+#include "tour_batch2_20261001_capture.h"
 #include "feedback_mapping_cases.h"
 #include "screen_batch_cases.h"
 
@@ -1771,6 +1772,22 @@ static void CapturedTourSky()
     Check(PositionVPSlot(0xb9b8056050a4c194ull)==4 && PositionVPSlot(0x8d3c80b318235b22ull)==4,
         "tour depth VS b9b8 maps to slot 4 with 8d3c, its 10-dword stride twin");
 }
+// Map tour 2026-10-01, second pass: runtime-only shader variants reviewed from
+// microcode dumped where they were drawn. 2441 and f8b1 are slot-7 materials
+// over 52e4 depth, cbad the #102 sky program over f7fd depth, f964 the mapped
+// depth VS fe3e with a 14-dword vertex stride.
+static void CapturedTourBatch2()
+{
+    const auto& draws=tour_batch2_20261001::draws;
+    CapturedMaterialOverDepth({"tour 2441",0x24418a5936c2d236ull,0xd7f3f85d208dc73dull,0x52e4405f97159d2full,
+        draws[0].draw,draws[0].depthDraw},draws[0]);
+    CapturedMaterialOverDepth({"tour f8b1",0xf8b1457ed05cacdfull,0xe5b735783b09888bull,0x52e4405f97159d2full,
+        draws[1].draw,draws[1].depthDraw},draws[1]);
+    CapturedSky({"tour cbad",0xcbadff38155833b6ull,0x311b14004ee00284ull,0xf7fd88506d704a3dull,
+        draws[2].draw,draws[2].depthDraw,false,0x4013372b6413788full},draws[2]);
+    Check(PositionVPSlot(0xf964d2661094b1a0ull)==4 && PositionVPSlot(0xfe3efe042c311110ull)==4,
+        "tour depth VS f964 maps to slot 4 with fe3e, its 10-dword stride twin");
+}
 // Runtime suspect locator (no F1 capture): camera slot choice, same-frame
 // companion lookup, per-pair settling and the fixture-bearing log format.
 static void SuspectLocator()
@@ -2026,6 +2043,7 @@ static const NamedCase namedCases[]{
     {"--captured-f12139-sky",CapturedF12139Sky,true},
     {"--captured-f25276-cave",CapturedF25276Cave,true},
     {"--captured-tour-sky",CapturedTourSky,true},
+    {"--captured-tour-batch2",CapturedTourBatch2,true},
     {"--suspect-tracker",SuspectLocator,true},
     {"--feedback-mapping-batch",FeedbackMappingBatch,true},
     {"--screen-mapping-batch",ScreenMappingBatch,true},
