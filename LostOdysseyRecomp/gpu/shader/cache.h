@@ -30,7 +30,7 @@ inline std::string DefaultOptions(Backend backend) {
     case Backend::D3D12: return "main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;strip-reflect";
     case Backend::Vulkan:
         return std::string("main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;spirv;vulkan1.2;dx-layout;vs-invert-y") +
-            (VertexFetchUsesDeviceAddress ? ";vertex-bda-shared1024-v1" : "");
+            (VertexFetchUsesDeviceAddress ? ";vertex-bda-shared1024-v2-u32-push" : "");
     case Backend::D3D11: return "reserved-dxbc-sm5-no-compiler";
     }
     return {};

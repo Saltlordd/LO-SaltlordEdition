@@ -13,6 +13,10 @@ void main(uint vertexId : SV_VertexID, out float4 position : SV_Position)
 {
     uint offset = XeVfetchOffset(95u) + vertexId * 16u;
     position = XeVF_32_32_32_32_FLOAT(xeVertexArena, offset, true, false);
+    // Keep every 24-byte push member live, so the compiled fixture proves
+    // that VS, shared and PS addresses all use pairs of 32-bit words.
+    position.x += float(vk::RawBufferLoad<uint>(xePush.VertexShaderConstants) & 1u);
+    position.y += float(vk::RawBufferLoad<uint>(xePush.PixelShaderConstants) & 1u);
 }
 )HLSL";
 }

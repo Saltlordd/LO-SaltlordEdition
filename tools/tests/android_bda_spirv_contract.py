@@ -93,6 +93,56 @@ def main() -> int:
         with assembly.open("wb") as output:
             run([args.spirv_dis, str(spirv)], cwd=working, stdout=output)
         disassembly = assembly.read_text(encoding="utf-8")
+        push_variable = re.search(
+            r"(?m)^\s*(%\w+) = OpVariable (%\w+) PushConstant\s*$", disassembly)
+        if not push_variable:
+            raise RuntimeError("fixture did not retain a push-constant variable")
+        pointer_type = re.search(
+            rf"(?m)^\s*{re.escape(push_variable.group(2))} = OpTypePointer PushConstant (%\w+)\s*$",
+            disassembly)
+        if not pointer_type:
+            raise RuntimeError("push-constant variable has no struct pointer type")
+        push_struct = pointer_type.group(1)
+        struct_type = re.search(
+            rf"(?m)^\s*{re.escape(push_struct)} = OpTypeStruct ((?:%\w+\s*)+)\s*$",
+            disassembly)
+        if not struct_type:
+            raise RuntimeError("push-constant block is not a struct")
+        members = struct_type.group(1).split()
+        u32_type = re.search(r"(?m)^\s*(%\w+) = OpTypeInt 32 0\s*$", disassembly)
+        if not u32_type:
+            raise RuntimeError("fixture has no unsigned 32-bit scalar type")
+        word_pair = re.search(
+            rf"(?m)^\s*(%\w+) = OpTypeVector {re.escape(u32_type.group(1))} 2\s*$",
+            disassembly)
+        if not word_pair or members != [word_pair.group(1)] * 3:
+            raise RuntimeError("push-constant VS/shared/PS addresses are not three uint2 word pairs")
+        index_types = set(re.findall(
+            r"(?m)^\s*(%\w+) = OpTypeInt 32 [01]\s*$", disassembly))
+        for member, offset in enumerate((0, 8, 16)):
+            if not re.search(
+                rf"(?m)^\s*OpMemberDecorate {re.escape(push_struct)} {member} Offset {offset}\s*$",
+                disassembly,
+            ):
+                raise RuntimeError(f"push-constant member {member} is not at byte {offset}")
+            indices = [constant for constant, scalar_type in re.findall(
+                rf"(?m)^\s*(%\w+) = OpConstant (%\w+) {member}\s*$", disassembly)
+                if scalar_type in index_types]
+            member_loaded = False
+            for index in indices:
+                access = re.search(
+                    rf"(?m)^\s*(%\w+) = Op(?:InBounds)?AccessChain %\w+ "
+                    rf"{re.escape(push_variable.group(1))} {re.escape(index)}\s*$",
+                    disassembly,
+                )
+                if access and re.search(
+                    rf"(?m)^\s*%\w+ = OpLoad {re.escape(word_pair.group(1))} "
+                    rf"{re.escape(access.group(1))}\b", disassembly
+                ):
+                    member_loaded = True
+                    break
+            if not member_loaded:
+                raise RuntimeError(f"push-constant member {member} was optimized out")
         if "OpCapability PhysicalStorageBufferAddresses" not in disassembly:
             raise RuntimeError("fixture did not compile a physical device-address read")
         int64_types = set(re.findall(r"(?m)^[ \t]*(%\w+) = OpTypeInt 64 0$", disassembly))

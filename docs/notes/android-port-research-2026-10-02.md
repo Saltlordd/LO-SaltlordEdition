@@ -226,6 +226,30 @@ host 侧已用 `motion_replay_fixture.h` 经真实 translator 和 host DXC 生�
 
 Android `common_hlsl.h` 的 BDA `uint64` `RawBufferLoad` 曾以默认 4 字节对齐生成 SPIR-V，触发校验层 `VUID-StandaloneSpirv-PhysicalStorageBuffer64-06314`。显式指定 8 字节对齐后，真实 DXC 编译、`spirv-val` 和真机校验层均不再报告该错误。独立 Android compute probe 从 `shared + 1024` 读取两级 BDA 并读回 4 个 float 通过；旧的 4 字节对齐版本在这个小型硬件 probe 上也通过，因此该修复不能被认定为当前黑屏根因。游戏仍黑屏，host UI 和音频保持活动，完整可玩性尚未验证。
 
-回归命令 `wsl -d Manjaro -- python3 tools/tests/android_bda_spirv_contract.py --dxc tools/XenosRecomp/thirdparty/dxc-bin/bin/x64/dxc.exe` 当前通过（2,508 bytes）；旧 header 的负向检查仍按预期失败并报告 `06314`。`RuntimeActivity` 新增仅 debuggable 的 `LO_CLEAR_RT` 和 `LO_NO_SHADER_PREPARE` extras，Java 构建与 lint 通过；前者可将 clear 设为洋红色，后者取值 `1` 可跳过启动 shader 准备，便于诊断。洋红色 clear 能显示整屏，说明被测 EDRAM clear→resolve→present 路径连通；guest draws 仍没有颜色，黑屏原因仍在排查。固定 VS/PS 的临时 early return 诊断没有改善画面，不属于交付功能。
+回归命令 `wsl -d Manjaro -- python3 tools/tests/android_bda_spirv_contract.py --dxc tools/XenosRecomp/thirdparty/dxc-bin/bin/x64/dxc.exe` 当前通过；早期 alignment test 产物为 2,508 bytes，旧 header 的负向检查按预期失败并报告 `06314`。`RuntimeActivity` 新增仅 debuggable 的 `LO_CLEAR_RT` 和 `LO_NO_SHADER_PREPARE` extras，Java 构建与 lint 通过；前者可将 clear 设为洋红色，后者取值 `1` 可跳过启动 shader 准备，便于诊断。洋红色 clear 能显示整屏，说明被测 EDRAM clear→resolve→present 路径连通；guest draws 仍没有颜色，黑屏原因仍在排查。固定 VS/PS 的临时 early return 诊断没有改善画面，不属于交付功能。
 
-当前明确的 Android 边界是：桌面在线 updater、桌面自动 restart 和自动 tar capture 打包暂不支持。`app:assembleDebug` 与 `:runtime` 的 Gradle 构建是独立目标；native link、APK 打包、资源加载或 shader 准备成功都不能代替实体／触摸输入、音频、前后台恢复和新游戏／首战流程验证。未发布、未 push、无用户验收。
+## Vertex-stage BDA 地址核验（2026-10-02）
+
+Adreno 750 真机上的独立 Plume vertex-stage probe 使用 24-byte push constants 和三个不同地址，发现 shader 读取 `SharedConstants`（第二个 `uint64`）时实际取到了第三个 PS 地址：预期 marker 为 `.125, 1, .875`，实际为 `.125, .875, .875`。固定 VS quad probe 在 32×32 framebuffer（共 1,024 像素）下呈洋红色；将 push 字段改为三个 `uint2`，并显式用 `uint64(high) << 32 | low` 重组后，`1024/1024` 像素地址 probe 通过。其余 arena `uint64 RawBufferLoad` 未改；Android-only 修复已进入正式构建，cache option 更新为 `v2-u32-push`，新 debug whitelist `LO_DRAW_TRACE`／`LO_DRAW_TRACE_COUNT` 的 Java/lint 检查通过。
+
+早先 index smoke 使用 `%3`，且 quad indices `0,1,3` 退化，曾造成误导；修正 quad 后 index probe 正常。该隔离硬件 probe 证明了 push 地址映射问题和修复方向，但单独不足以证明游戏 renderer；后续正式运行已在标题和首战画面确认该修复路径有效。
+
+## 标题与菜单真机 checkpoint（2026-10-02，限定范围）
+
+正式 APK 已构建、通过 lint、签名和 16 KB zip 对齐检查并安装。无 VS/PS diagnostic flags、仅使用 `LO_NO_SHADER_PREPARE=1` 跳过首轮预编译时，真机已恢复标题画面；触摸 `START` 进入 New Game/Continue 菜单，按 A 选择 New Game 后进入游戏 Settings 屏。该 checkpoint 当时只确认标题和菜单路径；首战证据见下一节。
+
+## 首战真机 checkpoint（2026-10-02，限定范围）
+
+正式黑屏修复 APK 在无 VS/PS diagnostic flags、仅跳过首轮 shader 准备的条件下，播放了开场视频并进入首战。`START` 暂停、`BACK` 跳过视频；触摸 A 选择 Attack 和目标，D-pad 下切换到另一敌人，A 执行攻击，随后完成第二回合的再次攻击，截图显示伤害 `96`、`95`、`142`。3D 角色、敌人、场景和 UI 均显示，说明基本触摸输入和首战攻击路径已通过；这不代表整场战斗、完整流程、帧率或实体手柄验收。
+
+首轮 shader 编译期间曾观测到一次约 40 秒的 GPU PM4 stage `0x22` 停顿，随后编译和 frame 继续推进并进入首战；这不是每次启动的性能结论。音频 native 计数持续非零且 `queue_errors=0`，目前只证明软件队列提交。证据截图为 `runtime-first-battle-live.png`、`runtime-battle-target.png` 和 `runtime-battle-second-attack.png`。补充的 `motion_replay_hlsl` 第四 push 地址兼容检查中，现有 BDA 0/1 的 6 个 VS/PS/depthPS fixture 均通过 DXC 与 `spirv-val`，桌面 HLSL 保持逐字不变。
+
+最终 u32-push APK 的 native build、`:runtime:assembleDebug` 和 `:runtime:lintDebug` 已通过（`runtime-final-u32-push-build.log`）。
+
+## 最终 APK 启动 checkpoint（2026-10-02，限定范围）
+
+最终 APK 已安装，默认启动（无 ADB extras）显示标题画面；SHA-256 为 `d3435c6a6301398ff65575849041ec59969205cc6588082873aa697d50e4043d`。触摸 B 取消启动 shader batch 时报告 1,970 个已准备、0 个失败，实际 DXC 调用 1,926 次；这不是完整 28,504 项 batch 的完成声明。证据截图为 `runtime-final-title.png`。
+
+替换 APK 前，战斗中关闭触摸控件和 Home/恢复已通过；关闭状态跨 APK 更新与冷启动保留。最终应用重新启用控件后，`SharedPreferences` 的 `enabled=true` 已确认。设备上的临时 probe（26 个文件、2 个目录）及两处合计约 1.8 GiB 的 capture 目录已清理，主机侧证据保留。以上仍不等于完整流程、性能、其他 GPU、16 KB 设备或实体手柄验收。
+
+当前明确的 Android 边界是：桌面在线 updater、桌面自动 restart 和自动 tar capture 打包暂不支持。`app:assembleDebug` 与 `:runtime` 的 Gradle 构建是独立目标；native link、APK 打包、资源加载、shader 准备或首战通过都不能代替实体／触摸输入的更广覆盖、音频确认、前后台恢复、长时间游玩和完整流程验证。未发布、未 push、无用户验收。

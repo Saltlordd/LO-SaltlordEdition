@@ -16,8 +16,36 @@ struct XePushConstants
     uint64_t SharedConstants;
     uint64_t PixelShaderConstants;
 };
-[[vk::push_constant]] ConstantBuffer<XePushConstants> xePush;
-#ifdef XE_PIXEL_SHADER
+)HLSL"
+#if LO_SHADER_VERTEX_BDA
+R"HLSL(// Some Android drivers misread the middle 64-bit push member. Preserve
+// the 24-byte CPU layout, but load each address as two 32-bit words.
+struct XePushConstantWords
+{
+    uint2 VertexShaderConstants;
+    uint2 SharedConstants;
+    uint2 PixelShaderConstants;
+};
+[[vk::push_constant]] ConstantBuffer<XePushConstantWords> xePushWords;
+uint64_t XeDeviceAddress(uint2 words)
+{
+    return uint64_t(words.x) | (uint64_t(words.y) << 32u);
+}
+XePushConstants XeLoadPushConstants()
+{
+    XePushConstants addresses;
+    addresses.VertexShaderConstants = XeDeviceAddress(xePushWords.VertexShaderConstants);
+    addresses.SharedConstants = XeDeviceAddress(xePushWords.SharedConstants);
+    addresses.PixelShaderConstants = XeDeviceAddress(xePushWords.PixelShaderConstants);
+    return addresses;
+}
+#define xePush (XeLoadPushConstants())
+)HLSL"
+#else
+R"HLSL([[vk::push_constant]] ConstantBuffer<XePushConstants> xePush;
+)HLSL"
+#endif
+R"HLSL(#ifdef XE_PIXEL_SHADER
 #define XE_CONSTANTS_ADDRESS xePush.PixelShaderConstants
 #else
 #define XE_CONSTANTS_ADDRESS xePush.VertexShaderConstants

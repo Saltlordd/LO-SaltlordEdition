@@ -60,7 +60,7 @@ public final class RuntimeActivity extends SDLActivity {
             // A fresh process is required when changing these native switches.
             for (String name : new String[] { "LO_VS_DEBUG", "LO_PS_DEBUG",
                     "LO_NO_ALPHATEST", "LO_DEBUG_CAPTURE_SWAP", "LO_TRACE_INPUT",
-                    "LO_CLEAR_RT", "LO_NO_SHADER_PREPARE" }) {
+                    "LO_CLEAR_RT", "LO_NO_SHADER_PREPARE", "LO_DRAW_TRACE", "LO_DRAW_TRACE_COUNT" }) {
                 String value = getIntent().getStringExtra(name);
                 if (value != null) nativeSetenv(name, value);
             }

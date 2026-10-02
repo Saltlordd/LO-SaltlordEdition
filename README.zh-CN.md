@@ -43,7 +43,7 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 本分支现在除了诊断 APK，还包含实验性的 arm64 Android 运行时目标。运行时使用 SDL Android activity、应用专属 external storage、Android ARM64 FFmpeg 配置和 Android DXC 构建。这是开发构建，不是已发布或普遍支持的 Android 版本。工具链和当前验证边界见 [Android 构建说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
 
-Android 运行时现在能在测试平板加载开发资源并进入 shader 准备。新版 APK 已验证每帧 resize 修复只发生一次 resize，但游戏画面仍为黑屏。触摸设置跨 force-stop、APK 覆盖更新和冷启动保持；L3/R3 guest 输入 trace 与 host menu 恢复也已通过，实体手柄和可玩流程仍待验证。详见[Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)及 [Android DXC 构建记录](docs/notes/android-dxc-build-2026-10-02.md)。
+Android 运行时现在能在测试平板加载开发资源、播放开场视频并进入首战。触摸输入已通过标题／菜单导航和首战两次攻击，画面显示伤害；一次首战 shader 准备过程中观测到约 40 秒停顿。长时间游玩、超出 native 队列的音频、其他 GPU、16 KB 设备和实体手柄仍待验证。详见[Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)及 [Android DXC 构建记录](docs/notes/android-dxc-build-2026-10-02.md)。
 
 运行时保留 SDL 实体手柄支持，并加入可以关闭且自动保存设置的 Android 屏幕触摸手柄。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
 
