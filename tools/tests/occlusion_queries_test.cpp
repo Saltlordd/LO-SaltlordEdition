@@ -76,6 +76,36 @@ int main()
         Check(!tracker.HasPending() && !tracker.HasAwaited(), "resolved query leaves the queue");
     }
     {
+        // Fast with owners (#118): the game's pool hands a record to whichever
+        // object allocates first, so the answer follows the owner, not the slot.
+        Tracker tracker(Mode::Fast);
+        const uint64_t terrain = OwnerKey(0x823CC2D0, 0), sun = OwnerKey(0x823D5688, 0);
+        auto issue = [&](uint32_t slot, uint64_t owner, uint64_t batch, Write& begin) {
+            begin = tracker.Begin(slot + kBeginOffset, owner);
+            tracker.DrawSeen();
+            tracker.DrawMeasured({batch, 0, 1.0});
+            return tracker.End(slot);
+        };
+        Write begin;
+        issue(0x11b000, terrain, 1, begin);
+        tracker.Complete(1, Results({500000}));
+        issue(0x11b040, sun, 2, begin);
+        tracker.Complete(2, Results({0}));
+        // Next frame one fewer object is queried first: the sun takes the
+        // terrain's old slot and must not read the terrain's count.
+        auto end = issue(0x11b000, sun, 3, begin);
+        Check(end && Result(begin.record, end->record) == 1, "sun keeps its own occluded count in another slot");
+        tracker.Complete(3, Results({40}));
+        end = issue(0x11b040, terrain, 4, begin);
+        Check(end && Result(begin.record, end->record) == 500000, "terrain keeps its own count in another slot");
+        tracker.Complete(4, Results({500000}));
+        end = issue(0x11b080, sun, 5, begin);
+        Check(end && Result(begin.record, end->record) == 40, "sun reads its latest count");
+        tracker.Complete(5, Results({40}));
+        end = issue(0x11b080, 0, 6, begin);
+        Check(end && Result(begin.record, end->record) == 1, "a query without an owner keys on its slot");
+    }
+    {
         // Strict, fully occluded: zero samples make the guest cull, as on hardware.
         Tracker tracker(Mode::Strict);
         Write begin;

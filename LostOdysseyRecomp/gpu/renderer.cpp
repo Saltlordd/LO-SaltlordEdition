@@ -208,6 +208,10 @@ namespace gpu::renderer
         // leaves END records for the command processor to complete.
         std::atomic<bool> g_occlusionWait{false};
         std::atomic<bool> g_occlusionStrict{false};
+        // Owner of each guest query record slot, as the pool allocation hook
+        // last reported it (NoteOcclusionQueryOwner).
+        std::mutex g_occlusionOwnerMutex;
+        std::unordered_map<uint32_t, uint64_t> g_occlusionOwners;
 
         // ---- register indices ---------------------------------------------
         constexpr uint32_t REG_RB_SURFACE_INFO = 0x2000;
@@ -3628,7 +3632,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             bool OcclusionQueryEvent(uint32_t address)
             {
                 if (!hostOcclusion || (address & 0x1F)) return false;
-                if (gpu::occlusion::IsBeginRecord(address)) WriteOcclusionRecords({occlusion.Begin(address)});
+                if (gpu::occlusion::IsBeginRecord(address)) {
+                    uint64_t owner = 0;
+                    {
+                        std::lock_guard lock(g_occlusionOwnerMutex);
+                        const auto known = g_occlusionOwners.find(gpu::occlusion::SlotOf(address));
+                        if (known != g_occlusionOwners.end()) owner = known->second;
+                    }
+                    WriteOcclusionRecords({occlusion.Begin(address, owner)});
+                }
                 else if (auto end = occlusion.End(address)) WriteOcclusionRecords({*end});
                 return true;
             }
@@ -10828,6 +10840,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         return g_renderer && g_renderer->OcclusionQueryEvent(physicalAddress);
     }
 
+    void NoteOcclusionQueryOwner(uint32_t physicalSlot, uint64_t owner)
+    {
+        std::lock_guard lock(g_occlusionOwnerMutex);
+        g_occlusionOwners[gpu::occlusion::SlotOf(physicalSlot)] = owner;
+    }
+
     void NoteOcclusionWait()
     {
         if (g_occlusionStrict.load(std::memory_order_relaxed) &&
@@ -11700,6 +11718,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     void Draw(const DrawInfo&) {}
     bool OcclusionQueryEvent(uint32_t) { return false; }
     void NoteOcclusionWait() {}
+    void NoteOcclusionQueryOwner(uint32_t, uint64_t) {}
     void ServiceOcclusionQueries() {}
     bool DrainForFrameGenerationReconfigure() { return true; }
     void Flush() {}

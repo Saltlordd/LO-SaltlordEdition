@@ -20,6 +20,13 @@
 // default writes the last measured count of the same record instead
 // (Mode::Fast), as Xenia's default "fast" mode does.
 //
+// The game hands out its query objects from a pool in allocation order every
+// frame (sub_823CCCE8), so a record belongs to a different object whenever the
+// set of queried objects changes; the sun flare (sub_823D5430) is allocated
+// after every primitive query of the frame. Fast answers therefore follow the
+// owner the allocation hook reports for a record (its call site and per-frame
+// ordinal at that site), not the record itself.
+//
 // This file holds the bookkeeping only; the renderer owns the host queries and
 // writes the records this class returns.
 namespace gpu::occlusion
@@ -67,6 +74,12 @@ namespace gpu::occlusion
         return std::nullopt;
     }
 
+    // Identity of the guest object that issued a query, stable across frames:
+    // `caller` is the pool allocation's return address and `ordinal` counts the
+    // allocations from that call site since the pool was reset. Without an
+    // owner a query is identified by its record slot.
+    inline constexpr uint64_t OwnerKey(uint32_t caller, uint32_t ordinal) { return (uint64_t(caller) << 32) | ordinal; }
+
     // One host query around one guest draw. `scale` converts host samples to
     // guest samples (resolution scale and guest MSAA).
     struct Part
@@ -110,11 +123,14 @@ namespace gpu::occlusion
         explicit Tracker(Mode mode = Mode::Fast) : mode_(mode) {}
         void SetMode(Mode mode) { mode_ = mode; }
 
-        // BEGIN event: the record to write now.
-        Write Begin(uint32_t address)
+        // BEGIN event: the record to write now. `owner` (OwnerKey) names the
+        // guest object whose earlier counts answer this query in Mode::Fast;
+        // 0 falls back to the record slot.
+        Write Begin(uint32_t address, uint64_t owner = 0)
         {
             const uint32_t slot = SlotOf(address);
             active_ = Query{slot, ++generations_[slot], counter_};
+            active_->owner = owner ? owner : slot;
             return {address, Counts(counter_)};
         }
 
@@ -141,7 +157,7 @@ namespace gpu::occlusion
             query.end = address;
             std::optional<Write> write;
             if (mode_ == Mode::Fast) {
-                const auto known = last_.find(slot);
+                const auto known = last_.find(query.owner);
                 const uint32_t samples = known != last_.end() && known->second ? known->second : 1;
                 write = Write{address, Counts(query.begin + samples), samples, false};
                 counter_ = query.begin + samples;
@@ -220,6 +236,7 @@ namespace gpu::occlusion
             double samples = 0.0; // guest samples measured so far
             bool failed = false;
             bool written = false; // END record written at its event (Mode::Fast)
+            uint64_t owner = 0;   // key of the Fast answers (OwnerKey or slot)
         };
 
         static Record Counts(uint32_t zpass)
@@ -237,7 +254,7 @@ namespace gpu::occlusion
         }
 
         // Finished queries leave in issue order. Each measured count becomes
-        // the next Fast answer for its record. An unwritten record whose slot
+        // the next Fast answer for its owner. An unwritten record whose slot
         // the guest has reissued since is dropped: it belongs to the new query.
         std::vector<Write> Collect()
         {
@@ -250,7 +267,7 @@ namespace gpu::occlusion
                 }
                 if (!done) { ++it; continue; }
                 const uint32_t samples = it->failed ? kUnmeasuredSamples : GuestSamples(it->samples);
-                if (!it->failed) last_[it->slot] = samples;
+                if (!it->failed) last_[it->owner] = samples;
                 const bool current = generations_[it->slot] == it->generation;
                 if (it->written || current) {
                     writes.push_back({it->end, Counts(it->begin + samples), samples, !it->failed, !it->written});
@@ -266,6 +283,6 @@ namespace gpu::occlusion
         std::optional<Query> active_;
         std::deque<Query> pending_;
         std::unordered_map<uint32_t, uint32_t> generations_;
-        std::unordered_map<uint32_t, uint32_t> last_; // last measured count per slot
+        std::unordered_map<uint64_t, uint32_t> last_; // last measured count per owner
     };
 }

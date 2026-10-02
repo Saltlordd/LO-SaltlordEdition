@@ -1,7 +1,8 @@
 # Host GPU occlusion queries (#118)
 
 Status 2026-10-02: merged as PR #122 (`c0163a8`) and part of v0.7.35 (tag
-`v0.7.35`). Direct3D 12 and Vulkan; Metal keeps the old fake counts. Checked in
+`v0.7.35`); per-owner Fast answers (see "Who owns a query record") are
+unreleased. Direct3D 12 and Vulkan; Metal keeps the old fake counts. Checked in
 the frozen Uhra save and at the #118 spot on the world map on an RTX 5080.
 
 ## Why the flare showed through terrain
@@ -30,6 +31,37 @@ primitive's visibility bit when the result is zero.
 In Uhra the game issues about 256 queries per frame and reads them in the same
 frame, right after issuing them (main render flow: depth prepass, query
 results, base pass).
+
+## Who owns a query record (v0.7.35 flash, #118)
+
+The renderer's query pool `sub_823CCCE8` (pool pointer at `0x83235AB8`) hands
+out query objects in request order, `pool[index++]` with the index at
+`pool+0x20` back at 0 every frame. Each object keeps the record slot it got at
+creation (`query+28`, a `0xA0000000`-based address of the 64-byte slot), so a
+slot belongs to whichever object asks first in that frame. Three call sites
+allocate:
+
+| Return address | Caller | Queries |
+|---|---|---|
+| `0x823CC2D0` | `sub_823CBF68` (primitive occlusion pass) | single primitives |
+| `0x823CD744` | `sub_823CD718` (batched boxes, 8 vertices each) | groups of primitives |
+| `0x823D5688` | `sub_823D5430` (sun flare) | one per frame, after all others |
+
+The sun flare draws a 4-vertex quad around the sun inside its query and reads
+the result at once (`sub_823CF390(query, 0x83302ADC, 1)`). v0.7.35 answered
+Fast queries with the last count of the same record slot. While the camera
+stood still the sun kept its slot (pool index 433 in the #118 save); while
+sailing the number of primitive queries before it changed, the sun inherited a
+primitive's slot and read that primitive's count, and the flare flashed
+through the cliff for a frame. The trackers' `fallback` counter stayed 0, so no
+unmeasured query was involved.
+
+The hook on `sub_823CCCE8` now reports each allocation's owner, its return
+address and its ordinal among that call site's allocations since the pool
+index was 0 (`OwnerKey`), and Fast answers are kept per owner. The sun always
+has owner (`0x823D5688`, 0). Primitive owners still shift among themselves
+when the visible set changes, which only matters for magnitudes, since Fast
+never culls. A record without a reported owner keys on its slot as before.
 
 ## Implementation
 
@@ -95,6 +127,16 @@ shutdown) writes the waiting records as visible, so a guest never waits forever.
   glare over the cliff in all three screenshots taken 3–6 s after loading; the
   default mode showed the dark cliff with no sun and no glare in all three.
   Strict mode was not run there.
-- Not checked: AMD and Intel GPUs, exclusive fullscreen. The disc 1 jail scene and the disc 3 train fight, which Xenia's
+- #118 follow-up (2026-10-02), AMD Radeon 8060S (Strix Halo) on Linux:
+  Windows build through Proton (vkd3d-proton D3D12 on RADV, not the native
+  AMD D3D12 driver the reporter uses), slot 08, sailing with the left stick
+  for 23 s and a screenshot about every 2 frames. v0.7.35: single-frame sun
+  and glare flashes through the cliff at swaps 1175, 1179 and 1184 (+28 mean
+  luminance); with owners: none, and the brightness curve otherwise matches.
+  A static camera showed no flash with either build, which is why the first
+  check missed it. The same sail on the RTX 5080 (D3D12) flashed once at swap
+  974 with the #122 build and not with owners, so the bug is not
+  vendor-specific. Native Vulkan (RADV) with a static camera was also clean.
+- Not checked: native AMD D3D12 driver, Intel GPUs, exclusive fullscreen. The disc 1 jail scene and the disc 3 train fight, which Xenia's
   "Disable Occlusion Queries" patch for this game mentions, have not been run
   in strict mode.
