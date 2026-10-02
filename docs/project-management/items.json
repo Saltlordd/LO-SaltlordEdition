@@ -6269,7 +6269,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Save & Storage",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Implemented",
         "Release": null,
         "Start date": null,
@@ -6299,7 +6299,7 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Save & Storage",
-        "Status": "Paused",
+        "Status": "Done",
         "Delivery": "Deferred",
         "Release": null,
         "Start date": null,
@@ -6321,6 +6321,27 @@
         "Target date": null,
         "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog."
       }
+    },
+    {
+      "key": "character-shadow-flow-2026-10-01",
+      "title": "Character shadows move unnaturally and look translucent",
+      "body": "<!-- lo-project:character-shadow-flow-2026-10-01 -->\n\n维护者 2026-10-01 报告：人物模型上的阴影（尤其在脸部和身体上）流动得不自然，看起来发透（附 Kaim 截图）。2026-10-02 维护者决定挂起到 v0.9.0。\n\n## Scope and completion criteria\n\n- [ ] 在出现处取一份 F1 捕获，记录渲染后端、抗锯齿／放大方式和帧率\n- [ ] 找到原因并修复，在同一位置对比修复前后\n- [ ] 与已挂起的 `amd-opening-shadow-report`（AMD 首战阴影）分开记录，除非证据表明是同一问题\n\n## Validation and acceptance\n\n尚未调查，没有根因或修复。\n\nstage_detail: Deferred to v0.9.0\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/ROADMAP.md#v090-deferred-plan) (v0.9.0 deferred plan)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shadows",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": "v0.9.0",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; not investigated; deferred to v0.9.0 on 2026-10-02."
+      },
+      "source_refs": [
+        "docs/ROADMAP.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
     }
   ]
 }

@@ -66,6 +66,10 @@ Parallel tracks:
 
 - [x] **Flatpak release:** delivered ahead of schedule in v0.7.1 (standalone package published and user-verified; Flathub store submission requires manual authoring of manifest/PR and application demonstration video per Flathub AI policy, tracked separately).
 
+## v0.9.0 deferred plan
+
+- [ ] **Character shadows:** shadows on character models, especially faces and bodies, move unnaturally and look translucent (reported by the maintainer on 2026-10-01 with a screenshot of Kaim). Not investigated yet; the first step is an F1 capture where it shows. The maintainer deferred it to v0.9.0 on 2026-10-02.
+
 ## v1.0.0 deferred plan
 
 - [ ] **Production HUDless/UI separation handoff:** establish and validate a dedicated scene/UI composition contract independently of v0.8.0 composited-backbuffer FG.

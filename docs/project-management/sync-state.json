@@ -3236,7 +3236,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Save & Storage",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Implemented",
         "Evidence": "Maintainer reproduced the Astral Square (244) failure with the supplied save. Commit 2e1c547 adds an F1 Save Anywhere warning after v0.7.20; it does not repair affected saves or automatically block split-party saves. Maintainer requested a pre-split save to locate the live switch-permission state.",
         "Source key": "issue-74-save-anywhere-party-switch"
@@ -3258,7 +3258,7 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Save & Storage",
-        "Status": "Paused",
+        "Status": "Done",
         "Delivery": "Deferred",
         "Evidence": "Reporter supplied an RGH Xbox save and requested bidirectional PC/Xbox use. The maintainer stated an intent to address it before v0.8.0, but no implementation, compatibility contract, validation or release evidence is recorded; retain as deferred open backlog.",
         "Source key": "issue-88-xbox360-save-conversion"
@@ -3276,6 +3276,20 @@
       },
       "title": "Evaluate save-state support",
       "body_sha256": "a51bd9b31f8d901e75308a1b698705916e436179be609d0657f29e27c26713d2"
+    },
+    "character-shadow-flow-2026-10-01": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-DuhY",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shadows",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": "v0.9.0",
+        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; not investigated; deferred to v0.9.0 on 2026-10-02.",
+        "Source key": "character-shadow-flow-2026-10-01"
+      },
+      "title": "Character shadows move unnaturally and look translucent",
+      "body_sha256": "f7595cb8ea487445ff1bd396b92c13e36f9f4e29ec847e581fe26a9843014554"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"
