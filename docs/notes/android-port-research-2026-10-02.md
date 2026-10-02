@@ -222,4 +222,10 @@ host 侧已用 `motion_replay_fixture.h` 经真实 translator 和 host DXC 生�
 
 在 session `1790936548149152` 中，触摸关闭设置跨 force-stop、APK 覆盖更新和冷启动保持；OFF 入口的新位置也避开状态栏。L3/R3 通过 guest input trace 分别读到 `0x0040`／`0x0080`，释放后回到 `0`。Home 后回到同一 task，host menu 可以恢复显示。实体手柄未连接，尚未验证实体硬件；新版 APK 中 L3/R3、mouse 过滤和 CTRL 位置的静态检查已通过。`RuntimeActivity` 新增仅 debuggable 的 ADB extras（`LO_VS_DEBUG`、`LO_PS_DEBUG`、`LO_NO_ALPHATEST`、`LO_DEBUG_CAPTURE_SWAP`、`LO_TRACE_INPUT`），需用 `--es key value` 并 force-stop 后切换；固定 VS/PS diagnostic 仍为黑屏，GPU debug 继续进行。
 
+## BDA SPIR-V 对齐核验（2026-10-02）
+
+Android `common_hlsl.h` 的 BDA `uint64` `RawBufferLoad` 曾以默认 4 字节对齐生成 SPIR-V，触发校验层 `VUID-StandaloneSpirv-PhysicalStorageBuffer64-06314`。显式指定 8 字节对齐后，真实 DXC 编译、`spirv-val` 和真机校验层均不再报告该错误。独立 Android compute probe 从 `shared + 1024` 读取两级 BDA 并读回 4 个 float 通过；旧的 4 字节对齐版本在这个小型硬件 probe 上也通过，因此该修复不能被认定为当前黑屏根因。游戏仍黑屏，host UI 和音频保持活动，完整可玩性尚未验证。
+
+回归命令 `wsl -d Manjaro -- python3 tools/tests/android_bda_spirv_contract.py --dxc tools/XenosRecomp/thirdparty/dxc-bin/bin/x64/dxc.exe` 当前通过（2,508 bytes）；旧 header 的负向检查仍按预期失败并报告 `06314`。`RuntimeActivity` 新增仅 debuggable 的 `LO_CLEAR_RT` 和 `LO_NO_SHADER_PREPARE` extras，Java 构建与 lint 通过；前者可将 clear 设为洋红色，后者取值 `1` 可跳过启动 shader 准备，便于诊断。洋红色 clear 能显示整屏，说明被测 EDRAM clear→resolve→present 路径连通；guest draws 仍没有颜色，黑屏原因仍在排查。固定 VS/PS 的临时 early return 诊断没有改善画面，不属于交付功能。
+
 当前明确的 Android 边界是：桌面在线 updater、桌面自动 restart 和自动 tar capture 打包暂不支持。`app:assembleDebug` 与 `:runtime` 的 Gradle 构建是独立目标；native link、APK 打包、资源加载或 shader 准备成功都不能代替实体／触摸输入、音频、前后台恢复和新游戏／首战流程验证。未发布、未 push、无用户验收。

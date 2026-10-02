@@ -185,7 +185,7 @@ struct XeVertexDeviceBuffer
     uint unused;
     uint Load(uint a) {
         if (a > 1073741824u - 4u) return 0u;
-        uint64_t base = vk::RawBufferLoad<uint64_t>(xePush.SharedConstants + 1024);
+        uint64_t base = vk::RawBufferLoad<uint64_t>(xePush.SharedConstants + 1024, 8);
         return vk::RawBufferLoad<uint>(base + uint64_t(a));
     }
     uint2 Load2(uint a) {
