@@ -22,7 +22,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 #include <memory>
 #include <optional>
 #include <set>

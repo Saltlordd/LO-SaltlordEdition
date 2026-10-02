@@ -445,7 +445,7 @@ static void RtlLeaveCriticalSection(XRTL_CRITICAL_SECTION* cs)
 static void KfAcquireSpinLock(uint32_t* spinLock)
 {
     WaitScope scope("KfAcquireSpinLock", g_memory.MapVirtual(spinLock));
-    std::atomic_ref ref(*spinLock);
+    os::AtomicRef<uint32_t> ref(*spinLock);
     while (true)
     {
         uint32_t expected = 0;
@@ -457,13 +457,13 @@ static void KfAcquireSpinLock(uint32_t* spinLock)
 
 static void KfReleaseSpinLock(uint32_t* spinLock)
 {
-    std::atomic_ref ref(*spinLock);
+    os::AtomicRef<uint32_t> ref(*spinLock);
     ref = 0;
 }
 
 static uint32_t KeTryToAcquireSpinLockAtRaisedIrql(uint32_t* spinLock)
 {
-    std::atomic_ref ref(*spinLock);
+    os::AtomicRef<uint32_t> ref(*spinLock);
     uint32_t expected = 0;
     return ref.compare_exchange_strong(expected, g_ppcContext->r13.u32) ? 1 : 0;
 }
@@ -881,7 +881,7 @@ static uint64_t SListHeaderValue(uint64_t stored) { return std::byteswap(stored)
 
 static uint32_t InterlockedPopEntrySList_x(be<uint32_t>* header)
 {
-    std::atomic_ref<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
+    os::AtomicRef<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
     uint64_t stored = ref.load();
     for (;;)
     {
@@ -900,7 +900,7 @@ static uint32_t InterlockedPopEntrySList_x(be<uint32_t>* header)
 
 static uint32_t InterlockedFlushSList_x(be<uint32_t>* header)
 {
-    std::atomic_ref<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
+    os::AtomicRef<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
     uint64_t stored = ref.load();
     for (;;)
     {

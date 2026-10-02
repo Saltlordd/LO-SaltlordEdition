@@ -32,11 +32,11 @@ namespace
         std::atomic<unsigned>* attempts;
         unsigned successfulStarts;
 
-        std::jthread operator()(std::function<void()> work) const
+        xenos::preparation::WorkerThread operator()(std::function<void()> work) const
         {
             if (attempts->fetch_add(1) >= successfulStarts)
                 throw std::system_error(std::make_error_code(std::errc::resource_unavailable_try_again));
-            return std::jthread(std::move(work));
+            return xenos::preparation::WorkerThread(std::move(work));
         }
     };
 
@@ -45,7 +45,7 @@ namespace
         std::atomic<unsigned>* attempts;
         unsigned successfulStarts;
 
-        std::jthread operator()(std::function<void()> work) const
+        xenos::preparation::WorkerThread operator()(std::function<void()> work) const
         {
             if (attempts->fetch_add(1) >= successfulStarts) {
                 // Give the started producers time to fill the two-item queue
@@ -53,7 +53,7 @@ namespace
                 std::this_thread::sleep_for(50ms);
                 throw std::runtime_error("injected non-system launcher failure");
             }
-            return std::jthread(std::move(work));
+            return xenos::preparation::WorkerThread(std::move(work));
         }
     };
 

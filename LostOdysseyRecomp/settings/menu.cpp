@@ -406,6 +406,17 @@ std::wstring DlssNotice()
 }
 bool GraphicsRowHidden(int r)
 {
+#if LO_PLATFORM_ANDROID
+    // Android owns the native surface; the renderer derives aspect from its drawable.
+    // NGX and frame generation have no Android providers in this build.
+    if (r == int(GraphicsRow::Backend) || r == int(GraphicsRow::DisplayMode) ||
+        r == int(GraphicsRow::Widescreen) || r == int(GraphicsRow::OutputResolution) ||
+        r == int(GraphicsRow::VariableRefreshRate) || r == int(GraphicsRow::FrameGeneration) ||
+        r == int(GraphicsRow::FrameGenerationMultiplier))
+        return true;
+    if (r == int(GraphicsRow::DlssQuality) || r == int(GraphicsRow::FsrSharpness))
+        return !graphics_menu::AndroidFsrAvailable || edit.upscaler != gpu::upscaling::Upscaler::Fsr;
+#endif
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -450,6 +461,12 @@ std::wstring FgNotice()
 static_assert(int(GraphicsRow::Save) + 1 == int(GraphicsRow::Count));
 void Publish(uint8_t *base, uint32_t config)
 {
+#if LO_PLATFORM_ANDROID
+    // The first four graphics ids are hidden; enter the tab on a visible row.
+    if (tab == 2)
+        for (int i = 0; i < int(GraphicsRow::Count) && GraphicsRowHidden(row); ++i)
+            row = (row + 1) % int(GraphicsRow::Count);
+#endif
     Snapshot next;
     next.tab = tab;
     next.row = row;
@@ -518,6 +535,7 @@ void Publish(uint8_t *base, uint32_t config)
     {
         next.rows.resize(int(GraphicsRow::Count));
         auto placeGraphics = [&](GraphicsRow id, Row value) {
+            value.hidden = GraphicsRowHidden(int(id));
             next.rows[int(id)] = std::move(value);
         };
 #ifdef _WIN32
@@ -564,6 +582,9 @@ void Publish(uint8_t *base, uint32_t config)
                    std::move(renderChoices), graphics_menu::RenderResolutionChoice(edit)));
 #if LO_PLATFORM_MACOS
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"MetalFX Temporal"};
+#elif LO_PLATFORM_ANDROID
+        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）")};
+        if (graphics_menu::AndroidFsrAvailable) aaChoices.emplace_back(L"FSR 3.1");
 #else
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1"};
 #endif
@@ -728,6 +749,14 @@ void Publish(uint8_t *base, uint32_t config)
 #endif
             break;
         case GraphicsRow::AntiAliasing:
+#if LO_PLATFORM_ANDROID
+            if (graphics_menu::AndroidFsrAvailable && edit.upscaler == gpu::upscaling::Upscaler::Fsr)
+                next.help = Tr(L"FSR 3.1 needs D3D12 or Vulkan and an FSR-enabled build. Unsupported scenes use normal rendering.",
+                              L"FSR 3.1 需要 D3D12 或 Vulkan 與包含 FSR 的版本。不支援的場景使用常規渲染。");
+            else if (graphics_menu::AaChoice(edit) == 3)
+                next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
+                              L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
+#else
             if (edit.upscaler == gpu::upscaling::Upscaler::MetalFx)
                 next.help = Tr(L"Apple's temporal upscaler: renders the scene below the output size and reconstructs detail. Menus and transitions use normal rendering.",
                               L"Apple 的時間性縮放：以低於輸出的解析度渲染場景並重建細節。選單和過場使用常規渲染。");
@@ -740,6 +769,7 @@ void Publish(uint8_t *base, uint32_t config)
             else if (edit.antialiasing == 3)
                 next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
                               L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
+#endif
             break;
         case GraphicsRow::DlssQuality:
             next.help = gpu::upscaling::UsesFsrQuality(edit.upscaler) ?
@@ -897,6 +927,10 @@ void Publish(uint8_t *base, uint32_t config)
         next.dialogChoices = {Tr(L"Open importer", L"開啟匯入器"), Tr(L"Cancel", L"取消")};
         next.dialogSelection = importChoice;
     }
+#if LO_PLATFORM_ANDROID
+    next.notice = tab == 2 && graphics_menu::AndroidFsrAvailable &&
+        edit.upscaler == gpu::upscaling::Upscaler::Fsr ? DlssNotice() : std::wstring{};
+#else
     const bool hdrConflict = edit.hdr && (edit.antialiasing != 0 ||
         edit.upscaler != gpu::upscaling::Upscaler::Off ||
         edit.frameGenerationProvider != framegen::Provider::Off || edit.scalingQuality == ScalingMetalFx);
@@ -908,6 +942,7 @@ void Publish(uint8_t *base, uint32_t config)
              L"選取抗鋸齒、超解析度、影格生成或 MetalFX 空間縮放時，HDR 會暫停。")
         : tab == 2 ? (row == int(GraphicsRow::FrameGeneration) ||
         row == int(GraphicsRow::FrameGenerationMultiplier) ? FgNotice() : DlssNotice()) : std::wstring{};
+#endif
     std::lock_guard lock(snapshotMutex);
     // Presentation may have published availability while this snapshot was built.
     next.calibration.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);

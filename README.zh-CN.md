@@ -44,6 +44,16 @@ v0.7.35 是第一个带有 macOS 安装包的版本：使用 Metal 渲染的实�
 
 v0.7.35 包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 输出路径。在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开冻结的确定性对比帧：左侧是截断在参考白位的 SDR 亮度预览，右侧是正常 HDR tone mapping，并实时更新峰值。可用鼠标或手柄 **X** 键在 Scene 和 Test pattern 间切换；没有有效场景时使用标准图案。菜单打开时只复制一次源画面，不会每帧复制。自动模式优先使用当前显示器回报的峰值；无法获取时使用 1000 nit 内容参考值。当前 Linux Vulkan 路径无法取得显示器峰值回报，因此自动模式使用该参考值。macOS 的自动值根据 EDR 亮度余量估算，并非面板实测尼特值。峰值调整可在校准页预览；峰值和纸白更改保存后无需重启即可生效。初始路径要求关闭抗锯齿、超分和插帧，并使用非 MetalFX 空间滤镜；不支持的格式／色彩空间组合会回退到 SDR。维护者已于 2026-10-02 确认存在 HDR 实机验证，但未记录具体平台、后端和显示器范围，因此不代表跨平台覆盖。在外接显示器没有 EDR 余量的 Mac 上，游戏中请求 HDR 后输出仍保持 SDR，尚未见到 Metal 的 HDR 输出本身。跨平台语义和验证限制见 [HDR 技术说明](docs/notes/hdr-output.md)。
 
+### Android ARM64 运行时（实验性，需从源码构建）
+
+本分支现在除了诊断 APK，还包含实验性的 arm64 Android 运行时目标。运行时使用 SDL Android activity、应用专属 external storage、Android ARM64 FFmpeg 配置和 Android DXC 构建。这是开发构建，不是已发布或普遍支持的 Android 版本。工具链和当前验证边界见 [Android 构建说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
+
+Android 运行时现在能在测试平板加载开发资源、播放开场视频并进入首战。触摸输入已通过标题／菜单导航和首战两次攻击，画面显示伤害；一次首战 shader 准备过程中观测到约 40 秒停顿。长时间游玩、超出 native 队列的音频、其他 GPU、16 KB 设备和实体手柄仍待验证。详见[Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)及 [Android DXC 构建记录](docs/notes/android-dxc-build-2026-10-02.md)。
+
+运行时保留 SDL 实体手柄支持，并加入 Android 屏幕触摸手柄。源码实现现在支持 `Controller settings` 中的大小／透明度设置，以及可拖动、保存、重置和逐个显示或隐藏控件的 `Edit layout` 页面；布局模型检查和设备 UI 流程已在测试平板验证。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
+
+连接 USB 或蓝牙手柄后会自动隐藏触摸控件，并保留 `CTRL` 入口；打开 **Show touch controls** 可让两者同时使用，最后一只手柄断开后恢复已保存的触摸偏好。Android 也会隐藏不可用的桌面画面选项，并在从后台返回时重建 Vulkan Surface。Vulkan shader 可在电脑上按 Android 专用接口预编译，桌面 Vulkan bundle 与其不兼容；生成和安装方法见 [Android 说明](packaging/android/README.md)。
+
 ### 最新更新
 
 [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) 是第一个带有 macOS 安装包的版本，即实验性的 Apple Silicon 磁盘映像（见上文）。安装包不再附带着色器包，因此小得多：Windows ZIP 为 77.1 MB（v0.7.25 为 254.5 MB），AppImage 为 76.3 MB（253.8 MB），Flatpak 为 54.1 MB（231.4 MB）。取而代之的是，游戏会在启动时询问是否下载所选渲染器的着色器包，本机编译的着色器现在每个渲染器只存一个文件。新增实验性 HDR 输出和亮度校准；比 16:9 更高的屏幕现在由 3D 画面铺满；Vulkan 下支持 2× 到 6× 的 DLSS 插帧；Direct3D 12 和 Vulkan 上还会执行 GPU 遮挡查询，使太阳及其镜头光晕不再透过地形显示（#118；仅在 NVIDIA 显卡上检查过）。修复 90 和 120 FPS 下战斗镜头跳动（#117）、Linux 安装包在 NVIDIA 显卡上 DLSS 不可用（#116），以及多处天空、洞窟和过场动画中的 TAA、FSR 和 DLSS 闪烁（#121 等）。闪烁修复经测试检查，尚未在游戏中重新验证；报告者也尚未确认 #116、#118 和 #121。完整列表和历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。

@@ -24,6 +24,16 @@ git -C thirdparty/plume apply --reverse --check ../../tools/patches/plume-lostod
 
 继续修改依赖后需同步相应补丁，并重新构建验证。游戏数据、生成的 PPC 代码及工具缓存不属于补丁。
 
+## Android plume patch
+
+`plume-android.patch` contains the Android-specific plume integration needed by
+the experimental runtime. Apply it after `plume-lostodyssey.patch` when building
+the `LO_BUILD_ANDROID_RUNTIME=ON` target. The Android runtime also enables the
+SDL Vulkan bridge from the parent CMake target; the patch does not establish
+device compatibility, 16 KB support or gameplay acceptance. Recheck the
+submodule state and regenerate the patch from the intended upstream-patch base
+after changing either the dependent source or this patch.
+
 拉取更新了受跟踪的 XenonRecomp 补丁时，应先检查 `tools/XenonRecomp/` 的**实际已修改工作树**，将其与更新后的补丁谨慎同步；不要在已有修改上盲目重复应用，也不要丢弃无关的本地改动。确认实际源码与预期补丁一致后，按仓库根目录的正常顺序执行 `.\tools\build_tools.bat`、`python -B tools/ppc_codegen.py generate`、`.\tools\build_runtime.bat`。`build_tools.bat` 会尝试自动应用补丁，遇到部分更新的工作树时应先理顺源码与补丁，而不是随意重盖工具收据或复用旧生成器。仅增量构建运行时或执行 `python -B tools/ppc_codegen.py check`，都不能证明实际依赖源码已跟上受跟踪补丁；例如本地头文件中残留旧 `PPCTimeBase` 时，可能继续生成使用旧时钟路径的 PPC 代码。
 
 Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它们不替代驱动提供的 `vulkan-1.dll`／ICD，也不要求另行捆绑 SDK。保持 plume 源码与补丁处于兼容提交，并在修改过的依赖树上应用前先审阅补丁。

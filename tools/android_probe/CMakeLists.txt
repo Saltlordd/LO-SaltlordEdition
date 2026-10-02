@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.22)
+get_filename_component(LO_PROBE_REPO_ROOT "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    project(LostOdysseyAndroidProbe LANGUAGES C CXX)
+    include("${LO_PROBE_REPO_ROOT}/cmake/LoPlatform.cmake")
+endif()
+if(NOT ANDROID OR NOT LO_TARGET_ISA STREQUAL "aarch64")
+    message(FATAL_ERROR "The Android probe requires the NDK arm64-v8a toolchain")
+endif()
+
+set(SDL_SHARED ON CACHE BOOL "" FORCE)
+set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+set(SDL_TEST OFF CACHE BOOL "" FORCE)
+set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+add_subdirectory("${LO_PROBE_REPO_ROOT}/thirdparty/SDL" "${CMAKE_CURRENT_BINARY_DIR}/SDL")
+
+add_library(main SHARED main.cpp memory_probe.cpp vulkan_probe.cpp)
+target_compile_features(main PRIVATE cxx_std_20)
+target_include_directories(main PRIVATE "${LO_PROBE_REPO_ROOT}/LostOdysseyRecomp")
+target_link_libraries(main PRIVATE SDL2::SDL2 vulkan android log)
+target_compile_options(main PRIVATE -Wall -Wextra -Wpedantic)
+# Keep every packaged native library compatible with 16 KB Android loaders.
+# This is ELF alignment only; the probe separately reports guest mapping support.
+foreach(target IN ITEMS main SDL2)
+    target_link_options(${target} PRIVATE "-Wl,-z,max-page-size=16384")
+endforeach()

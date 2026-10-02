@@ -7,6 +7,11 @@
 #include <xlocale.h>
 #endif
 #include <string_view>
+#if defined(__ANDROID__)
+#include <locale>
+#include <sstream>
+#include <string>
+#endif
 
 namespace framegen {
 struct EnvironmentSelection {
@@ -48,6 +53,13 @@ inline EnvironmentSelection ParseEnvironment(const char* provider, const char* m
         errno = 0;
         out.config.targetFrameRate = strtof_l(target, &end, LC_C_LOCALE);
         const bool parsed = errno == 0 && end != target && end == text.data()+text.size();
+#elif defined(__ANDROID__)
+        // NDK libc++ does not provide floating-point from_chars. Use an
+        // explicit C++ classic locale, without accepting leading whitespace.
+        std::istringstream input{std::string(text)};
+        input.imbue(std::locale::classic());
+        input >> std::noskipws >> out.config.targetFrameRate;
+        const bool parsed = !input.fail() && input.eof() && !text.empty() && text.front() != '+';
 #else
         const auto result = std::from_chars(text.data(), text.data()+text.size(), out.config.targetFrameRate);
         const bool parsed = result.ec == std::errc{} && result.ptr == text.data()+text.size();
