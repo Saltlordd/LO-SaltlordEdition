@@ -199,8 +199,8 @@ SPIR-V build fetches vertices through the arena's device address, because many
 Android GPUs cap storage-buffer descriptors at 128 MiB. At startup the runtime
 looks for `files/shaders/portable_vk.lospv` in app storage and, when it is
 missing or made for another shader contract, offers the published pack from the
-`shader-packs` release in the same window as the desktop (tap Download or Skip,
-or use a controller). The download goes to `files/shaders/` and is checked
+`shader-packs` release in the same window as the desktop (press A or B on the
+on-screen controller, or use a physical controller). The download goes to `files/shaders/` and is checked
 against the index size, SHA-256 and the contract before it replaces anything.
 
 Packs are built on Windows or Linux with one entry,

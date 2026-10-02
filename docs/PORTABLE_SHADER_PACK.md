@@ -71,7 +71,9 @@ Validation:
 - AMD Radeon 8060S (Strix Halo), Windows build through Proton on RADV: pack hit and a correct #118 world-map frame on Vulkan.
 - M1 Max, Metal, `new-game-battle`: main with the published `-O1` Metal pack and the unified build with the shared pack both passed at the scenario's 30 FPS cap, with 0 on-demand shader compiles for the 28,687-record pack. A foreground run with HDR on an external EDR display (headroom 10.15) switched to HDR once the window was frontmost (`scene_enabled=true`, about 1,030 nits estimated); a window started over SSH stays behind other apps and gets no EDR headroom.
 - Lenovo TB321FU (Adreno 750): the pack check runs at startup, finds the Linux-made Android pack with the shared contract (`vulkan pack present`), and the renderer hits it. With the pack moved away, the index was read over HTTPS through `HttpURLConnection` (`none published for contract eecb4425…`).
-- Not checked: the download window and transfer on Android (needs the pack published), Linux native Vulkan with the new build, GPU-bound frame time differences.
+- Both packs were published to the `shader-packs` prerelease on 2026-10-02 (`portable_vk-eecb4425e7f53d44.lospv`, 241,820,275 bytes, SHA-256 `b9a2cd10…`; `portable_dx12-239f877563b6dc7a.lospd`, 80,491,442 bytes, SHA-256 `f5ab2e40…`; GitHub's digests match). A Windows build of the branch with `LO_SHADER_PACK_DOWNLOAD=1` and an empty folder downloaded and used both.
+- On the tablet with the pack removed, the window offered the 230.6 MiB pack; the on-screen controller's A started the download (the overlay covers the window, so its A, B and D-pad left/right are read from the touch input), and the pack was installed after 57 s, hit by the renderer with 0 startup DXC calls.
+- Not checked: Linux native Vulkan with the new build, GPU-bound frame time differences.
 
 ### Validation (2026-10-02)
 
