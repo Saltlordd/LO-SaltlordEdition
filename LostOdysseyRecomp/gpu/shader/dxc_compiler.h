@@ -31,8 +31,4 @@ namespace xenos
         ShaderBinaryFormat format, bool debugInfo = false);
     CompiledShader CompileCachedHlsl(const std::string& source, const char* entryPoint, const char* profile,
         ShaderBinaryFormat format);
-    // DXC optimization for SPIR-V output: -O3 by default. Metal translates the
-    // SPIR-V to MSL and optimizes it again, so it uses -O1 (about 25% less
-    // first-launch compile time, same GPU cost, and faster Metal compiles).
-    void SetSpirvOptimizationLevel(int level);
 }

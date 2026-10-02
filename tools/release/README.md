@@ -74,5 +74,7 @@ Shader packs are published apart from version releases, with
 game downloads the pack for its renderer at startup
 ([procedure](../../docs/PORTABLE_SHADER_PACK.md#publishing)). The Linux release
 job runs the script with `--check` after building: a version release stops
-unless the index lists all three contracts of its runtime, so a translator,
-option or discovery change needs new packs published first.
+unless the index lists both contracts of its runtime (Vulkan, also used by
+Metal and Android, and DirectX 12), so a translator, option or discovery change
+needs new packs published first. `tools/shader_pack/build_packs.py` builds and
+checks them on Windows or Linux.

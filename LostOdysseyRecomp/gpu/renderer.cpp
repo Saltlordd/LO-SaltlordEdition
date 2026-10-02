@@ -1668,14 +1668,10 @@ namespace gpu::renderer
                 uint32_t samplerIndex[32];
                 uint32_t textureInfo[32];
                 uint32_t textureSize[32]; // packed guest width/height; physical resolves may be larger.
-#if LO_SHADER_VERTEX_BDA
-                uint64_t vertexArenaAddress;
-#endif
+                uint64_t vertexArenaAddress; // SPIR-V vertex fetch (common_hlsl.h)
             };
-#if LO_SHADER_VERTEX_BDA
             static_assert(offsetof(SharedConstants,vertexArenaAddress)==xenos::VertexArenaAddressOffset);
             static_assert(gpu::render_arena::kVertexArenaSize == 1073741824ull);
-#endif
 
             static_assert(offsetof(SharedConstants,ndcScale)==160);
             static_assert(offsetof(SharedConstants,transfer)==240);
@@ -1871,17 +1867,7 @@ namespace gpu::renderer
                 if (!device || !queue)
                     return InitFailure("device_or_queue");
                 cacheIdentity = xenos::cache::MakeIdentity(vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12, xenos::DxcIdentity());
-                // Pack export for macOS from a Vulkan run: Metal consumes the same
-                // SPIR-V contract compiled at -O1. Honored only with an export path.
-                const bool exportMetalPack = nativeVulkan && getenv("LO_SHADER_EXPORT_PACK") &&
-                    getenv("LO_SHADER_EXPORT_METAL") && std::string_view(getenv("LO_SHADER_EXPORT_METAL")) == "1";
-                if (exportMetalPack)
-                    LOG_INFO("renderer: exporting the Metal shader contract (SPIR-V -O1) from Vulkan");
-                if ((vulkan && !nativeVulkan) || exportMetalPack) {
-                    // Metal re-optimizes translated MSL; see SetSpirvOptimizationLevel.
-                    xenos::SetSpirvOptimizationLevel(1);
-                    cacheIdentity.options = xenos::cache::MetalOptions();
-                }
+                // Metal translates the same SPIR-V as Vulkan, so both read one pack.
 
                 // Optional collection resources are prepared before the game loop.
                 // Enabling collection later never compiles or maps on a draw; an
@@ -1945,10 +1931,10 @@ namespace gpu::renderer
                     device->getCapabilities().occlusionQueryPrecise, getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "unset");
                 BindGpuSlot();
                 const auto vertexFlags = RenderBufferFlag::STORAGE |
-                    (vulkan && xenos::VertexFetchUsesDeviceAddress ? RenderBufferFlag::DEVICE_ADDRESSABLE : RenderBufferFlag::NONE);
+                    (vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE : RenderBufferFlag::NONE);
                 vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, vertexFlags));
                 if (!vertexArena) return InitFailure("vertex_arena.create", gpu::render_arena::kVertexArenaSize);
-                if (vulkan && xenos::VertexFetchUsesDeviceAddress && !vertexArena->getDeviceAddress())
+                if (vulkan && !vertexArena->getDeviceAddress())
                     return InitFailure("vertex_arena.device_address");
                 arenaMapped = static_cast<uint8_t*>(vertexArena->map());
                 if (!arenaMapped) return InitFailure("vertex_arena.map", gpu::render_arena::kVertexArenaSize);
@@ -2017,7 +2003,7 @@ namespace gpu::renderer
                 if (!staticSet0) return InitFailure("vertex_fetch_set.create");
                 for (uint32_t i = 0; i < (vulkan?1:kVertexFetchSlots); i++)
                     staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(),
-                        vulkan && xenos::VertexFetchUsesDeviceAddress ? 16 : gpu::render_arena::kVertexArenaSize);
+                        vulkan ? 16 : gpu::render_arena::kVertexArenaSize);
                 defaultSampler = device->createSampler(sampling::Describe(sampling::DefaultKey));
                 if (!defaultSampler) return InitFailure("default_sampler.create");
                 for (uint32_t i = 0; i < kSamplerPalette; i++)
@@ -6723,9 +6709,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 std::optional<temporal::SceneAnchor> temporalDrawAnchor;
 
                 SharedConstants shared{};
-#if LO_SHADER_VERTEX_BDA
-                shared.vertexArenaAddress = vertexArena->getDeviceAddress();
-#endif
+                if (vulkan) shared.vertexArenaAddress = vertexArena->getDeviceAddress();
                 for (uint32_t i = 0; i < 8; i++) shared.bools[i] = Reg(REG_BOOL_CONSTANTS + i);
                 for (uint32_t i = 0; i < 32; i++) shared.loops[i] = Reg(REG_LOOP_CONSTANTS + i);
                 shared.transfer[0] = Reg(REG_PA_SU_POINT_SIZE);

@@ -22,7 +22,6 @@ inline constexpr uint32_t TargetBlockBytes = 1u << 20;
 inline constexpr uint64_t MaxFileBytes = 8ull << 30;
 inline constexpr std::string_view FileName = "portable_vk.lospv";
 inline constexpr std::string_view Dx12FileName = "portable_dx12.lospd";
-inline constexpr std::string_view MetalFileName = "portable_metal.lospv";
 enum class PackFormat { Spirv, Dxil };
 
 // Deliberately excludes local DXC binary hashes, installation paths and host

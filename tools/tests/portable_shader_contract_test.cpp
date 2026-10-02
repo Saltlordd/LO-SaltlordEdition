@@ -44,16 +44,15 @@ int main(int argc, char** argv) try {
     if (dxilContract == contract) throw std::runtime_error("DXIL and SPIR-V contracts collide");
     // The startup download derives each renderer's contract before DXC loads:
     // it must equal the renderer's, which carries the local compiler identity.
-    auto metalIdentity = xenos::cache::MakeIdentity(xenos::cache::Backend::Vulkan, "dxc-local");
-    metalIdentity.options = xenos::cache::MetalOptions();
-    const auto metalContract = pack::RuntimeContract(image, metalIdentity, pack::PackFormat::Spirv);
+    // Vulkan on every platform and Metal read the same SPIR-V contract.
     if (pack::FlavorContract(image, pack::Flavor::Vulkan) != pack::RuntimeContract(image,
             xenos::cache::MakeIdentity(xenos::cache::Backend::Vulkan, "dxc-local"), pack::PackFormat::Spirv) ||
         pack::FlavorContract(image, pack::Flavor::Vulkan) != contract ||
-        pack::FlavorContract(image, pack::Flavor::D3D12) != dxilContract ||
-        pack::FlavorContract(image, pack::Flavor::Metal) != metalContract || metalContract == contract)
+        pack::FlavorContract(image, pack::Flavor::D3D12) != dxilContract)
         throw std::runtime_error("download contract differs from the renderer contract");
-    if (pack::FileNameOf(pack::Flavor::Metal) == pack::FileNameOf(pack::Flavor::Vulkan) ||
+    if (identity.options.find(";vertex-bda-") == std::string::npos)
+        throw std::runtime_error("SPIR-V contract lost the device-address vertex fetch");
+    if (pack::FileNameOf(pack::Flavor::Vulkan) != pack::FileName ||
         pack::FormatOf(pack::Flavor::D3D12) != pack::PackFormat::Dxil)
         throw std::runtime_error("pack file or format per renderer changed");
     bool shortRejected = false;

@@ -183,9 +183,6 @@ target_precompile_headers(LostOdysseyRecomp PRIVATE stdafx.h)
 target_compile_features(LostOdysseyRecomp PRIVATE cxx_std_20)
 target_compile_options(LostOdysseyRecomp PRIVATE -fno-strict-aliasing -Wno-switch -Wno-unused-function)
 target_compile_definitions(LostOdysseyRecomp PRIVATE NOMINMAX LO_SOURCE_VERSION="${LO_SOURCE_VERSION}")
-if(LO_ANDROID_SHADER_PACK_HOST)
-    target_compile_definitions(LostOdysseyRecomp PRIVATE LO_SHADER_VERTEX_BDA=1)
-endif()
 
 target_link_libraries(LostOdysseyRecomp PRIVATE
     lo_portable_shader_pack

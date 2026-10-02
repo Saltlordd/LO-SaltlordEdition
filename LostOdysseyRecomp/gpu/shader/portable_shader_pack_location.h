@@ -11,14 +11,13 @@
 #include <vector>
 
 namespace xenos::portable_pack {
-// Metal reads the Vulkan SPIR-V compiled at -O1: its own contract and file.
-enum class Flavor { Vulkan, D3D12, Metal };
+// Vulkan (Windows, Linux, Android) and Metal (macOS) read one SPIR-V pack.
+enum class Flavor { Vulkan, D3D12 };
 
 inline std::string_view FlavorName(Flavor flavor) {
     switch (flavor) {
     case Flavor::Vulkan: return "vulkan";
     case Flavor::D3D12: return "d3d12";
-    case Flavor::Metal: return "metal";
     }
     return {};
 }
@@ -26,7 +25,6 @@ inline std::string_view FlavorLabel(Flavor flavor) {
     switch (flavor) {
     case Flavor::Vulkan: return "Vulkan";
     case Flavor::D3D12: return "DirectX 12";
-    case Flavor::Metal: return "Metal";
     }
     return {};
 }
@@ -37,15 +35,12 @@ inline std::string_view FileNameOf(Flavor flavor) {
     switch (flavor) {
     case Flavor::Vulkan: return FileName;
     case Flavor::D3D12: return Dx12FileName;
-    case Flavor::Metal: return MetalFileName;
     }
     return {};
 }
 // The contract ignores the compiler identity, so none is needed here.
 inline cache::Identity IdentityOf(Flavor flavor) {
-    auto identity = cache::MakeIdentity(flavor == Flavor::D3D12 ? cache::Backend::D3D12 : cache::Backend::Vulkan, "");
-    if (flavor == Flavor::Metal) identity.options = cache::MetalOptions();
-    return identity;
+    return cache::MakeIdentity(flavor == Flavor::D3D12 ? cache::Backend::D3D12 : cache::Backend::Vulkan, "");
 }
 inline Digest FlavorContract(std::span<const uint8_t> unboundXex, Flavor flavor) {
     return RuntimeContract(unboundXex, IdentityOf(flavor), FormatOf(flavor));

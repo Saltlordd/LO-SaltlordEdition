@@ -16,8 +16,9 @@ uploads the packs first and the index last.
   python tools/release/publish_shader_packs.py --tool <LoShaderPackTool> \
       --image <image> --check
 
---check only reports whether the published index lists all three contracts of
-this runtime; the release workflow runs it before publishing a version.
+--check only reports whether the published index lists both contracts of this
+runtime; the release workflow runs it before publishing a version. The vulkan
+pack also serves Android and Metal on macOS.
 """
 from __future__ import annotations
 
@@ -39,7 +40,6 @@ RENDERERS = {
     # renderer: (asset stem, extension, pack format)
     "vulkan": ("portable_vk", ".lospv", "spirv"),
     "d3d12": ("portable_dx12", ".lospd", "dxil"),
-    "metal": ("portable_metal", ".lospv", "spirv"),
 }
 MAGIC = {b"LOSPVPK1": "spirv", b"LOSPDPK1": "dxil"}
 NOTES = (
@@ -155,10 +155,7 @@ def main() -> int:
             raise SystemExit(f"{pack}: {pack_format} pack carries the {renderer} contract")
         if any(entry["renderer"] == renderer for entry in entries):
             raise SystemExit(f"{pack}: a second {renderer} pack")
-        command = [str(args.tool), "verify-runtime", str(pack), str(args.image)]
-        if renderer == "metal":
-            command.append("--metal")
-        subprocess.run(command, check=True, capture_output=True)
+        subprocess.run([str(args.tool), "verify-runtime", str(pack), str(args.image)], check=True, capture_output=True)
         name = asset_name(renderer, contract)
         destination = args.output / name
         stage(pack, destination)

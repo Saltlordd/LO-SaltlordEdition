@@ -29,17 +29,11 @@ inline std::string DefaultOptions(Backend backend) {
     switch (backend) {
     case Backend::D3D12: return "main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;strip-reflect";
     case Backend::Vulkan:
-        return std::string("main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;spirv;vulkan1.2;dx-layout;vs-invert-y") +
-            (VertexFetchUsesDeviceAddress ? ";vertex-bda-shared1024-v2-u32-push" : "");
+        // Shared by Vulkan on every platform and by Metal (SPIR-V to MSL).
+        return "main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;spirv;vulkan1.2;dx-layout;vs-invert-y;vertex-bda-shared1024-v2-u32-push";
     case Backend::D3D11: return "reserved-dxbc-sm5-no-compiler";
     }
     return {};
-}
-// Metal consumes the Vulkan SPIR-V contract compiled at -O1 (SetSpirvOptimizationLevel).
-inline std::string MetalOptions() {
-    auto options = DefaultOptions(Backend::Vulkan);
-    options.replace(options.find(";O3;"), 4, ";O1;");
-    return options;
 }
 inline Identity MakeIdentity(Backend backend, std::string_view compiler) {
     Identity result;

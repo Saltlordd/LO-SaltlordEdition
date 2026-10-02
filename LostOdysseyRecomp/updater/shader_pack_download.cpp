@@ -48,16 +48,14 @@ unsigned long ProcessId()
 
 std::optional<pack::Flavor> ExpectedFlavor(gpu::backend::Backend configured)
 {
-#if LO_PLATFORM_MACOS
-    (void)configured;
-    return pack::Flavor::Metal;
-#elif defined(_WIN32)
+#if defined(_WIN32)
     // The renderer tries the requested backend first; D3D11 runs as D3D12.
     const auto requested = gpu::backend::Requested(configured, std::getenv("LO_GRAPHICS_API"));
     if (!requested) return std::nullopt;
     return *requested == gpu::backend::Backend::Vulkan || *requested == gpu::backend::Backend::Metal
         ? pack::Flavor::Vulkan : pack::Flavor::D3D12;
 #else
+    // Linux, Android and macOS (Metal reads the Vulkan SPIR-V).
     (void)configured;
     return pack::Flavor::Vulkan;
 #endif
@@ -353,7 +351,7 @@ void Render(Session &session, host_ui::Rasterizer &r)
         r.DrawString(112, 184, zh ? "现在下载着色器包吗？（" + Mebibytes(session.total) + " MiB）"
                                   : "Download the shader bundle now? (" + Mebibytes(session.total) + " MiB)", white, 1.2f);
         int y = DrawWrapped(r, 112, 250, 1056, zh ? "不下载的话，游戏会先在本机编译全部着色器，可能需要几分钟。"
-            : "Without it, the game first compiles all of its shaders on this PC, which can take several minutes.", muted);
+            : "Without it, the game first compiles all of its shaders on this device, which can take several minutes.", muted);
         DrawWrapped(r, 112, y + 8, 1056, zh ? "选择跳过后，着色器更新之前不会再询问。"
             : "If you skip, you will not be asked again until the shaders change.", muted);
         host_ui::DrawButton(r, 866, 618, 140, 46, zh ? L"下载 (A)" : L"Download (A)", session.selected == 0);
@@ -375,7 +373,7 @@ void Render(Session &session, host_ui::Rasterizer &r)
         r.DrawString(112, 140, zh ? "着色器包没有装好。" : "The shader bundle could not be installed.", white, 1.2f);
         const int y = DrawWrapped(r, 112, 196, 1056, session.failure, muted);
         DrawWrapped(r, 112, y + 8, 1056, zh ? "游戏会改为在本机编译着色器。"
-            : "The game will compile its shaders on this PC instead.", muted);
+            : "The game will compile its shaders on this device instead.", muted);
         host_ui::DrawButton(r, 1022, 618, 140, 46, zh ? L"继续 (A)" : L"Continue (A)", true);
         break;
     }

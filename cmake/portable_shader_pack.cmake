@@ -1,10 +1,6 @@
 include_guard(GLOBAL)
 get_filename_component(LO_PACK_ROOT "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
 option(LO_PACK_FETCH_ZSTD "Fetch pinned Zstandard if no static package is installed" ON)
-option(LO_ANDROID_SHADER_PACK_HOST "Compile a host Vulkan runtime and pack tool with Android's vertex-fetch shader ABI" OFF)
-if(LO_ANDROID_SHADER_PACK_HOST AND ANDROID)
-    message(FATAL_ERROR "LO_ANDROID_SHADER_PACK_HOST is for host-side pack generation, not Android runtime builds")
-endif()
 # Homebrew's static library may require a newer macOS than our deployment
 # target. Build the pinned source with this toolchain for default macOS builds.
 if(NOT APPLE OR NOT LO_PACK_FETCH_ZSTD)
@@ -50,9 +46,6 @@ add_executable(LoShaderPackTool EXCLUDE_FROM_ALL
     "${LO_PACK_ROOT}/LostOdysseyRecomp/gpu/shader/dxc_compiler.cpp")
 target_include_directories(LoShaderPackTool PRIVATE "${LO_PACK_ROOT}/tools/XenosRecomp/thirdparty/dxc-bin/inc")
 target_link_libraries(LoShaderPackTool PRIVATE lo_portable_shader_pack fmt::fmt ${CMAKE_DL_LIBS})
-if(LO_ANDROID_SHADER_PACK_HOST)
-    target_compile_definitions(LoShaderPackTool PRIVATE LO_SHADER_VERTEX_BDA=1)
-endif()
 add_executable(LoPortableShaderPackTest EXCLUDE_FROM_ALL "${LO_PACK_ROOT}/tools/tests/portable_shader_pack_test.cpp")
 target_link_libraries(LoPortableShaderPackTest PRIVATE lo_portable_shader_pack)
 add_executable(LoPortableShaderPackIntegrationTest EXCLUDE_FROM_ALL
