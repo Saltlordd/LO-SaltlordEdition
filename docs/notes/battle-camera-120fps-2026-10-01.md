@@ -1,6 +1,6 @@
 # Battle camera spin at 90/120 FPS (#117) — 2026-10-01
 
-Status: fixed in `LostOdysseyRecomp/patches/battle_camera_smoother.cpp`. A model of the game's algorithm confirms the fix; it has not yet been checked in the game.
+Status: fixed in `LostOdysseyRecomp/patches/battle_camera_smoother.cpp`. A model of the game's algorithm and an in-game A/B run in the opening battle confirm the fix.
 
 ## Symptom
 
@@ -57,4 +57,14 @@ Whether a frame is hit depends on its exact delta sequence, which is why good an
   | 30, 60 FPS | about 21° (normal smoothing lag) | about 21° (identical) |
   | 90, 120, 144 FPS | diverges (thousands of degrees or more) | 20.4–20.5° |
 
-- In-game check at 120 FPS with the reporter's kind of attack: pending. Same build with `LO_BATTLE_CAMERA_SMOOTHER_GATE=0` for the A/B.
+- In-game A/B on 2026-10-01. One diagnostic build with the fix ran twice, once with `LO_BATTLE_CAMERA_SMOOTHER_GATE=0`:
+  - Setup: Vulkan, DLAA, Frame rate 120, 1600x900 in a hidden window. A new game was started, the opening movie skipped, and the opening battle played with the same background input script (Attack whenever the battle waited for a command).
+  - Each run made 12 attacks. The battle ran at about 100 FPS: median frame 10 ms, and about 75% of frames shorter than 12.5 ms.
+  - The scene-camera trace counted per-frame view turns of 30° or more. A burst is three or more of them within four frames; single turns and pairs are camera cuts.
+
+  | Run | Bursts | Cuts |
+  |---|---|---|
+  | Gate off | 33 (1,019 turns, up to 180°) | 82 |
+  | Fix | 0 | 81 |
+
+  The same count over the two logs the user recorded on 2026-10-01 before the fix found 8 and 18 bursts.
