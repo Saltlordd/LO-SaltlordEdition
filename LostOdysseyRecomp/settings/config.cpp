@@ -24,6 +24,9 @@ Config Validate(Config value)
 #endif
     if (value.anisotropicFiltering != 0 && value.anisotropicFiltering != 2 && value.anisotropicFiltering != 4 &&
         value.anisotropicFiltering != 8 && value.anisotropicFiltering != 16) value.anisotropicFiltering = 0;
+    value.hdrPaperWhiteNits = std::clamp(value.hdrPaperWhiteNits, 80u, 400u);
+    value.hdrPeakNits = std::clamp(value.hdrPeakNits, 80u, 10000u);
+    value.hdrPeakNits = std::max(value.hdrPeakNits, value.hdrPaperWhiteNits);
     if (!gpu::upscaling::KnownUpscaler(value.upscaler)) value.upscaler = gpu::upscaling::Upscaler::Off;
     value.dlssQuality = gpu::upscaling::NormalizeDlssQuality(value.dlssQuality);
     value.fsrQuality = gpu::upscaling::NormalizeFsrQuality(value.fsrQuality);
@@ -77,6 +80,7 @@ Config Read()
 {
     Config value;
     bool hasAntialiasing = false;
+    bool hasHdrPeakAuto = false, hasHdrPeakNits = false;
     const auto path = os::user_paths::SettingsPath();
     std::ifstream input(path);
     std::string key;
@@ -142,6 +146,20 @@ Config Read()
             value.variableRefreshRate = number == 1;
         else if (key == "frame_rate")
             value.frameRate = number;
+        else if (key == "hdr" && number <= 1)
+            value.hdr = number == 1;
+        else if (key == "hdr_paper_white_nits")
+            value.hdrPaperWhiteNits = number;
+        else if (key == "hdr_peak_nits")
+        {
+            value.hdrPeakNits = number;
+            hasHdrPeakNits = true;
+        }
+        else if (key == "hdr_peak_auto" && number <= 1)
+        {
+            value.hdrPeakAutomatic = number == 1;
+            hasHdrPeakAuto = true;
+        }
         else if (key == "fxaa")
             value.fxaa = number == 1;
         else if (key == "skip_shader_prebuild")
@@ -155,6 +173,9 @@ Config Read()
         }
     }
     if (!hasAntialiasing) value.antialiasing = value.fxaa ? 1u : 0u;
+    // Profiles written before automatic peak detection use their stored peak
+    // as an explicit choice. A fresh profile follows the current display.
+    if (hasHdrPeakNits && !hasHdrPeakAuto) value.hdrPeakAutomatic = false;
     return Validate(value);
 }
 Config &Current()
@@ -233,6 +254,10 @@ static bool WriteConfig(const Config &value)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)
            << "\nfsr_sharpness=" << value.fsrSharpnessPercent
            << "\nvariable_refresh_rate=" << (value.variableRefreshRate ? 1 : 0)
+           << "\nhdr=" << (value.hdr ? 1 : 0)
+           << "\nhdr_paper_white_nits=" << value.hdrPaperWhiteNits
+           << "\nhdr_peak_auto=" << (value.hdrPeakAutomatic ? 1 : 0)
+           << "\nhdr_peak_nits=" << value.hdrPeakNits
            << "\nframe_generation_provider=" << uint32_t(value.frameGenerationProvider)
            << "\nframe_generation_mode=" << uint32_t(value.frameGenerationMode)
            << "\nframe_generation_multiplier=" << value.frameGenerationMultiplier

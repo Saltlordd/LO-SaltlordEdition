@@ -17,10 +17,12 @@ struct Presentation::Impl
     bool initialized = false;
     bool vulkan = false;
     RenderFormat swapchainFormat = RenderFormat::R8G8B8A8_UNORM;
+    hdr::OutputTransform output;
     SmaaPipeline smaa;
     std::unique_ptr<RenderPipelineLayout> layout;
     std::unique_ptr<RenderShader> vs, ps;
     std::unique_ptr<RenderPipeline> pipeline;
+    std::unique_ptr<RenderPipeline> hdrPipeline;
     std::unique_ptr<RenderPipeline> presentPipeline;
     std::unique_ptr<RenderPipelineLayout> uiLayout;
     std::unique_ptr<RenderShader> uiVs, uiPs;
@@ -32,6 +34,7 @@ struct Presentation::Impl
         std::unique_ptr<RenderDescriptorSet> descriptors;
         std::unique_ptr<RenderFramebuffer> framebuffer;
         uint32_t width = 0, height = 0;
+        RenderFormat format = RenderFormat::UNKNOWN;
     };
     std::vector<Pass> passes;
     bool EnsureUiPipelines();
@@ -45,6 +48,10 @@ Presentation::Presentation() : impl(std::make_unique<Impl>())
 {
 }
 Presentation::~Presentation() = default;
+void Presentation::SetOutputTransform(const hdr::OutputTransform& transform)
+{
+    impl->output = transform;
+}
 bool Presentation::Init(RenderDevice *device)
 {
     return Init(device, RenderFormat::R8G8B8A8_UNORM);
@@ -66,11 +73,15 @@ bool Presentation::Init(RenderDevice *device, RenderFormat swapchainFormat)
     const char *source = R"(
 Texture2D<float4> frame : register(t0);
 #ifdef __spirv__
+[[vk::binding(2,0)]]
+#endif
+Texture2D<float4> calibrationScene : register(t1);
+#ifdef __spirv__
 [[vk::binding(1,0)]]
 #endif
 SamplerState linearClamp : register(s0);
 #ifdef __spirv__
-struct PresentationParameters { float2 origin; float2 extent; float2 imageSize; uint aa; uint filter; uint expandRange; };
+struct PresentationParameters { float2 origin; float2 extent; float2 imageSize; uint aa; uint filter; uint expandRange; uint outputFlags; float outputScale; float peakRatio; float4 calibrationRect; };
 [[vk::push_constant]] ConstantBuffer<PresentationParameters> parameters;
 #define origin parameters.origin
 #define extent parameters.extent
@@ -78,8 +89,12 @@ struct PresentationParameters { float2 origin; float2 extent; float2 imageSize; 
 #define aa parameters.aa
 #define filter parameters.filter
 #define expandRange parameters.expandRange
+#define outputFlags parameters.outputFlags
+#define outputScale parameters.outputScale
+#define peakRatio parameters.peakRatio
+#define calibrationRect parameters.calibrationRect
 #else
-cbuffer Parameters : register(b0) { float2 origin; float2 extent; float2 imageSize; uint aa; uint filter; uint expandRange; };
+cbuffer Parameters : register(b0) { float2 origin; float2 extent; float2 imageSize; uint aa; uint filter; uint expandRange; uint outputFlags; float outputScale; float peakRatio; float4 calibrationRect; };
 #endif
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 uv = float2((id << 1) & 2, id & 2);
@@ -127,11 +142,71 @@ float3 resample(float2 pixel) {
     return clamp(sum,min(min(a,b),min(c,d)),max(max(a,b),max(c,d)));
 }
 float luma(float3 c) { return dot(c,float3(0.299,0.587,0.114)); }
+float3 encodeOutput(float3 color) {
+    if ((outputFlags & 8) != 0) {
+        color = mul(float3x3(0.627404,0.329283,0.043313,
+                            0.069097,0.919540,0.011362,
+                            0.016391,0.088013,0.895595), color);
+        float3 p=pow(saturate(color/10000.0),2610.0/16384.0);
+        color=pow((3424.0/4096.0+(2413.0/128.0)*p)/(1+(2392.0/128.0)*p),2523.0/32.0);
+    }
+    return color;
+}
+float3 mapHighlights(float3 color, float peak) {
+    color=min(color,65504.0);
+    float maximum=max(color.r,max(color.g,color.b));
+    if (maximum>1) {
+        float range=max(peak-1,0);
+        float excess=maximum-1;
+        float mapped=1+(range>0 ? range*(excess/(range+excess)) : 0);
+        color*=mapped/maximum;
+    }
+    return color;
+}
 float4 finishFrame(float3 color) {
-    if (expandRange != 0) color=saturate((color-16.0/255.0)*(255.0/219.0));
-    return float4(color,1);
+    if (expandRange != 0) {
+        color=max((color-16.0/255.0)*(255.0/219.0),0);
+        if ((outputFlags & 2) == 0) color=min(color,1);
+    }
+    if ((outputFlags & 1) != 0) {
+        color=pow(max(color,0),2.2);
+        if ((outputFlags & 2) != 0) color=mapHighlights(color,peakRatio);
+        color*=outputScale;
+    }
+    return float4(encodeOutput(color),1);
 }
 float4 pixel(float4 position : SV_Position) : SV_Target {
+    float2 uv=(position.xy-origin)/extent;
+    if ((outputFlags & 4) != 0 && all(uv>=calibrationRect.xy) && all(uv<calibrationRect.zw)) {
+        float2 local=(uv-calibrationRect.xy)/(calibrationRect.zw-calibrationRect.xy);
+        bool peak=local.x>=0.5;
+        float2 tile=float2(frac(local.x*2),local.y);
+        if ((outputFlags & 16) != 0) {
+            uint sceneWidth,sceneHeight;
+            calibrationScene.GetDimensions(sceneWidth,sceneHeight);
+            float sceneAspect=float(sceneWidth)/float(sceneHeight);
+            float2 tileSize=(calibrationRect.zw-calibrationRect.xy)*imageSize*float2(0.5,1);
+            float tileAspect=tileSize.x/tileSize.y;
+            // Fit the full frozen scene into each half without stretching or
+            // showing padded rows. Both halves sample exactly the same frame.
+            tile=(tile-0.5)*float2(max(tileAspect/sceneAspect,1),max(sceneAspect/tileAspect,1))+0.5;
+            if (any(tile<0) || any(tile>1)) return float4(0,0,0,1);
+            float3 color=calibrationScene.SampleLevel(linearClamp,tile,0).rgb;
+            if ((outputFlags & 32) != 0) color=max((color-16.0/255.0)*(255.0/219.0),0);
+            color=pow(max(color,0),2.2);
+            color=peak ? mapHighlights(color,peakRatio) : saturate(color);
+            return float4(encodeOutput(color*outputScale),1);
+        }
+        float level=0;
+        if (all(tile>float2(0.08,0.06)) && all(tile<float2(0.92,0.94))) {
+            level=peak ? peakRatio : 1;
+            // The inner diamond is 90% of its surround. It disappears when
+            // both exceed the display's clipping point, without our tone map
+            // suppressing the very highlight the user is trying to calibrate.
+            if (abs(tile.x-0.5)+abs(tile.y-0.5)<0.20) level*=0.9;
+        }
+        return float4(encodeOutput((level*outputScale).xxx),1);
+    }
     float2 p = (position.xy-origin)/extent*imageSize;
     float3 center = sampleFrame(p);
     if (!aa) return finishFrame(resample(p));
@@ -161,10 +236,11 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
     set.begin();
     set.addTexture(0);
     set.addSampler(p.vulkan ? 1 : 0);
+    set.addTexture(p.vulkan ? 2 : 1);
     set.end();
     RenderPipelineLayoutBuilder layout;
     layout.begin(false, false);
-    layout.addPushConstant(0, 0, 36, RenderShaderStageFlag::PIXEL);
+    layout.addPushConstant(0, 0, 64, RenderShaderStageFlag::PIXEL);
     layout.addDescriptorSet(set);
     layout.end();
     p.layout = layout.create(device);
@@ -181,10 +257,18 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
     desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
     desc.cullMode = RenderCullMode::NONE;
     p.pipeline = device->createGraphicsPipeline(desc);
+    p.hdrPipeline.reset();
+    if (swapchainFormat == RenderFormat::R16G16B16A16_FLOAT ||
+        swapchainFormat == RenderFormat::R10G10B10A2_UNORM || swapchainFormat == RenderFormat::B10G10R10A2_UNORM) {
+        desc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
+        p.hdrPipeline = device->createGraphicsPipeline(desc);
+    }
     desc.renderTargetFormat[0] = swapchainFormat;
     p.presentPipeline = device->createGraphicsPipeline(desc);
 
     p.initialized = bool(p.pipeline) && bool(p.presentPipeline) &&
+        ((swapchainFormat != RenderFormat::R16G16B16A16_FLOAT &&
+          swapchainFormat != RenderFormat::R10G10B10A2_UNORM && swapchainFormat != RenderFormat::B10G10R10A2_UNORM) || bool(p.hdrPipeline)) &&
         p.smaa.Init(device, p.vs.get(), p.sampler.get(), p.vulkan);
     return p.initialized;
 }
@@ -200,6 +284,14 @@ Texture2D<float4> sceneFrame : register(t0);
 [[vk::binding(1,0)]]
 #endif
 Texture2D<float4> uiFrame : register(t1);
+#ifdef __spirv__
+struct UiOutputParameters { uint linearOutput; float whiteScale; };
+[[vk::push_constant]] ConstantBuffer<UiOutputParameters> uiOutput;
+#define linearOutput uiOutput.linearOutput
+#define whiteScale uiOutput.whiteScale
+#else
+cbuffer UiOutputParameters : register(b0) { uint linearOutput; float whiteScale; };
+#endif
 float4 vertexUi(uint id : SV_VertexID) : SV_Position {
     float2 uv = float2((id << 1) & 2, id & 2);
     return float4(uv * float2(2,-2) + float2(-1,1),0,1);
@@ -209,7 +301,9 @@ float4 pixelUi(float4 position : SV_Position) : SV_Target {
     float4 scene = sceneFrame.Load(int3(p,0));
     float4 overlay = uiFrame.Load(int3(p,0));
     float alpha = saturate(overlay.a);
-    return float4(lerp(scene.rgb, overlay.rgb, alpha), 1);
+    float3 color=lerp(scene.rgb, overlay.rgb, alpha);
+    if (linearOutput != 0) color=pow(max(color,0),2.2)*whiteScale;
+    return float4(color, 1);
 })";
     const auto binaryFormat = vulkan ? xenos::ShaderBinaryFormat::Spirv : xenos::ShaderBinaryFormat::Dxil;
     const auto renderFormat = vulkan ? RenderShaderFormat::SPIRV : RenderShaderFormat::DXIL;
@@ -227,7 +321,8 @@ float4 pixelUi(float4 position : SV_Position) : SV_Target {
     RenderDescriptorSetBuilder set;
     set.begin(); set.addTexture(0); set.addTexture(1); set.end();
     RenderPipelineLayoutBuilder builder;
-    builder.begin(false, false); builder.addDescriptorSet(set); builder.end();
+    builder.begin(false, false); builder.addPushConstant(0, 0, 8, RenderShaderStageFlag::PIXEL);
+    builder.addDescriptorSet(set); builder.end();
     auto pipelineLayout = builder.create(device);
     if (!pipelineLayout) return false;
     RenderGraphicsPipelineDesc desc;
@@ -298,6 +393,8 @@ std::shared_ptr<Presentation::UiCompositionLease> Presentation::DrawSeparatedUi(
     commands->setScissors(&scissor, 1);
     commands->setGraphicsPipelineLayout(p.uiLayout.get());
     commands->setPipeline(toSwapchain ? p.uiPresentPipeline.get() : p.uiPipeline.get());
+    struct { uint32_t linear; float scale; } output{toSwapchain && p.output.linear ? 1u : 0u, p.output.scale};
+    commands->setGraphicsPushConstants(0, &output);
     commands->setGraphicsDescriptorSet(lease->descriptors.get(), 0);
     commands->drawInstanced(3, 1, 0, 0);
     return lease;
@@ -324,6 +421,9 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
 {
     auto &p = *impl;
     if (!sw || !sh || !ow || !oh) return;
+    const bool hdrScene = options.hdrScene && p.output.linear && bool(p.hdrPipeline);
+    const auto intermediateFormat = hdrScene ? RenderFormat::R16G16B16A16_FLOAT : RenderFormat::R8G8B8A8_UNORM;
+    auto* intermediatePipeline = hdrScene ? p.hdrPipeline.get() : p.pipeline.get();
     RenderTexture *original = source;
     const float scale = std::min(float(ow) / sw, float(oh) / sh);
     const float width = sw * scale, height = sh * scale;
@@ -340,38 +440,51 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         auto &pass=p.passes[passIndex++];
         if(!pass.descriptors) {
             RenderDescriptorSetBuilder set;
-            set.begin();set.addTexture(0);set.addSampler(p.vulkan ? 1 : 0);set.end();
+            set.begin();set.addTexture(0);set.addSampler(p.vulkan ? 1 : 0);set.addTexture(p.vulkan ? 2 : 1);set.end();
             pass.descriptors=set.create(p.device);pass.descriptors->setSampler(1,p.sampler.get());
         }
         // Each recorded pass has distinct descriptors/framebuffers. They and the
         // cached intermediate allocations remain owned until the next present fence.
         if(!output) {
-            if(pass.width!=tw || pass.height!=th) {
+            if(pass.width!=tw || pass.height!=th || pass.format!=intermediateFormat) {
                 pass.framebuffer.reset();
-                pass.texture=p.device->createTexture(RenderTextureDesc::Texture2D(tw,th,1,RenderFormat::R8G8B8A8_UNORM,RenderTextureFlag::RENDER_TARGET));
+                pass.texture=p.device->createTexture(RenderTextureDesc::Texture2D(tw,th,1,intermediateFormat,RenderTextureFlag::RENDER_TARGET));
                 pass.width=tw;pass.height=th;
+                pass.format=intermediateFormat;
             }
             output=pass.texture.get();
         }
         const RenderTexture *attachment[]={output};
         pass.framebuffer=p.device->createFramebuffer(RenderFramebufferDesc(attachment,1));
         pass.descriptors->setTexture(0,input,RenderTextureLayout::SHADER_READ);
+        auto* calibration = options.calibrationScene ? options.calibrationScene : input;
+        pass.descriptors->setTexture(2,calibration,RenderTextureLayout::SHADER_READ);
+        if (calibration != input)
+            commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(calibration,RenderTextureLayout::SHADER_READ));
         commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(input,RenderTextureLayout::SHADER_READ));
         commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(output,RenderTextureLayout::COLOR_WRITE));
         commands->setFramebuffer(pass.framebuffer.get());commands->clearColor(0,RenderColor(0,0,0,1));
         RenderViewport viewport(ox,oy,ew,eh);RenderRect scissor(0,0,tw,th);
         commands->setViewports(&viewport,1);commands->setScissors(&scissor,1);
-        struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange; }
-            constants{ox,oy,ew,eh,float(iw),float(ih),aa,filter,expandRange};
+        const bool linearOutput = toSwapchain && output == target && p.output.linear;
+        struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange,outputFlags;float outputScale,peakRatio;float calibrationRect[4]; }
+            constants{ox,oy,ew,eh,float(iw),float(ih),aa,filter,expandRange,
+                (linearOutput ? 1u : 0u) | (linearOutput && hdrScene ? 2u : 0u) |
+                (linearOutput && p.output.active && options.hdrCalibration ? 4u : 0u) |
+                (linearOutput && p.output.pq ? 8u : 0u) |
+                (linearOutput && p.output.active && options.hdrCalibration && options.calibrationScene ? 16u : 0u) |
+                (options.calibrationExpandRgbRange ? 32u : 0u),
+                p.output.scale,p.output.peakRatio,
+                {options.calibrationRect[0],options.calibrationRect[1],options.calibrationRect[2],options.calibrationRect[3]}};
         commands->setGraphicsPipelineLayout(p.layout.get());commands->setPipeline(pipe);
         commands->setGraphicsPushConstants(0,&constants);commands->setGraphicsDescriptorSet(pass.descriptors.get(),0);
         commands->drawInstanced(3,1,0,0);
         return output;
     };
     // AA is evaluated once at actual source resolution, independent of scaling.
-    if(options.antialiasing==Antialiasing::SMAA)
+    if(!hdrScene && options.antialiasing==Antialiasing::SMAA)
         source=p.smaa.Draw(commands,source,sw,sh,p.layout.get(),p.pipeline.get());
-    else if(options.antialiasing==Antialiasing::FXAA)
+    else if(!hdrScene && options.antialiasing==Antialiasing::FXAA)
         source=render(source,nullptr,sw,sh,sw,sh,0,0,float(sw),float(sh),1,0,0,p.pipeline.get());
     // Large reductions use full coverage at each stage. No tap count truncation,
     // and no artificial reduced input presented as a game rendering speedup.
@@ -381,12 +494,12 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         uint32_t nw=std::min(sw,std::max(desiredW,(sw+3)/4));
         uint32_t nh=std::min(sh,std::max(desiredH,(sh+3)/4));
         if(nw==sw && nh==sh) break;
-        source=render(source,nullptr,sw,sh,nw,nh,0,0,float(nw),float(nh),0,0,0,p.pipeline.get());
+        source=render(source,nullptr,sw,sh,nw,nh,0,0,float(nw),float(nh),0,0,0,intermediatePipeline);
         sw=nw;sh=nh;
     }
     render(source,target,sw,sh,ow,oh,x,y,width,height,0,uint32_t(options.scalingFilter),
            options.expandRgbRange ? 1u : 0u,
-           toSwapchain ? p.presentPipeline.get() : p.pipeline.get());
+           toSwapchain ? p.presentPipeline.get() : intermediatePipeline);
     commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(original,RenderTextureLayout::COPY_SOURCE));
 }
 
@@ -399,6 +512,7 @@ struct Presentation::Impl
 };
 Presentation::Presentation() = default;
 Presentation::~Presentation() = default;
+void Presentation::SetOutputTransform(const hdr::OutputTransform&) {}
 bool Presentation::Init(plume::RenderDevice *)
 {
     return false;

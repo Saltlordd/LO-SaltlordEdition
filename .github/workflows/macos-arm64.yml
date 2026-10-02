@@ -82,7 +82,9 @@ jobs:
           export HOME="$scratch/home"
           failed=0
           while read -r test; do
-            [ "$test" = LoShaderPackTool ] || [ "$test" = LoShaderTool ] || [ "$test" = LoImportPayloadProbe ] && continue
+            # Hosted runners may not expose a Metal device. Build the shared
+            # presentation/HDR fixture here; run it on a Mac with GPU access.
+            [ "$test" = LoShaderPackTool ] || [ "$test" = LoShaderTool ] || [ "$test" = LoImportPayloadProbe ] || [ "$test" = LoPresentationTest ] && continue
             binary=$(find out/build/macos -type f -perm -u+x -name "$test" | head -n 1)
             case "$test" in
               LoPipelineCacheTest|LoShaderPrebuildIoTest|LoShaderPreparationQueueTest|LoPortableShaderContractTest) args="$scratch/$test" ;;

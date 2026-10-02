@@ -315,6 +315,59 @@ int main(int argc, char **argv)
     }
     std::puts("four-tab Graphics FG section divider and DLSS/FSR row layouts rendered at 1280x720");
 
+    snapshot.calibration.open = true;
+    snapshot.calibration.hdrActive = true;
+    snapshot.calibration.automatic = true;
+    snapshot.calibration.detectedValid = true;
+    snapshot.calibration.detectedNits = 1015;
+    snapshot.calibration.effectiveNits = 1015;
+    Require(settings::RasterizeMenu(snapshot, 1280, 720, pixels), "HDR calibration rasterization failed");
+    Require(pixels[size_t(300) * 1280 + 640] == 0,
+            "HDR comparison rectangle must stay transparent for the presentation shader");
+    Require((pixels[size_t(620) * 1280 + 500] >> 24) == 255,
+            "calibration controls must remain opaque and readable");
+    if (argc > 1) {
+        std::ofstream f(std::filesystem::path(argv[1]) / "hdr-calibration-ui-sdr-preview.ppm", std::ios::binary);
+        f << "P6\n1280 720\n255\n";
+        for (auto p : pixels) {
+            if ((p >> 24) == 0) p = 0xff202020u; // Preview background; production paints HDR here.
+            const char rgb[] = {char(p), char(p >> 8), char(p >> 16)};
+            f.write(rgb, 3);
+        }
+        Require(bool(f), "calibration SDR UI preview write failed");
+    }
+    snapshot.calibration.sceneAvailable = true;
+    snapshot.calibration.scenePreview = true;
+    snapshot.calibration.paperWhiteNits = 203;
+    const auto patternPixels = pixels;
+    Require(settings::RasterizeMenu(snapshot, 1280, 720, pixels), "HDR scene calibration rasterization failed");
+    Require(pixels[size_t(300) * 1280 + 640] == 0,
+            "scene preview leaves the same comparison rectangle for GPU composition");
+    Require(!std::equal(pixels.begin() + 97 * 1280, pixels.begin() + 133 * 1280,
+                        patternPixels.begin() + 97 * 1280),
+            "scene comparison labels differ from test-pattern reference labels");
+    Require(std::equal(pixels.begin() + 550 * 1280, pixels.begin() + 650 * 1280,
+                       patternPixels.begin() + 550 * 1280),
+            "scene switching preserves slider and numeric, Auto, Done, Cancel controls");
+    if (argc > 1) {
+        std::ofstream f(std::filesystem::path(argv[1]) / "hdr-calibration-scene-ui-203-1015.ppm", std::ios::binary);
+        f << "P6\n1280 720\n255\n";
+        for (auto p : pixels) {
+            if ((p >> 24) == 0) p = 0xff202020u;
+            const char rgb[] = {char(p), char(p >> 8), char(p >> 16)};
+            f.write(rgb, 3);
+        }
+        Require(bool(f), "calibration scene UI preview write failed");
+    }
+    snapshot.calibration.scenePreview = false;
+    Require(settings::RasterizeMenu(snapshot, 1280, 720, pixels), "pattern remains selectable with a captured scene");
+    Require(pixels[size_t(300) * 1280 + 640] == 0, "selected pattern retains the GPU comparison area");
+    snapshot.calibration.hdrActive = false;
+    Require(settings::RasterizeMenu(snapshot, 1280, 720, pixels), "inactive HDR calibration rasterization failed");
+    Require((pixels[size_t(300) * 1280 + 640] >> 24) == 255,
+            "inactive HDR comparison must explain why the pattern cannot render");
+    snapshot.calibration.open = false;
+
     // Synthetic overflowing menu (>11 visible rows) to verify scroll clipping, hidden rows and overflow indicators.
     {
         // Reference snapshot: exactly 11 rows (the visible window), representing Option 3 through Option 13.
