@@ -26,6 +26,7 @@ REQUIRED = {
     "share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/NOTICE.txt",
     "share/licenses/lost-odyssey-recomp/LICENSE-FidelityFX.txt",
     "share/licenses/lost-odyssey-recomp/zstd-LICENSE.txt",
+    "share/licenses/lost-odyssey-recomp/XeGTAO.txt",
     f"share/applications/{APP_ID}.desktop",
     f"share/icons/hicolor/256x256/apps/{APP_ID}.png",
     f"share/metainfo/{APP_ID}.metainfo.xml",

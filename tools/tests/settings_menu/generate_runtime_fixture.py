@@ -155,8 +155,32 @@ int main(int argc, char** argv) {
     tick(8);Check(settings::edit.fsrSharpnessPercent==1,"sharpness increments");
     settings::edit.fsrSharpnessPercent=100;tick(8);Check(settings::edit.fsrSharpnessPercent==100,"sharpness upper bound");
     settings::edit.upscaler=Upscaler::Off;settings::row=int(GraphicsRow::AntiAliasing);tick(2);
-    Check(settings::row==int(GraphicsRow::AnisotropicFiltering),"navigation skips hidden provider rows to AF");
-    tick(1);Check(settings::row==int(GraphicsRow::AntiAliasing),"reverse navigation skips hidden rows");
+    Check(settings::row==int(GraphicsRow::AmbientOcclusion),"AO follows anti-aliasing");
+    tick(2);Check(settings::row==int(GraphicsRow::AnisotropicFiltering),"navigation skips hidden provider rows to AF");
+    tick(1);Check(settings::row==int(GraphicsRow::AmbientOcclusion),"reverse navigation skips hidden provider rows");
+    settings::row=int(GraphicsRow::ShadowResolution);settings::edit.shadowResolution=1;
+    for(uint32_t multiplier:{2u,4u,1u}) {
+        tick(8);Check(settings::edit.shadowResolution==multiplier,"shadow multiplier cycles 1/2/4");
+        Check(settings::snapshot.rows[int(GraphicsRow::ShadowResolution)].value==std::to_wstring(multiplier)+L"×",
+              "shadow multiplier is published");
+    }
+    settings::row=int(GraphicsRow::AmbientOcclusion);settings::edit.ambientOcclusion=0;
+    for(uint32_t mode:{1u,2u,0u}) {
+        tick(8);Check(settings::edit.ambientOcclusion==mode,"AO cycles Off/SSAO/GTAO");
+        Check(settings::snapshot.rows[int(GraphicsRow::AmbientOcclusion)].value==
+              (mode==0?L"Off":mode==1?L"SSAO":L"GTAO"),"AO mode is published");
+    }
+    constexpr const wchar_t* shadowLabels[]={L"Shadow resolution",L"陰影解析度",L"シャドウ解像度",L"그림자 해상도",L"阴影分辨率"};
+    constexpr const wchar_t* aoLabels[]={L"Ambient occlusion",L"環境光遮蔽",L"アンビエントオクルージョン",L"앰비언트 오클루전",L"环境光遮蔽"};
+    for(uint32_t language=0;language<5;++language) {
+        settings::edit.uiLanguage=language;settings::row=int(GraphicsRow::ShadowResolution);tick();
+        Check(settings::snapshot.rows[int(GraphicsRow::ShadowResolution)].name==shadowLabels[language],
+              "shadow selector translated in all UI languages");
+        settings::row=int(GraphicsRow::AmbientOcclusion);tick();
+        Check(settings::snapshot.rows[int(GraphicsRow::AmbientOcclusion)].name==aoLabels[language],
+              "AO selector translated in all UI languages");
+    }
+    settings::edit.uiLanguage=0;
     // A VRR-only save must keep a Dynamic MFG preference read from settings.ini.
     settings::savedConfig=settings::edit;
     settings::savedConfig.frameGenerationProvider=framegen::Provider::Dlss;

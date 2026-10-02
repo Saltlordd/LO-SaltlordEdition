@@ -63,6 +63,8 @@ int wmain(int argc, wchar_t** argv)
     Check(GetModuleFileNameW(nullptr, executable, DWORD(std::size(executable))) != 0, "own executable path");
     Check(!std::filesystem::exists("settings.ini"), "run in empty isolated directory");
     Check(!settings::GetConfig().saveAnywhere && !debug_menu::SaveAnywhereEnabled(), "missing file defaults off");
+    Check(settings::GetConfig().shadowResolution == 1 && settings::GetConfig().ambientOcclusion == 0,
+        "missing shadow and AO keys retain original rendering");
     CheckFreshProcess(executable, "0");
 
     Write("width=1600\n");
@@ -70,6 +72,19 @@ int wmain(int argc, wchar_t** argv)
     CheckFreshProcess(executable, "0");
     Write("save_anywhere=2\n");
     Check(!settings::Read().saveAnywhere, "invalid key defaults off");
+
+    Write("shadow_resolution=2\nambient_occlusion=1\n");
+    Check(settings::Read().shadowResolution == 2 && settings::Read().ambientOcclusion == 1,
+        "shadow 2x and SSAO read from INI");
+    Write("shadow_resolution=4\nambient_occlusion=2\n");
+    Check(settings::Read().shadowResolution == 4 && settings::Read().ambientOcclusion == 2,
+        "shadow 4x and GTAO read from INI");
+    Write("shadow_resolution=3\nambient_occlusion=3\n");
+    Check(settings::Read().shadowResolution == 1 && settings::Read().ambientOcclusion == 0,
+        "unsupported shadow and AO values return to defaults");
+    Write("shadow_resolution=-1\nambient_occlusion=invalid\n");
+    Check(settings::Read().shadowResolution == 1 && settings::Read().ambientOcclusion == 0,
+        "malformed shadow and AO values return to defaults");
 
     debug_menu::SetSaveAnywhereEnabled(true);
     Check(debug_menu::SaveAnywhereEnabled() && settings::GetConfig().saveAnywhere,
@@ -92,7 +107,12 @@ int wmain(int argc, wchar_t** argv)
     debug_menu::SetSaveAnywhereEnabled(true);
     settings::Config graphics = settings::GetConfig();
     graphics.width = 1800;
+    graphics.shadowResolution = 4;
+    graphics.ambientOcclusion = 2;
     Check(settings::SaveConfig(graphics), "save ordinary settings");
+    Check(settings::Read().shadowResolution == 4 && settings::Read().ambientOcclusion == 2 &&
+          Contents().find("shadow_resolution=4\nambient_occlusion=2\n") != std::string::npos,
+        "shadow and AO choices roundtrip through stable INI keys");
     Check(settings::Read().saveAnywhere, "ordinary save retains debug-only preference");
     Check(settings::SaveDebugLanguage(1) && settings::Read().saveAnywhere,
         "debug language save retains save-anywhere preference");

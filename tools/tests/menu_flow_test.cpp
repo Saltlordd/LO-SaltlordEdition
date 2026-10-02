@@ -305,6 +305,32 @@ void CheckBr03DlssMenu(uint8_t* base)
     Require(settings::snapshot.rows[int(GraphicsRow::AntiAliasing)].enabled && settings::snapshot.rows[int(GraphicsRow::AntiAliasing)].choices.size() == 6, "DLSS and FSR choices stay enabled on D3D12");
     Require(!settings::snapshot.rows[int(GraphicsRow::DlssQuality)].hidden && settings::snapshot.rows[int(GraphicsRow::DlssQuality)].enabled, "quality row stays available");
     Require(settings::snapshot.rows[int(GraphicsRow::Backend)].enabled && settings::snapshot.rows[int(GraphicsRow::Backend)].choices.size() == 3, "backend choices stay available");
+    const auto& shadow = settings::snapshot.rows[int(GraphicsRow::ShadowResolution)];
+    Require(shadow.choices == std::vector<std::wstring>{L"1×", L"2×", L"4×"} &&
+            shadow.selectedChoice == 0, "shadow resolution defaults to 1x");
+    const auto& ao = settings::snapshot.rows[int(GraphicsRow::AmbientOcclusion)];
+    Require(ao.choices == std::vector<std::wstring>{L"Off", L"SSAO", L"GTAO"} &&
+            ao.selectedChoice == 0, "ambient occlusion defaults to Off");
+    settings::row = int(GraphicsRow::ShadowResolution);
+    settings::pending = 8; Tick(base);
+    Require(settings::edit.shadowResolution == 2 &&
+            settings::snapshot.rows[int(GraphicsRow::ShadowResolution)].value == L"2×",
+            "shadow resolution selects 2x");
+    settings::pending = 8; Tick(base);
+    Require(settings::edit.shadowResolution == 4, "shadow resolution selects 4x");
+    settings::pending = 8; Tick(base);
+    Require(settings::edit.shadowResolution == 1, "shadow resolution wraps to 1x");
+    settings::row = int(GraphicsRow::AmbientOcclusion);
+    settings::pending = 8; Tick(base);
+    Require(settings::edit.ambientOcclusion == 1 &&
+            settings::snapshot.rows[int(GraphicsRow::AmbientOcclusion)].value == L"SSAO",
+            "ambient occlusion selects SSAO");
+    settings::pending = 8; Tick(base);
+    Require(settings::edit.ambientOcclusion == 2, "ambient occlusion selects GTAO");
+    settings::pending = 8; Tick(base);
+    Require(settings::edit.ambientOcclusion == 0, "ambient occlusion wraps to Off");
+    settings::row = int(GraphicsRow::AntiAliasing);
+    settings::pending = 0; Tick(base);
     Require(settings::snapshot.help == L"Saves the DLSS preference. The status line shows the latest DLSS result.",
             "upscaler help points at the status line");
     saveState("01-d3d12-needs-vulkan.bmp");
@@ -1013,11 +1039,17 @@ int main(int argc, char** argv)
 
             settings::row = int(GraphicsRow::AntiAliasing);
             settings::pending = 2; Tick(base); // D-pad down
+            Require(settings::row == int(GraphicsRow::AmbientOcclusion),
+                    "down from Upscaler reaches ambient occlusion");
+            settings::pending = 2; Tick(base); // D-pad down
             Require(settings::row == int(GraphicsRow::AnisotropicFiltering),
-                    "down from Upscaler skips hidden quality and sharpness rows");
+                    "down from ambient occlusion skips hidden quality and sharpness rows");
+            settings::pending = 1; Tick(base); // D-pad up
+            Require(settings::row == int(GraphicsRow::AmbientOcclusion),
+                    "up from anisotropic filtering skips hidden quality and sharpness rows");
             settings::pending = 1; Tick(base); // D-pad up
             Require(settings::row == int(GraphicsRow::AntiAliasing),
-                    "up from anisotropic filtering skips hidden quality and sharpness rows");
+                    "up from ambient occlusion reaches Upscaler");
 
             // Start (0x10) jumps focus to Save graphics settings without saving
             settings::pending = 0x10; Tick(base);

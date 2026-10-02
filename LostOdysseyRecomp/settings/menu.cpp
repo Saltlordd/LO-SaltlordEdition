@@ -580,6 +580,8 @@ void Publish(uint8_t *base, uint32_t config)
                 std::to_wstring(height) + L"p");
         placeGraphics(GraphicsRow::RenderResolution, makeChoices(L"Render resolution", L"渲染解析度",
                    std::move(renderChoices), graphics_menu::RenderResolutionChoice(edit)));
+        placeGraphics(GraphicsRow::ShadowResolution, makeChoices(L"Shadow resolution", L"陰影解析度",
+                   {L"1×", L"2×", L"4×"}, graphics_menu::ShadowResolutionChoice(edit)));
 #if LO_PLATFORM_MACOS
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"MetalFX Temporal"};
 #elif LO_PLATFORM_ANDROID
@@ -591,6 +593,8 @@ void Publish(uint8_t *base, uint32_t config)
         aaChoices.resize(graphics_menu::AaChoiceCount);
         placeGraphics(GraphicsRow::AntiAliasing, makeChoices(L"Anti-aliasing / Upscaling", L"抗鋸齒 / 超解析度",
                    std::move(aaChoices), std::min(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount - 1)));
+        placeGraphics(GraphicsRow::AmbientOcclusion, makeChoices(L"Ambient occlusion", L"環境光遮蔽",
+                   {Tr(L"Off", L"關"), L"SSAO", L"GTAO"}, std::min(edit.ambientOcclusion, 2u)));
         // FSR and MetalFX share the FSR quality ratios and IDs.
         const bool savedFsr = gpu::upscaling::UsesFsrQuality(edit.upscaler);
         const bool savedMetalFx = edit.upscaler == gpu::upscaling::Upscaler::MetalFx;
@@ -748,6 +752,10 @@ void Publish(uint8_t *base, uint32_t config)
                            L"縮放至輸出前的場景解析度。跟隨輸出與輸出尺寸相同。");
 #endif
             break;
+        case GraphicsRow::ShadowResolution:
+            next.help = Tr(L"Shadow-map resolution multiplier. Higher values need more GPU memory and rendering time. Applies after saving.",
+                           L"陰影貼圖解析度倍數。較高倍數需要更多 GPU 記憶體與渲染時間。儲存後套用。");
+            break;
         case GraphicsRow::AntiAliasing:
 #if LO_PLATFORM_ANDROID
             if (graphics_menu::AndroidFsrAvailable && edit.upscaler == gpu::upscaling::Upscaler::Fsr)
@@ -770,6 +778,10 @@ void Publish(uint8_t *base, uint32_t config)
                 next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
                               L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
 #endif
+            break;
+        case GraphicsRow::AmbientOcclusion:
+            next.help = Tr(L"Screen-space ambient occlusion adds contact shading. Applies after saving.",
+                           L"螢幕空間環境光遮蔽可加強接觸處的陰影。儲存後套用。");
             break;
         case GraphicsRow::DlssQuality:
             next.help = gpu::upscaling::UsesFsrQuality(edit.upscaler) ?
@@ -1716,8 +1728,15 @@ PPC_FUNC(sub_822F19B0)
                 edit.internalResolution = graphics_menu::RenderResolutions[
                     cycle(graphics_menu::RenderResolutionChoice(edit), uint32_t(std::size(graphics_menu::RenderResolutions)))];
                 break;
+            case GraphicsRow::ShadowResolution:
+                edit.shadowResolution = graphics_menu::ShadowResolutions[
+                    cycle(graphics_menu::ShadowResolutionChoice(edit), uint32_t(std::size(graphics_menu::ShadowResolutions)))];
+                break;
             case GraphicsRow::AntiAliasing:
                 graphics_menu::SelectAa(edit, cycle(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount));
+                break;
+            case GraphicsRow::AmbientOcclusion:
+                edit.ambientOcclusion = cycle(std::min(edit.ambientOcclusion, 2u), 3);
                 break;
             case GraphicsRow::DlssQuality:
                 if (gpu::upscaling::UsesFsrQuality(edit.upscaler))

@@ -65,6 +65,7 @@ Android 运行时现在能在测试平板加载开发资源、播放开场视频
 | 导入与首次设置 | 支持文件夹、XEX、ISO、GOD 和受支持的 DLC，可替换所选光盘；首次启动前设置语言和图形选项。原始来源文件保持不变。 |
 | 语言 | 界面提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于安装的版本。 |
 | 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。自 v0.7.35 起，比 16:9 更高的屏幕（例如 16:10、3:2 和 4:3）会铺满 3D 画面，菜单和电影保持 16:9 布局，较高屏幕上的 minimap 靠近顶部，超宽屏的菜单两侧加有黑边（见[技术说明](docs/notes/tall-aspect-layout.md)）。另有 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 及自动／手动峰值校准，详见 [HDR 技术说明](docs/notes/hdr-output.md)；Linux HDR 实机验证仍待完成。在 Linux 上，v0.7.25 安装包在 NVIDIA 显卡上被报告无法使用 DLSS（[#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)）；v0.7.35 包含修复，尚未在 Linux 的 NVIDIA 显卡上运行过。 |
+| 阴影与环境光遮蔽（未发布源码构建） | 阴影分辨率 1×／2×／4×（默认 1×）及实验性 AO Off／SSAO／GTAO（默认 Off）分别以 `shadow_resolution` 和 `ambient_occlusion` 写入 `settings.ini`。AO 是屏幕空间效果；场景覆盖、画质和性能仍需评估。见[技术说明](docs/notes/shadow-ambient-occlusion.md)。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
 | 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。自 v0.7.35 起，Windows Vulkan 上也提供关／DLSS（固定 2×–6×；启动时为关而之后开启，或切换提供者，需要重启），另有实验性的 Vulkan FSR 2×（仅限源码构建）和实验性的 macOS MetalFX 2×（尚未在 Mac 硬件上运行），见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |
