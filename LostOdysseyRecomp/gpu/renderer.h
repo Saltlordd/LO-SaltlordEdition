@@ -43,7 +43,7 @@ namespace gpu::renderer
     // Ordered host-private movie command, consumed on the command processor
     // thread after the movie helper has drawn its safe-area destination.
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-        float x, float y, float width, float height, float safeLeft, float safeRight);
+        float x, float y, float width, float height, float safeLeft, float safeRight, float safeTop, float safeBottom);
     // Convert the guest frontbuffer content extent to this surface's physical
     // pixels (storage padding remains excluded).
     void ScaleResolvedSize(uint32_t physicalAddress, uint32_t& width, uint32_t& height);

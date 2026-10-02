@@ -52,8 +52,8 @@ New sources came from the learned `cache/shaders/source` folders of the maintain
 - `verify-runtime` passed for all three against the private disc 1 image.
 - The Vulkan pack keeps every earlier record and adds exactly the 138, including the map tour's runtime variants 2441, f8b1, cbad and f964.
 - DXC produced the same SPIR-V at `-O1` and `-O3`, so the Metal pack has the same binaries as the Vulkan pack under its own contract.
-- No Mac has loaded the Metal pack yet.
-- None of the three is published yet.
+- All three were published on 2026-10-02 to the `shader-packs` prerelease for the startup download ([startup download](../PORTABLE_SHADER_PACK.md#startup-download)).
+- An M1 Max loaded the Metal pack from that release; the opening battle then ran with every guest shader from the pack.
 
 ## Not done
 

@@ -45,7 +45,12 @@ class PackageFlatpakTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unexpected payload path"):
                 flatpak.inspect_payload_tree(files)
             (files / "lib/libunexpected.a").unlink()
+            # Packages carry no shader pack; the game downloads it.
+            write(files / "bin/shaders/portable_vk.lospv")
+            with self.assertRaisesRegex(ValueError, "Unexpected payload path"):
+                flatpak.inspect_payload_tree(files)
             (files / "bin/shaders/portable_vk.lospv").unlink()
+            (files / "share/licenses/lost-odyssey-recomp/zstd-LICENSE.txt").unlink()
             with self.assertRaisesRegex(ValueError, "Missing required"):
                 flatpak.inspect_payload_tree(files)
 
