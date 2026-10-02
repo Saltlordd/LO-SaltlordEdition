@@ -174,6 +174,10 @@ An export log ends with `portable shader pack published` and exact byte counts.
 The file is deliberately not called `startup_vk12_v1.bundle`; old clients cannot
 read it. Ship it only with this patched client.
 
+### Metal pack
+
+macOS reads SPIR-V too, but compiled at `-O1` (`cache::MetalOptions()`), which is a separate contract. A Vulkan run with `LO_SHADER_EXPORT_METAL=1` next to `LO_SHADER_EXPORT_PACK=<path>.lospv` exports that contract from Windows or Linux. Check it with `LoShaderPackTool verify-runtime <pack> <image> --metal`. A Mac installs it as `shaders/portable_vk.lospv`. The packs exported on 2026-10-02 are listed in [the shader store note](notes/shader-store-2026-10-02.md#packs-exported-on-2026-10-02).
+
 ## Measure, verify and stage
 
 ```sh
