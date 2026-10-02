@@ -39,8 +39,8 @@ def prepareSdlJava = tasks.register('prepareSdlJava', Sync) {
                     && mUsbManager != null && mUsbManager.hasPermission(usbDevice);
                 handleUsbDevicePermission(usbDevice, granted);
             }''')
-        replaceOnce('''        mContext.registerReceiver(mUsbBroadcast, filter);''', '''        androidx.core.content.ContextCompat.registerReceiver(mContext, mUsbBroadcast, filter,
-            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);''')
+        // The pinned SDL2 revision registers USB broadcasts through its own
+        // API-guarded registerReceiverCompat helper with RECEIVER_NOT_EXPORTED.
         replaceOnce('''                if (Build.VERSION.SDK_INT >= 33 /* Android 14.0 (U) */) {
                    Intent intent = new Intent(HIDDeviceManager.ACTION_USB_PERMISSION);
                    intent.setPackage(mContext.getPackageName());
