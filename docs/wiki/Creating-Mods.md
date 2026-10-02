@@ -1,31 +1,33 @@
 # Creating and installing image mods
 
-Read [current support](Modding.md) first. Start with the native settings-menu atlas `UI_MAIN_00`; an arbitrary exported Texture2D is not necessarily consumed by the native menu. Native font texture pages may also be replaced, but this does not change character mapping or font metrics.
+Read [current support](Modding.md) first. Start with the native settings-menu atlas `UI_MAIN_00`; an arbitrary exported Texture2D is not necessarily consumed by the native menu. The catalog lists native font-page candidates, but they are not confirmed `init` consumers and do not change character mapping or font metrics.
 
 ## 1. Select an actual resource
 
-Run these commands from a source checkout containing PR #68. Python 3.10+ is required; Pillow is needed only for PNG conversion.
+Run these commands from a source checkout containing the Mod API. Python 3.10+ is required; Pillow is needed only for PNG conversion. The preferred source is the completed asset-inventory SQLite catalog. The older CSV manifest remains supported for compatibility. The verified `UI_MAIN_00` native atlas is 512x1024 in each of the five language packages.
 
 ```sh
 python -m pip install Pillow
-python tools/modding/lo_mod.py catalog --manifest manifest.csv --object UI_MAIN_00
+python tools/modding/lo_mod.py catalog --database catalog.sqlite --runtime-only --limit 100
 ```
 
-The catalog reads `status=exported`, `cls=Texture2D` rows and prints canonical keys, dimensions and preview paths. It ignores failed/package/font rows, de-duplicates identical identities across discs and rejects conflicting dimensions. Do not guess an export index or use the CSV row number as one.
+`--database` and the legacy `--manifest` input are mutually exclusive. A database must be schema 1 with `complete=true`; it is opened read-only. By default catalog output is limited to 100 rows and includes the canonical key, dimensions, content SHA-256, consumer label, overlay path and source packages. `--runtime-only` includes the native menu and font-page candidate labels, but `init` accepts only a confirmed consumer by default. Use `--object`, `--package` and `--content-sha256` to narrow a result. The last filter selects a package content variant used to derive the authoring identity and dimensions; the key and LOTEX1 payload do not bind a mod to that SHA at runtime. Do not guess an export index or use a CSV row number as one.
+
+The catalog labels the native settings atlas `UI_MAIN_00` and a native font-page candidate consumer for the `Maru23`, `LocTit1` and `Abc` font owners. Native font references are not indexed as complete runtime support: `init` rejects the font-page candidates by default, and catalog output must not be read as proof that 63 font resources are already replaceable. Other catalog entries are marked `no_runtime_consumer`; `--allow-unwired` is an explicit experimental escape hatch.
 
 Select the package for the language used by the game. `int`, `chi`, `jpn`, `kor` and `sch` are separate localized package namespaces.
 
 ## 2. Prepare artwork and a specification
 
-Copy your edited PNG into an authoring directory, for example `my-menu/art/UI_MAIN_00.png`. Keep the original image dimensions, alpha channel and atlas layout. The native menu's verified `UI_MAIN_00` layout is 512x1024; larger atlases are rejected by this consumer.
+Copy your own edited PNG into an authoring directory, for example `my-menu/art/UI_MAIN_00.png`. The inventory contains metadata and dimensions only; it does not export artwork. Keep the original image dimensions, alpha channel and atlas layout. The native menu's verified `UI_MAIN_00` layout is 512x1024; larger atlases are rejected by this consumer.
 
 Generate the identity from your own catalog rather than copying an example index:
 
 ```sh
-python tools/modding/lo_mod.py init --manifest manifest.csv --object UI_MAIN_00 --package bin/xenon/loc/int/menu/rpmenurescommon_int.xxx --image art/UI_MAIN_00.png --id my-menu --output my-menu/mod.json
+python tools/modding/lo_mod.py init --database catalog.sqlite --object UI_MAIN_00 --package bin/xenon/loc/int/menu/rpmenurescommon_int.xxx --image art/UI_MAIN_00.png --id my-menu --output my-menu/mod.json
 ```
 
-`--image` is relative to the new specification, not the shell's working directory. `init` requires exactly one distinct matching identity and refuses to overwrite an existing specification. A zero-match result is a reason to inspect the catalog, not to invent another key.
+`--image` is relative to the new specification, not the shell's working directory. `init` requires exactly one identity and one content variant, and refuses to overwrite an existing specification. A zero-match result requires checking the object/package/key filters; multiple content variants require `--content-sha256` to select one. The same `--database`/`--manifest`, filter, and `--allow-unwired` rules apply to `init`.
 
 The generated `mod.json` contains `api_version`, `id`, `priority` and an `images` array. Each image has `key`, `source`, `width` and `height`. Add more image records using keys and original dimensions from the catalog. Sources must stay inside the specification directory; absolute paths, `..` and escaping symlinks are rejected.
 
