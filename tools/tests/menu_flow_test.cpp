@@ -1210,7 +1210,8 @@ int main(int argc, char** argv)
         // FSR sharpness follows quality; Save is always last. Off disables
         // RCAS, and percent changes are bounded.
         {
-            static_assert(int(GraphicsRow::Save) + 1 == int(GraphicsRow::Count) && int(GraphicsRow::FsrSharpness) == 6);
+            static_assert(int(GraphicsRow::Save) + 1 == int(GraphicsRow::Count) &&
+                          int(GraphicsRow::FsrSharpness) == int(GraphicsRow::DlssQuality) + 1);
             settings::tab = 2;
             settings::status.clear();
             settings::edit = currentConfig;
@@ -1466,6 +1467,103 @@ int main(int argc, char** argv)
             std::puts("PASS Graphics and bilingual DLSS/English FSR section previews from actual Publish/Translate with installed assets");
         }
         CheckBr03DlssMenu(base);
+        {
+            const auto previousEdit = settings::edit;
+            settings::tab = 2;
+            settings::status.clear();
+            settings::edit = currentConfig;
+            settings::edit.graphicsBackend = settings::GraphicsBackend::D3D12;
+            settings::edit.antialiasing = 0;
+            settings::edit.upscaler = gpu::upscaling::Upscaler::Off;
+            settings::edit.frameGenerationProvider = framegen::Provider::Off;
+            settings::row = int(GraphicsRow::Hdr);
+            settings::pending = 0; Tick(base);
+            Require(settings::snapshot.rows[int(GraphicsRow::Hdr)].enabled &&
+                    settings::snapshot.rows[int(GraphicsRow::HdrPaperWhite)].enabled &&
+                    settings::snapshot.rows[int(GraphicsRow::HdrPeak)].enabled,
+                    "D3D12 exposes HDR controls");
+            settings::pending = 8; Tick(base);
+            Require(settings::edit.hdr && settings::snapshot.rows[int(GraphicsRow::Hdr)].value == L"On",
+                    "HDR toggle updates the pending preference");
+            settings::row = int(GraphicsRow::HdrPaperWhite);
+            settings::edit.hdrPaperWhiteNits = 400;
+            settings::pending = 8; Tick(base);
+            Require(settings::edit.hdrPaperWhiteNits == 400, "paper white respects 400-nit bound");
+            settings::pending = 4; Tick(base);
+            Require(settings::edit.hdrPaperWhiteNits == 390, "paper white steps down by ten");
+            settings::row = int(GraphicsRow::HdrPeak);
+            settings::edit.hdrPeakAutomatic = false;
+            settings::edit.hdrPeakNits = 10000;
+            settings::pending = 8; Tick(base);
+            Require(settings::edit.hdrPeakNits == 10000, "peak brightness respects 10000-nit bound");
+            settings::SetHdrDisplayInfo({true, 1031, false});
+            settings::edit.hdrPeakAutomatic = true;
+            settings::pending = 0; Tick(base);
+            Require(settings::snapshot.calibration.effectiveNits == 1031 &&
+                    settings::snapshot.rows[int(GraphicsRow::HdrPeak)].value.find(L"1031") != std::wstring::npos,
+                    "automatic peak follows the active display report");
+            settings::pending = 0x1000; Tick(base);
+            Require(settings::snapshot.calibration.open && settings::GetHdrCalibration().effectiveNits == 1031,
+                    "peak row opens the calibration screen with a live display value");
+            Require(settings::GetHdrCalibration().scenePreview && !settings::GetHdrCalibration().sceneAvailable,
+                    "calibration requests a scene by default but never claims an uncaptured frame");
+            const auto beforeScene = settings::snapshot.revision;
+            settings::SetHdrCalibrationSceneAvailable(true);
+            Require(settings::GetHdrCalibration().sceneAvailable && settings::snapshot.revision > beforeScene,
+                    "a captured scene refreshes the paused menu without a guest tick");
+            settings::pending = 0x4000; Tick(base);
+            Require(!settings::GetHdrCalibration().scenePreview, "X switches to the precise test pattern");
+            settings::PointerClick(850, 55, false);
+            settings::pending = 0; Tick(base);
+            Require(settings::GetHdrCalibration().scenePreview, "Scene button selects the captured scene");
+            settings::PointerClick(1000, 55, false);
+            settings::pending = 0; Tick(base);
+            Require(!settings::GetHdrCalibration().scenePreview, "Test pattern button selects the pattern");
+            settings::PointerDrag(900, 560, true);
+            settings::pending = 0; Tick(base);
+            Require(!settings::edit.hdrPeakAutomatic && settings::edit.hdrPeakNits >= 2000,
+                    "pointer slider selects a manual peak");
+            for (char digit : std::string("2500")) Require(settings::CalibrationKey(digit), "calibration digit accepted");
+            settings::pending = 0; Tick(base);
+            Require(settings::snapshot.calibration.numericEditing, "numeric entry is visible during editing");
+            Require(settings::CalibrationKey(13), "numeric enter accepted");
+            settings::pending = 0; Tick(base);
+            Require(settings::edit.hdrPeakNits == 2500 && !settings::snapshot.calibration.numericEditing,
+                    "typed peak is committed to the pending Graphics settings");
+            settings::PointerClick(270, 620, false);
+            settings::pending = 0; Tick(base);
+            Require(settings::edit.hdrPeakAutomatic && settings::snapshot.calibration.effectiveNits == 1031,
+                    "Auto button restores the detected peak");
+            Require(settings::CalibrationKey(27), "calibration Escape accepted");
+            settings::pending = 0; Tick(base);
+            Require(!settings::snapshot.calibration.open && settings::edit.hdrPeakAutomatic &&
+                    settings::edit.hdrPeakNits == 10000, "Cancel restores the pre-calibration pending values");
+            settings::pending = 0x1000; Tick(base);
+            Require(settings::snapshot.calibration.open && settings::GetHdrCalibration().scenePreview,
+                    "reopening calibration defaults to the game scene again");
+            settings::SetHdrCalibrationSceneAvailable(false);
+            Require(!settings::GetHdrCalibration().sceneAvailable,
+                    "retiring the scene immediately removes HDR preview availability");
+            Require(settings::CalibrationKey(27), "close reopened calibration");
+            settings::pending = 0; Tick(base);
+            settings::edit.antialiasing = 1;
+            settings::pending = 0; Tick(base);
+            Require(settings::snapshot.notice.find(L"HDR is paused") != std::wstring::npos &&
+                    settings::edit.antialiasing == 1,
+                    "incompatible AA produces HDR notice without changing preference");
+            settings::edit.graphicsBackend = settings::GraphicsBackend::Vulkan;
+            settings::row = int(GraphicsRow::Hdr);
+            settings::pending = 0; Tick(base);
+            Require(settings::snapshot.rows[int(GraphicsRow::Hdr)].enabled &&
+                    settings::snapshot.rows[int(GraphicsRow::HdrPaperWhite)].enabled &&
+                    settings::snapshot.rows[int(GraphicsRow::HdrPeak)].enabled,
+                    "Vulkan HDR controls are available for runtime capability detection");
+            settings::pending = 8; Tick(base);
+            Require(!settings::edit.hdr, "Vulkan HDR preference can be changed");
+            settings::SetHdrDisplayInfo({});
+            settings::edit = previousEdit;
+            settings::pending = 0; Tick(base);
+        }
         {
             const auto originalDir = std::filesystem::current_path();
             const auto sandbox = std::filesystem::temp_directory_path() /

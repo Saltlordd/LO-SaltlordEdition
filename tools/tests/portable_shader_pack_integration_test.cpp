@@ -1,6 +1,7 @@
 // Compiles the exact production renderer .inl against explicit fake GPU/DXC
 // services. This tests the new integration methods, not the whole renderer.
 #include "gpu/shader/portable_shader_contract.h"
+#include "gpu/shader/portable_shader_pack_location.h"
 #include <array>
 #include <chrono>
 #include <cstdlib>
@@ -29,7 +30,7 @@ struct Device {
 };
 struct Shader {xenos::TranslatedShader info;std::unique_ptr<Module> shader;bool valid=false;};
 struct RendererFixture {
-    bool vulkan=true;int renderFormat=1;
+    bool vulkan=true,nativeVulkan=true;int renderFormat=1;
     xenos::cache::Identity cacheIdentity=xenos::cache::MakeIdentity(xenos::cache::Backend::Vulkan,"local");
     Device driver;Device* device=&driver;
     std::array<std::unordered_map<uint64_t,Shader>,2> shaders;
@@ -58,11 +59,14 @@ int main() try {
     auto root=fs::temp_directory_path()/("lo-pack-integration-"+std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::create_directories(root);
     struct Cleanup{fs::path p;~Cleanup(){std::error_code ec;fs::remove_all(p,ec);}}cleanup{root};
-    auto pack=root/"portable.lospv";std::vector<uint8_t>xex{1,2,3};RendererFixture reference;
+    auto pack=root/"portable.lospv";std::vector<uint8_t>xex(pp::RuntimeXexBytes);xex[0]=1;xex[1]=2;xex[2]=3;RendererFixture reference;
     auto contract=reference.PortableShaderContract(xex);xenos::TranslatedShader info;info.hlsl="source";auto binary=Bytes(false);
+    Check(contract==pp::RuntimeContract(xex),"renderer and LoShaderPackTool contracts differ");
     {pp::Writer w(pack,contract,"foreign-Windows-DXC");w.Add(42,info,binary);w.Finish();}
     Env("LO_SHADER_PACK_PATH",pack.string());
     RendererFixture runtime;runtime.cacheIdentity.compiler="Linux-compiler-different";xenos::producer.clear();
+    std::vector<uint8_t> unloaded;
+    Check(!runtime.TryOpenPortableShaderPack(unloaded) && !runtime.portableShaderPack,"pack accepted without the executable prefix");
     Check(runtime.TryOpenPortableShaderPack(xex),"portable open incorrectly depends on local compiler");
     Check(runtime.driver.calls==0 && runtime.shaders[0].empty(),"portable open eagerly creates shaders");
     Check(runtime.TryLoadPortableShader(false,42) && runtime.driver.calls==1,"portable hit module");

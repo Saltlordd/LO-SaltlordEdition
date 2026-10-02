@@ -83,7 +83,7 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
             sets[i]=set.create(d);sets[i]->setSampler(3,linear);sets[i]->setSampler(4,point.get());
         }
         RenderDescriptorSetBuilder crop;
-        crop.begin();crop.addTexture(0);crop.addSampler(vulkan?1:0);crop.end();
+        crop.begin();crop.addTexture(0);crop.addSampler(vulkan?1:0);crop.addTexture(vulkan?2:1);crop.end();
         cropSet=crop.create(d);cropSet->setSampler(1,linear);
         auto lookup=[&](uint32_t w,uint32_t h,uint32_t bpp,RenderFormat format,const unsigned char *data,
             std::unique_ptr<RenderTexture> &tex,std::unique_ptr<RenderBuffer> &upload) {
@@ -127,8 +127,11 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
         c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(source,RenderTextureLayout::SHADER_READ));
         c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(stages[0].get(),RenderTextureLayout::COLOR_WRITE));
         c->setFramebuffer(fb[0].get());cropSet->setTexture(0,source,RenderTextureLayout::SHADER_READ);
-        struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange; }
-            crop{0,0,float(w),float(h),float(w),float(h),0,0,0};
+        cropSet->setTexture(2,source,RenderTextureLayout::SHADER_READ);
+        // Match Presentation's complete 64-byte push-constant range. Cropping
+        // remains display-encoded SDR; the final pass owns output conversion.
+        struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange,outputFlags;float outputScale,peakRatio;float calibrationRect[4]; }
+            crop{0,0,float(w),float(h),float(w),float(h),0,0,0,0,1,1};
         c->setGraphicsPipelineLayout(cropLayout);c->setPipeline(cropPipeline);
         c->setGraphicsPushConstants(0,&crop);c->setGraphicsDescriptorSet(cropSet.get(),0);c->drawInstanced(3,1,0,0);
         // Initialize every descriptor even where an entry point does not consume it.

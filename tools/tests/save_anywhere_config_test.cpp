@@ -130,6 +130,35 @@ int wmain(int argc, wchar_t** argv)
           malformedFg.frameGenerationMode == framegen::Mode::Fixed &&
           malformedFg.frameGenerationMultiplier == 2 && malformedFg.frameGenerationTargetFps == 0,
         "malformed frame-generation settings use safe defaults");
+    Write("hdr=2\nhdr_paper_white_nits=-1\nhdr_peak_nits=garbage\n");
+    const auto malformedHdr = settings::Read();
+    Check(!malformedHdr.hdr && malformedHdr.hdrPaperWhiteNits == 203 && malformedHdr.hdrPeakNits == 1000 &&
+          malformedHdr.hdrPeakAutomatic,
+        "invalid HDR values retain safe defaults");
+    Write("hdr=1\nhdr_paper_white_nits=1\nhdr_peak_nits=4294967295\n");
+    const auto boundedHdr = settings::Read();
+    Check(boundedHdr.hdr && boundedHdr.hdrPaperWhiteNits == 80 && boundedHdr.hdrPeakNits == 10000 &&
+          !boundedHdr.hdrPeakAutomatic, "legacy HDR peak migrates as manual and is bounded on read");
+    settings::Config hdr = settings::GetConfig();
+    hdr.hdr = true;
+    hdr.hdrPaperWhiteNits = 225;
+    hdr.hdrPeakAutomatic = false;
+    hdr.hdrPeakNits = 1200;
+    Check(settings::SaveConfig(hdr), "save HDR preferences");
+    Check(settings::Read().hdr && settings::Read().hdrPaperWhiteNits == 225 &&
+          !settings::Read().hdrPeakAutomatic && settings::Read().hdrPeakNits == 1200 &&
+          Contents().find("hdr=1\nhdr_paper_white_nits=225\nhdr_peak_auto=0\nhdr_peak_nits=1200\n") != std::string::npos,
+        "HDR preferences roundtrip with stable keys");
+    hdr.hdrPeakAutomatic = true;
+    Check(settings::SaveConfig(hdr) && settings::Read().hdrPeakAutomatic && settings::Read().hdrPeakNits == 1200,
+        "automatic peak retains the manual value for later selection");
+    settings::Config previewHdr = hdr;
+    previewHdr.hdrPaperWhiteNits = 260;
+    settings::PreviewConfig(previewHdr);
+    Check(settings::GetConfig().hdrPaperWhiteNits == 260 && settings::Read().hdrPaperWhiteNits == 225,
+        "HDR preview does not commit to disk");
+    Check(settings::SaveDebugLanguage(0) && settings::Read().hdrPaperWhiteNits == 225,
+        "unrelated settings save preserves persisted HDR values over a preview");
     std::puts("PASS isolated save-anywhere toggle, INI roundtrip and fresh-process restore");
     return 0;
 }

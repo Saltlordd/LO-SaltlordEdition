@@ -39,6 +39,19 @@ lo_review_test(LoSettingsPathTest settings_path_test.cpp "${LO_RUNTIME}/updater/
 lo_review_test(LoUserPathsTest user_paths_test.cpp)
 lo_review_test(LoRuntimeLibrariesTest runtime_libraries_test.cpp)
 lo_review_test(LoExternalUpdateNoticeTest external_update_notice_test.cpp)
+lo_review_test(LoOcclusionQueriesTest occlusion_queries_test.cpp)
+# TAA/FSR/DLSS jitter map: every reviewed flicker fix has a case here.
+lo_review_test(LoTemporalJitterTest temporal_jitter_test.cpp)
+# One-file local shader store: keys, recovery, integrity, locking, compaction.
+lo_review_test(LoShaderStoreTest shader_store_test.cpp)
+# Startup shader-pack download: index, selection, asset URLs, decline record.
+lo_review_test(LoShaderPackIndexTest shader_pack_index_test.cpp "${LO_RUNTIME}/updater/shader_pack_index.cpp")
+# Offline capture, suspect-log and triage tools (standard-library Python).
+add_test(NAME LoJitterCaptureTools COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/jitter_capture_tools_test.py")
+set_tests_properties(LoJitterCaptureTools PROPERTIES TIMEOUT 60)
+add_test(NAME LoPsClipReads COMMAND "${Python3_EXECUTABLE}" -B -m unittest tools.tests.test_ps_clip_reads
+    WORKING_DIRECTORY "${LO_ROOT}")
+set_tests_properties(LoPsClipReads PROPERTIES TIMEOUT 60)
 
 if(LO_REVIEW_SDL_TESTS)
     if(LO_REVIEW_SDL_LIBRARY)

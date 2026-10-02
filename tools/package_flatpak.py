@@ -21,7 +21,6 @@ REQUIRED = {
     "bin/LostOdysseyRecomp",
     # Signed by NVIDIA and verified unmodified by package_appimage.py.
     "bin/ngx/libnvidia-ngx-dlss.so.310.9.1",
-    "bin/shaders/portable_vk.lospv",
     "lib/libdxcompiler.so",
     "share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/LICENSE.txt",
     "share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/NOTICE.txt",

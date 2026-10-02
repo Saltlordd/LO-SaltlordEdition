@@ -783,7 +783,7 @@ Focused verification fixtures introduced for post-v0.6.11 lifecycle fixes, capab
 |---|---|---|
 | `LoTemporalLifecycleBr01Test` | `LoTemporalLifecycleBr01Test.exe` | 154 CPU clock advancement and temporal lifecycle checks; 14 gap checks. |
 | `LoTemporalLifecycleBr01OwnerTest` | `LoTemporalLifecycleBr01OwnerTest.exe` | 12 Direct3D 12 hardware checks on RTX 5080 (motion stub, >250 ms gap, no game launch). |
-| `LoDlssCapabilitySnapshotTest` | `LoDlssCapabilitySnapshotTest.exe` | 43 CPU checks for mutex-protected device capability snapshot transitions. |
+| `LoDlssCapabilitySnapshotTest` | `LoDlssCapabilitySnapshotTest.exe` | 48 CPU checks for mutex-protected device capability snapshot transitions. |
 | `LoDlssRuntimeStatusTest` | `LoDlssRuntimeStatusTest.exe` | 37 CPU checks for granular fallback/latched DLSS runtime status classifications. |
 | `LoVideoSubmissionStopTest` | `LoVideoSubmissionStopTest.exe` | 14 CPU checks verifying stopped status publication upon native submission failures. |
 | `LoDlssStatusLogTest` | `LoDlssStatusLogTest.exe` | 400 real logger checks verifying formatted DLSS runtime status lines and deduplication. |

@@ -2,7 +2,7 @@
 
 [文档总入口](../README.md) · [当前状态](../STATUS.md) · [路线图](../ROADMAP.zh-CN.md) · [历史归档](../archive/README.md)
 
-2026-10-01 整理：本目录收录全部 **147 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
+2026-10-02 整理：本目录收录全部 **156 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
 
 ## 如何使用
 
@@ -13,7 +13,7 @@
 | 调查 | 问题分析及其证据边界；此标记不等于对应 Issue 仍开放，现状以 STATUS / 路线图为准。 |
 | 草案 | 设计、研究、需求或发布文案；不代表已实施，也不因年代久远自动取消。 |
 
-分类合计：参考 24、历史 99、调查 14、草案 10。
+分类合计：参考 26、历史 106、调查 14、草案 10。
 
 先用当前状态确认实施、验证、验收和发布，再从下方进入证据。旧命令执行前核对源码、工具及输入；`out/`、本机绝对路径和截图编号是原调查的定位信息，不随仓库分发。已缺失的本地产物标为历史路径，不能视作本次复验。
 
@@ -73,6 +73,12 @@
 
 | 文档 | 类型 |
 |---|---|
+| [Burning Cave material jitter (f25276) — 2026-10-01](jitter-cave-f25276-2026-10-01.md) | 历史 |
+| [Ice Canyon sky jitter (f12139) — 2026-10-01](jitter-sky-f12139-2026-10-01.md) | 历史 |
+| [Sky pairs and a depth VS from the map tour — 2026-10-01](jitter-sky-tour-2026-10-01.md) | 历史 |
+| [Battle depth writers and the tour material 8d66 — 2026-10-01](jitter-battle-depth-2026-10-01.md) | 历史 |
+| [Old Sorceress' Mansion sky jitter (#121) — 2026-10-01](jitter-sky-121-2026-10-01.md) | 历史 |
+| [Cutscene depth and floor jitter — 2026-10-01](jitter-cutscene-f6814-2026-10-01.md) | 历史 |
 | [Temporal jitter coverage review — 2026-09-25](jitter-coverage-2026-09-25.md) | 历史 |
 | [Late-pass jitter follow-up — 2026-09-25](jitter-late-pass-followup-2026-09-25.md) | 历史 |
 | [Screen-sampling candidate batch — 2026-09-25](jitter-screen-batch-2026-09-25.md) | 历史 |
@@ -98,6 +104,7 @@
 | [Kaim body-shadow flicker: v0.4.0 investigation](kaim-body-shadow-v040.md) | 历史 |
 | [光照 / 阴影续修（2026-09-04）](lighting-stencil-depth-clear.md) | 调查 |
 | [Map12 poster black-patch repair — 2026-09-05](map12-poster-depth.md) | 历史 |
+| [Host GPU occlusion queries (#118)](occlusion-queries.md) | 参考 |
 | [角色黑色剪影：物理地址别名与遮挡查询（2026-09-04）](physical-alias-rendering.md) | 历史 |
 | [Polygon offset 接入与阴影回归（2026-09-05）](polygon-offset.md) | 调查 |
 | [战后演出白屏与 EDRAM 格式切换（2026-09-04）](post-battle-whiteout.md) | 历史 |
@@ -114,6 +121,7 @@
 | 文档 | 类型 |
 |---|---|
 | [Assembly profiler gameplay captures — 2026-09-11](asm-profiler-gameplay.md) | 历史 |
+| [Battle camera spin at 90/120 FPS (#117) — 2026-10-01](battle-camera-120fps-2026-10-01.md) | 历史 |
 | [City 60 FPS handoff — 2026-09-12](city-60fps-handoff.md) | 历史 |
 | [Card A city measurement — published v0.5.11 — 2026-09-14](cpu-card-a-city-2026-09-14.md) | 历史 |
 | [Card B city measurement — published v0.5.11 — 2026-09-14](cpu-card-b-city-2026-09-14.md) | 历史 |
@@ -139,6 +147,7 @@
 | 文档 | 类型 |
 |---|---|
 | [启动着色器准备（2026-09-05）](shader-preparation.md) | 参考 |
+| [One-file shader store and the 2026-10-02 packs](shader-store-2026-10-02.md) | 参考 |
 | [Built-in shader resource index](shader-resource-index.md) | 参考 |
 | [Startup shader coverage follow-up — 2026-09-13](shader-startup-coverage-2026-09-13.md) | 历史 |
 

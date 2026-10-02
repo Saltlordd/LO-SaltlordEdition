@@ -2,16 +2,16 @@
 
 [English](INSTALLING.md)
 
-本文说明已发布的 v0.7.25 安装包和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
+本文说明已发布的 v0.7.35 安装包和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
 
 ## Windows 快速开始
 
 需要 Windows x64 和支持 AVX 的 CPU。Windows 默认使用 Direct3D 12。发布包已经包含导入器、更新器、DXC v1.8.2407 DLL 对及依赖许可证；游玩发布包不需要安装 Python 或 Visual Studio。
 
-1. 从 [v0.7.25 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25)下载 `LostOdysseyRecomp-windows-x64-v0.7.25.zip`。
+1. 从 [v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)下载 `LostOdysseyRecomp-windows-x64-v0.7.35.zip`。
 2. 将完整 ZIP 解压到可写目录，避免放在 `Program Files` 下。
 3. 运行 `LostOdysseyRecomp.exe`。未找到可用的游戏安装时，会打开内置导入器。
-4. 首次设置中选择界面语言、游戏语言和图形选项，完成着色器准备后进入游戏。
+4. 首次设置中选择界面语言、游戏语言和图形选项，完成着色器准备后进入游戏。游戏可能会先询问是否下载所选渲染器的预编译着色器，见[着色器准备](#shader-preparation)。
 
 下载包不包含游戏文件。启动游戏需要 Disc 1。
 
@@ -56,21 +56,21 @@ DLC 可以直接选择，也可以放在扫描目录中。支持的包需要包�
 
 ## Linux 安装包
 
-Linux 只使用 Vulkan。 [v0.7.25 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。
+Linux 只使用 Vulkan。 [v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。
 
 ### AppImage
 
-下载 `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage` 后运行：
+下载 `LostOdysseyRecomp-linux-x64-v0.7.35.AppImage` 后运行：
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
-./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.7.35.AppImage
+./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage
 ```
 
 可以直接使用图形导入器。若要指定路径启动，可传入游戏目录、`disc1` 或 `default.xex`：
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage --game /path/to/game
 ```
 
 正常挂载运行的 AppImage 会把存档和设置放在 Linux 用户目录，见[文件位置](#file-locations)。`--game` 只选择游戏数据，不会切换为便携存储；把 `game-path.txt` 放在外层 `.AppImage` 文件旁不能配置这种运行方式。
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 再安装并运行下载的 bundle：
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.25.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.35.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -103,6 +103,25 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 如果要使用便携的 `save/`、`profile/`、`cache/` 和 `logs/`，请把 ELF 所在目录作为当前工作目录。
 
+<a id="macos"></a>
+
+## macOS（Apple Silicon，实验性）
+
+[v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)提供 `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 Apple Silicon Mac，游戏使用 Metal 渲染。应用声明的最低系统是 macOS 14.0，但只在 macOS 26.6.2 上运行过；内置的着色器编译器（DXC）按 macOS 15 构建，在 macOS 14 上编译着色器尚未测试。应用仅做 ad-hoc 签名、未经公证，因此 macOS 会拦截首次启动。
+
+1. 下载磁盘映像并打开。
+2. 把 `LostOdysseyRecomp.app` 拖到窗口中的 Applications 链接上，然后推出磁盘映像。
+3. 从“应用程序”打开 `LostOdysseyRecomp`。macOS 第一次会拦截它。打开 **系统设置 → 隐私与安全性**，向下滚动到“安全性”部分，点击应用旁的 **仍要打开**。这个按钮只在启动被拦截之后才会出现。macOS 再次询问时点击 **打开**，可能需要输入密码。之后的启动不再需要批准。
+4. 找不到可用的游戏安装时会打开内置导入器。按[导入游戏数据](#automatic-content-import)中的方法导入。
+
+也可以在终端运行 `xattr -dr com.apple.quarantine /Applications/LostOdysseyRecomp.app` 来批准应用，然后再次打开它。
+
+应用把游戏数据、设置、存档、个人配置和着色器缓存放在 `~/Library/Application Support/LostOdysseyRecomp/`，日志放在 `~/Library/Logs/LostOdysseyRecomp/logs/`，见[文件位置](#file-locations)。首次启动可能会询问是否下载 Metal 着色器，见[着色器准备](#shader-preparation)。
+
+游戏内的更新检查只在新版本带有磁盘映像时提示打开发布页。更新时请下载新的磁盘映像，并替换“应用程序”中的应用；存档和设置在应用之外，会保留。
+
+验证范围仅限一台 Mac。在维护者的 M1 Max（macOS 26.6.2）上，开场新游戏战斗用 Metal 运行，并使用了下载的 Metal 着色器包；在没有 EDR 余量的外接显示器上请求 HDR 时输出保持 SDR，尚未见到 Metal 的 HDR 输出本身。长时间游玩、更广场景和其他 Mac 尚未测试。需要自行构建时见 [BUILDING.md](BUILDING.md#building-on-macos)；磁盘映像的制作方法见 [MACOS_RELEASE.md](MACOS_RELEASE.md)。
+
 ## 首次设置和普通设置
 
 Windows 上，首次设置页面会在游戏初始化前保存界面语言、游戏语言和图形选项。已有设置时会跳过该页面；运行 `LostOdysseyRecomp.exe --setup` 可以重新打开。Linux 和 macOS 还没有首次设置页面：首次运行会保存默认设置，之后在游戏内设置页面修改。游戏内设置页面会提示哪些改动需要重启。
@@ -110,6 +129,17 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 界面语言和游戏语言是两套选项。USA/Europe 数据提供英、日、德、法、西、意语言；已核对的亚洲版提供英、日、韩、繁中、简中。当前版本没有的游戏语言会回退到英语。
 
 按 **F1** 或 **LB+RB** 打开调试菜单，打开时暂停游戏。它与普通设置分开；捕获、传送、快进、内存修改和随时存档限制见 [README 的调试菜单说明](../README.zh-CN.md#调试菜单)。
+
+<a id="shader-preparation"></a>
+
+### 着色器准备
+
+发布包不附带预编译着色器。如果没有装好与所选渲染器（Direct3D 12、Vulkan 或 Metal）匹配的包，并且已为你的版本发布了对应的包，游戏会在启动时询问是否下载，时机在更新检查之后、准备着色器之前。窗口标题为“着色器包”，会显示下载大小。
+
+- **下载 (A)** 从 GitHub 的 `shader-packs` 发布页下载并显示进度，**取消 (B)** 可中止。只有文件的大小和 SHA-256 与发布清单一致、并且与游戏匹配时才会使用，否则游戏改为在本机编译着色器。选择下载可以省去数分钟的着色器编译。
+- **跳过 (B)** 在本机编译着色器。这个选择会一直记到着色器更新为止，记录在 `shaders/` 目录的 `declined-downloads.txt` 中（见 [README 的文件列表](../README.zh-CN.md#文件与目录)）。不做选择直接关闭窗口，下次启动会再次询问。
+
+离线或没有为你的版本发布着色器包时，游戏不会询问，直接在本机编译着色器。之后的启动会复用编译好的着色器。文件和校验见[着色器包参考](PORTABLE_SHADER_PACK.md#startup-download)。
 
 <a id="file-locations"></a>
 
@@ -120,7 +150,7 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 | Windows 便携包；位于可写目录的 Linux 原生 ELF | 正常启动时，`save/`、`profile/`、`cache/`、`logs/`、`settings.ini` 和 `game-path.txt` 位于可执行文件旁；游戏数据默认导入到 `game/`。 |
 | AppImage；位于只读目录的 Linux 原生 ELF | 存档、档案、缓存和游戏数据：`~/.local/share/lost-odyssey-recomp/`。设置与游戏路径：`~/.config/lost-odyssey-recomp/`。日志：`~/.local/state/lost-odyssey-recomp/logs/`。 |
 | Flatpak | 主机目录为 `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`：存档、档案、缓存和游戏数据在 `data/`；设置与游戏路径在 `config/lost-odyssey-recomp/`；日志在 `.local/state/lost-odyssey-recomp/logs/`。 |
-| macOS `.app`（实验性，需从源码构建） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
+| macOS `.app`（实验性） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
 
 F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 列出了全部文件、目录和[命令行参数](../README.zh-CN.md#命令行参数)。
 
@@ -130,7 +160,7 @@ Linux 根据实际 ELF 所在目录是否可写来选择便携存储，否则使
 
 ## 更新和保留个人数据
 
-正式发布包启动时可以检查 GitHub 是否有新版本。可以关闭自动检查；离线或检查失败不应阻止启动。独立 Flatpak 没有 OSTree remote，需要手动安装新 bundle。
+正式发布包启动时可以检查 GitHub 是否有新版本。可以关闭自动检查；离线或检查失败不应阻止启动。独立 Flatpak 没有 OSTree remote，需要手动安装新 bundle。macOS 上的检查只会提示打开发布页；请用新磁盘映像中的应用替换“应用程序”中的旧应用。
 
 更新时保留以下内容：
 
