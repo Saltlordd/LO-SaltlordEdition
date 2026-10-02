@@ -12,6 +12,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Fixed an intermittent failure of `LoDlssCapabilitySnapshotTest` in the macOS arm64 CI job. Its plan-observation check read the planner a fixed 20,000 times while another thread published plans. When that thread started late, every read finished before the first publication and the check failed although no plan was torn. The reader now keeps reading until the publishing thread is done, and the check's two conditions have separate failure messages (48 checks). The planner is unchanged: every planner call holds one mutex, and ThreadSanitizer reported no race.
 - On Windows, an `LO_OPTISCALER_PATH` that points to a broken `OptiScaler.dll` no longer shows a Windows error dialog that holds up startup until it is closed; the load failure is only written to the log.
 - More Settings menu texts are now translated into Japanese, Korean and Simplified Chinese: the FSR status line, the render resolution and adaptive-sync rows, the Apple temporal upscaler help, the quality help (its new order had made it fall back to English) and the manual-restart dialogs outside Windows.
+- Updated SDL2 from 2.30.12 to the SDL2 maintenance branch (2.33.0 development code, `b7502f1a`), which adds a HIDAPI driver for 8BitDo controllers such as the Ultimate 2 Wireless (2dc8:6012) along with newer controller fixes (#97, contributed by Xarishark). 8BitDo controllers that worked through another driver before may now use the new one. The Windows, Linux and macOS builds compile with it; no controller was tested. The Linux release build no longer patches SDL's PipeWire code, because this SDL already contains that upstream fix.
+- Added an experimental Linux AArch64 source-build path: CMake picks the bundled Linux DXC library by CPU architecture, and toolchain files with `tools/build_linux_arm64.sh` and `tools/build_dxc_linux_arm64.sh` cross-build the runtime and an ARM64 `libdxcompiler.so` ([guide](docs/LINUX_ARM64.md), #60, contributed by dj5927). No ARM64 package is published, and the ARM64 build has not been run in CI.
 
 ### 简体中文
 
@@ -19,6 +21,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - 修复 `LoDlssCapabilitySnapshotTest` 在 macOS arm64 CI 中偶发失败的问题。其中的计划观察检查在另一个线程发布计划的同时固定读取计划器 20,000 次。发布线程启动较晚时，所有读取都在第一次发布之前完成，检查因此失败，但并没有读到不一致的计划。现在读取线程会一直读到发布线程结束，检查的两个条件也各自给出失败信息（共 48 项检查）。计划器本身未改动：它的每个调用都持有同一个互斥锁，ThreadSanitizer 也未报告数据竞争。
 - Windows 上，`LO_OPTISCALER_PATH` 指向损坏的 `OptiScaler.dll` 时，不再弹出会卡住启动、需手动关闭的 Windows 错误对话框，加载失败只写入日志。
 - 设置菜单又有一批文字翻译为日语、韩语和简体中文：FSR 状态行、渲染分辨率和自适应同步选项、Apple 时域超分辨率说明、质量说明（选项顺序调整后曾退回英文），以及 Windows 以外平台的手动重启对话框。
+- SDL2 从 2.30.12 更新到 SDL2 维护分支（2.33.0 开发版代码，`b7502f1a`），新增 8BitDo 手柄的 HIDAPI 驱动，支持 Ultimate 2 Wireless（2dc8:6012）等型号，并带来更多手柄修复（#97，由 Xarishark 贡献）。以前经由其他驱动工作的 8BitDo 手柄现在可能改用新驱动。Windows、Linux 和 macOS 构建都能用它编译通过；尚未用实际手柄测试。由于这个版本的 SDL 已包含上游的 PipeWire 修复，Linux 发布构建不再给 SDL 的 PipeWire 代码打补丁。
+- 新增实验性的 Linux AArch64 源码构建路径：CMake 按 CPU 架构选择内置的 Linux DXC 库，工具链文件加上 `tools/build_linux_arm64.sh` 和 `tools/build_dxc_linux_arm64.sh` 可以交叉编译运行时和 ARM64 版 `libdxcompiler.so`（[指南](docs/LINUX_ARM64.md)，#60，由 dj5927 贡献）。不发布 ARM64 安装包，ARM64 构建也尚未在 CI 中运行。
 
 ## [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) — 2026-10-02
 
