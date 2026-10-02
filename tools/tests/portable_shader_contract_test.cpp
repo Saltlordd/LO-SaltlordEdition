@@ -1,4 +1,5 @@
 #include "gpu/shader/portable_shader_contract.h"
+#include "gpu/shader/portable_shader_pack_location.h"
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
@@ -41,6 +42,20 @@ int main(int argc, char** argv) try {
     const auto dxilContract = pack::RuntimeContract(image,
         xenos::cache::MakeIdentity(xenos::cache::Backend::D3D12, ""), pack::PackFormat::Dxil);
     if (dxilContract == contract) throw std::runtime_error("DXIL and SPIR-V contracts collide");
+    // The startup download derives each renderer's contract before DXC loads:
+    // it must equal the renderer's, which carries the local compiler identity.
+    auto metalIdentity = xenos::cache::MakeIdentity(xenos::cache::Backend::Vulkan, "dxc-local");
+    metalIdentity.options = xenos::cache::MetalOptions();
+    const auto metalContract = pack::RuntimeContract(image, metalIdentity, pack::PackFormat::Spirv);
+    if (pack::FlavorContract(image, pack::Flavor::Vulkan) != pack::RuntimeContract(image,
+            xenos::cache::MakeIdentity(xenos::cache::Backend::Vulkan, "dxc-local"), pack::PackFormat::Spirv) ||
+        pack::FlavorContract(image, pack::Flavor::Vulkan) != contract ||
+        pack::FlavorContract(image, pack::Flavor::D3D12) != dxilContract ||
+        pack::FlavorContract(image, pack::Flavor::Metal) != metalContract || metalContract == contract)
+        throw std::runtime_error("download contract differs from the renderer contract");
+    if (pack::FileNameOf(pack::Flavor::Metal) == pack::FileNameOf(pack::Flavor::Vulkan) ||
+        pack::FormatOf(pack::Flavor::D3D12) != pack::PackFormat::Dxil)
+        throw std::runtime_error("pack file or format per renderer changed");
     bool shortRejected = false;
     try { (void)pack::RuntimeContract(Bytes(pack::RuntimeXexBytes - 1, 0)); }
     catch (const std::runtime_error&) { shortRejected = true; }

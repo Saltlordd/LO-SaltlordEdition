@@ -77,14 +77,13 @@ The catalog below lists maintained groups and representative root utilities. `th
 | Tool / Path | Purpose | Type & side effects | Reference |
 |---|---|---|---|
 | `tools/release/extract_release_notes.py` | Extracts version-specific ATX-heading body from `CHANGELOG.md` for GitHub Release publication. | Input read-only; writes extracted Markdown to explicit `--output`. | Source: `tools/release/` |
-| `tools/release/fetch_shader_pack.py` | Downloads portable shader pack release asset from GitHub Release tags. | Network I/O: Fetches asset from GitHub; writes local file. | Source: `tools/release/` |
+| `tools/release/publish_shader_packs.py` | Checks shader packs against the runtime contracts, stages them with the merged `index.json`, uploads them to the `shader-packs` prerelease (`--publish`) or checks that the published index covers a runtime (`--check`). | Runs `LoShaderPackTool`; reads the published index over HTTPS; with `--publish`, **uploads release assets** with `gh`. | [`docs/PORTABLE_SHADER_PACK.md`](../docs/PORTABLE_SHADER_PACK.md#publishing) |
 | `tools/release/fetch_dlss_sdk.py` | Downloads NVIDIA DLSS SDK assets for build packaging. | Network I/O: Fetches external dependency; writes local directory. | Source: `tools/release/` |
 | `tools/release/prepare_streamline_sdk.py` | Extracts the pinned official Streamline SDK headers, FG runtime libraries and redistribution licenses. | Reads the downloaded SDK archive; writes only to the explicit SDK output directory. | Source: `tools/release/` |
 | `tools/release/fetch_build_input.py` | Downloads external release build dependencies. | Network I/O: Fetches external assets; writes local file. | Source: `tools/release/` |
-| `tools/release/sync_shader_pack.py` | Synchronizes portable shader pack release payloads. | **Remote git push**: Chunks `portable_vk.lospv` and commits + pushes directly to the private build-inputs repository (`freefrank/LostOdysseyRecomp-build-inputs:main`); pass `--dry-run` to chunk locally without pushing. | Source: `tools/release/` |
-| `tools/package_release.py` | Builds Windows release ZIP packaging binaries, licenses, and shader pack. | Packaging: Creates release ZIP archive in output directory. | Source: `tools/package_release.py` |
+| `tools/package_release.py` | Builds Windows release ZIP packaging binaries and licenses (no shader pack). | Packaging: Creates release ZIP archive in output directory. | Source: `tools/package_release.py` |
 | `tools/package_appimage.py` | Packages Linux x86_64 AppImage using `linuxdeploy`. | Packaging: Assembles AppImage bundle. | Source: `tools/package_appimage.py` |
-| `tools/package_flatpak.py` | Builds offline Linux x86_64 Flatpak bundle using `flatpak-builder` and Freedesktop 26.08 SDK/runtime. | Packaging: Stages tracked source, generated PPC code, private disc inputs, pinned dependencies, licenses, and shader pack; exports OSTree repo and builds standalone `.flatpak` bundle. | [`docs/BUILDING.md`](../docs/BUILDING.md#packaging-flatpak) |
+| `tools/package_flatpak.py` | Builds offline Linux x86_64 Flatpak bundle using `flatpak-builder` and Freedesktop 26.08 SDK/runtime. | Packaging: Stages tracked source, generated PPC code, private disc inputs, pinned dependencies and licenses (no shader pack); exports OSTree repo and builds standalone `.flatpak` bundle. | [`docs/BUILDING.md`](../docs/BUILDING.md#packaging-flatpak) |
 
 ### 6. Build entrypoints
 

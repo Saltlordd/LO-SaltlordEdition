@@ -56,12 +56,14 @@
 #include "shader/dxc_compiler.h"
 #include "shader/cache.h"
 #include "shader/binary_cache.h"
+#include "shader/shader_store.h"
 #include "shader/preparation_queue.h"
 #include "shader/retry_state.h"
 #include "shader/rect_list_hlsl.h"
 #include "shader/startup_cache.h"
 #include "shader/portable_shader_pack.h"
 #include "shader/portable_shader_contract.h"
+#include "shader/portable_shader_pack_location.h"
 #include "shader/resource_scan.h"
 #include "shader/source_store.h"
 #include "shader/resource_xex.h"
@@ -1729,6 +1731,77 @@ namespace gpu::renderer
 
             // ---- lifecycle -----------------------------------------------------
             xenos::cache::Identity cacheIdentity;
+            // One-file local cache of compiled shaders (shader/shader_store.h), keyed
+            // by the compile input rather than the translator version. Opened on first
+            // use, after the backend and compiler identity are known.
+            xenos::cache::ShaderStore shaderStore;
+            std::once_flag shaderStoreOnce;
+            bool shaderStoreReady = false;
+            xenos::cache::ShaderStore* LocalShaderStore()
+            {
+                std::call_once(shaderStoreOnce, [this] {
+                    if (shaderCacheDir.empty() || !xenos::cache::ValidIdentity(cacheIdentity)) return;
+                    std::string error;
+                    const auto path = xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format);
+                    shaderStoreReady = shaderStore.Open(path, cacheIdentity.format, &error);
+                    if (!shaderStoreReady) {
+                        LOG_WARNING("renderer: shader store unavailable ({}); using per-shader cache files", error);
+                        return;
+                    }
+                    const auto stats = shaderStore.GetStats();
+                    LOG_INFO("renderer: shader store {}: {} records, {} bytes{}{}", path.string(), stats.records, stats.fileBytes,
+                        stats.writable ? "" : ", read-only (another instance holds it)",
+                        stats.recovered ? fmt::format(", dropped a torn {}-byte tail", stats.recovered) : std::string{});
+                });
+                return shaderStoreReady ? &shaderStore : nullptr;
+            }
+            // The compiled binary for this compile input: the store first, then a
+            // per-shader file from before the store, which is moved into the store.
+            struct StoredBinary { std::vector<uint8_t> binary; bool storeHit = false, legacyHit = false, legacyPresent = false; };
+            StoredBinary FindCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
+                const std::string& legacyPath)
+            {
+                StoredBinary result;
+                auto* store = LocalShaderStore();
+                if (store) {
+                    result.binary = store->Find(pixel, hash, digest);
+                    if (!result.binary.empty()) { result.storeHit = true; return result; }
+                }
+                if (legacyPath.empty()) return result;
+                result.binary = xenos::cache::ReadBinary(legacyPath, pixel, hash, cacheIdentity, &result.legacyPresent);
+                if (!result.binary.empty()) {
+                    result.legacyHit = true;
+                    if (store) store->Add(pixel, hash, digest, result.binary);
+                }
+                return result;
+            }
+            bool StoreCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
+                const std::string& legacyPath, std::span<const uint8_t> binary, std::string* error)
+            {
+                if (auto* store = LocalShaderStore()) return store->Add(pixel, hash, digest, binary, error);
+                return !legacyPath.empty() && xenos::cache::WriteBinary(legacyPath, pixel, hash, cacheIdentity, binary, error);
+            }
+            // Per-shader files the store has replaced: this format's files once a
+            // complete preparation has moved them into the store, and files of any
+            // format whose translator version can never be read again.
+            size_t RemoveLegacyShaderCacheFiles(bool includeCurrentFormat)
+            {
+                size_t removed = 0;
+                std::error_code ec;
+                std::vector<std::filesystem::path> doomed;
+                for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
+                    const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
+                    if (!legacy) continue;
+                    const bool currentFormat = legacy->extension == xenos::cache::Extension(cacheIdentity.format);
+                    if (legacy->version != cacheIdentity.translatorVersion || (includeCurrentFormat && currentFormat))
+                        doomed.push_back(file.path());
+                }
+                for (const auto& path : doomed) {
+                    std::error_code removeError;
+                    removed += std::filesystem::remove(path, removeError) ? 1 : 0;
+                }
+                return removed;
+            }
             bool initializationModuleFailure = false;
             bool InitFailure(const char* stage, uint64_t bytes = 0, int slot = -1) noexcept
             {
@@ -1766,7 +1839,13 @@ namespace gpu::renderer
                 if (!device || !queue)
                     return InitFailure("device_or_queue");
                 cacheIdentity = xenos::cache::MakeIdentity(vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12, xenos::DxcIdentity());
-                if (vulkan && !nativeVulkan) {
+                // Pack export for macOS from a Vulkan run: Metal consumes the same
+                // SPIR-V contract compiled at -O1. Honored only with an export path.
+                const bool exportMetalPack = nativeVulkan && getenv("LO_SHADER_EXPORT_PACK") &&
+                    getenv("LO_SHADER_EXPORT_METAL") && std::string_view(getenv("LO_SHADER_EXPORT_METAL")) == "1";
+                if (exportMetalPack)
+                    LOG_INFO("renderer: exporting the Metal shader contract (SPIR-V -O1) from Vulkan");
+                if ((vulkan && !nativeVulkan) || exportMetalPack) {
                     // Metal re-optimizes translated MSL; see SetSpirvOptimizationLevel.
                     xenos::SetSpirvOptimizationLevel(1);
                     cacheIdentity.options = xenos::cache::MetalOptions();
@@ -4315,7 +4394,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // A distribution pack is independent of the writable local cache, the local
                 // DXC identity and the host addresses that import binding wrote into the image.
                 const auto unboundXex = XexLoader::UnboundIdentityPrefix();
-                if (TryOpenPortableShaderPack(unboundXex)) { ResetTimers(); return; }
+                if (TryOpenPortableShaderPack(unboundXex)) {
+                    // Per-shader files of older translator versions can never be read again.
+                    if (!shaderCacheDir.empty())
+                        if (const auto removed = RemoveLegacyShaderCacheFiles(false))
+                            LOG_INFO("renderer: removed {} per-shader cache files of older translator versions", removed);
+                    ResetTimers();
+                    return;
+                }
                 if (shaderCacheDir.empty() || getenv("LO_NO_SHADER_PREPARE") || settings::GetConfig().skipShaderPrebuild) {
                     LOG_INFO("renderer: shader preparation skipped by configuration or environment");
                     return;
@@ -4336,8 +4422,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     !getenv("LO_SHADER_HLSL_DIR") && !retryFailures;
                 LOG_INFO("renderer: shader startup cache: {}, compiler identity {}", bundlePath.string(),
                     compilerIdentity.empty() ? "unavailable (persistent reuse disabled)" : compilerIdentity);
+                // The first start with the one-file store runs one preparation pass
+                // even on a bundle hit: it moves this format's per-shader files into
+                // the store (no DXC for valid files) and then deletes them.
+                bool moveLegacyFiles = false;
+                if (reuseBundle && !std::filesystem::exists(xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format))) {
+                    std::error_code ec;
+                    for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
+                        const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
+                        if (legacy && legacy->extension == xenos::cache::Extension(cacheIdentity.format)) { moveLegacyFiles = true; break; }
+                    }
+                    if (moveLegacyFiles)
+                        LOG_INFO("renderer: moving per-shader cache files into the shader store (one-time preparation pass)");
+                }
                 BeginPortableShaderExport(unboundXex);
-                if (reuseBundle) {
+                if (reuseBundle && !moveLegacyFiles) {
                     uint32_t modules = 0, cachedFailures = 0;
                     double moduleMs = 0;
                     // Metal module creation (SPIR-V to MSL plus the Metal compiler)
@@ -4447,7 +4546,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
                         LOG_INFO("renderer: startup bundle fallback: {}", e.what());
                     }
-                } else LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
+                } else if (!moveLegacyFiles)
+                    LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
                 BeginPortableShaderExport(unboundXex); // Discard any partial export after transactional bundle rejection.
                 video::SetShaderPreparationProgress(0, 1, video::PreparationStage::CacheValidation, video::PreparationUnit::Files);
                 video::PumpEvents();
@@ -4560,6 +4660,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bool compiled = false;
                     bool deterministicFailure = false;
                     bool cachedFailure = false;
+                    bool storeHit = false;
+                    bool migrated = false;
                     // Device module built on the worker (Metal only, see below).
                     std::unique_ptr<RenderShader> module;
                     uint64_t moduleUs = 0;
@@ -4592,15 +4694,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         item.sourceUs = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now() - sourceStarted).count();
 
-                        const auto cacheStarted = std::chrono::steady_clock::now();
-                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
-                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
-                        item.cacheChecked = true;
-                        item.bytecode = xenos::cache::ReadBinary(item.cachePath, item.pixel, item.hash, cacheIdentity, &item.cachePresent);
-                        item.cacheValid = !item.bytecode.empty();
-                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now() - cacheStarted).count();
-
                         std::vector<uint32_t> swapped(words.size());
                         std::transform(words.begin(), words.end(), swapped.begin(), [](uint32_t word) { return ByteSwap(word); });
                         const auto translateStarted = std::chrono::steady_clock::now();
@@ -4610,6 +4703,22 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (const char* hlslDir = getenv("LO_SHADER_HLSL_DIR"))
                             std::ofstream(fmt::format("{}/{}_{:016x}.hlsl", hlslDir,
                                 item.pixel ? "ps" : "vs", item.hash)) << item.info.hlsl;
+
+                        // The store is keyed by the generated HLSL, so a translator change
+                        // that leaves this shader's HLSL alone keeps its binary.
+                        const auto cacheStarted = std::chrono::steady_clock::now();
+                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
+                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
+                        item.cacheChecked = true;
+                        const auto inputDigest = xenos::cache::CompileInputDigest(item.info.hlsl, item.pixel, cacheIdentity);
+                        auto stored = FindCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath);
+                        item.bytecode = std::move(stored.binary);
+                        item.cachePresent = stored.storeHit || stored.legacyPresent;
+                        item.cacheValid = !item.bytecode.empty();
+                        item.storeHit = stored.storeHit;
+                        item.migrated = stored.legacyHit;
+                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - cacheStarted).count();
 
                         if (!item.cacheValid) {
                             const auto failurePath = item.cachePath + ".failed";
@@ -4639,7 +4748,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             } else {
                                 item.bytecode = std::move(compiled.bytecode);
                                 item.compiled = true;
-                                xenos::cache::WriteBinary(item.cachePath, item.pixel, item.hash, cacheIdentity,
+                                StoreCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath,
                                     item.bytecode, &item.cacheWriteError);
                             }
                         }
@@ -4664,6 +4773,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 uint32_t done = 0, failed = 0, modulesReady = 0, modulesFailed = 0;
                 size_t cacheHits = 0, cacheMissing = 0, cacheInvalid = 0, compileAttempts = 0, compiledCount = 0, cachedFailureCount = 0;
+                size_t storeHits = 0, migratedCount = 0, cacheWriteFailures = 0;
                 uint64_t sourceUs = 0, cacheUs = 0, translateUs = 0, compileUs = 0, moduleUs = 0;
                 auto install = [&](PreparedSource item) {
                     sourceUs += item.sourceUs;
@@ -4671,6 +4781,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     translateUs += item.translateUs;
                     compileUs += item.compileUs;
                     cacheHits += item.cacheValid;
+                    storeHits += item.storeHit;
+                    migratedCount += item.migrated;
+                    cacheWriteFailures += !item.cacheWriteError.empty();
                     cacheMissing += item.cacheChecked && !item.cachePresent;
                     cacheInvalid += item.cacheChecked && item.cachePresent && !item.cacheValid;
                     compileAttempts += item.compileAttempted;
@@ -4765,6 +4878,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_INFO("renderer: startup bundle published: {} records, {} bytes", done, std::filesystem::file_size(bundlePath));
                     } catch (const std::exception& e) { LOG_WARNING("renderer: startup bundle not published: {}", e.what()); }
                 }
+                if (auto* store = LocalShaderStore(); store && done == jobs.size() && !queueStats.cancelled &&
+                    !video::ShaderPreparationSkipped() && !initializationModuleFailure) {
+                    // Every prepared shader is in the store now, so this format's
+                    // per-shader files are redundant; records no shader used drop out.
+                    const auto stats = store->GetStats();
+                    const bool complete = stats.writable && !cacheWriteFailures;
+                    const auto removed = RemoveLegacyShaderCacheFiles(complete);
+                    std::string compactError;
+                    const auto dropped = complete ? store->CompactUnused(64ull << 20, &compactError) : 0;
+                    LOG_INFO("renderer: shader store: {} hits, {} moved from per-shader files, {} compiled; {} old per-shader files removed, {} unused records dropped{}",
+                        storeHits, migratedCount, compiledCount, removed, dropped,
+                        compactError.empty() ? std::string{} : "; compaction failed: " + compactError);
+                }
                 if (done) {
                     LOG_INFO("renderer: shader cache: {} valid, {} missing, {} invalid; {} DXC attempts, {} compiled",
                         cacheHits, cacheMissing, cacheInvalid, compileAttempts, compiledCount);
@@ -4845,14 +4971,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 std::vector<uint8_t> dxil;
                 std::string cachePath;
+                xenos::cache::InputDigest inputDigest{};
                 if (!shaderCacheDir.empty())
                 {
-                    // The cache name carries a translator version so changes to the
-                    // generated HLSL don't resurrect stale DXIL.
+                    // The store keys on the generated HLSL, so a changed translation never
+                    // resurrects a stale binary; cachePath names the pre-store file and
+                    // the failure diagnostic.
                     cachePath = (std::filesystem::path(shaderCacheDir) / xenos::cache::FileName(pixel, hash, cacheIdentity)).string();
-                    bool present = false;
-                    dxil = xenos::cache::ReadBinary(cachePath, pixel, hash, cacheIdentity, &present);
-                    if (present && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
+                    inputDigest = xenos::cache::CompileInputDigest(entry.info.hlsl, pixel, cacheIdentity);
+                    auto stored = FindCompiledShader(pixel, hash, inputDigest, cachePath);
+                    dxil = std::move(stored.binary);
+                    if (stored.legacyPresent && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
                 }
                 if (dxil.empty())
                 {
@@ -4882,7 +5011,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     dxil = std::move(compiled.bytecode);
                     if (!cachePath.empty()) {
                         std::string error;
-                        if (!xenos::cache::WriteBinary(cachePath, pixel, hash, cacheIdentity, dxil, &error))
+                        if (!StoreCompiledShader(pixel, hash, inputDigest, cachePath, dxil, &error))
                             SHADER_LOG_WARNING("cache-write-failed", None, "renderer: shader cache write failed: {}", error);
                     }
                 }

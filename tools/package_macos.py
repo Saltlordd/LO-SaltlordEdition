@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from portable_shader_pack_payload import stage_portable_shader_pack
+from portable_shader_pack_payload import stage_shader_pack_license
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = "io.github.freefrank.LostOdysseyRecomp"
@@ -160,7 +160,7 @@ def main():
         make_icns(ICON, resources / "LostOdysseyRecomp.icns", temporary)
         licenses = resources / "licenses"
         stage_licenses(licenses)
-        stage_portable_shader_pack(runtime.parent, executables, licenses)
+        stage_shader_pack_license(licenses)
         sign(bundle, args.identity)
         if args.notarize:
             notarize(bundle, args.notarize, temporary)
