@@ -60,7 +60,7 @@ jobs:
       - name: Build libraries and tests
         run: |
           # Tests that compile runtime sources or generated PPC headers need game data.
-          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoQuitActionHookTest)$'
+          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoQuitActionHookTest|LoPresentationTest)$'
           ninja -C out/build/macos -t targets all | grep -oE '^Lo[A-Za-z0-9]+(Test|Probe|Tool):' | tr -d ':' | sort -u |
             grep -vE "$excluded" > out/build/macos/ci-targets.txt
           ninja -C out/build/macos plume spirv-cross-msl SDL2-static XenonUtils lo_portable_shader_pack lo_menu_lzo \
@@ -82,9 +82,7 @@ jobs:
           export HOME="$scratch/home"
           failed=0
           while read -r test; do
-            # Hosted runners may not expose a Metal device. Build the shared
-            # presentation/HDR fixture here; run it on a Mac with GPU access.
-            [ "$test" = LoShaderPackTool ] || [ "$test" = LoShaderTool ] || [ "$test" = LoImportPayloadProbe ] || [ "$test" = LoPresentationTest ] && continue
+            [ "$test" = LoShaderPackTool ] || [ "$test" = LoShaderTool ] || [ "$test" = LoImportPayloadProbe ] && continue
             binary=$(find out/build/macos -type f -perm -u+x -name "$test" | head -n 1)
             case "$test" in
               LoPipelineCacheTest|LoShaderPrebuildIoTest|LoShaderPreparationQueueTest|LoPortableShaderContractTest) args="$scratch/$test" ;;

@@ -44,6 +44,22 @@ The full Windows runtime build passed. D3D12 and Vulkan fixtures verified test-p
 
 The opt-in `LO_HDR_CALIBRATION_CAPTURE=<path>` diagnostic writes the frozen source when a screenshot is requested. Its local replay format starts with `LOHDR1 <width> <height>\n`, followed by tightly packed RGBA16F extended-gamma pixels. Normal gameplay performs no CPU readback for calibration. Local evidence is under `out/hdr/scene-preview` and `out/hdr/game-smoke-hdr-scene-capture`; captures contain private game imagery and are not packaged or committed.
 
+## Review changes — 2026-10-02
+
+The review of PR #145 changed three things before merging.
+
+- **Inactive linear output.** D3D12 and Metal keep their FP16 swap chain when the display is not in HDR mode (Windows HDR off, an SDR monitor, a Mac without EDR headroom). The final pass decoded those pixels with a 2.2 power curve, and the compositor re-encodes with the sRGB curve, which crushed shadows: 8-bit level 13 came back as about 5. That case now decodes with the sRGB curve, so SDR pixels round-trip exactly; screenshot previews re-encode with the same curve.
+- **Display polling.** On D3D12 with an HDR swap chain, the display query walks every adapter output, about half a millisecond, and ran on every present. It now runs once a second and after swap chain changes.
+- **macOS CI.** The presentation fixture includes the generated PPC headers, so the no-game-data macOS build now skips it.
+
+Known limits found in the review and left for later:
+
+- HDR output is decided at startup. If `hdr=1` is saved while AA, upscaling, frame generation or MetalFX scaling is on, turning those off later does not prompt for the restart that would enable HDR.
+- If the Vulkan presentation pipeline cannot be rebuilt after a surface format change, later frames use the old pipeline.
+- The Vulkan SDR swap chain now accepts only RGBA8 or BGRA8 with the sRGB nonlinear color space and logs a warning on every resize; a WSI without that pair fails where it used to work. `VK_EXT_hdr_metadata` is enabled but unused.
+- Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report.
+- On the calibration page, Esc cancels the changes, but controller B keeps them.
+
 ## Unfinished validation
 
-The Metal HDR source path is present but has not been compiled or run on Mac hardware in this worktree. Linux Wayland/Gamescope HDR and packaged AppImage/Flatpak output have not been run on HDR hardware in the collected evidence. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify its platform/backend/display scope. Broader scenes, GPUs, display modes, monitor changes, system HDR toggles, performance and long play remain open validation work.
+On 2026-10-02 the Metal HDR path compiled on an M1 Max (macOS 26.6.2) and the opening battle ran with HDR requested, but that Mac was in clamshell mode on an external display without EDR headroom: the game kept its linear EDR output without HDR (`encoding=2 display_active=false`), the inactive case changed above. Its screenshots matched an SDR run, but they are re-encoded previews and could not show the shadow difference. Metal HDR output itself has not been seen yet. Linux Wayland/Gamescope HDR and packaged AppImage/Flatpak output have not been run on HDR hardware in the collected evidence. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify its platform/backend/display scope. Broader scenes, GPUs, display modes, monitor changes, system HDR toggles, performance and long play remain open validation work.

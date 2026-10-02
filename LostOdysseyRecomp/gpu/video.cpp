@@ -377,6 +377,7 @@ namespace gpu::video
             uint32_t width = 0, height = 0, pitch = 0;
             plume::RenderFormat format = plume::RenderFormat::R8G8B8A8_UNORM;
             float outputScale = 1.0f;
+            bool srgbPreview = false;
             uint64_t d3dFenceValue = 0;
         };
         PresentCaptureCopy g_captureCopy;
@@ -705,10 +706,18 @@ namespace gpu::video
                 config.scalingQuality != settings::ScalingMetalFx && !fg.Enabled();
         }
 
-        void UpdateHdrOutput()
+        void UpdateHdrOutput(bool refreshDisplay = false)
         {
             if (!g_swapChain || !g_presentation) return;
-            const auto display = g_swapChain->getDisplayState();
+            // D3D12 walks every adapter output to answer this (about half a
+            // millisecond), so poll once a second and on swap chain changes.
+            static plume::RenderDisplayState display;
+            static std::chrono::steady_clock::time_point polled;
+            const auto now = std::chrono::steady_clock::now();
+            if (refreshDisplay || polled == std::chrono::steady_clock::time_point{} || now - polled >= std::chrono::seconds(1)) {
+                display = g_swapChain->getDisplayState();
+                polled = now;
+            }
             const bool linear = display.encoding != plume::RenderOutputEncoding::SDR;
             const bool active = display.hdrActive || display.hdrTransport;
             auto calibration = settings::GetHdrCalibration();
@@ -921,6 +930,7 @@ namespace gpu::video
             g_captureCopy.ticket = *ticket;
             g_captureCopy.format = g_swapChain->getFormat();
             g_captureCopy.outputScale = g_hdrOutput.scale;
+            g_captureCopy.srgbPreview = g_hdrOutput.linear && !g_hdrOutput.active;
             const uint32_t bytesPerPixel = g_captureCopy.format == plume::RenderFormat::R16G16B16A16_FLOAT ? 8u : 4u;
             const uint32_t width = g_swapChain->getWidth(), height = g_swapChain->getHeight();
             if (!width || !height || width > (UINT32_MAX - 255u) / bytesPerPixel)
@@ -1048,7 +1058,7 @@ namespace gpu::video
                     for (uint32_t x = 0; x < result->width; ++x)
                         result->pixels[size_t(y) * result->width + x] = hdr::PreviewRgba(
                             hdr::DecodeHalf(row[x * 4]), hdr::DecodeHalf(row[x * 4 + 1]),
-                            hdr::DecodeHalf(row[x * 4 + 2]), g_captureCopy.outputScale);
+                            hdr::DecodeHalf(row[x * 4 + 2]), g_captureCopy.outputScale, g_captureCopy.srgbPreview);
                 } else if (pqCapture) {
                     const auto* row = reinterpret_cast<const uint32_t*>(mapped + size_t(y) * g_captureCopy.pitch);
                     for (uint32_t x = 0; x < result->width; ++x) {
@@ -1979,7 +1989,7 @@ namespace gpu::video
             if (!g_presentation->Init(g_device.get(), g_swapChain->getFormat())) return "presentation shader/pipeline initialization failed";
             g_presentationFormat = g_swapChain->getFormat();
             if (!getenv("LO_NO_RENDERER") && !renderer::Init()) return "renderer initialization failed";
-            UpdateHdrOutput();
+            UpdateHdrOutput(true);
             return {};
         }, ResetGpu);
         LOG_INFO("video: backend selection {}; configured={} (unchanged)", selection.Describe(), backend::Name(configured));
@@ -3065,7 +3075,7 @@ namespace gpu::video
                 g_presentation = std::move(replacement);
                 g_presentationFormat = g_swapChain->getFormat();
             }
-            UpdateHdrOutput();
+            UpdateHdrOutput(true);
             LogOutputPixels("resized");
         }
         if (g_swapChain->isEmpty())
@@ -3797,6 +3807,8 @@ namespace gpu::video
             const bool pqFrame = format == plume::RenderFormat::R10G10B10A2_UNORM || format == plume::RenderFormat::B10G10R10A2_UNORM;
             const bool hdrFrame = fp16Frame || pqFrame;
             const float outputScale = g_vulkan ? g_snapshotOutputScale : g_hdrOutput.scale;
+            // Vulkan negotiates real SDR surfaces, so only D3D12/Metal keep an inactive linear output.
+            const bool srgbPreview = !g_vulkan && g_hdrOutput.linear && !g_hdrOutput.active;
             if(format!=plume::RenderFormat::R8G8B8A8_UNORM &&
                 format!=plume::RenderFormat::B8G8R8A8_UNORM && !hdrFrame) return false;
             const uint32_t w=g_vulkan ? g_snapshotWidth : g_swapChain->getWidth();
@@ -3835,7 +3847,7 @@ namespace gpu::video
                         const float maximum = std::max({red, green, blue});
                         maximumLinear = std::max(maximumLinear, maximum);
                         aboveWhite += maximum > outputScale;
-                        pixels[size_t(y)*w+x] = hdr::PreviewRgba(red, green, blue, outputScale);
+                        pixels[size_t(y)*w+x] = hdr::PreviewRgba(red, green, blue, outputScale, srgbPreview);
                     }
                 } else if (pqFrame) {
                     const auto* row = reinterpret_cast<const uint32_t*>(data + size_t(y)*pitch);

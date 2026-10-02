@@ -42,4 +42,12 @@ int main()
     assert((invalidColor == std::array<float, 3>{0, 0, 0}));
     assert(PreviewRgba(2.5f, 2.5f, 2.5f, 2.5f) == 0xffffffffu);
     assert(PreviewRgba(0, 0, 0, 1) == 0xff000000u);
+    // An inactive linear output decodes SDR pixels with the sRGB curve; the
+    // preview must re-encode every 8-bit level to itself.
+    for (uint32_t level = 0; level < 256; ++level)
+    {
+        const float encoded = float(level) / 255.0f;
+        const float linear = encoded <= 0.04045f ? encoded / 12.92f : std::pow((encoded + 0.055f) / 1.055f, 2.4f);
+        assert(PreviewRgba(linear, linear, linear, 1.0f, true) == (0xff000000u | level | (level << 8) | (level << 16)));
+    }
 }

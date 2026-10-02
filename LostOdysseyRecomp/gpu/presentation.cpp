@@ -169,8 +169,14 @@ float4 finishFrame(float3 color) {
         if ((outputFlags & 2) == 0) color=min(color,1);
     }
     if ((outputFlags & 1) != 0) {
-        color=pow(max(color,0),2.2);
-        if ((outputFlags & 2) != 0) color=mapHighlights(color,peakRatio);
+        color=max(color,0);
+        if ((outputFlags & 2) != 0) {
+            color=mapHighlights(pow(color,2.2),peakRatio);
+        } else {
+            // Inactive linear output: the compositor re-encodes with the sRGB
+            // curve, so decoding with it returns the SDR pixels unchanged.
+            color=lerp(pow((color+0.055)/1.055,2.4),color/12.92,step(color,0.04045));
+        }
         color*=outputScale;
     }
     return float4(encodeOutput(color),1);
