@@ -8,12 +8,14 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- The macOS app now requires macOS 15 or later on Apple Silicon. Its bundled shader compiler (DXC) is built for macOS 15 and the game has only run on macOS 26. On a macOS 14 test machine the compiler loaded and the v0.7.35 app started up to its game-data check, but the game never rendered there, and GitHub retires those test machines on 2026-11-02, so macOS 14 could not be checked again after a compiler update. Every Apple Silicon Mac can run macOS 15. macOS CI now also compiles shaders with the bundled DXC on every run ([details](docs/MACOS_RELEASE.md#minimum-macos-version)).
 - Fixed an intermittent failure of `LoDlssCapabilitySnapshotTest` in the macOS arm64 CI job. Its plan-observation check read the planner a fixed 20,000 times while another thread published plans. When that thread started late, every read finished before the first publication and the check failed although no plan was torn. The reader now keeps reading until the publishing thread is done, and the check's two conditions have separate failure messages (48 checks). The planner is unchanged: every planner call holds one mutex, and ThreadSanitizer reported no race.
 - On Windows, an `LO_OPTISCALER_PATH` that points to a broken `OptiScaler.dll` no longer shows a Windows error dialog that holds up startup until it is closed; the load failure is only written to the log.
 - More Settings menu texts are now translated into Japanese, Korean and Simplified Chinese: the FSR status line, the render resolution and adaptive-sync rows, the Apple temporal upscaler help, the quality help (its new order had made it fall back to English) and the manual-restart dialogs outside Windows.
 
 ### 简体中文
 
+- macOS 版本现在需要 Apple Silicon Mac 和 macOS 15 或更高版本。内置的着色器编译器（DXC）按 macOS 15 构建，游戏也只在 macOS 26 上运行过。在一台 macOS 14 测试机上，这个编译器能加载，v0.7.35 应用也能启动到检查游戏数据这一步，但游戏从未在那里渲染过画面；而且 GitHub 将于 2026-11-02 停用这类测试机，编译器更新后就无法再在 macOS 14 上复查。所有 Apple Silicon Mac 都能运行 macOS 15。macOS CI 现在每次运行也会用内置的 DXC 编译着色器（[详情](docs/MACOS_RELEASE.md#minimum-macos-version)）。
 - 修复 `LoDlssCapabilitySnapshotTest` 在 macOS arm64 CI 中偶发失败的问题。其中的计划观察检查在另一个线程发布计划的同时固定读取计划器 20,000 次。发布线程启动较晚时，所有读取都在第一次发布之前完成，检查因此失败，但并没有读到不一致的计划。现在读取线程会一直读到发布线程结束，检查的两个条件也各自给出失败信息（共 48 项检查）。计划器本身未改动：它的每个调用都持有同一个互斥锁，ThreadSanitizer 也未报告数据竞争。
 - Windows 上，`LO_OPTISCALER_PATH` 指向损坏的 `OptiScaler.dll` 时，不再弹出会卡住启动、需手动关闭的 Windows 错误对话框，加载失败只写入日志。
 - 设置菜单又有一批文字翻译为日语、韩语和简体中文：FSR 状态行、渲染分辨率和自适应同步选项、Apple 时域超分辨率说明、质量说明（选项顺序调整后曾退回英文），以及 Windows 以外平台的手动重启对话框。
