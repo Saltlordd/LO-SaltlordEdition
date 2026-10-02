@@ -1,6 +1,7 @@
 // Compiles the exact production renderer .inl against explicit fake GPU/DXC
 // services. This tests the new integration methods, not the whole renderer.
 #include "gpu/shader/portable_shader_contract.h"
+#include "gpu/shader/portable_shader_pack_location.h"
 #include <array>
 #include <chrono>
 #include <cstdlib>
@@ -29,7 +30,7 @@ struct Device {
 };
 struct Shader {xenos::TranslatedShader info;std::unique_ptr<Module> shader;bool valid=false;};
 struct RendererFixture {
-    bool vulkan=true;int renderFormat=1;
+    bool vulkan=true,nativeVulkan=true;int renderFormat=1;
     xenos::cache::Identity cacheIdentity=xenos::cache::MakeIdentity(xenos::cache::Backend::Vulkan,"local");
     Device driver;Device* device=&driver;
     std::array<std::unordered_map<uint64_t,Shader>,2> shaders;
