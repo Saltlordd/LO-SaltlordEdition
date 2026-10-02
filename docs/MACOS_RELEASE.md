@@ -34,6 +34,35 @@ python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.7
   accepts the three packages built by CI and, at most, this one disk image
   beside them.
 
+### Published image, 2026-10-02
+
+The v0.7.35 release was published at 2026-10-02T09:13:35Z ([release
+record](STATUS.md#v0735-published--2026-10-02)). The image was built on the
+maintainer's M1 Max (macOS 26.6.2) from tag `v0.7.35` with
+`python3 tools/package_macos.py --version v0.7.35 --dmg` and uploaded to the
+draft release by hand before publication. GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` at 60,429,795 bytes with SHA-256
+`4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94`, which equals
+the SHA-256 computed on the Mac. Checks on the built file:
+
+- The binary inside embeds revision `95f2c8968d0c`, and the bundle version
+  (`CFBundleShortVersionString`) is `0.7.35`.
+- `hdiutil verify` reports the image valid, and the mounted image holds
+  `LostOdysseyRecomp.app` and an Applications link.
+- `codesign --verify --strict --deep` passes on the app. The signature is ad hoc
+  and carries no team ID.
+
+Before the tag, `LoUpdaterTest` passed on Windows, including the new assertions
+that macOS ignores a ZIP and selects its disk image. A test image built from the
+release branch on the Mac passed the same image checks, and
+`publish_shader_packs.py --check` passed on the Mac on the release branch before
+its final rebase, whose code equals the tag apart from one test-fixture generator
+and documents.
+
+Limits: the image was not installed from a download and the Gatekeeper approval
+flow was not exercised. No game run was made with the published image or any
+other v0.7.35 package.
+
 ### First launch and updates
 
 Gatekeeper blocks the first launch of an app that is not notarized. The player
@@ -112,9 +141,12 @@ For v0.7.35 the recorded runs are on one Mac, the maintainer's M1 Max (macOS
 pack was downloaded from the `shader-packs` release and used
 ([details](PORTABLE_SHADER_PACK.md#validation-2026-10-02)). HDR requested on an
 external display without EDR headroom stayed in SDR, so Metal HDR output itself
-has not been seen ([details](notes/hdr-output.md)). Long play, broader scenes,
-image quality, performance and other Macs are untested. No recorded run
-installed the disk image from a download and followed the first-launch approval;
+has not been seen ([details](notes/hdr-output.md)). These runs were made earlier
+on 2026-10-02, on `main` at `2cd3fe6` and on the HDR review branch, whose runtime
+code matches the tag apart from the updater's macOS asset type; none used the
+published image. Long play, broader scenes, image quality, performance and other
+Macs are untested. No recorded run installed the disk image from a download and
+followed the first-launch approval;
 the Gatekeeper steps above follow Apple's documented behavior for apps that are
 not notarized. This is not acceptance; [STATUS.md](STATUS.md) records acceptance
 and publication.

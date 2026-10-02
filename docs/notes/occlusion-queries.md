@@ -1,8 +1,8 @@
 # Host GPU occlusion queries (#118)
 
-Status 2026-10-02: merged as PR #122 (`c0163a8`), not yet released. Direct3D 12
-and Vulkan; Metal keeps the old fake counts. Checked in the frozen Uhra save and
-at the #118 spot on the world map on an RTX 5080.
+Status 2026-10-02: merged as PR #122 (`c0163a8`) and part of v0.7.35 (tag
+`v0.7.35`). Direct3D 12 and Vulkan; Metal keeps the old fake counts. Checked in
+the frozen Uhra save and at the #118 spot on the world map on an RTX 5080.
 
 ## Why the flare showed through terrain
 

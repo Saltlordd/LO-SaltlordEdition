@@ -1,6 +1,6 @@
 # Experimental HDR output
 
-This note documents the unreleased HDR path for the cross-platform renderer. It describes the current implementation and validation boundary; it does not represent a published feature or complete or cross-platform physical-display coverage. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify the platform, backend or display.
+This note documents the experimental HDR path for the cross-platform renderer, which ships in v0.7.35 (tag `v0.7.35`, 2026-10-02). It describes the current implementation and validation boundary; it does not establish complete or cross-platform physical-display coverage. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify the platform, backend or display.
 
 ## Scope and use
 

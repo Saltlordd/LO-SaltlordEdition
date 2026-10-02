@@ -1,6 +1,6 @@
 # 未完成需求覆盖清单
 
-生命周期：本文是 2026-09-08 冻结的 65 项去重覆盖快照，供当时导入 GitHub Projects。下文数量、Issue 状态及代理执行描述均属于该检查点。后续变化见 [2026-09-30 逐项对账](reconciliation-2026-09-30.md)、[STATUS](../STATUS.md)和[路线图](../ROADMAP.md)；当前机器清单见 [items.json](items.json)。
+生命周期：本文是 2026-09-08 冻结的 65 项去重覆盖快照，供当时导入 GitHub Projects。下文数量、Issue 状态及代理执行描述均属于该检查点。后续变化见 [2026-09-30 逐项对账](reconciliation-2026-09-30.md)、[2026-10-02 对账（v0.7.35）](reconciliation-2026-10-02.md)、[STATUS](../STATUS.md)和[路线图](../ROADMAP.md)；当前机器清单见 [items.json](items.json)。
 
 ## 字段与状态
 
@@ -107,6 +107,8 @@ shader-log-coverage-audit 保留独立 shader 日志/运行摘要、来源及 ha
 FPD/FPI 格式解析旧 checkbox 在已发布发现/解析范围内已过时；已完成的 bare-FPD/CPX/FPI 发现与四盘资源扫描不重建为未实现。动态变体和仅凭资源准备首用 PSO 的剩余范围独立保留。
 
 ## 工作项总表
+
+下表的 Status/Delivery 是 2026-09-08 的冻结值，之后已多次变化，不在此改写（改写单行会破坏上文的计数和“状态全部有效”的核验）；当前值以 Project 和 [items.json](items.json) 为准。例如 `hdr-output-tonemapping` 在下表是 Todo / Not started，而 v0.7.35 已把 HDR 作为实验性选项发布，Project 记录自 2026-10-02 起是 In Progress / Released / Release v0.7.35（见 [2026-10-02 对账](reconciliation-2026-10-02.md)）；`ultrawide-fov-layout` 同样已是 Done / Released / v0.6.7。
 
 | stable_key | English title | Status | Delivery |
 |---|---|---|---|

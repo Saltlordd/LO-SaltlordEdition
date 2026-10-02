@@ -13,7 +13,7 @@
       "id": "PVTV_lAHOAAsUY84Biy1azgLlIBU",
       "name": "Roadmap",
       "number": 1,
-      "layout": "ROADMAP_LAYOUT",
+      "layout": "BOARD_LAYOUT",
       "filter": null
     },
     {
@@ -230,9 +230,10 @@
   ],
   "roadmap_configuration": {
     "group_by": "Release",
-    "start_date_field": "Start date",
-    "target_date_field": "Target date",
-    "zoom": "Month",
-    "verified": "Saved view reloaded and read from the GitHub UI on 2026-09-08"
+    "vertical_group_by": "Status",
+    "start_date_field": null,
+    "target_date_field": null,
+    "zoom": null,
+    "verified": "Saved view read through the GitHub GraphQL API and on the public board on 2026-10-02: Board layout grouped by Release with Status columns, no filter, last changed 2026-09-09T14:22:44Z. The Roadmap layout with Start date, Target date and Month zoom recorded on 2026-09-08 no longer applies."
   }
 }
