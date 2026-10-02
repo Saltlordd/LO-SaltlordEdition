@@ -3290,6 +3290,87 @@
       },
       "title": "Character shadows move unnaturally and look translucent",
       "body_sha256": "f7595cb8ea487445ff1bd396b92c13e36f9f4e29ec847e581fe26a9843014554"
+    },
+    "issue-114-container-enemy-softlock": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D79o",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Field interaction",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Evidence": "PR #135 (merged 2026-10-02, unreleased) makes the touch-entry check (C1) take its original rejection branch while a battle request is queued or loading. A 264-check fixture with the original game functions and a full runtime link passed. The maintainer said on 2026-10-02 that an in-game check was done in a Codex session; the repository has no record of it. The full softlock mechanism and reporter confirmation remain open.",
+        "Source key": "issue-114-container-enemy-softlock"
+      }
+    },
+    "issue-116-linux-nvidia-dlss": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D7-o",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Linux",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Evidence": "PR #120 (merged 2026-10-02, unreleased) fixes the DLSS library lookup and ships the unmodified NGX snippet in the AppImage and Flatpak. DLSS has not run on an NVIDIA GPU under Linux. Reporter confirmation needs a release.",
+        "Source key": "issue-116-linux-nvidia-dlss"
+      }
+    },
+    "issue-117-battle-camera-flicker": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D7_w",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Validated",
+        "Evidence": "Closed as completed by the PR #132 merge (2026-10-02, unreleased). PR #132 updates the battle camera's rotation smoother once per 12.5 ms above 80 FPS. In-game A/B in the opening battle at about 100 FPS: 33 bursts of random angles with the fix off, none with it on. Reporters have not confirmed; not released.",
+        "Source key": "issue-117-battle-camera-flicker"
+      }
+    },
+    "issue-118-sun-occlusion-lens-flare": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8BE",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Validated",
+        "Evidence": "PR #122 (merged 2026-10-02, unreleased) runs the game's occlusion queries on the host GPU (Direct3D 12 and Vulkan). On an RTX 5080 the sun and glare no longer show through the cliff at the #118 spot (Vulkan). AMD and Intel GPUs, including the reporter's RX 6600, are unchecked. Reporter confirmation needs a release.",
+        "Source key": "issue-118-sun-occlusion-lens-flare"
+      }
+    },
+    "issue-121-old-sorceress-mansion-sky-flicker": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8Cg",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Evidence": "PR #128 (merged 2026-10-02, unreleased) adds the exact sky pair to SkyMaterialPairs, checked with banks from the reporter's runtime logs. Not rechecked in the game. Reporter confirmation needs a release.",
+        "Source key": "issue-121-old-sorceress-mansion-sky-flicker"
+      }
+    },
+    "taa-jitter-fixes-20261001": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8Ds",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Evidence": "PRs #130, #133, #134 and #136 are merged (2026-10-02) and unreleased. Captured-constant LoTemporalJitterTest cases cover the mapped shaders. Only the PR #136 battle mapping was checked in the game: the motion-vector replay was aborted in 62 of 63 summaries before and in none after. The other places were not rechecked in the game.",
+        "Source key": "taa-jitter-fixes-20261001"
+      },
+      "title": "TAA/FSR/DLSS jitter fixes from F1 captures and map tours",
+      "body_sha256": "fee79a109cef09e17b4a82fcf0b1bc2f1c7813890e702c16bf30471a861e88d2"
+    },
+    "flicker-triage-tooling-20261001": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8Ec",
+      "fields": {
+        "Kind": "Infrastructure",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "Merged in PRs #131, #133 and #136 (2026-10-02, unreleased). Both jitter tests are in the Gitea review-regressions suite and test_ps_clip_reads.py is in CI. Developer tooling and regression coverage; no in-game acceptance applies.",
+        "Source key": "flicker-triage-tooling-20261001"
+      },
+      "title": "Flicker triage tooling and review-regressions coverage",
+      "body_sha256": "a11bd5c9e91a1e76f084d6a3275d4054a2b79752e0045eb1dc177f67bbe24c7f"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"

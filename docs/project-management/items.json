@@ -6342,6 +6342,134 @@
       ],
       "source_lines": [],
       "record_type": "backlog"
+    },
+    {
+      "key": "issue-114-container-enemy-softlock",
+      "title": "[Bug] Softlock when encountering an enemy while destroying a container",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/114",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Field interaction",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "PR #135 (merged 2026-10-02, unreleased) makes the touch-entry check (C1) take its original rejection branch while a battle request is queued or loading. A 264-check fixture with the original game functions and a full runtime link passed. The maintainer said on 2026-10-02 that an in-game check was done in a Codex session; the repository has no record of it. The full softlock mechanism and reporter confirmation remain open."
+      }
+    },
+    {
+      "key": "issue-116-linux-nvidia-dlss",
+      "title": "[Bug] DLSS Not working on capable GPU",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/116",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Linux",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "PR #120 (merged 2026-10-02, unreleased) fixes the DLSS library lookup and ships the unmodified NGX snippet in the AppImage and Flatpak. DLSS has not run on an NVIDIA GPU under Linux. Reporter confirmation needs a release."
+      }
+    },
+    {
+      "key": "issue-117-battle-camera-flicker",
+      "title": "[Bug] Hitting the enemy causes flickering",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/117",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Validated",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Closed as completed by the PR #132 merge (2026-10-02, unreleased). PR #132 updates the battle camera's rotation smoother once per 12.5 ms above 80 FPS. In-game A/B in the opening battle at about 100 FPS: 33 bursts of random angles with the fix off, none with it on. Reporters have not confirmed; not released."
+      }
+    },
+    {
+      "key": "issue-118-sun-occlusion-lens-flare",
+      "title": "[Bug] Sun occlusion issue",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/118",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Validated",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "PR #122 (merged 2026-10-02, unreleased) runs the game's occlusion queries on the host GPU (Direct3D 12 and Vulkan). On an RTX 5080 the sun and glare no longer show through the cliff at the #118 spot (Vulkan). AMD and Intel GPUs, including the reporter's RX 6600, are unchecked. Reporter confirmation needs a release."
+      }
+    },
+    {
+      "key": "issue-121-old-sorceress-mansion-sky-flicker",
+      "title": "[Bug] Flickering sky Sorceress Mansion",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/121",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "PR #128 (merged 2026-10-02, unreleased) adds the exact sky pair to SkyMaterialPairs, checked with banks from the reporter's runtime logs. Not rechecked in the game. Reporter confirmation needs a release."
+      }
+    },
+    {
+      "key": "taa-jitter-fixes-20261001",
+      "title": "TAA/FSR/DLSS jitter fixes from F1 captures and map tours",
+      "body": "<!-- lo-project:taa-jitter-fixes-20261001 -->\n\n2026-10-02 已合并、尚未发布的 TAA／FSR／DLSS 抖动（jitter）映射修复：依据维护者的 F1 捕获和地图巡游，把漏掉抖动的天空、材质和战斗深度 pass 补进映射表。\n\n## Scope and completion criteria\n\n- [x] [PR #130](https://github.com/freefrank/LostOdysseyRecomp/pull/130)：Ice Canyon - Snowy Plateau 的天空和 Burning Cave - Strange Rocks 的材质（来自维护者的 F1 捕获）\n- [x] [PR #133](https://github.com/freefrank/LostOdysseyRecomp/pull/133)：#67 天空 VS 和深度 VS b9b8 的另外六个天空 PS 搭档（来自 316 张地图中 264 张的巡游）\n- [x] [PR #134](https://github.com/freefrank/LostOdysseyRecomp/pull/134)：第二次定向巡游发现的四个仅在运行时出现的 shader 变体\n- [x] [PR #136](https://github.com/freefrank/LostOdysseyRecomp/pull/136)：战斗深度写入者 7def 和 c511，以及巡游发现的材质 8d66\n- [ ] 在游戏内复查 PR #130、#133 和 #134 涉及的位置\n- [ ] 发布后取得报告者或玩家的确认\n\n## Validation and acceptance\n\n用捕获到的常量编写的 `LoTemporalJitterTest` 用例覆盖上述映射。只有 PR #136 的战斗映射在游戏内检查过：开场战斗里，修复前 63 份摘要中有 62 份的运动向量 replay 被中止，修复后没有一份被中止。其他位置没有在游戏内复查。\n\n尚未发布，也没有报告者或玩家确认；实现、测试与验收分别记录。\n\nstage_detail: Awaiting validation\n\n## Sources\n\n- [PR #130](https://github.com/freefrank/LostOdysseyRecomp/pull/130)\n- [PR #133](https://github.com/freefrank/LostOdysseyRecomp/pull/133)\n- [PR #134](https://github.com/freefrank/LostOdysseyRecomp/pull/134)\n- [PR #136](https://github.com/freefrank/LostOdysseyRecomp/pull/136)\n- [docs/notes/jitter-sky-f12139-2026-10-01.md](https://github.com/freefrank/LostOdysseyRecomp/blob/ccd8228655648fb59290e2fe70d90d3bfc532f5d/docs/notes/jitter-sky-f12139-2026-10-01.md)\n- [docs/notes/jitter-cave-f25276-2026-10-01.md](https://github.com/freefrank/LostOdysseyRecomp/blob/ccd8228655648fb59290e2fe70d90d3bfc532f5d/docs/notes/jitter-cave-f25276-2026-10-01.md)\n- [docs/notes/jitter-sky-tour-2026-10-01.md](https://github.com/freefrank/LostOdysseyRecomp/blob/ccd8228655648fb59290e2fe70d90d3bfc532f5d/docs/notes/jitter-sky-tour-2026-10-01.md)\n- [docs/notes/jitter-battle-depth-2026-10-01.md](https://github.com/freefrank/LostOdysseyRecomp/blob/ccd8228655648fb59290e2fe70d90d3bfc532f5d/docs/notes/jitter-battle-depth-2026-10-01.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "PRs #130, #133, #134 and #136 are merged (2026-10-02) and unreleased. Captured-constant LoTemporalJitterTest cases cover the mapped shaders. Only the PR #136 battle mapping was checked in the game: the motion-vector replay was aborted in 62 of 63 summaries before and in none after. The other places were not rechecked in the game."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/130",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/133",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/134",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/136",
+        "docs/notes/jitter-sky-f12139-2026-10-01.md",
+        "docs/notes/jitter-cave-f25276-2026-10-01.md",
+        "docs/notes/jitter-sky-tour-2026-10-01.md",
+        "docs/notes/jitter-battle-depth-2026-10-01.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "flicker-triage-tooling-20261001",
+      "title": "Flicker triage tooling and review-regressions coverage",
+      "body": "<!-- lo-project:flicker-triage-tooling-20261001 -->\n\n闪烁嫌疑的分诊脚本和回归覆盖，供 TAA／FSR／DLSS 抖动映射的审查使用；已合并、尚未发布。\n\n## Scope and completion criteria\n\n- [x] [PR #131](https://github.com/freefrank/LostOdysseyRecomp/pull/131)：`tools/capture_analysis/triage_suspect.py` 一次完成嫌疑分诊；`LoTemporalJitterTest` 改为表驱动；两个 jitter 测试（`LoTemporalJitterTest`、`LoJitterCaptureTools`）加入 Gitea review-regressions\n- [x] [PR #133](https://github.com/freefrank/LostOdysseyRecomp/pull/133)：分诊脚本遵从 review manifest\n- [x] [PR #136](https://github.com/freefrank/LostOdysseyRecomp/pull/136)：clip review 读取 alpha-test kill 和 `select`；manifest 新增 `hold` 决定；`test_ps_clip_reads.py`（`LoPsClipReads`）加入 CI\n\n## Validation and acceptance\n\n上述测试已加入 review-regressions 的 CMake 测试列表。这些是开发工具和回归覆盖，不涉及玩家验收；它们不证明任何一处闪烁已在游戏内消除。\n\nstage_detail: Implemented; merged and unreleased\n\n## Sources\n\n- [PR #131](https://github.com/freefrank/LostOdysseyRecomp/pull/131)\n- [PR #133](https://github.com/freefrank/LostOdysseyRecomp/pull/133)\n- [PR #136](https://github.com/freefrank/LostOdysseyRecomp/pull/136)\n- [tools/capture_analysis/README.md](https://github.com/freefrank/LostOdysseyRecomp/blob/ccd8228655648fb59290e2fe70d90d3bfc532f5d/tools/capture_analysis/README.md)\n- [tools/shader_analysis/README.md](https://github.com/freefrank/LostOdysseyRecomp/blob/ccd8228655648fb59290e2fe70d90d3bfc532f5d/tools/shader_analysis/README.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Infrastructure",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Merged in PRs #131, #133 and #136 (2026-10-02, unreleased). Both jitter tests are in the Gitea review-regressions suite and test_ps_clip_reads.py is in CI. Developer tooling and regression coverage; no in-game acceptance applies."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/131",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/133",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/136",
+        "tools/capture_analysis/README.md",
+        "tools/shader_analysis/README.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
     }
   ]
 }
