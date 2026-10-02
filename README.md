@@ -45,6 +45,8 @@ The branch now includes an arm64 Android diagnostic APK that checks host memory-
 
 The probe passed small memory-alias checks, Vulkan clear/present, repeated checks and background recovery on one Lenovo TB321FU (Android 16, Adreno 750, 4 KB pages). Its 128 MiB storage-buffer limit is below the renderer's current 1 GiB vertex arena, which needs adaptation before the game can run. See the [device report](docs/notes/android-probe-tb321fu-2026-10-02.txt); full-game, performance, controller and 16 KB device validation remain pending.
 
+The generated PPC code also builds as an Android ARM64/PIC static library with the NDK. This is a separate development target; the full Android runtime has not been linked or run. See the [library build instructions](packaging/android/README.md#android-arm64-recompiled-library).
+
 ### Latest changes
 
 [v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) adds an F1 button that restores RB party switching after a split-party Save Anywhere load (#74), fixes the Legacy of the Eastern Tribe sky flicker with TAA or FSR (#102) and logs similar flicker suspects, hardens the runtime against malformed game requests, writes SHA-256 values into Windows ZIP manifests for older updaters (#105), and explains Flatpak updates in every interface language. The source also gains the experimental Apple Silicon macOS path above; no macOS package is published. See the [changelog](CHANGELOG.md) for earlier releases and the [development status](docs/STATUS.md) for validation coverage.

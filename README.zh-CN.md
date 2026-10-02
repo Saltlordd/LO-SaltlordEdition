@@ -45,6 +45,8 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 探针在一台 Lenovo TB321FU（Android 16、Adreno 750、4 KB 页面）上通过了小型内存别名、Vulkan 清屏呈现、重复检查和后台恢复测试。设备的 storage-buffer 上限为 128 MiB，低于当前渲染器的 1 GiB vertex arena，需要适配后才能运行游戏。详见[设备报告](docs/notes/android-probe-tb321fu-2026-10-02.txt)；完整游戏、性能、手柄和 16 KB 真机验证仍待完成。
 
+生成的 PPC 代码也已通过 NDK 编译为 Android ARM64/PIC 静态库。这是独立的开发目标，完整 Android 运行时尚未链接或运行，构建方法见[重编译库说明](packaging/android/README.md#android-arm64-recompiled-library)。
+
 ### 最新更新
 
 [v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) 在 F1 调试菜单加入按钮，可在分队期间随时存档再读档后恢复 RB 换人（#74）；修复“东方部族的遗产”区域开启 TAA 或 FSR 时的天空闪烁（#102），并在日志中记录类似的闪烁嫌疑；加固运行时对异常游戏请求的处理；Windows ZIP 清单为旧版 updater 写入 SHA-256 值（#105）；并用全部界面语言说明 Flatpak 的更新方法。源码还包含上文实验性的 Apple Silicon macOS 路径，但不发布 macOS 安装包。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。

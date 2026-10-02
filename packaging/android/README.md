@@ -79,3 +79,35 @@ This is not evidence for full guest mapping, protection, or runtime
 compatibility. Vulkan coverage stops at capability discovery and one
 clear/present frame per check run; shaders, pipelines and game rendering remain
 future work.
+
+## Android ARM64 recompiled library
+
+The library build separates host code generation from Android target
+compilation. XenonRecomp and its tools run on the Windows host; the generated
+PPC sources are then compiled by the Android NDK into the PIC static target
+`LostOdysseyRecompLib`. The repository's generated `LostOdysseyRecompLib/ppc`
+sources are private build inputs and must not be added to a commit.
+
+Use a WSL system CMake **3.28 or newer** for this slice. The Gradle project's
+CMake 3.22.1 requirement is for the probe APK and is separate from this
+cross-build. From the repository root, with `ANDROID_NDK_ROOT` pointing to the
+pinned NDK directory:
+
+```sh
+cmake --version
+cmake -S . -B out/build/android-ppc -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+  -DLO_BUILD_RUNTIME=OFF -DLO_BUILD_GPU=OFF \
+  -DLO_BUILD_TOOLS=OFF -DLO_BUILD_RECOMP_LIB=ON \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build out/build/android-ppc --target LostOdysseyRecompLib -j 4
+```
+
+The Release build passed with NDK 28.2: the archive contains 247 AArch64 ELF
+objects (246 generated files plus the function mapping), all compiled with
+PIC. Android configurations that request the full runtime or host tools are
+explicitly rejected. This proves target compilation of the game-code library;
+it does not provide a linked or running Android runtime. Full runtime work remains blocked by the
+Android FFmpeg configuration, plume/SDL platform integration, app-specific
+storage and updater replacement, and lifecycle handling.

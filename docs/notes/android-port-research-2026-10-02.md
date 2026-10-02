@@ -174,3 +174,33 @@ adb shell getconf PAGE_SIZE
 设备为 Adreno 750，Vulkan API 1.3.128，驱动版本 `0x802fa028`；`shaderInt64`、buffer device address 和 scalar block layout 均报告可用。BC1/2/3、D32S8、RGBA16F 格式探针和 renderer layout gate 通过，clear submit/present 在 2560×1600 成功。`maxStorageBufferRange` 只有 128 MiB，而当前 vertex arena 需要 1 GiB，因此 vertex arena range gate 失败；这是完整游戏移植的当前 GPU 阻塞项，下一步应适配 render arena，不能用降低分辨率规避。
 
 音频队列 API 提交成功，但只执行了 API/队列检查，未证明人耳可听；本次没有 SDL controller。Android 16 inset 修复后的最终 APK 已重新构建，按钮避开状态栏；三次 Run checks 均在同一进程产生新报告并通过 memory/clear/present，Home 触发 background 后恢复的新 probe 成功，Back 退出并重新启动后的新 probe 也成功。最终 APK SHA-256 为 `3c55eeb2020049d7ad775fdbd768e0adc85b3e338fd24b32f8477a8706be828e`，v2 签名和 16 KB ZIP 对齐通过，`assembleDebug`/`lintDebug` 通过。此次 checkpoint 没有游戏 renderer、shader、资源加载、性能或玩法证据；探针本身不使用游戏资源，16 KB 真机仍未测。
+
+## 第二阶段 checkpoint：Android ARM64 重编译库（2026-10-02）
+
+第一提交已完成探针交付；本次增量处理 host/target 分离：主机运行 XenonRecomp 生成 PPC C++，Android NDK 以 ARM64/PIC 编译 `LostOdysseyRecompLib` 静态库，同时关闭 runtime、GPU 和 tools。246 个生成的 PPC 源文件及 function mapping 来自私有构建输入，不能提交到仓库。对应说明和命令见 [`packaging/android/README.md`](../../packaging/android/README.md)。
+
+该切片要求 WSL system CMake ≥3.28；Gradle APK 的 CMake 3.22.1 只适用于探针。推荐配置命令为：
+
+```sh
+cmake -S . -B out/build/android-ppc -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
+  -DLO_BUILD_RUNTIME=OFF -DLO_BUILD_GPU=OFF \
+  -DLO_BUILD_TOOLS=OFF -DLO_BUILD_RECOMP_LIB=ON \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build out/build/android-ppc --target LostOdysseyRecompLib -j 4
+```
+
+根 CMake 已开放这个 library-only 路径，强制 Android ARM64 和 PIC，拒绝将 XenonRecomp/XenosRecomp 编为 Android 工具；完整 runtime 仍明确拒绝。NDK 28.2 / Clang 19 的 Release configure/build 通过，247 条编译命令均使用 `aarch64-none-linux-android26` 与 `-fPIC`，归档中的全部 247 个对象均为 ELF64 little-endian AArch64 relocatable。静态库为 438,257,042 bytes，SHA-256 `4f9a3a304033527fbccc70457c5071a9c1540b1da593e3c1cec8bd1ef7d47bbd`；本地证据为 `out/android-device-probe/ppc-library-validation.json`。默认 runtime 和 tools=ON 的 configure 拒绝检查，以及原有 probe 根目录 configure 均通过。完整 runtime 尚未链接或执行，仍受 FFmpeg Android 配置、plume/SDL Android 平台边界、应用专属存储/updater 和生命周期适配阻塞。
+
+### 生产内存实现的设备 shell 检查
+
+使用 NDK 28.2 将现有 `kernel/guest_address_space.cpp` 与 `tools/tests/memory_alias_test.cpp` 编译为 Android 26 ARM64/PIE 可执行文件，在同一 TB321FU 的 ADB shell 执行成功。两轮测试覆盖完整生产地址空间的 A/C 别名、E 偏移、虚拟页隔离、查询数据往返及释放后重新分配；实际只触碰少量哨兵页。证据保存在 `out/android-device-probe/production-memory-shell-test.json`，测试程序已从设备临时目录移除。
+
+这次执行使用 ADB shell 身份，不等于 SDLActivity 应用沙箱内验证；现有测试没有主动触发 null guard fault，也没有完整 guest 程序、16 KB 页或压力测试。下一步仍需把生产内存检查接入应用，并补保护语义和生命周期覆盖。
+
+### 下一 GPU 验证计划
+
+host 侧已用 `motion_replay_fixture.h` 经真实 translator 和 host DXC 生成 SPIR-V：VS 6992 bytes、PS 4224 bytes；fixture 记录了 `Shader`、`Int64`、`PhysicalStorageBufferAddresses`、`PhysicalStorageBuffer64 GLSL450`，以及 VS 的 descriptor set 0 / binding 0 顶点 arena 合约。证据保存在 `out/android-device-probe/next-gpu-shader/fixture-compile.json`。这只是 host shader 编译证据，尚无新设备 draw/readback。
+
+下一步应在 native probe 中使用这些 SPIR-V 完成真实 draw + readback，继续保持 24-byte push constants 和 3 个 BDA 常量的 contract，再评估真正的 BDA vertex fetch 和 shader-pack ABI 变化。当前 vertex SSBO 需要完整 1 GiB descriptor range，而设备只报告 128 MiB；不能盲目降为 128 MiB，两个 64 MiB slot 加 slack 仍可能容纳不了最大 fetch，arena 生命周期和分段策略需先设计。
