@@ -20,10 +20,16 @@ inline int PositionVPSlot(uint64_t shader) {
     // f13429-f13431: alpha-tested depth shares ff9da/a27a geometry; c4-c7
     // feed only position, while its object UV and alpha color remain unchanged.
     case 0x8d3c80b318235b22ull:
+    // Map tour 2026-10-01 (Uhra - Army Sewers, Eastern Gohtza Railroad Track):
+    // the 8d3c program with a 12-dword vertex stride, a scene depth writer.
+    case 0xb9b8056050a4c194ull:
     // f5914: stride-56 static depth companion of 799c/eeae; c4-c7 position only.
     case 0x52e4405f97159d2full:
     // f16385-f16387: alpha-tested depth; UV/color outputs are independent of VP.
     case 0xfe3efe042c311110ull:
+    // Map tour 2026-10-01 (Experimental Staff Marine Division): the fe3e program
+    // with a 14-dword vertex stride, a scene depth writer.
+    case 0xf964d2661094b1a0ull:
     // f11745: static depth companion of a936; c4-c7 position only.
     case 0xb2eaed9ab75471f9ull:
     case 0xb030ab4e17a20783ull:case 0xf1b330b3ceea9a3bull:case 0xf7fd88506d704a3dull:return 4;
@@ -60,7 +66,17 @@ inline int PositionVPSlot(uint64_t shader) {
     case 0x69e9adcf2e1b6887ull:case 0x6a8c2c78737dc94cull:case 0xa20d6099a44e2cd5ull:
     // f2548-f2550: static material companion of f7fd depth; c7-c10
     // feed only position/o4 clip copy. Separate fetch94 lighting is unchanged.
-    case 0xa027ab99fa3e3b0dull:return 7;
+    case 0xa027ab99fa3e3b0dull:
+    // f25276 Burning Cave: static material over f7fd depth; c7-c10 feed only oPos
+    // and o4, of which PS 042e reads only W. fetch94 light and c11 eye stay intact.
+    case 0x61bc9947f1e88573ull:
+    // Map tour 2026-10-01: static materials over 52e4 depth whose c7-c10 feed only
+    // oPos and the o4 copy, of which their only seen PS reads just W.
+    // 2441 + d7f3: Snow-Covered Trail. f8b1 + e5b7: Astral Square, Numara Palace.
+    case 0x24418a5936c2d236ull:case 0xf8b1457ed05cacdfull:
+    // 8d66 over b030 depth (Ice Canyon - Ice Gorge, Frozen Trail): the same chain;
+    // PS c795 and 9e1c read only W of the o1 copy.
+    case 0x8d6658641e3b780dull:return 7;
     case 0x1da1ddc75da8e994ull:case 0x22557143e0f243ddull:case 0x4c87bb5b986defc8ull:case 0xa6c8c11c6dd07144ull:
     case 0xe8c0d438c690c784ull:case 0x576d669b2ad3c898ull:
     case 0x188061ace0615678ull:case 0xdc7f83af67c53ba1ull:case 0x68014a17a2a9a4bdull:
@@ -78,6 +94,17 @@ inline int PositionVPSlot(uint64_t shader) {
     // f2548-f2550: matched static depth geometry; c8-c11 position/o2 only,
     // leaving the independent c7 UV transform and c12 lighting untouched.
     case 0xff769ec7b88e575full:
+    // f6814 paused cutscene: depth writer e9b8 (PS afd8 reads only the o2 W)
+    // and later material d31e use the 52e4 scene camera bits at c8-c11 for
+    // oPos and its o2/o5 copy only; c7 UV and c12/c13 light/eye stay intact.
+    // PS 4907455386b2b291 samples a same-frame resolve of jittered slot-0
+    // passes through o5.xy/w, so that lookup must follow the raster jitter.
+    case 0xe9b8dd7e7c5a3425ull:case 0xd31e2122a3b51434ull:
+    // Opening battle 2026-10-01: alpha-tested depth writers 7def and c511 use the
+    // scene camera at c8-c11 for oPos and its o2/o4 copy only (the c12 eye stays
+    // intact). Their nine player-feedback PS partners read only W of the copy and
+    // kill on alpha sampled at mesh UVs.
+    case 0x7def181705ff29c9ull:case 0xc511136caf4421ebull:
     // f6131-f6133: late additive floor lighting matches the f7fd depth and
     // ff769 material geometry. c8-c11 feed oPos and o5; PS 4013372b6413788f
     // samples the current scene light resolve through o5.xy/w, so the lookup
@@ -136,6 +163,29 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Legacy of the Eastern Tribe f1800-f1802 (#102), f7fd depth. Its PS reads
     // only the clip W copy; object motion replays like the depth companion.
     {0xdb23a2ad4493bbb4ull, 0x02ee5f0608be581aull, false},
+    // Map tour 2026-10-01, Gohtza - Southernmost Cape: the #102 sky program with
+    // another vertex component order, over f7fd depth; PS 311b reads only clip W.
+    {0xcbadff38155833b6ull, 0x311b14004ee00284ull, false},
+    // Old Sorceress' Mansion (#121): the #67 VS with the #102 PS over b030 depth,
+    // from two runtime suspect logs. Same VS, so the same motion fallback as #67.
+    {0xbda41a11626a545cull, 0x02ee5f0608be581aull, true},
+    // Ice Canyon - Snowy Plateau (F1 f12139): the #67 VS with PS 1dee over b030
+    // depth. 1dee reads only the clip W copy; same VS, same fallback as #67.
+    {0xbda41a11626a545cull, 0x1dee52ba32155a53ull, true},
+    // Map tour 2026-10-01: the #67 VS over b030 depth with six more PS that read
+    // only the clip W copy and sample at mesh UVs (triage_suspect.py review).
+    // e086: Numara Palace, Ghost Town, Armored Vehicle, Ipsilon Mountains hut.
+    {0xbda41a11626a545cull, 0xe086f5f676c72482ull, true},
+    // e2b8: Saman - Main Street, Port of Saman.
+    {0xbda41a11626a545cull, 0xe2b89a553d00ef47ull, true},
+    // 72bc: Experimental Staff Marine Division, Ice Canyon - Glacier Fang, White Boa.
+    {0xbda41a11626a545cull, 0x72bcd05d7ab61ce1ull, true},
+    // bbba: Uhra - Amphitheater of the Sky, Grand Staff - Central Connector.
+    {0xbda41a11626a545cull, 0xbbbac6693e441760ull, true},
+    // 4049: The White Boa - Main Deck.
+    {0xbda41a11626a545cull, 0x40496f0784d54689ull, true},
+    // 1693: Aurora-Bound Train - Engine Car.
+    {0xbda41a11626a545cull, 0x1693d368b809e65dull, true},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)

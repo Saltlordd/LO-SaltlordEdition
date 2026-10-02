@@ -1,5 +1,6 @@
 #include <stdafx.h>
 #include "xex_loader.h"
+#include "xex_identity.h"
 #include "memory.h"
 #include "heap.h"
 #include <kernel/io/file_system.h>
@@ -44,6 +45,12 @@ namespace
     }
 
     std::thread g_timeStampThread;
+    std::vector<uint8_t> g_unboundIdentityPrefix;
+}
+
+std::span<const uint8_t> XexLoader::UnboundIdentityPrefix()
+{
+    return g_unboundIdentityPrefix;
 }
 
 static uint32_t AllocGuestVariable(uint32_t size)
@@ -75,6 +82,9 @@ uint32_t XexLoader::Load(const std::filesystem::path& xexPath)
 
     memcpy(g_memory.Translate(image.base), image.data.get(), image.size);
     LOG_INFO("image loaded at {:#x} size {:#x} entry {:#x}", image.base, image.size, image.entry_point);
+    // Import binding below writes host-assigned addresses into this prefix.
+    g_unboundIdentityPrefix.assign(image.data.get(),
+        image.data.get() + std::min<size_t>(image.size, xex_identity::PrefixBytes));
 
     // Variable imports: the IAT slot must hold the guest address of the
     // variable. Walk the import table again to find the slots.

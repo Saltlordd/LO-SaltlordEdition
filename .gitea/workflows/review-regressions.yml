@@ -12,6 +12,10 @@ on:
       - 'LostOdysseyRecomp/gpu/command_processor.*'
       - 'LostOdysseyRecomp/gpu/indirect_buffer_guard.h'
       - 'LostOdysseyRecomp/gpu/renderer.cpp'
+      - 'LostOdysseyRecomp/gpu/shader/binary_cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/shader_store.h'
+      - 'LostOdysseyRecomp/gpu/temporal_*.h'
       - 'LostOdysseyRecomp/gpu/texture*.h'
       - 'LostOdysseyRecomp/kernel/imports.cpp'
       - 'LostOdysseyRecomp/kernel/memory.*'
@@ -20,6 +24,8 @@ on:
       - 'LostOdysseyRecomp/os/user_paths.h'
       - 'LostOdysseyRecomp/settings/config.cpp'
       - 'LostOdysseyRecomp/updater/**'
+      - 'tools/capture_analysis/**'
+      - 'tools/shader_analysis/**'
       - 'tools/tests/**'
   pull_request:
     paths:
@@ -28,6 +34,10 @@ on:
       - 'LostOdysseyRecomp/gpu/command_processor.*'
       - 'LostOdysseyRecomp/gpu/indirect_buffer_guard.h'
       - 'LostOdysseyRecomp/gpu/renderer.cpp'
+      - 'LostOdysseyRecomp/gpu/shader/binary_cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/shader_store.h'
+      - 'LostOdysseyRecomp/gpu/temporal_*.h'
       - 'LostOdysseyRecomp/gpu/texture*.h'
       - 'LostOdysseyRecomp/kernel/imports.cpp'
       - 'LostOdysseyRecomp/kernel/memory.*'
@@ -36,6 +46,8 @@ on:
       - 'LostOdysseyRecomp/os/user_paths.h'
       - 'LostOdysseyRecomp/settings/config.cpp'
       - 'LostOdysseyRecomp/updater/**'
+      - 'tools/capture_analysis/**'
+      - 'tools/shader_analysis/**'
       - 'tools/tests/**'
 
 permissions:

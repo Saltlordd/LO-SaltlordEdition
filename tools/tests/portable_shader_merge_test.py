@@ -19,6 +19,20 @@ def main():
         baseline = root / 'matching.lospv'
         image = root / 'image.bin'
         source = root / 'source.bin'
+
+        # verify-runtime computes the game's contract from an xexdump image for both formats.
+        def verify_runtime(pack_path, image_path):
+            return subprocess.run([args.tool, 'verify-runtime', pack_path, image_path],
+                                  text=True, capture_output=True, timeout=30)
+        for matching in (baseline, root / 'matching.lospd'):
+            verified = verify_runtime(matching, image)
+            assert verified.returncode == 0, f'{matching.name}: {verified.stderr}'
+            assert json.loads(verified.stdout)['runtime_compatibility_verified'] is True
+        for pack_path, image_path in ((baseline, root / 'wrong-image.bin'),
+                                      (root / 'wrong-contract.lospv', image),
+                                      (baseline, root / 'short-image.bin'),
+                                      (root / 'matching.lospd', root / 'wrong-image.bin')):
+            assert verify_runtime(pack_path, image_path).returncode, f'{pack_path.name} accepted {image_path.name}'
         hash_value = 0xcbf29ce484222325
         for byte in source.read_bytes():
             hash_value = ((hash_value ^ byte) * 0x100000001b3) & ((1 << 64) - 1)

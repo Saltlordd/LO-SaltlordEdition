@@ -12,6 +12,6 @@
 | 战后实时演出白屏 | [格式转换](post-battle-whiteout.md) |
 | 标题动态背景 | [packed mip](title-packed-mips.md) |
 
-**未解决：**人物自阴影闪烁、遇敌影子缺失/闪烁、火焰黑红格子、Ring外环、箱子破坏黑色特效。缺失polygon offset是代码线索，尚无对应修复/视觉验证。遮挡计数仍近似，不宣称逐像素一致。
+**未解决：**人物自阴影闪烁、遇敌影子缺失/闪烁、火焰黑红格子、Ring外环、箱子破坏黑色特效。缺失polygon offset是代码线索，尚无对应修复/视觉验证。遮挡计数默认改由主机 GPU 查询测得（D3D12/Vulkan，晚一两帧且永不为零，不改变剔除），`LO_ZPD_MODE=strict` 为精确结果，见[遮挡查询](occlusion-queries.md)；不宣称与硬件逐样本一致。
 
 保持同一场景、镜头和环境开关，每次只改一个变量。火焰不能以Xenia异常输出作为正确基线。GPU停帧诊断见[营地调查](third-map-hang.md)；测试命令和缓存基线见[渲染验证](rendering-validation.md)。总体状态见[总表](../STATUS.md)。

@@ -84,7 +84,7 @@ bool Request(std::string_view url, std::string &body, std::string &error, size_t
 struct DownloadContext
 {
     std::ofstream &output;
-    ProgressWindow &progress;
+    const DownloadProgress &progress;
     uint64_t expectedSize;
     uint64_t total = 0;
     bool cancelled = false;
@@ -97,14 +97,18 @@ size_t WriteDownload(void *data, size_t size, size_t count, void *context)
     download.output.write(static_cast<const char *>(data), std::streamsize(bytes));
     if (!download.output) return 0;
     download.total += bytes;
-    download.progress.SetDownloadProgress(download.total, download.expectedSize);
+    if (!download.progress(download.total, download.expectedSize))
+    {
+        download.cancelled = true;
+        return 0;
+    }
     return size * count;
 }
 
 int TransferProgress(void *context, curl_off_t, curl_off_t, curl_off_t, curl_off_t)
 {
     auto &download = *static_cast<DownloadContext *>(context);
-    if (!download.progress.Cancelled()) return 0;
+    if (!download.cancelled && download.progress(download.total, download.expectedSize)) return 0;
     download.cancelled = true;
     return 1;
 }
@@ -116,8 +120,8 @@ bool ReadResponse(std::string_view url, size_t limit, std::string &body, std::st
     return Request(url, body, error, limit);
 }
 
-bool Download(std::string_view url, const std::filesystem::path &destination, uint64_t expectedSize,
-              ProgressWindow &progress, std::string &error, bool &cancelled)
+bool DownloadFile(std::string_view url, const std::filesystem::path &destination, uint64_t expectedSize,
+                  const DownloadProgress &progress, std::string &error, bool &cancelled)
 {
     cancelled = false;
     if (!IsHttpsUrl(url))
@@ -137,6 +141,9 @@ bool Download(std::string_view url, const std::filesystem::path &destination, ui
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, 0L);
+    // No overall limit for large files, but a stalled transfer fails.
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_LIMIT, 1L);
+    curl_easy_setopt(curl, CURLOPT_LOW_SPEED_TIME, 30L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "LostOdysseyRecomp-Updater/1.0");
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteDownload);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &download);
@@ -162,6 +169,15 @@ bool Download(std::string_view url, const std::filesystem::path &destination, ui
     output.flush();
     if (!output) { error = "could not write update download"; return false; }
     return true;
+}
+
+bool Download(std::string_view url, const std::filesystem::path &destination, uint64_t expectedSize,
+              ProgressWindow &progress, std::string &error, bool &cancelled)
+{
+    return DownloadFile(url, destination, expectedSize, [&progress](uint64_t completed, uint64_t total) {
+        if (completed) progress.SetDownloadProgress(completed, total);
+        return !progress.Cancelled();
+    }, error, cancelled);
 }
 }
 #endif

@@ -134,10 +134,12 @@ its Vulkan FFX API runtime (the SDK can build it with `FFX_API_BACKEND=VK_X64`):
 -DLO_FSR_VULKAN_FG_RUNTIME=/path/to/amd_fidelityfx_vk.dll
 ```
 
-The DLL is copied beside the game. No SDK binaries are committed. On Windows the
-game looks for the DLSS, Streamline and FidelityFX runtimes beside the executable
-first, so an explicit `--game` launch from another working directory still finds
-them; staged test directories that hold their own copies keep working. Select
+The DLL is copied beside the game. No SDK binaries are committed. The game looks
+for the DLSS, Streamline and FidelityFX runtimes in the executable's `ngx/`
+folder (Linux packages), then beside the executable, and only then in the working
+directory (`os/runtime_libraries.h`). An explicit `--game` launch from another
+working directory therefore still finds them, and staged test directories that
+hold their own copies keep working. Select
 Vulkan and FSR in Graphics, save, and restart when prompted, or use:
 
 ```powershell

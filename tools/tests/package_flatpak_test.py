@@ -25,10 +25,8 @@ def write(path: Path, data: bytes = b"payload") -> Path:
 def appdir(root: Path) -> Path:
     directory = root / "LostOdysseyRecomp.AppDir"
     files = directory / "usr"
-    for name in flatpak.REQUIRED - {"bin/libnvidia-ngx-dlss.so", "bin/libnvidia-ngx-dlss.so.1"}:
+    for name in flatpak.REQUIRED:
         write(files / name)
-    for name in ("libnvidia-ngx-dlss.so", "libnvidia-ngx-dlss.so.1"):
-        (files / "bin" / name).symlink_to("libnvidia-ngx-dlss.so.310.9.1")
     write(files / "lib/libcurl.so.4", b"runtime dependency")
     write(files / "share/doc/libcurl4/copyright", b"license")
     return directory
@@ -47,8 +45,27 @@ class PackageFlatpakTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unexpected payload path"):
                 flatpak.inspect_payload_tree(files)
             (files / "lib/libunexpected.a").unlink()
+            # Packages carry no shader pack; the game downloads it.
+            write(files / "bin/shaders/portable_vk.lospv")
+            with self.assertRaisesRegex(ValueError, "Unexpected payload path"):
+                flatpak.inspect_payload_tree(files)
             (files / "bin/shaders/portable_vk.lospv").unlink()
+            (files / "share/licenses/lost-odyssey-recomp/zstd-LICENSE.txt").unlink()
             with self.assertRaisesRegex(ValueError, "Missing required"):
+                flatpak.inspect_payload_tree(files)
+
+    def test_ngx_snippet_stays_in_its_folder_as_a_file(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            files = appdir(Path(temporary)) / "usr"
+            # Earlier packages put the snippet and its aliases directly in bin.
+            write(files / "bin/libnvidia-ngx-dlss.so.310.9.1")
+            with self.assertRaisesRegex(ValueError, "Unexpected payload path"):
+                flatpak.inspect_payload_tree(files)
+            (files / "bin/libnvidia-ngx-dlss.so.310.9.1").unlink()
+            snippet = files / "bin/ngx/libnvidia-ngx-dlss.so.310.9.1"
+            snippet.rename(files / "bin/ngx/signed.so")
+            snippet.symlink_to("signed.so")
+            with self.assertRaisesRegex(ValueError, "Unexpected payload path|not a link"):
                 flatpak.inspect_payload_tree(files)
 
     def test_escaping_symlink_is_rejected(self):
@@ -90,7 +107,8 @@ class PackageFlatpakTest(unittest.TestCase):
                 copied = output / "builder/files/bin/LostOdysseyRecomp"
                 self.assertEqual(copied.read_bytes(), (source / "usr/bin/LostOdysseyRecomp").read_bytes())
                 self.assertEqual((output / "builder/files/lib/libcurl.so.4").read_bytes(), b"runtime dependency")
-                self.assertTrue((output / "builder/files/bin/libnvidia-ngx-dlss.so").is_symlink())
+                self.assertEqual((output / "builder/files/bin/ngx/libnvidia-ngx-dlss.so.310.9.1").read_bytes(),
+                                 b"payload")
                 self.assertEqual(result["size"], (output / result["bundle"]).stat().st_size)
                 self.assertEqual(result["packaging_commit"], "a" * 40)
                 self.assertEqual(result["branch"], branch)

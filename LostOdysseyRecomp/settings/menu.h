@@ -1,8 +1,41 @@
 #pragma once
 #include <cstdint>
+#include <string>
 #include <vector>
 namespace settings
 {
+struct HdrDisplayInfo
+{
+    bool active = false;
+    uint32_t peakNits = 0; // Zero means the platform has no usable peak report.
+    bool relative = false; // EDR headroom estimate, not measured panel nits.
+};
+struct HdrCalibration
+{
+    bool open = false;
+    bool automatic = true;
+    bool detectedValid = false;
+    bool relative = false;
+    bool hdrActive = false;
+    bool sceneAvailable = false;
+    bool scenePreview = true;
+    bool numericEditing = false;
+    uint32_t manualNits = 1000;
+    uint32_t detectedNits = 0;
+    uint32_t effectiveNits = 1000;
+    uint32_t paperWhiteNits = 203;
+    int focus = 0;
+    std::wstring numericText;
+    bool operator==(const HdrCalibration &) const = default;
+};
+void SetHdrDisplayInfo(HdrDisplayInfo info);
+// Called by presentation when its owned, frozen HDR scene becomes available.
+void SetHdrCalibrationSceneAvailable(bool available);
+HdrCalibration GetHdrCalibration();
+// ASCII digits, Backspace (8), Enter (13), and Escape (27). Returns true when
+// the calibration page consumes this host key before game input mapping.
+bool CalibrationKey(uint32_t key);
+void PointerDrag(float x, float y, bool held);
 // Game tab actions follow the seven adjustable retail settings.
 inline constexpr int GameRestoreRow = 7;
 inline constexpr int GameMainMenuRow = 8;
@@ -26,9 +59,12 @@ enum class GraphicsRow : int
     FrameGeneration = 12,
     FrameGenerationMultiplier = 13,
     VariableRefreshRate = 14,
-    Brightness = 15,
-    Save = 16,
-    Count = 17,
+    Hdr = 15,
+    HdrPaperWhite = 16,
+    HdrPeak = 17,
+    Brightness = 18,
+    Save = 19,
+    Count = 20,
 };
 inline constexpr int MenuTabCount = 4;
 inline constexpr int MenuTabWidth = 640 / MenuTabCount;

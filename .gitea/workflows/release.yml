@@ -154,8 +154,7 @@ jobs:
           $env:GIT_CONFIG_KEY_0 = 'http.https://github.com/.extraheader'
           $env:GIT_CONFIG_VALUE_0 = "AUTHORIZATION: basic $basic"
           foreach ($item in @(
-              @{ Path = 'out/build-input'; Ref = '77f076e0e03966736cbf8919ce793bafadce82d9'; Pattern = '/default.xex' },
-              @{ Path = 'out/shader-input'; Ref = '54538f7fd0f47d0f0383c2091c0a483598432706'; Pattern = 'shaders/' })) {
+              @{ Path = 'out/build-input'; Ref = '77f076e0e03966736cbf8919ce793bafadce82d9'; Pattern = '/default.xex' })) {
             if (Test-Path $item.Path) { Remove-Item -Recurse -Force $item.Path }
             git init -q $item.Path
             git -C $item.Path remote add origin https://github.com/freefrank/LostOdysseyRecomp-build-inputs.git
@@ -263,14 +262,6 @@ jobs:
             if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "VC143 redistributable file missing: $dll" }
             Copy-Item -LiteralPath $source -Destination $runtime
           }
-      - name: Fetch portable shader pack
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ env.RELEASE_TAG }}
-        run: |
-          # The pinned input takes priority over a previously staged valid pack.
-          Remove-Item -LiteralPath out/build/release/LostOdysseyRecomp/shaders/portable_vk.lospv -ErrorAction SilentlyContinue
-          python tools/release/fetch_shader_pack.py --target-dir out/build/release/LostOdysseyRecomp/shaders --tag "$env:RELEASE_TAG"
       - name: Package runtime
         run: |
           if (-not (Test-Path -LiteralPath out/build/release/LostOdysseyRecomp/licenses/LICENSE-FidelityFX.txt -PathType Leaf)) {
@@ -384,18 +375,6 @@ jobs:
         env:
           LO_BUILD_XEX_PATH: out/build-input/default.xex
         run: python tools/release/fetch_build_input.py
-      - name: Retrieve pinned portable shader pack input
-        uses: actions/checkout@v4
-        with:
-          github-server-url: https://github.com
-          token: ${{ secrets.LO_GITHUB_TOKEN }}
-          repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 54538f7fd0f47d0f0383c2091c0a483598432706
-          path: out/shader-input
-          sparse-checkout: |
-            shaders/
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
       - name: Apply dependency patches
         run: |
           git -C tools/XenonRecomp apply --reverse --check ../patches/XenonRecomp-lostodyssey.patch >/dev/null 2>&1 || git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
@@ -441,6 +420,17 @@ jobs:
           # The release VM shares T640's 64 threads with the Windows job; each
           # compiler process peaked below 0.5 GB of the VM's ~15 GB free memory.
           cmake --build out/build/linux --target LostOdysseyRecomp --parallel 20
+      # Packages carry no shader pack: the game downloads the one for its
+      # renderer from the shader-packs prerelease. A version needs packs for
+      # all three contracts of its runtime published first.
+      - name: Check published shader packs
+        run: |
+          cmake --build out/build/linux --target LoShaderPackTool --parallel 20
+          tool=$(find out/build/linux -name LoShaderPackTool -type f | head -n 1)
+          if ! python3 tools/release/publish_shader_packs.py --check --tool "$tool" --image LostOdysseyRecompLib/private/image_disc1.bin; then
+            if [ -n "$RELEASE_TAG" ]; then exit 1; fi
+            echo "::warning::No published shader packs for this runtime; a version release would stop here."
+          fi
       - name: Compiler cache statistics
         if: always() && env.CMAKE_CXX_COMPILER_LAUNCHER != ''
         run: ccache --show-stats || true
@@ -450,12 +440,6 @@ jobs:
           wget -q -O out/tools/linuxdeploy/linuxdeploy https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x out/tools/linuxdeploy/linuxdeploy
           echo "$GITHUB_WORKSPACE/out/tools/linuxdeploy" >> "$GITHUB_PATH"
-      - name: Fetch portable shader pack
-        env:
-          GH_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
-        run: |
-          rm -f out/build/linux/shaders/portable_vk.lospv
-          python tools/release/fetch_shader_pack.py --target-dir out/build/linux/shaders --tag "$RELEASE_TAG"
       - name: Package AppImage
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
@@ -589,8 +573,9 @@ jobs:
               f'LostOdysseyRecomp-linux-x64-{tag}.flatpak',
           }
           names = {asset['name'] for asset in assets}
-          optional = {'portable_dx12.lospd'}
-          assert expected <= names <= expected | optional, 'Expected installable packages and optional DX12 shader pack'
+          # The macOS disk image is built on a Mac and uploaded separately.
+          optional = {f'LostOdysseyRecomp-macos-arm64-{tag}.dmg'}
+          assert expected <= names <= expected | optional, 'Expected the installable packages and at most the macOS disk image; shader packs live on the shader-packs release'
           assert all(asset['size'] > 0 and asset['state'] == 'uploaded' for asset in assets), 'Incomplete release upload'
           PY
           if [ "$(jq -r '.isDraft' release.json)" != true ]; then
