@@ -9,10 +9,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 ### English
 
 - Fixed an intermittent failure of `LoDlssCapabilitySnapshotTest` in the macOS arm64 CI job. Its plan-observation check read the planner a fixed 20,000 times while another thread published plans. When that thread started late, every read finished before the first publication and the check failed although no plan was torn. The reader now keeps reading until the publishing thread is done, and the check's two conditions have separate failure messages (48 checks). The planner is unchanged: every planner call holds one mutex, and ThreadSanitizer reported no race.
+- On Windows, an `LO_OPTISCALER_PATH` that points to a broken `OptiScaler.dll` no longer shows a Windows error dialog that holds up startup until it is closed; the load failure is only written to the log.
 
 ### 简体中文
 
 - 修复 `LoDlssCapabilitySnapshotTest` 在 macOS arm64 CI 中偶发失败的问题。其中的计划观察检查在另一个线程发布计划的同时固定读取计划器 20,000 次。发布线程启动较晚时，所有读取都在第一次发布之前完成，检查因此失败，但并没有读到不一致的计划。现在读取线程会一直读到发布线程结束，检查的两个条件也各自给出失败信息（共 48 项检查）。计划器本身未改动：它的每个调用都持有同一个互斥锁，ThreadSanitizer 也未报告数据竞争。
+- Windows 上，`LO_OPTISCALER_PATH` 指向损坏的 `OptiScaler.dll` 时，不再弹出会卡住启动、需手动关闭的 Windows 错误对话框，加载失败只写入日志。
 
 ## [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) — 2026-10-02
 
