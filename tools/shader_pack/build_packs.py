@@ -9,7 +9,10 @@ One entry for every pack the game downloads at startup:
 
 For each renderer the runtime runs with --prepare-shaders-only and
 LO_SHADER_EXPORT_PACK in a work folder under --output, keeping a shader cache
-there so a rerun with the same source needs no DXC. LoShaderPackTool then
+there so a rerun with the same source needs no DXC. --sources adds shader
+sources learned during play (the `source` folder of a game's shader cache, or a
+collection of them) to the ones the runtime finds in the game files, so the
+pack also covers shaders that appear only at run time. LoShaderPackTool then
 checks the pack against the runtime contract of disc 1 (verify-runtime).
 --stage hands the packs to tools/release/publish_shader_packs.py, which stages
 them with the merged index; uploading stays a separate --publish run of that
@@ -43,9 +46,19 @@ def default_runtime() -> Path | None:
     return None
 
 
-def export(runtime: Path, game: Path, renderer: str, output: Path) -> Path:
+def export(runtime: Path, game: Path, renderer: str, output: Path, sources: list[Path]) -> Path:
     work = output / f"work-{renderer}"
-    work.mkdir(parents=True, exist_ok=True)
+    learned = work / "shader-cache/source"
+    learned.mkdir(parents=True, exist_ok=True)
+    for folder in sources:
+        for item in folder.iterdir():
+            if item.is_file():
+                shutil.copy2(item, learned / item.name)
+    # A startup bundle hit skips source discovery, so learned sources added
+    # since the last run would be missed. The shader store keeps compiled
+    # shaders, so discovery without the bundle needs no DXC for them.
+    for bundle in (work / "shader-cache").glob("startup_*.bundle"):
+        bundle.unlink()
     executable = runtime / EXE
     if WINDOWS:
         # The runtime loads DXC and SDKs beside itself; run a copy so the build
@@ -81,6 +94,8 @@ def main() -> int:
     parser.add_argument("--image", type=Path, default=ROOT / "LostOdysseyRecompLib/private/image_disc1.bin",
                         help="xexdump image of disc 1")
     parser.add_argument("--output", type=Path, default=ROOT / "out/shader-pack-build")
+    parser.add_argument("--sources", type=Path, nargs="*", default=[],
+                        help="folders of learned shader sources to include")
     parser.add_argument("--stage", action="store_true", help="stage the packs with publish_shader_packs.py")
     args = parser.parse_args()
 
@@ -97,12 +112,14 @@ def main() -> int:
     game = args.game.resolve()
     if not (game / "default.xex").is_file() or not args.image.is_file():
         raise SystemExit("--game must contain default.xex and --image must exist")
+    if missing := [str(folder) for folder in args.sources if not folder.is_dir()]:
+        raise SystemExit(f"--sources folder missing: {', '.join(missing)}")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
 
     packs = []
     for renderer in args.renderer:
-        pack = export(runtime.resolve(), game, renderer, output)
+        pack = export(runtime.resolve(), game, renderer, output, args.sources)
         report = subprocess.run([str(tool), "verify-runtime", str(pack), str(args.image)], capture_output=True, text=True)
         if report.returncode != 0:
             raise SystemExit(f"{renderer}: verify-runtime failed: {report.stderr.strip() or report.stdout.strip()}")
