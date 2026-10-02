@@ -123,6 +123,7 @@ def main():
         stage_shader_pack_license(licenses)
         shutil.copy2(ROOT / 'LICENSE', licenses / 'LostOdysseyRecomp.txt')
         shutil.copy2(ROOT / 'thirdparty/miniz-UNLICENSE.txt', licenses / 'miniz-UNLICENSE.txt')
+        shutil.copy2(ROOT / 'thirdparty/licenses/XeGTAO.txt', licenses / 'XeGTAO.txt')
         shutil.copy2(ROOT / 'thirdparty/nlohmann-json-LICENSE.txt', licenses / 'nlohmann-json-LICENSE.txt')
         shutil.copy2(ROOT / 'thirdparty/lzokay/LICENSE', licenses / 'lzokay-LICENSE.txt')
         shutil.copy2(ROOT / 'LostOdysseyRecomp/install/FONT-PROVENANCE.md', licenses / 'FONT-PROVENANCE.md')

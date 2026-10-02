@@ -78,6 +78,13 @@ inline uint32_t RenderResolutionChoice(const Config& config)
         if (RenderResolutions[i] == config.internalResolution) return i;
     return 0;
 }
+inline constexpr uint32_t ShadowResolutions[] = {1, 2, 4};
+inline uint32_t ShadowResolutionChoice(const Config& config)
+{
+    for (uint32_t i = 0; i < std::size(ShadowResolutions); ++i)
+        if (ShadowResolutions[i] == config.shadowResolution) return i;
+    return 0;
+}
 inline bool IsAction(int tab, int row)
 {
     return (tab == 0 && (row == GameRestoreRow || row == GameMainMenuRow || row == GameImportRow)) ||
@@ -85,6 +92,9 @@ inline bool IsAction(int tab, int row)
            (tab == 3 && row == 3);
 }
 static_assert(int(GraphicsRow::DlssQuality) + 1 == int(GraphicsRow::FsrSharpness));
+static_assert(int(GraphicsRow::RenderResolution) + 1 == int(GraphicsRow::ShadowResolution));
+static_assert(int(GraphicsRow::AntiAliasing) + 1 == int(GraphicsRow::AmbientOcclusion));
+static_assert(int(GraphicsRow::AmbientOcclusion) + 1 == int(GraphicsRow::DlssQuality));
 static_assert(int(GraphicsRow::FsrSharpness) + 1 == int(GraphicsRow::AnisotropicFiltering));
 static_assert(int(GraphicsRow::FrameRate) + 1 == int(GraphicsRow::FrameGeneration));
 static_assert(int(GraphicsRow::FrameGeneration) + 1 == int(GraphicsRow::FrameGenerationMultiplier));

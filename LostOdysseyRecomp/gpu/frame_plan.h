@@ -40,7 +40,18 @@ namespace gpu::frame_plan
         upscaling::FrameGeneration frameGeneration = upscaling::FrameGeneration::Off;
         bool operator==(const FramePlan&) const = default;
     };
-    enum class SurfaceRole : uint32_t { Unknown = 0, Scene = 1, Fixed = 2 };
+    enum class SurfaceRole : uint32_t { Unknown = 0, Scene = 1, Fixed = 2, Shadow = 3 };
+    inline constexpr SurfaceRole TableSurfaceRole(uint32_t offset) {
+        // sub_824DD6F8: named ShadowDepthZ (0xCC), ShadowDepthRT (0xF0).
+        return offset == 0xCC || offset == 0xF0 ? SurfaceRole::Shadow : SurfaceRole::Scene;
+    }
+    inline constexpr SurfaceRole MergeSurfaceRoles(bool scene, bool fixed, bool shadow, SurfaceRole previous) {
+        // Never retain a shadow scale when an alias is also a scene/fixed target.
+        if (shadow && (scene || fixed)) return SurfaceRole::Unknown;
+        if (shadow) return SurfaceRole::Shadow;
+        if (scene && fixed) return previous == SurfaceRole::Shadow ? SurfaceRole::Unknown : previous;
+        return scene ? SurfaceRole::Scene : fixed ? SurfaceRole::Fixed : SurfaceRole::Unknown;
+    }
 
     inline FramePlan Choose(uint64_t serial, uint64_t epoch, uint32_t mode, uint32_t drawableWidth, uint32_t drawableHeight, bool resolveReadback = false)
     {

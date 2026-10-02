@@ -50,9 +50,12 @@ class PackageFlatpakTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Unexpected payload path"):
                 flatpak.inspect_payload_tree(files)
             (files / "bin/shaders/portable_vk.lospv").unlink()
-            (files / "share/licenses/lost-odyssey-recomp/zstd-LICENSE.txt").unlink()
-            with self.assertRaisesRegex(ValueError, "Missing required"):
-                flatpak.inspect_payload_tree(files)
+            for license_name in ("zstd-LICENSE.txt", "XeGTAO.txt"):
+                license_path = files / "share/licenses/lost-odyssey-recomp" / license_name
+                license_path.unlink()
+                with self.assertRaisesRegex(ValueError, "Missing required"):
+                    flatpak.inspect_payload_tree(files)
+                write(license_path)
 
     def test_ngx_snippet_stays_in_its_folder_as_a_file(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -108,6 +111,8 @@ class PackageFlatpakTest(unittest.TestCase):
                 self.assertEqual(copied.read_bytes(), (source / "usr/bin/LostOdysseyRecomp").read_bytes())
                 self.assertEqual((output / "builder/files/lib/libcurl.so.4").read_bytes(), b"runtime dependency")
                 self.assertEqual((output / "builder/files/bin/ngx/libnvidia-ngx-dlss.so.310.9.1").read_bytes(),
+                                 b"payload")
+                self.assertEqual((output / "builder/files/share/licenses/lost-odyssey-recomp/XeGTAO.txt").read_bytes(),
                                  b"payload")
                 self.assertEqual(result["size"], (output / result["bundle"]).stat().st_size)
                 self.assertEqual(result["packaging_commit"], "a" * 40)

@@ -131,6 +131,8 @@ def main():
             fsr_licenses.mkdir(parents=True, exist_ok=True)
             shutil.copy2(fsr_license, fsr_licenses / fsr_license.name)
         stage_shader_pack_license(appdir / "usr/share/licenses/lost-odyssey-recomp")
+        shutil.copy2(ROOT / "thirdparty/licenses/XeGTAO.txt",
+                     appdir / "usr/share/licenses/lost-odyssey-recomp/XeGTAO.txt")
         desktop = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.desktop"
         icon = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.png"
         metainfo = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.metainfo.xml"
