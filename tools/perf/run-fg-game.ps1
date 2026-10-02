@@ -97,6 +97,8 @@ if ($CaptureMode -eq 'Diagnostic') { $start.Environment['LO_MV_LOG'] = '1' }
 if ($DisableObjectMotion) { $start.Environment['LO_MV_REPLAY'] = '0' }
 if ($DisableHybridMotion) { $start.Environment['LO_SR_HYBRID_MV'] = '0' }
 $start.Environment['LO_AUDIO_MUTE'] = '1'
+# Foreground runs must not stop at the startup shader-pack offer.
+$start.Environment['LO_SHADER_PACK_DOWNLOAD'] = '0'
 if ($validationLayer) {
     $start.Environment['VK_LAYER_PATH'] = $validationLayer
     $start.Environment['VK_INSTANCE_LAYERS'] = 'VK_LAYER_KHRONOS_validation'

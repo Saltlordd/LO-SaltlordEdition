@@ -43,7 +43,7 @@ namespace gpu::renderer
     // Ordered host-private movie command, consumed on the command processor
     // thread after the movie helper has drawn its safe-area destination.
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-        float x, float y, float width, float height, float safeLeft, float safeRight);
+        float x, float y, float width, float height, float safeLeft, float safeRight, float safeTop, float safeBottom);
     // Convert the guest frontbuffer content extent to this surface's physical
     // pixels (storage padding remains excluded).
     void ScaleResolvedSize(uint32_t physicalAddress, uint32_t& width, uint32_t& height);
@@ -62,6 +62,16 @@ namespace gpu::renderer
 
     // Called for every DRAW_INDX / DRAW_INDX_2 after the registers were updated.
     void Draw(const DrawInfo& info);
+
+    // PM4 EVENT_WRITE_ZPD for the guest occlusion query record at
+    // physicalAddress. False when host queries are off; the command processor
+    // then writes its fake counts.
+    bool OcclusionQueryEvent(uint32_t physicalAddress);
+    // A guest waits in GetData for a query result. Any thread.
+    void NoteOcclusionWait();
+    // Command processor thread, when it has nothing to execute or is about to
+    // block: completes the queries a waiting guest needs.
+    void ServiceOcclusionQueries();
 
     // Called on XE_SWAP before the frontbuffer is presented: finishes all work.
     void Flush();
@@ -85,6 +95,10 @@ namespace gpu::renderer
     // nullptr when nothing was resolved there.
     plume::RenderTexture* AcquireResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height, uint32_t& format,
         frame_plan::FramePlan* sourcePlan = nullptr, frame_generation::ResolvedHandoff* handoff = nullptr);
+    // The matching full frontbuffer resolve, in extended gamma-2.2 values.
+    // Null means this frame must use the ordinary SDR resolved surface.
+    void SetHdrSceneEnabled(bool enabled);
+    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height);
     // Opt-in DLSS-G input from the exact current full resolve. Waits for the
     // producer fence only after a matching composited backbuffer is selected.
     bool AcquireFgCompositeInputs(uint32_t physicalAddress, frame_generation::CompositeHandoff& handoff);

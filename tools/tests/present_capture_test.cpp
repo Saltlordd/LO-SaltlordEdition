@@ -8,6 +8,7 @@
 #include <future>
 #include <iostream>
 #include <gpu/shader/dxc_compiler.h>
+#include <gpu/fsr_upscaler.h>
 #include <gpu/present_capture.h>
 #include <os/capture_archive.h>
 #include <settings/config.h>
@@ -41,6 +42,11 @@ Config GetConfig() { std::lock_guard lock(fixture::mutex); return fixture::confi
 bool DrawMenu(std::vector<uint32_t>&, uint64_t&, uint32_t, uint32_t) { return false; }
 bool IsOpen() { return false; }
 void PointerClick(float, float, bool) {}
+void PointerDrag(float, float, bool) {}
+bool CalibrationKey(uint32_t) { return false; }
+void SetHdrDisplayInfo(HdrDisplayInfo) {}
+void SetHdrCalibrationSceneAvailable(bool) {}
+HdrCalibration GetHdrCalibration() { return {}; }
 }
 namespace hid {
 void Init() {}
@@ -64,6 +70,22 @@ void Update() {
 Memory::Memory() = default;
 Memory g_memory;
 namespace gpu { bool SetFrameRateTarget(uint32_t) { return true; } }
+namespace gpu {
+uint32_t GetFrameRateTarget() { return 30; }
+CommandProcessor g_commandProcessor;
+void CommandProcessor::RequestStopForExit() {}
+TemporalUpscaler::TemporalUpscaler(dlss::Controller& controller) : dlss_(&controller) {}
+// This fixture never constructs an SDK adapter.
+TemporalUpscaler::~TemporalUpscaler() { fsr_.release(); }
+void TemporalUpscaler::ReleaseCompleted(uint64_t) {}
+void TemporalUpscaler::AbandonAfterDeviceLoss() {}
+void TemporalUpscaler::ShutdownAfterGpuDrain() {}
+bool TemporalUpscaler::ShutdownComplete() const { return true; }
+upscaling::OutputSizing TemporalUpscaler::QuerySizing(const plume::D3D12Device&, const upscaling::SizingKey&) { return {}; }
+}
+namespace gpu::optiscaler {
+const LoadResult& Initialize(bool) { static const LoadResult result; return result; }
+}
 namespace gpu::renderer {
 bool Init() { throw std::runtime_error("renderer init is outside this fixture"); }
 void Shutdown() {}
@@ -79,6 +101,9 @@ plume::RenderTexture* AcquireResolvedSurface(uint32_t, uint32_t& width, uint32_t
 bool SceneAAApplied(uint32_t) { return fixture::sceneComposite; }
 bool SuppressPresent() { return false; }
 void CancelFgHandoffs() {}
+bool DrainForFrameGenerationReconfigure() { return true; }
+void SetHdrSceneEnabled(bool) {}
+plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
 bool ReadbackResolvedSurface(uint32_t, std::vector<uint32_t>&, uint32_t&, uint32_t&) { return false; }
 std::vector<uint32_t> GetResolvedAddresses() { return {}; }
 void DumpRenderTargets(const char*) {}
@@ -86,7 +111,7 @@ void DumpRenderTargets(const char*) {}
 namespace gpu::upscaling {
 void PublishDeviceCapability(BackendDeviceSnapshot) {}
 BackendDeviceSnapshot PublishedDeviceCapability() { return {}; }
-OutputSizing SizingService::QueryOutputSizing(dlss::Controller&, const plume::VulkanInterface&, const plume::VulkanDevice&, const SizingKey&) { return {}; }
+OutputSizing SizingService::QueryOutputSizing(TemporalUpscaler&, const plume::VulkanInterface&, const plume::VulkanDevice&, const SizingKey&) { return {}; }
 }
 namespace gpu::frame_plan {
 void NoteCurrentDlssStatus() {}
@@ -97,7 +122,8 @@ std::optional<upscaling::SizingKey> TakeSizingRequest() { return {}; }
 namespace gpu::dlss {
 Controller::Controller(std::filesystem::path, std::filesystem::path) {}
 plume::VulkanExtensionHooks Controller::ExtensionHooks() { return {}; }
-void Controller::ProbeOnce(const plume::VulkanInterface&, const plume::VulkanDevice&) {}
+void Controller::ProbeOnce(const plume::VulkanInterface&, const plume::VulkanDevice&, bool) {}
+void Controller::ProbeOnce(const plume::D3D12Device&) {}
 void Controller::ReleaseCompletedThrough(uint64_t) {}
 void Controller::AbandonUsesAfterDeviceLoss() {}
 void Controller::ShutdownAfterGpuDrain() {}

@@ -212,13 +212,7 @@ int Merge(int argc,char** argv) {
     Bytes image(pack::RuntimeXexBytes);
     if(!input.read(reinterpret_cast<char*>(image.data()),std::streamsize(image.size())))
         throw std::runtime_error("missing/short decrypted runtime image (use xexdump output)");
-    auto contract=pack::RuntimeContract(image);
-    // Same audited xexdump/loaded-guest image exception as verify-runtime.
-    if(xenos::resources::Sha256Hex(contract)=="d5a2fab10441a46444b6b41ffcb4f1ba562bea75668a7b445fd43688aec67507") {
-        const auto stored=pack::Reader::Inspect(baseline).contract;
-        if(xenos::resources::Sha256Hex(stored)=="f6fd1179b50f6ff9b63d6be84c662d1337af6b7dfa78865a9a6c025509c9b77f")
-            contract=stored;
-    }
+    const auto contract=pack::RuntimeContract(image);
     pack::Reader reader(baseline,contract);
     std::vector<uint32_t> words;
     size_t added=0;

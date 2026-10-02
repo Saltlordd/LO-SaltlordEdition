@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <span>
 
 // Loads default.xex (retail, AES + LZX) through XenonUtils, copies the flat
 // image into guest memory and resolves the kernel variable imports.
@@ -12,6 +14,10 @@ struct XexLoader
 
     // Returns the entry point, or 0 on failure.
     static uint32_t Load(const std::filesystem::path& xexPath);
+
+    // The xex_identity::PrefixBytes image prefix as loaded, before import
+    // binding (empty before Load). Guest memory holds the bound version.
+    static std::span<const uint8_t> UnboundIdentityPrefix();
 
     // Guest addresses of the kernel-exported variables we synthesise.
     static inline uint32_t s_keTimeStampBundle = 0;

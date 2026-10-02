@@ -5,8 +5,12 @@
 #include "presentation_capture.h"
 namespace plume
 {
+#if LO_PLATFORM_MACOS
+std::unique_ptr<RenderInterface> CreateMetalInterface();
+#else
 std::unique_ptr<RenderInterface> CreateD3D12Interface();
 std::unique_ptr<RenderInterface> CreateVulkanInterface();
+#endif
 }
 // Record two distinct compositions before submitting either. This catches
 // descriptor reuse and premature framebuffer destruction in the FG UI path.
@@ -89,16 +93,205 @@ static int TestSeparatedUi(plume::RenderDevice* device)
     printf("Separated UI alpha and concurrent resource leases: %s\n", pass ? "PASS" : "FAIL");
     return pass ? 0 : 1;
 }
+#ifdef _WIN32
+static int TestHdrSwapchain(plume::RenderDevice* device, bool vulkan)
+{
+    using namespace plume;
+    // A hidden native window exercises DXGI negotiation without changing the
+    // user's desktop HDR setting or presenting a test image.
+    HWND window = CreateWindowExW(0, L"STATIC", L"HDR swapchain test", WS_POPUP,
+        0, 0, 320, 180, nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    if (!window) return 1;
+    bool pass = false;
+    {
+        auto queue = device->createCommandQueue(RenderCommandListType::DIRECT);
+        RenderSwapChainDesc desc(window, RenderFormat::R16G16B16A16_FLOAT, 3);
+        desc.outputMode = RenderOutputMode::HDR_LINEAR;
+        auto swapchain = queue ? queue->createSwapChain(desc) : nullptr;
+        if (swapchain && !swapchain->isEmpty()) {
+            const auto state = swapchain->getDisplayState();
+            const auto repeat = swapchain->getDisplayState();
+            pass = repeat.encoding == state.encoding && state.headroom >= 1.0f &&
+                (!state.hdrActive || state.hdrSupported);
+            if (!vulkan) pass &= swapchain->getFormat() == RenderFormat::R16G16B16A16_FLOAT &&
+                state.encoding == RenderOutputEncoding::SCRGB && state.linearUnitNits == 80.0f;
+            else pass &= !state.hdrStateKnown && (state.encoding == RenderOutputEncoding::SDR || state.hdrTransport);
+            printf("HDR swapchain: Vulkan=%d encoding=%u active=%d transport=%d known=%d headroom=%f peak_nits=%f %s\n",
+                vulkan, unsigned(state.encoding), state.hdrActive, state.hdrTransport, state.hdrStateKnown,
+                state.headroom, state.peakNits, pass ? "PASS" : "FAIL");
+            if (vulkan) {
+                _putenv_s("LO_HDR_OUTPUT", "sdr");
+                pass &= swapchain->resize() && swapchain->getDisplayState().encoding == RenderOutputEncoding::SDR;
+                _putenv_s("LO_HDR_OUTPUT", "");
+                pass &= swapchain->resize() && swapchain->getDisplayState().encoding == state.encoding;
+                printf("Vulkan HDR -> SDR -> HDR swapchain renegotiation: %s\n",pass ? "PASS" : "FAIL");
+            }
+        }
+    }
+    DestroyWindow(window);
+    return pass ? 0 : 1;
+}
+#endif
+
+static int TestHdr(plume::RenderDevice* device)
+{
+    using namespace plume;
+    auto queue = device->createCommandQueue(RenderCommandListType::DIRECT);
+    if (!queue) return 1;
+    auto commands = queue->createCommandList();
+    auto fence = device->createCommandFence();
+    gpu::Presentation presentation;
+    if (!commands || !fence || !presentation.Init(device, RenderFormat::R16G16B16A16_FLOAT)) return 1;
+    const uint16_t samples[] = {0, 0x3800, 0x3c00, 0x4000, 0x4400}; // gamma-encoded 0, .5, 1, 2, 4
+    bool pass = true;
+    for (unsigned mode = 0; mode < 4; ++mode) {
+        const bool downsample = mode == 3;
+        const uint32_t width = downsample ? 8u : 5u, height = downsample ? 8u : 1u;
+        const uint32_t outputWidth = downsample ? 1u : width, outputHeight = 1;
+        auto source = device->createTexture(RenderTextureDesc::Texture2D(width, height, 1, RenderFormat::R16G16B16A16_FLOAT));
+        auto target = device->createTexture(RenderTextureDesc::Texture2D(outputWidth, outputHeight, 1,
+            RenderFormat::R16G16B16A16_FLOAT, RenderTextureFlag::RENDER_TARGET));
+        auto upload = device->createBuffer(RenderBufferDesc::UploadBuffer(256 * height));
+        auto readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(256));
+        if (!source || !target || !upload || !readback) return 1;
+        auto* input = static_cast<uint16_t*>(upload->map());
+        if (!input) return 1;
+        for (uint32_t y = 0; y < height; ++y) for (uint32_t x = 0; x < width; ++x) {
+            const auto sample = downsample ? uint16_t(0x4000) : samples[x];
+            for (unsigned c = 0; c < 3; ++c) input[y * 128 + x * 4 + c] = sample;
+            input[y * 128 + x * 4 + 3] = 0x3c00;
+        }
+        upload->unmap();
+        const auto transform = gpu::hdr::MakeOutput(true, mode == 1, mode != 2, 200, 1000);
+        presentation.SetOutputTransform(transform);
+        commands->begin();
+        commands->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(source.get(), RenderTextureLayout::COPY_DEST));
+        commands->copyTextureRegion(RenderTextureCopyLocation::Subresource(source.get()),
+            RenderTextureCopyLocation::PlacedFootprint(upload.get(), RenderFormat::R16G16B16A16_FLOAT, width, height, 1, 32));
+        presentation.Draw(commands.get(), source.get(), target.get(), width, height, outputWidth, outputHeight,
+            gpu::PresentationOptions{gpu::Antialiasing::Off, gpu::ScalingFilter::Bilinear, false, true});
+        commands->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(target.get(), RenderTextureLayout::COPY_SOURCE));
+        commands->copyTextureRegion(RenderTextureCopyLocation::PlacedFootprint(readback.get(),
+            RenderFormat::R16G16B16A16_FLOAT, outputWidth, outputHeight, 1, 32), RenderTextureCopyLocation::Subresource(target.get()));
+        commands->end();
+        const RenderCommandList* lists[] = {commands.get()};
+        queue->executeCommandLists(lists, 1, nullptr, 0, nullptr, 0, fence.get());
+        queue->waitForCommandFence(fence.get());
+        const auto* pixels = static_cast<const uint16_t*>(readback->map());
+        if (!pixels) return 1;
+        for (uint32_t x = 0; x < outputWidth; ++x) {
+            const float encoded = gpu::hdr::DecodeHalf(downsample ? uint16_t(0x4000) : samples[x]);
+            const float linear = std::pow(encoded, 2.2f);
+            const float expected = gpu::hdr::MapLinear({linear, linear, linear}, transform.peakRatio)[0] * transform.scale;
+            const float actual = gpu::hdr::DecodeHalf(pixels[x * 4]);
+            pass &= std::abs(actual - expected) <= std::max(0.005f, expected * 0.002f);
+            if (mode != 2 && encoded > 1) pass &= actual > transform.scale;
+            printf("HDR mode=%u sample=%u actual=%f expected=%f\n", mode, x, actual, expected);
+        }
+        readback->unmap();
+    }
+    printf("HDR FP16 output, EDR normalization, SDR fallback and downsampling: %s\n", pass ? "PASS" : "FAIL");
+    return pass ? 0 : 1;
+}
+
+static int TestHdrCalibration(plume::RenderDevice* device)
+{
+    using namespace plume;
+    constexpr uint32_t width=100,height=40,sourcePitch=512,targetPitch=1024;
+    auto queue=device->createCommandQueue(RenderCommandListType::DIRECT);
+    if (!queue) return 1;
+    auto commands=queue->createCommandList(); auto fence=device->createCommandFence();
+    auto source=device->createTexture(RenderTextureDesc::Texture2D(width,height,1,RenderFormat::R8G8B8A8_UNORM));
+    auto upload=device->createBuffer(RenderBufferDesc::UploadBuffer(sourcePitch*height));
+    if (!commands || !fence || !source || !upload) return 1;
+    auto* input=static_cast<uint32_t*>(upload->map());
+    if (!input) return 1;
+    for (unsigned y=0;y<height;++y) for (unsigned x=0;x<width;++x) input[y*128+x]=0xff808080;
+    upload->unmap();
+    auto scene=device->createTexture(RenderTextureDesc::Texture2D(50,height,1,RenderFormat::R16G16B16A16_FLOAT));
+    auto sceneUpload=device->createBuffer(RenderBufferDesc::UploadBuffer(512*height));
+    if (!scene || !sceneUpload) return 1;
+    auto* sceneInput=static_cast<uint16_t*>(sceneUpload->map());
+    if (!sceneInput) return 1;
+    for (unsigned y=0;y<height;++y) for (unsigned x=0;x<50;++x) {
+        for (unsigned c=0;c<3;++c) sceneInput[y*256+x*4+c]=x<25?0x3800:0x4000; // .5 and 2, extended gamma.
+        sceneInput[y*256+x*4+3]=0x3c00;
+    }
+    sceneUpload->unmap();
+    bool pass=true;
+    for (unsigned mode=0;mode<6;++mode) {
+        const bool scenePreview=mode>=3, pq=mode%3==2;
+        const float peak=mode==3?600.0f:1000.0f;
+        const auto format=pq ? RenderFormat::R10G10B10A2_UNORM : RenderFormat::R16G16B16A16_FLOAT;
+        gpu::Presentation presentation;
+        if (!presentation.Init(device,format)) return 1;
+        presentation.SetOutputTransform(gpu::hdr::MakeOutput(true,mode%3==1,true,200,peak,pq));
+        auto target=device->createTexture(RenderTextureDesc::Texture2D(width,height,1,format,RenderTextureFlag::RENDER_TARGET));
+        auto readback=device->createBuffer(RenderBufferDesc::ReadbackBuffer(targetPitch*height));
+        if (!target || !readback) return 1;
+        commands->begin();
+        commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(source.get(),RenderTextureLayout::COPY_DEST));
+        commands->copyTextureRegion(RenderTextureCopyLocation::Subresource(source.get()),
+            RenderTextureCopyLocation::PlacedFootprint(upload.get(),RenderFormat::R8G8B8A8_UNORM,width,height,1,128));
+        commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(scene.get(),RenderTextureLayout::COPY_DEST));
+        commands->copyTextureRegion(RenderTextureCopyLocation::Subresource(scene.get()),
+            RenderTextureCopyLocation::PlacedFootprint(sceneUpload.get(),RenderFormat::R16G16B16A16_FLOAT,50,height,1,64));
+        gpu::PresentationOptions options;
+        options.hdrCalibration=true;
+        if (scenePreview) options.calibrationScene=scene.get();
+        options.calibrationRect[0]=options.calibrationRect[1]=0.1f;
+        options.calibrationRect[2]=options.calibrationRect[3]=0.9f;
+        presentation.Draw(commands.get(),source.get(),target.get(),width,height,width,height,options);
+        commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(target.get(),RenderTextureLayout::COPY_SOURCE));
+        commands->copyTextureRegion(RenderTextureCopyLocation::PlacedFootprint(readback.get(),format,width,height,1,targetPitch/(pq?4:8)),
+            RenderTextureCopyLocation::Subresource(target.get()));
+        commands->end();
+        const RenderCommandList* lists[]={commands.get()};
+        queue->executeCommandLists(lists,1,nullptr,0,nullptr,0,fence.get()); queue->waitForCommandFence(fence.get());
+        const auto* data=static_cast<const uint8_t*>(readback->map());
+        if (!data) return 1;
+        const unsigned xs[]={20,scenePreview?40u:30u,60,scenePreview?80u:70u,5};
+        const unsigned ys[]={scenePreview?20u:10u,20,scenePreview?20u:10u,20,20};
+        const float dark=std::pow(0.5f,2.2f)*200;
+        const float light=std::pow(2.0f,2.2f);
+        const float mapped=gpu::hdr::MapLinear({light,light,light},peak/200)[0]*200;
+        const float expected[]={scenePreview?dark:200,scenePreview?200.0f:180.0f,
+            scenePreview?dark:1000,scenePreview?mapped:900,std::pow(128.0f/255.0f,2.2f)*200};
+        for (unsigned i=0;i<5;++i) {
+            float nits;
+            if (pq) nits=gpu::hdr::DecodePq10(reinterpret_cast<const uint32_t*>(data+ys[i]*targetPitch)[xs[i]])[0];
+            else nits=gpu::hdr::DecodeHalf(reinterpret_cast<const uint16_t*>(data+ys[i]*targetPitch)[xs[i]*4])*(mode%3==1?200:80);
+            pass &= std::abs(nits-expected[i]) < std::max(1.0f,expected[i]*0.012f);
+            printf("Calibration mode=%u sample=%u nits=%f expected=%f\n",mode,i,nits,expected[i]);
+        }
+        readback->unmap();
+    }
+    printf("HDR calibration pattern, frozen scene, peak adjustment, menu transfer and PQ10: %s\n",pass?"PASS":"FAIL");
+    return pass?0:1;
+}
+
 int main(int argc, char** argv)
 {
     using namespace plume;
+#if LO_PLATFORM_MACOS
+    auto api = CreateMetalInterface();
+    const char* backend = "Metal";
+#else
     const bool vulkan=argc>1 && std::string(argv[1])=="--vulkan";
     if(vulkan){--argc;++argv;}
     auto api = vulkan ? CreateVulkanInterface() : CreateD3D12Interface();
+    const char* backend = vulkan ? "Vulkan" : "D3D12";
+#endif
     if(!api)return 2;
     auto device = api->createDevice();
     if(!device)return 2;
-    printf("Backend: %s on %s\n",vulkan?"Vulkan":"D3D12",device->getDescription().name.c_str());
+    printf("Backend: %s on %s\n",backend,device->getDescription().name.c_str());
+#ifdef _WIN32
+    if (argc == 2 && std::string(argv[1]) == "--hdr-swapchain-only")
+        return TestHdrSwapchain(device.get(),vulkan);
+#endif
+    if (argc == 2 && std::string(argv[1]) == "--hdr-only") return TestHdr(device.get());
+    if (argc == 2 && std::string(argv[1]) == "--hdr-calibration-only") return TestHdrCalibration(device.get());
     if (argc == 2 && std::string(argv[1]) == "--separated-ui-only")
         return TestSeparatedUi(device.get());
     if (argc == 6 && std::string(argv[1]) == "--capture")

@@ -43,6 +43,8 @@ namespace gpu
         void Shutdown();
         // Thread-safe request only; GPU destruction stays on the worker.
         void RequestStopForExit();
+        // Wakes an idle worker early, e.g. for a guest waiting on a query. Any thread.
+        void Wake();
 
         // Kernel entry points
         void InitializeRingBuffer(uint32_t physicalAddress, uint32_t sizeLog2);
@@ -130,7 +132,7 @@ namespace gpu
         {
             bool active = false;
             uint32_t surfaceInfo = 0, colorInfo = 0;
-            uint32_t x = 0, y = 0, width = 0, height = 0, safeLeft = 0, safeRight = 0;
+            uint32_t x = 0, y = 0, width = 0, height = 0, safeLeft = 0, safeRight = 0, safeTop = 0, safeBottom = 0;
         } m_movieClear;
         gpu::frame_plan::wire::PlanStage m_framePlan;
         gpu::frame_plan::wire::CatalogStage m_catalog;
@@ -141,6 +143,7 @@ namespace gpu
         std::atomic<uint32_t> m_writePtrIndex{ 0xBAADF00D };
         std::mutex m_writePtrMutex;
         std::condition_variable m_writePtrChanged;
+        std::atomic<bool> m_wake{ false }; // Wake(): end the current idle or WAIT_REG_MEM wait early
         std::atomic<uint32_t> m_counter{ 0 };
         std::atomic<uint64_t> m_constantGeneration[2]{};
         std::atomic<bool> m_running{ false };

@@ -334,6 +334,13 @@ int wmain(int argc, wchar_t **argv)
     auto release = updater::ParseGitHubRelease(syntheticRelease, error);
     auto asset = release ? updater::SelectAsset(*release, "windows", "x64", error) : std::nullopt;
     Expect(asset && asset->size == 123, "select exact OS/architecture asset without a digest");
+    // macOS releases carry a disk image; a ZIP alone no longer counts.
+    Expect(release && !updater::SelectAsset(*release, "macos", "arm64", error), "macOS ignores a ZIP");
+    const auto macRelease = updater::ParseGitHubRelease(R"({"tag_name":"v0.4.6","assets":[
+      {"name":"LostOdysseyRecomp-macos-arm64-v0.4.6.dmg","state":"uploaded","size":789,
+       "browser_download_url":"https://github.com/freefrank/LostOdysseyRecomp/releases/download/v0.4.6/LostOdysseyRecomp-macos-arm64-v0.4.6.dmg"}]})", error);
+    const auto macAsset = macRelease ? updater::SelectAsset(*macRelease, "macos", "arm64", error) : std::nullopt;
+    Expect(macAsset && macAsset->size == 789, "macOS selects its disk image");
     const auto legacyManifest = updater::ParsePackageManifest(
         R"({"version":"v9.9.9","development_build":false,"files":{"LostOdysseyRecomp.exe":"legacy-digest"}})", error);
     Expect(legacyManifest && legacyManifest->files.size() == 1 &&

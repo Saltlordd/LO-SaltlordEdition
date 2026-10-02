@@ -77,18 +77,14 @@ function(lo_enable_dlss target)
         endif()
 
         if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND EXISTS "${LO_DLSS_RUNTIME_FILE}")
-            # The NGX loader looks beside the executable. Preserve the release
-            # filename and the relative aliases without bundling system libraries.
-            install(FILES "${LO_DLSS_RUNTIME_FILE}" DESTINATION "${CMAKE_INSTALL_BINDIR}")
+            # Installed trees use the Linux package layout: the runtime loads the
+            # snippet from bin/ngx (os/runtime_libraries.h), where tools that
+            # rewrite ELF files in bin leave NVIDIA's signed file alone. NGX finds
+            # the versioned name itself, so no aliases are installed. Build trees
+            # keep their staged copy beside the executable, which is searched too.
+            install(FILES "${LO_DLSS_RUNTIME_FILE}" DESTINATION "${CMAKE_INSTALL_BINDIR}/ngx")
             set(_lo_dlss_install_dir "${CMAKE_CURRENT_BINARY_DIR}/lo-dlss-install")
             file(MAKE_DIRECTORY "${_lo_dlss_install_dir}")
-            foreach(_lo_dlss_alias IN ITEMS libnvidia-ngx-dlss.so libnvidia-ngx-dlss.so.1)
-                file(REMOVE "${_lo_dlss_install_dir}/${_lo_dlss_alias}")
-                file(CREATE_LINK "libnvidia-ngx-dlss.so.310.9.1"
-                    "${_lo_dlss_install_dir}/${_lo_dlss_alias}" SYMBOLIC)
-                install(FILES "${_lo_dlss_install_dir}/${_lo_dlss_alias}"
-                    DESTINATION "${CMAKE_INSTALL_BINDIR}")
-            endforeach()
 
             set(_lo_dlss_license_dir "${CMAKE_INSTALL_DATADIR}/licenses/lost-odyssey-recomp/NVIDIA-DLSS")
             install(FILES "${LO_DLSS_SDK_ROOT}/LICENSE.txt" DESTINATION "${_lo_dlss_license_dir}")
