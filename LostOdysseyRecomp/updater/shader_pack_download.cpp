@@ -6,6 +6,9 @@
 
 #include <SDL.h>
 #include <host_ui/rasterizer.h>
+#if defined(__ANDROID__)
+#include <hid/android_touch.h>
+#endif
 #include <host_ui/widgets.h>
 
 #include <algorithm>
@@ -268,6 +271,22 @@ Action ReadAction(const SDL_Event &event, uint32_t windowId, int width, int heig
     return Action::None;
 }
 
+#if defined(__ANDROID__)
+// The on-screen controller covers the window and feeds hid, not SDL events:
+// its newly pressed A, B and D-pad left/right act like a controller's.
+Action TouchAction(uint16_t &previous)
+{
+    const uint16_t buttons = hid::android_touch::Snapshot().buttons;
+    const uint16_t pressed = buttons & ~previous;
+    previous = buttons;
+    if (pressed & 0x1000) return Action::Activate; // A
+    if (pressed & 0x2000) return Action::Secondary; // B
+    if (pressed & 0x0004) return Action::Left;
+    if (pressed & 0x0008) return Action::Right;
+    return Action::None;
+}
+#endif
+
 void Apply(Session &session, Action action)
 {
     std::lock_guard lock(session.mutex);
@@ -472,6 +491,10 @@ std::string PrepareAtStartup(const StartupRequest &request)
     {
         host_ui::Rasterizer rasterizer(window.Pixels());
         bool started = automatic;
+#if defined(__ANDROID__)
+        // Ignore a button still held from before the window opened.
+        uint16_t touchButtons = hid::android_touch::Snapshot().buttons;
+#endif
         while (true)
         {
             SDL_Event event;
@@ -482,6 +505,9 @@ std::string PrepareAtStartup(const StartupRequest &request)
                 do Apply(session, ReadAction(event, window.Id(), width, height));
                 while (SDL_PollEvent(&event));
             }
+#if defined(__ANDROID__)
+            Apply(session, TouchAction(touchButtons));
+#endif
             bool begin = false;
             {
                 std::lock_guard lock(session.mutex);
