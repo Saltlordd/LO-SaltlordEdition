@@ -6,7 +6,7 @@
 
 **《失落的奥德赛》Xbox 360 版的实验性原生 PC 移植。**
 
-Windows x64 · Linux x64 · Direct3D 12 · Vulkan
+Windows x64 · Linux x64 · macOS arm64（实验性） · Direct3D 12 · Vulkan · Metal
 
 ### [下载](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [安装指南](docs/INSTALLING.zh-CN.md) · [English](README.md)
 
@@ -21,31 +21,32 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 ## 开始游戏
 
-从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.7.25**。
+从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.7.35**。
 
 | 平台 | 安装包 | 首次启动 |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.25.zip` | 将完整 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU；默认使用 Direct3D 12，也可选择 Vulkan。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.25.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.7.35.zip` | 将完整 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU；默认使用 Direct3D 12，也可选择 Vulkan。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.35.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.7.35.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
+| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` | 打开磁盘映像，把 `LostOdysseyRecomp.app` 拖到 Applications 链接（即“应用程序”文件夹）。应用未经公证，macOS 会拦截首次启动：先尝试打开应用，再到“系统设置 → 隐私与安全性”点击 **仍要打开**。需要 Apple Silicon Mac；目前只在 macOS 26.6.2 上运行过。使用 Metal。见 [macOS 安装步骤](docs/INSTALLING.zh-CN.md#macos)。 |
 
 1. **导入游戏数据。** 未找到可用的游戏安装时会打开内置导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、XDVDFS ISO 或 GOD 数据。
-2. **选择界面语言、游戏语言和图形设置。** 完成设置和着色器预编译后进入游戏，后续启动会复用着色器缓存。
+2. **选择界面语言、游戏语言和图形设置。** 完成设置和着色器预编译后进入游戏；如果没有装好所选渲染器的预编译着色器，游戏会先询问是否下载，选择跳过则在本机编译。后续启动会复用着色器缓存。
 3. **按需追加其他光盘和 DLC。** 在普通设置中打开 **Gameplay → Import discs & DLC（导入光盘与 DLC）**。四张同版本光盘全部导入后，游戏会自动读取所需光盘。
 
 启动需要 Disc 1。请使用已核对的亚洲多语言版或 USA/Europe 四盘套装，不要混装不同版本。[安装指南](docs/INSTALLING.zh-CN.md)介绍光盘识别、Linux 安装、文件位置和更新方法。发布包不需要 Python 或 Visual Studio；更新时请保留存档和个人配置。
 
-### Apple Silicon macOS（实验性，需从源码构建）
+### Apple Silicon macOS（实验性）
 
-本分支加入了使用 Metal 的 arm64 macOS 实验性路径。Windows 和 Mac 的本地运行时已完成编译链接，有限的新游戏和首战测试也已通过，但目前没有已发布的 macOS 安装包。需要时请按[macOS 构建说明](docs/BUILDING.md#building-on-macos)自行构建；长时间游玩、更广场景、画质和性能验证仍待完成。
+v0.7.35 是第一个带有 macOS 安装包的版本：使用 Metal 渲染的实验性 arm64 路径。打开 `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`，把 `LostOdysseyRecomp.app` 拖到 Applications 链接（即“应用程序”文件夹）后启动。应用仅做 ad-hoc 签名、未经公证，因此 macOS 会拦截首次启动。请先尝试打开应用一次，再到“系统设置 → 隐私与安全性”，为它点击 **仍要打开** 并确认；也可以运行 `xattr -dr com.apple.quarantine /Applications/LostOdysseyRecomp.app`。具体步骤和文件位置见[安装指南](docs/INSTALLING.zh-CN.md#macos)。游戏内的更新检查只会提示打开发布页，替换应用需要自己动手。目前只在一台 Mac 上验证过：在维护者的 M1 Max（macOS 26.6.2）上，开场新游戏战斗用 Metal 运行，Metal 着色器包已下载并使用。长时间游玩、更广场景、其他 Mac、画质和性能尚未测试。需要自行构建时，请按[macOS 构建说明](docs/BUILDING.md#building-on-macos)。
 
-### 实验性 HDR（尚未发布的源码）
+### 实验性 HDR
 
-尚未发布的源码包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 输出路径。在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开冻结的确定性对比帧：左侧是截断在参考白位的 SDR 亮度预览，右侧是正常 HDR tone mapping，并实时更新峰值。可用鼠标或手柄 **X** 键在 Scene 和 Test pattern 间切换；没有有效场景时使用标准图案。菜单打开时只复制一次源画面，不会每帧复制。自动模式优先使用当前显示器回报的峰值；无法获取时使用 1000 nit 内容参考值。当前 Linux Vulkan 路径无法取得显示器峰值回报，因此自动模式使用该参考值。macOS 的自动值根据 EDR 亮度余量估算，并非面板实测尼特值。峰值调整可在校准页预览；峰值和纸白更改保存后无需重启即可生效。初始路径要求关闭抗锯齿、超分和插帧，并使用非 MetalFX 空间滤镜；不支持的格式／色彩空间组合会回退到 SDR。维护者已于 2026-10-02 确认存在 HDR 实机验证，但未记录具体平台、后端和显示器范围，因此不代表跨平台覆盖。跨平台语义和验证限制见 [HDR 技术说明](docs/notes/hdr-output.md)。
+v0.7.35 包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 输出路径。在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开冻结的确定性对比帧：左侧是截断在参考白位的 SDR 亮度预览，右侧是正常 HDR tone mapping，并实时更新峰值。可用鼠标或手柄 **X** 键在 Scene 和 Test pattern 间切换；没有有效场景时使用标准图案。菜单打开时只复制一次源画面，不会每帧复制。自动模式优先使用当前显示器回报的峰值；无法获取时使用 1000 nit 内容参考值。当前 Linux Vulkan 路径无法取得显示器峰值回报，因此自动模式使用该参考值。macOS 的自动值根据 EDR 亮度余量估算，并非面板实测尼特值。峰值调整可在校准页预览；峰值和纸白更改保存后无需重启即可生效。初始路径要求关闭抗锯齿、超分和插帧，并使用非 MetalFX 空间滤镜；不支持的格式／色彩空间组合会回退到 SDR。维护者已于 2026-10-02 确认存在 HDR 实机验证，但未记录具体平台、后端和显示器范围，因此不代表跨平台覆盖。在外接显示器没有 EDR 余量的 Mac 上，游戏中请求 HDR 后输出仍保持 SDR，尚未见到 Metal 的 HDR 输出本身。跨平台语义和验证限制见 [HDR 技术说明](docs/notes/hdr-output.md)。
 
 ### 最新更新
 
-[v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) 在 F1 调试菜单加入按钮，可在分队期间随时存档再读档后恢复 RB 换人（#74）；修复“东方部族的遗产”区域开启 TAA 或 FSR 时的天空闪烁（#102），并在日志中记录类似的闪烁嫌疑；加固运行时对异常游戏请求的处理；Windows ZIP 清单为旧版 updater 写入 SHA-256 值（#105）；并用全部界面语言说明 Flatpak 的更新方法。源码还包含上文实验性的 Apple Silicon macOS 路径，但不发布 macOS 安装包。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。
+[v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) 是第一个带有 macOS 安装包的版本，即实验性的 Apple Silicon 磁盘映像（见上文）。安装包不再附带着色器包：游戏会在启动时询问是否下载所选渲染器的着色器包，本机编译的着色器现在每个渲染器只存一个文件。新增实验性 HDR 输出和亮度校准；比 16:9 更高的屏幕现在由 3D 画面铺满；Vulkan 下支持 2× 到 6× 的 DLSS 插帧；Direct3D 12 和 Vulkan 上还会执行 GPU 遮挡查询，使太阳及其镜头光晕不再透过地形显示（#118；仅在 NVIDIA 显卡上检查过）。修复 90 和 120 FPS 下战斗镜头跳动（#117）、Linux 安装包在 NVIDIA 显卡上 DLSS 不可用（#116），以及多处天空、洞窟和过场动画中的 TAA、FSR 和 DLSS 闪烁（#121 等）。闪烁修复经测试检查，尚未在游戏中重新验证；报告者也尚未确认 #116、#118 和 #121。完整列表和历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。
 
 ## 当前功能
 
@@ -53,15 +54,15 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 | :--- | :--- |
 | 导入与首次设置 | 支持文件夹、XEX、ISO、GOD 和受支持的 DLC，可替换所选光盘；首次启动前设置语言和图形选项。原始来源文件保持不变。 |
 | 语言 | 界面提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于安装的版本。 |
-| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。尚未发布的源码构建还会让比 16:9 更高的屏幕（例如 16:10、3:2 和 4:3）铺满 3D 画面，菜单和电影保持 16:9 布局，让较高屏幕上的 minimap 靠近顶部，并在超宽屏菜单两侧加入黑边（见[技术说明](docs/notes/tall-aspect-layout.md)），并包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 及自动／手动峰值校准，详见 [HDR 技术说明](docs/notes/hdr-output.md)；Linux HDR 实机验证仍待完成。在 Linux 上，v0.7.25 安装包在 NVIDIA 显卡上被报告无法使用 DLSS（[#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)）；修复已合并但尚未发布。 |
+| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。自 v0.7.35 起，比 16:9 更高的屏幕（例如 16:10、3:2 和 4:3）会铺满 3D 画面，菜单和电影保持 16:9 布局，较高屏幕上的 minimap 靠近顶部，超宽屏的菜单两侧加有黑边（见[技术说明](docs/notes/tall-aspect-layout.md)）。另有 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 及自动／手动峰值校准，详见 [HDR 技术说明](docs/notes/hdr-output.md)；Linux HDR 实机验证仍待完成。在 Linux 上，v0.7.25 安装包在 NVIDIA 显卡上被报告无法使用 DLSS（[#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)）；v0.7.35 包含修复，尚未在 Linux 的 NVIDIA 显卡上运行过。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
-| 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。尚未发布的源码在 Windows Vulkan 上也提供关／DLSS（固定 2×–6×；启动时为关而之后开启，或切换提供者，需要重启），另有实验性的 Vulkan FSR 2×（仅限源码构建）和实验性的 macOS MetalFX 2×（尚未在 Mac 硬件上运行），见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
+| 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。自 v0.7.35 起，Windows Vulkan 上也提供关／DLSS（固定 2×–6×；启动时为关而之后开启，或切换提供者，需要重启），另有实验性的 Vulkan FSR 2×（仅限源码构建）和实验性的 macOS MetalFX 2×（尚未在 Mac 硬件上运行），见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |
-| 着色器预编译 | 多线程编译、跳过和缓存复用。v0.7.25 安装包内的 Vulkan 着色器包与该版本运行时不匹配，因此首次启动会编译全部着色器（16 线程 CPU 上约 3 分钟）。尚未发布的源码中，安装包不再附带着色器包：如果没有装好与所选渲染器匹配的包，游戏会在启动时询问是否下载；选择跳过则改为在本机编译（[详情](docs/PORTABLE_SHADER_PACK.md#startup-download)）。 |
+| 着色器预编译 | 多线程编译、跳过和缓存复用。v0.7.25 安装包内的 Vulkan 着色器包与该版本运行时不匹配，因此其首次启动编译了全部着色器（16 线程 CPU 上约 3 分钟）。v0.7.35 安装包不再附带着色器包：如果没有装好与所选渲染器匹配的包，游戏会在启动时询问是否下载；选择跳过则改为在本机编译（[详情](docs/PORTABLE_SHADER_PACK.md#startup-download)）。 |
 | Mod | Mod API v1、LOTEX1／PNG 工具、原生菜单图集和字体纹理页替换，以及 PlayStation 按键提示。支持范围和安装方法见 [Mod 指南](docs/wiki/Modding.md)。 |
 | 输入与工具 | SDL 已映射手柄、键盘输入和震动；英文／简体中文[调试菜单](#调试菜单)，提供画面捕获、同地图传送、快进和游戏数据修改。 |
 
-全屏、混合 DPI 显示器、更广的超分场景、Linux 硬件、未发布的较高屏幕／超宽屏布局在更多硬件上的表现，以及后续光盘流程仍需更多测试。当前工作见[路线图](docs/ROADMAP.zh-CN.md)和[项目看板](https://github.com/users/freefrank/projects/3)。
+全屏、混合 DPI 显示器、更广的超分场景、Linux 硬件、较高屏幕／超宽屏布局在更多硬件上的表现，以及后续光盘流程仍需更多测试。当前工作见[路线图](docs/ROADMAP.zh-CN.md)和[项目看板](https://github.com/users/freefrank/projects/3)。
 
 ## 操作按键
 
@@ -151,7 +152,7 @@ Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 改�
 | 日志 | 日志目录的 `logs/runtime-*.log` 和 `logs/shader-*.jsonl` | 保留本次和之前两次运行的日志。 |
 | F1 渲染捕获 | 配置目录的 `captures/` | Windows 为 `.zip`，Linux 和 macOS 为 `.tar.gz`。 |
 | Mod | `mods/`：便携方式在程序旁，否则在数据目录 | 可用 `LO_MODS_DIR` 改变位置。 |
-| 着色器包 | 安装目录：便携方式为程序旁的 `shaders/`，否则为数据目录的 `shaders/` | 尚未发布的源码会把所选渲染器的包下载到这里（`portable_vk.lospv`、`portable_dx12.lospd` 或 `portable_metal.lospv`）。v0.7.25 及更早版本在程序旁附带 `shaders/portable_vk.lospv`。 |
+| 着色器包 | 安装目录：便携方式为程序旁的 `shaders/`，否则为数据目录的 `shaders/` | 游戏会把所选渲染器的包下载到这里（`portable_vk.lospv`、`portable_dx12.lospd` 或 `portable_metal.lospv`）；选择跳过会记录在同一目录的 `declined-downloads.txt` 中。v0.7.25 及更早版本在程序旁附带 `shaders/portable_vk.lospv`。 |
 | 更新程序临时文件 | Windows：程序旁的 `.update\`；AppImage：日志目录的 `.update/` | Flatpak 和 macOS 安装包需要手动更新。 |
 
 未指定 `--game` 时，**游戏目录的查找顺序**是：
@@ -178,7 +179,7 @@ Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 改�
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
@@ -189,7 +190,7 @@ LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdysse
 | :--- | :--- |
 | `LO_GRAPHICS_API` | Windows 上为 `d3d12` 或 `vulkan`。Linux 始终使用 Vulkan，macOS 始终使用 Metal。 |
 | `LO_FPS` | 帧率上限，0 到 1000；`0` 表示不限制。 |
-| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | Windows 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率。尚未发布的源码中，Vulkan 支持 DLSS 固定 2–6 倍，用 `LO_ENABLE_VULKAN_FSR_FG` 构建时还支持 FSR 固定 2×；macOS 支持 `metalfx`（固定 2×，实验性）。动态模式仅限 D3D12 的 DLSS。[详情](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
+| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | Windows 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率。自 v0.7.35 起，Vulkan 支持 DLSS 固定 2–6 倍，用 `LO_ENABLE_VULKAN_FSR_FG` 构建时还支持 FSR 固定 2×；macOS 支持 `metalfx`（固定 2×，实验性）。动态模式仅限 D3D12 的 DLSS。[详情](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | `LO_OPTISCALER_PATH` | 实验性 Windows OptiScaler 接入：填写自备 `OptiScaler.dll` 的绝对路径。构建须包含 DLSS/NGX，并设置 `LO_FG_PROVIDER=off`；游戏内选择 DLSS。[配置方法与限制](docs/notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows)。 |
 | `LO_NO_UPDATE` | 设为 `0` 以外的任何值即跳过更新检查。 |
 | `LO_PROFILE_DIR`、`LO_SHADER_CACHE_DIR`、`LO_MODS_DIR` | 使用其他个人配置、着色器缓存或 Mod 目录。`LO_SHADER_CACHE_DIR` 设为空值会关闭着色器缓存。 |
