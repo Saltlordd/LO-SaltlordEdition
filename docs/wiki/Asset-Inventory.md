@@ -100,6 +100,24 @@ The confirmed consumer accepted by `init` is the native settings atlas `UI_MAIN_
 
 The catalog path skips `key_error`, `property_error`, missing dimensions, and non-`Texture2D` rows; the legacy CSV manifest path still filters by `status=exported`. This connects the catalog to the existing `AssetProvider`, manifest, and overlay contracts; it does not auto-register a runtime provider or make the game load SQLite. Scanning covers the complete disc set passed to the tool. `sources` is auxiliary provenance evidence and does not change runtime resolution. The native settings-menu loader tries `gameRoot/disc1` first and falls back to `gameRoot`.
 
+## FMV 导出 / Explicit FMV export
+
+`inventory.py scan` 仍然只生成元数据。需要明确导出视频时，使用 `export_fmv.py` 将已登记的 ASF/WMV 和 CPX FMV 写入新的输出目录；原始 ASF/WMV 不转码：
+
+`inventory.py scan` remains metadata-only. To explicitly export indexed FMV, use `export_fmv.py` with a new output directory; raw ASF/WMV streams are preserved without transcoding:
+
+```powershell
+python -B tools/asset_inventory/export_fmv.py `
+  --db out/asset-inventory/catalog.sqlite `
+  --output out/asset-fmv `
+  --decoder out/asset-inventory-build/asset_decoder.exe `
+  --ffprobe ffprobe
+```
+
+如果游戏根目录已移动，可加 `--game movedroot`。工具对 raw 流执行 copy 和 SHA-256 核对，对 CPX 使用 native decoder 解码，并按解码后 SHA-256 去重；输出 `movies/`、`manifest.json` 和 `manifest.csv`，其中 JSON 包含 `ffprobe` stream 信息，JSON/CSV 均记录来源元数据和 occurrence。未知或损坏输入会报错，不进行修复或 fallback。`ffprobe` 和哈希核对不等于全时长解码或游戏播放验收。这是离线文件导出工具；现有 `AssetKind::Movie` API 尚无 runtime consumer，FMV 替换还未接入游戏。
+
+Pass `--game movedroot` when the game root has moved. The exporter verifies copied raw streams with SHA-256, decodes CPX through the native decoder, and de-duplicates decoded output by SHA-256. It writes `movies/`, `manifest.json`, and `manifest.csv` with source metadata and occurrence records; the JSON also includes `ffprobe` stream data. Unknown or damaged input fails without repair or fallback. `ffprobe` and hash verification do not establish full-duration decoding or in-game playback. This is an offline file exporter; the existing `AssetKind::Movie` API has no runtime consumer, so FMV replacement is not connected to the game.
+
 ## 分类和统计口径 / Categories and counting
 
 分类以 UE3 export class 为主，包括 `models`、`scene_actors`、`world_geometry`、`textures`、`fonts`、`materials`、`animations`、`effects`、`audio`、`ui_objects`、`sequences`、`script_objects`、`shader_caches`、`worlds_levels`、`default_templates` 等。电影、声音流、字幕、摄像机、事件脚本和本地化数据等非 UE3 文件按文件级用途单独记录。

@@ -148,6 +148,29 @@ class AssetDecoderTest(unittest.TestCase):
         self.assertEqual((row["status"], row["encoding"], row["error"]),
                          ("error", "cpx", "invalid CPX stream"))
 
+    def test_binary_cpx_pipe_preserves_bytes_and_rejects_corruption(self):
+        payload = b"\x00\x0a\x1a\xffFMV\x00\xff\x0a"
+        encoded = raw_cpx(payload)
+        encoded[3] = 0x7f  # Reserve-size byte is not part of the CPX signature.
+        process = subprocess.run([str(DECODER), "--decode-cpx"], input=encoded,
+                                 capture_output=True, timeout=15)
+        self.assertEqual((process.returncode, process.stdout, process.stderr),
+                         (0, payload, b""))
+
+        struct.pack_into("<I", encoded, 16, 21)  # Invalid first block offset.
+        process = subprocess.run([str(DECODER), "--decode-cpx"], input=encoded,
+                                 capture_output=True, timeout=15)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(process.stdout, b"")
+        self.assertIn(b"invalid CPX stream", process.stderr)
+
+    def test_unsupported_mode_rejected(self):
+        process = subprocess.run([str(DECODER), "--unknown"], input=b"",
+                                 capture_output=True, timeout=15)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(process.stdout, b"")
+        self.assertIn(b"expected no arguments or --decode-cpx", process.stderr)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

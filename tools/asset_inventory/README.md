@@ -53,9 +53,10 @@ python -B tools/asset_inventory/inventory.py report `
 python -B -m unittest tools.tests.asset_inventory_test -v
 python -B tools/tests/asset_decoder_test.py --decoder out/asset-inventory-build/asset_decoder.exe -v
 python -B -m unittest tools.tests.mod_catalog_test tools.tests.mod_tools_test -v
+python -B -m unittest tools.tests.fmv_export_test -v
 ```
 
-The first command checks synthetic FPI traversal, content variants, queries, replay and input/output boundaries. The second exercises the actual decoder with synthetic UE3/CPX data, UTF-16 names, texture metadata, and damaged bounds/references. The third checks SQLite catalog selection, filters, image keys, manifest/overlay layouts, and LOTEX1 packaging; it requires Pillow but no game data. None of these checks requires original game data.
+The first command checks synthetic FPI traversal, content variants, queries, replay and input/output boundaries. The second exercises the actual decoder with synthetic UE3/CPX data, UTF-16 names, texture metadata, and damaged bounds/references. The third checks SQLite catalog selection, filters, image keys, manifest/overlay layouts, and LOTEX1 packaging; it requires Pillow but no game data. The fourth checks FMV extents, deduplication, source preservation, and failure reporting with synthetic data. None of these checks requires original game data.
 
 ## Querying the catalog
 
@@ -89,6 +90,20 @@ python tools/modding/lo_mod.py init --database catalog.sqlite --object UI_MAIN_0
 The confirmed consumer accepted by `init` is the native settings atlas `UI_MAIN_00`. Native font-page rows for the `Maru23`, `LocTit1`, and `Abc` owners are candidates only; `init` rejects them by default because native references are not indexed as complete runtime support. Other rows are marked `no_runtime_consumer`; `--allow-unwired` is required for an explicitly experimental specification. `init` requires exactly one identity and one content variant; `--content-sha256` chooses the variant used to derive the authoring identity and dimensions, while the key and LOTEX1 payload do not bind runtime resolution to that SHA. This connects the catalog to the existing `AssetProvider`/manifest/overlay contract; it does not register a new runtime provider or make the game load SQLite. The resulting JSON continues through the existing LOTEX1 `pack` command and supports `standalone` or `overlay` layouts.
 
 The scanner covers the complete disc set passed to it. The `sources` field is auxiliary evidence for checking package provenance and does not change runtime resolution. The native settings-menu loader tries `gameRoot/disc1` first and falls back to `gameRoot`.
+
+## Explicit FMV export
+
+`inventory.py scan` remains metadata-only. To intentionally copy indexed FMV payloads into a new directory, use `export_fmv.py` with the catalog and the native decoder built with CPX support:
+
+```powershell
+python -B tools/asset_inventory/export_fmv.py `
+  --db out/asset-inventory/catalog.sqlite `
+  --output out/asset-fmv `
+  --decoder out/asset-inventory-build/asset_decoder.exe `
+  --ffprobe ffprobe
+```
+
+Use `--game` when the original game root has moved. The exporter preserves raw ASF/WMV streams without transcoding, copies raw streams with SHA-256 verification, decodes CPX FMV payloads through the native decoder, and de-duplicates decoded output by SHA-256. It writes `movies/`, `manifest.json`, and `manifest.csv`, with source metadata and occurrence records; the JSON also includes stream data from the required `ffprobe` executable. `ffprobe` and hash checks do not establish full-duration decode or in-game playback. Unknown or damaged input fails; the exporter does not repair it or fall back to another payload. This is an offline file exporter; `AssetKind::Movie` has no runtime Mod consumer, so this does not connect FMV replacement to the game.
 
 The offset in a catalog row is the original FPD archive extent. It must not be confused with a decoded or unpacked UE3 object offset. Reports contain metadata and hashes only; they do not include original artwork or package contents.
 

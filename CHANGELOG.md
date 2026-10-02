@@ -8,6 +8,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- Added explicit `tools/asset_inventory/export_fmv.py` export for indexed ASF/WMV and CPX FMV payloads. It preserves raw streams, verifies hashes, de-duplicates decoded output, and writes `movies/` plus JSON/CSV manifests; this is an offline export utility and does not add an FMV runtime Mod consumer. `ffprobe` and hash checks do not establish full-duration decoding or gameplay playback ([asset inventory guide](docs/wiki/Asset-Inventory.md)).
 - The Mod tools can now read a completed asset-inventory SQLite database directly with `catalog` and `init`; the legacy CSV manifest remains supported. Runtime-only filtering exposes the confirmed native menu consumer and font-page candidates, while font candidates and other unwired resources are rejected by default and require `--allow-unwired` for an explicit experiment. This reuses the existing AssetProvider/manifest/overlay contract and does not load SQLite at runtime ([mod creation guide](docs/wiki/Creating-Mods.md)).
 - Added the read-only `tools/asset_inventory` catalog for Mod development. It scans all four discs, deduplicates complete payloads, classifies UE3 exports and UI hints, and writes metadata-only SQLite/CSV reports; it does not establish runtime replacement support. See the [asset inventory guide](docs/wiki/Asset-Inventory.md).
 - Fixed the sun and its glare flashing through cliffs and other terrain for single frames while sailing (#118, reported on an RX 6600; it happened on every GPU). The game hands out its occlusion queries from a pool in request order every frame, and the sun's query is the last one. When the number of objects tested before it changed, the sun reused another object's query, and the count reported for it was that object's. Each count is now kept for the object that asked for it. In a 23-second sail past the #118 cliff on an AMD Radeon 8060S (Direct3D 12 through Proton), v0.7.35 flashed the sun three times and this build never did; the rest of the run kept the same brightness.
@@ -26,6 +27,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### 简体中文
 
+- 新增明确导出已登记 ASF/WMV 和 CPX FMV 的 `tools/asset_inventory/export_fmv.py`。工具保留原始流、核对哈希、对解码结果按 SHA-256 去重，并生成 `movies/` 及 JSON/CSV manifest；它是离线导出工具，不会新增 FMV runtime Mod consumer。`ffprobe` 和哈希核对不代表全时长解码或游戏播放验收（见[资源统计指南](docs/wiki/Asset-Inventory.md)）。
 - Mod 工具现在可以直接读取完成的资源统计 SQLite 数据库执行 `catalog` 和 `init`，同时保留旧的 CSV manifest 入口。`runtime-only` 会筛出已确认的原生菜单 consumer 和字体页候选；字体候选及其他未接入运行时的资源默认拒绝，只有明确使用 `--allow-unwired` 才能进行实验。此功能复用现有 AssetProvider／manifest／overlay 契约，运行时不会加载 SQLite（见[Mod 创建指南](docs/wiki/Creating-Mods.md)）。
 - 新增面向 Mod 开发的只读 `tools/asset_inventory` 资源目录工具。它扫描四张光盘、按完整 payload 去重、分类 UE3 export 和 UI 提示，并生成只含元数据的 SQLite/CSV 报告；资源被统计不代表运行时已经支持替换。详见[资源统计指南](docs/wiki/Asset-Inventory.md)。
 - 修复开船时太阳和光晕偶尔有一帧穿过悬崖等地形闪出来的问题（#118，玩家在 RX 6600 上报告；所有显卡都会出现）。游戏每帧按请求顺序从一个池子里分配遮挡查询，太阳的查询排在最后。前面参与测试的物体数量一变，太阳就会用到别的物体上一帧用过的查询，拿到的是那个物体的计数。现在每个计数都按发出请求的物体保存。在 AMD Radeon 8060S（经 Proton 运行 Direct3D 12）上沿 #118 的悬崖开船 23 秒，v0.7.35 闪了三次，这个版本一次都没有；其余画面亮度不变。

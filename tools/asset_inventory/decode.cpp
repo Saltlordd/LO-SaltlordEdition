@@ -1,7 +1,9 @@
 #include <gpu/shader/cpx_decode.h>
 
 #include <algorithm>
+#include <array>
 #include <charconv>
+#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +15,11 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
 
 namespace inventory {
 
@@ -408,7 +415,43 @@ std::string Process(std::string_view request) {
 }
 } // namespace inventory
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc != 1) {
+        if (argc != 2 || std::string_view(argv[1]) != "--decode-cpx") {
+            std::cerr << "expected no arguments or --decode-cpx\n";
+            return 2;
+        }
+        try {
+#ifdef _WIN32
+            inventory::Require(_setmode(_fileno(stdin), _O_BINARY) != -1 &&
+                               _setmode(_fileno(stdout), _O_BINARY) != -1,
+                               "cannot set binary pipe mode");
+#endif
+            std::vector<uint8_t> stored;
+            std::array<char, 65536> buffer{};
+            for (;;) {
+                std::cin.read(buffer.data(), std::streamsize(buffer.size()));
+                const auto count = size_t(std::cin.gcount());
+                inventory::Require(count <= inventory::MaxPackage - stored.size(),
+                                   "CPX input exceeds 128 MiB limit");
+                stored.insert(stored.end(), buffer.data(), buffer.data() + count);
+                if (!std::cin) {
+                    inventory::Require(std::cin.eof() && !std::cin.bad(), "CPX input read failed");
+                    break;
+                }
+            }
+            std::vector<uint8_t> decoded;
+            inventory::Require(xenos::resources::cpx::Decode(stored, decoded), "invalid CPX stream");
+            std::cout.write(reinterpret_cast<const char*>(decoded.data()),
+                            std::streamsize(decoded.size()));
+            std::cout.flush();
+            inventory::Require(bool(std::cout), "CPX output write failed");
+            return 0;
+        } catch (const std::exception& ex) {
+            std::cerr << ex.what() << '\n';
+            return 1;
+        }
+    }
     std::string request;
     while (std::getline(std::cin, request)) {
         try {
