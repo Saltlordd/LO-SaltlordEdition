@@ -99,3 +99,19 @@ if(UNIX)
     lo_review_python(guest_main_exit guest_main_exit_regression.py --out --cxx)
     lo_review_python(kernel_lifetime kernel_lifetime_regression.py --out --cxx ${sanitizer_flags})
 endif()
+
+# Builds the unmodified updater apply mode and checks AppImage backup cleanup,
+# a successful restart and the rollback after a failed exec. Linux only: the
+# apply mode reads /proc/self/cmdline.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME updater_appimage_cleanup COMMAND "${Python3_EXECUTABLE}" -B
+        "${LO_TESTS}/updater_appimage_cleanup_test.py" --cxx "${CMAKE_CXX_COMPILER}")
+    set_tests_properties(updater_appimage_cleanup PROPERTIES TIMEOUT 150)
+endif()
+
+# AppImage and Flatpak packaging scripts, with linuxdeploy, flatpak and the
+# compiler, readelf and ldd checks replaced by stand-ins.
+foreach(name package_appimage package_flatpak)
+    add_test(NAME ${name} COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/${name}_test.py")
+    set_tests_properties(${name} PROPERTIES TIMEOUT 60)
+endforeach()

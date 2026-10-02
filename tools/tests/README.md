@@ -32,7 +32,27 @@ parser, interrupt dispatch and exit bodies with guest/driver stubs. CTest gives
 each run fresh output under the build directory's `fixtures/` folder, so repeat
 runs are supported. These tests verify local contracts and error paths; they
 do not establish gameplay, Windows CRT behavior, GPU rendering or frame times.
-The Linux CI entry is `.gitea/workflows/review-regressions.yml` on git.zkx.ca, which runs on branch pushes; the GitHub copy only runs when started manually.
+
+On Linux, `updater_appimage_cleanup_test.py` (CTest name
+`updater_appimage_cleanup`) builds the unmodified updater apply mode
+(`updater/apply_mode.cpp`, `updater/update.cpp`) with the configured compiler
+and runs it as an AppImage. It checks that the running AppImage removes its
+`.previous` backup (also one left by older updaters) but leaves symlinks,
+directories and non-AppImage launches alone, that an apply plan replaces and
+restarts the AppImage, and that the previous image comes back when the new one
+fails to execute. It needs `tools/XenonRecomp` and its
+`thirdparty/tomlplusplus` submodule (`update.cpp` includes its `json.hpp`);
+run it directly with `python3 tools/tests/updater_appimage_cleanup_test.py --cxx g++`.
+
+CTest also runs the packaging script tests `package_appimage_test.py` and
+`package_flatpak_test.py` (CTest names `package_appimage` and
+`package_flatpak`). They replace linuxdeploy, flatpak and the compiler,
+`readelf` and `ldd` checks with stand-ins, so they check the order of the
+packaging steps, the AppDir layout and failure handling, not a real AppImage
+or Flatpak; the release workflow builds and checks those. Both scripts also
+run directly, for example `python3 tools/tests/package_appimage_test.py`.
+
+The Linux CI entry is `.gitea/workflows/review-regressions.yml` on git.zkx.ca, which runs on branch pushes, including changes to the packaging scripts; the GitHub copy only runs when started manually.
 
 For a separate ThreadSanitizer check of the changed callbacks:
 

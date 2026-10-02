@@ -10,11 +10,13 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 - Fixed an intermittent failure of `LoDlssCapabilitySnapshotTest` in the macOS arm64 CI job. Its plan-observation check read the planner a fixed 20,000 times while another thread published plans. When that thread started late, every read finished before the first publication and the check failed although no plan was torn. The reader now keeps reading until the publishing thread is done, and the check's two conditions have separate failure messages (48 checks). The planner is unchanged: every planner call holds one mutex, and ThreadSanitizer reported no race.
 - On Windows, an `LO_OPTISCALER_PATH` that points to a broken `OptiScaler.dll` no longer shows a Windows error dialog that holds up startup until it is closed; the load failure is only written to the log.
+- More Settings menu texts are now translated into Japanese, Korean and Simplified Chinese: the FSR status line, the render resolution and adaptive-sync rows, the Apple temporal upscaler help, the quality help (its new order had made it fall back to English) and the manual-restart dialogs outside Windows.
 
 ### 简体中文
 
 - 修复 `LoDlssCapabilitySnapshotTest` 在 macOS arm64 CI 中偶发失败的问题。其中的计划观察检查在另一个线程发布计划的同时固定读取计划器 20,000 次。发布线程启动较晚时，所有读取都在第一次发布之前完成，检查因此失败，但并没有读到不一致的计划。现在读取线程会一直读到发布线程结束，检查的两个条件也各自给出失败信息（共 48 项检查）。计划器本身未改动：它的每个调用都持有同一个互斥锁，ThreadSanitizer 也未报告数据竞争。
 - Windows 上，`LO_OPTISCALER_PATH` 指向损坏的 `OptiScaler.dll` 时，不再弹出会卡住启动、需手动关闭的 Windows 错误对话框，加载失败只写入日志。
+- 设置菜单又有一批文字翻译为日语、韩语和简体中文：FSR 状态行、渲染分辨率和自适应同步选项、Apple 时域超分辨率说明、质量说明（选项顺序调整后曾退回英文），以及 Windows 以外平台的手动重启对话框。
 
 ## [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) — 2026-10-02
 
