@@ -41,6 +41,13 @@ packages. The DX12 `.lospd` pack is published as a separate fourth GitHub
 asset. Users place it at
 `shaders/portable_dx12.lospd` beside the runtime.
 
+After v0.7.25 shipped a pack its runtime rejected, the Windows and Linux jobs
+fetch the pinned Vulkan pack before building and pass it as
+`LO_PORTABLE_SHADER_PACK`. The runtime build runs `LoShaderPackTool
+verify-runtime` against the private disc 1 image and fails on a mismatch. A
+translator, option or discovery change therefore needs a refreshed pack and a new
+pinned build-inputs commit ([procedure](../../docs/PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
+
 Release workflow design: the Linux job compiles once, creates a persistent
 AppImage AppDir, and exports the stable Flatpak by reusing that AppDir's
 `usr` tree. It does not perform a second source compilation for Flatpak.

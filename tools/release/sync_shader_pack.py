@@ -47,12 +47,19 @@ def find_tool() -> Path | None:
     return None
 
 
-def verify_pack(pack_path: Path, tool: Path) -> dict:
-    result = subprocess.run([str(tool), "verify", str(pack_path)], check=True,
-                            capture_output=True, text=True, timeout=600)
+def verify_pack(pack_path: Path, tool: Path, image: Path | None) -> dict:
+    # With the xexdump image this is the release build's check: the pack must
+    # match the contract of the runtime built from this source tree.
+    command = [str(tool), "verify-runtime", str(pack_path), str(image)] if image else \
+        [str(tool), "verify", str(pack_path)]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=600)
+    if result.returncode:
+        raise ValueError(f"Shader pack verification failed: {result.stderr.strip()}")
     report = json.loads(result.stdout)
     if not report.get("all_payloads_verified") or report.get("file_bytes") != pack_path.stat().st_size:
         raise ValueError("Shader pack verification failed")
+    if image and not report.get("runtime_compatibility_verified"):
+        raise ValueError("Shader pack runtime compatibility was not verified")
     return report
 
 
@@ -60,6 +67,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pack", type=Path, help="Path to portable_vk.lospv")
     parser.add_argument("--dry-run", action="store_true", help="Prepare bundle without pushing")
+    parser.add_argument("--image", type=Path, default=ROOT / "LostOdysseyRecompLib/private/image_disc1.bin",
+                        help="xexdump image for verify-runtime (default: the private disc 1 image)")
     args = parser.parse_args()
 
     pack_path = args.pack
@@ -79,8 +88,11 @@ def main():
 
     tool = find_tool()
     if tool:
+        image = args.image if args.image and args.image.is_file() else None
+        if not image:
+            print("Warning: xexdump image not found; checking structure only, not the runtime contract")
         print(f"Verifying shader pack with {tool.name}...")
-        report = verify_pack(pack_path, tool)
+        report = verify_pack(pack_path, tool, image)
         print(f"Verified: {report['records']} records, {report['file_bytes']} bytes")
     else:
         print("Warning: LoShaderPackTool not found; skipping pre-verification")
