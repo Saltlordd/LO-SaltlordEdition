@@ -53,6 +53,12 @@ set_tests_properties(LoJitterCaptureTools PROPERTIES TIMEOUT 60)
 add_test(NAME LoPsClipReads COMMAND "${Python3_EXECUTABLE}" -B -m unittest tools.tests.test_ps_clip_reads
     WORKING_DIRECTORY "${LO_ROOT}")
 set_tests_properties(LoPsClipReads PROPERTIES TIMEOUT 60)
+# Asset inventory and FMV export tools on synthetic fixtures (standard-library Python).
+foreach(name asset_inventory_test fmv_export_test)
+    add_test(NAME ${name} COMMAND "${Python3_EXECUTABLE}" -B -m unittest tools.tests.${name}
+        WORKING_DIRECTORY "${LO_ROOT}")
+    set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+endforeach()
 
 if(LO_REVIEW_SDL_TESTS)
     if(LO_REVIEW_SDL_LIBRARY)

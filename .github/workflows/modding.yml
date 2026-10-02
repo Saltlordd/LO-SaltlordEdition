@@ -63,7 +63,7 @@ jobs:
           python tools/modding/publish_wiki.py --source docs/wiki --wiki "$wiki" --repository "$GITHUB_REPOSITORY" --revision "$GITHUB_SHA"
           git -C "$wiki" config user.name 'github-actions[bot]'
           git -C "$wiki" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git -C "$wiki" add -- Modding.md Creating-Mods.md Modding-API.md Mod-Organizer-2.md Runtime-Texture-Replacement.md Modding-Validation.md Home.md _Sidebar.md
+          git -C "$wiki" add -- Modding.md Creating-Mods.md Asset-Inventory.md Modding-API.md Mod-Organizer-2.md Runtime-Texture-Replacement.md Modding-Validation.md Home.md _Sidebar.md
           if ! git -C "$wiki" diff --cached --quiet; then
             git -C "$wiki" commit -m "docs(mods): publish API v1 from ${GITHUB_SHA}"
             git -C "$wiki" push origin HEAD
