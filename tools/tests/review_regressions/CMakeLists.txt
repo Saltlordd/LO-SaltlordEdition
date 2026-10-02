@@ -38,6 +38,7 @@ lo_review_test(LoAudioCallbackTest audio_callback_test.cpp)
 lo_review_test(LoSettingsPathTest settings_path_test.cpp "${LO_RUNTIME}/updater/update.cpp")
 lo_review_test(LoUserPathsTest user_paths_test.cpp)
 lo_review_test(LoExternalUpdateNoticeTest external_update_notice_test.cpp)
+lo_review_test(LoOcclusionQueriesTest occlusion_queries_test.cpp)
 
 if(LO_REVIEW_SDL_TESTS)
     if(LO_REVIEW_SDL_LIBRARY)
