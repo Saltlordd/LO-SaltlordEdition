@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include "hdr_output.h"
 namespace plume
 {
 struct RenderDevice;
@@ -17,6 +18,17 @@ struct PresentationOptions
     Antialiasing antialiasing = Antialiasing::Off;
     ScalingFilter scalingFilter = ScalingFilter::Bilinear;
     bool expandRgbRange = false;
+    // Extended gamma-2.2 scene including the original UI/fade suffix.
+    bool hdrScene = false;
+    // Normalized rectangle in the complete source image. Calibration bypasses
+    // the scene highlight shoulder and writes known HDR levels at the final pass.
+    bool hdrCalibration = false;
+    float calibrationRect[4] = {};
+    // Optional frozen extended-gamma scene, cropped to its valid extent. The
+    // owner retains it through the present fence. Left is an SDR luminance
+    // preview; right uses the same highlight mapping as normal HDR gameplay.
+    plume::RenderTexture* calibrationScene = nullptr;
+    bool calibrationExpandRgbRange = false;
 };
 // Owned by the presentation thread. Resources stay alive until the present fence.
 class Presentation
@@ -30,6 +42,7 @@ class Presentation
     ~Presentation();
     bool Init(plume::RenderDevice *device);
     bool Init(plume::RenderDevice *device, plume::RenderFormat swapchainFormat);
+    void SetOutputTransform(const hdr::OutputTransform& transform);
     // Process an opaque, display-encoded pre-UI scene at its actual resolution.
     // Source: sampleable RGBA8 UNORM, at least width x height (top-left crop).
     // Target: distinct, caller-owned RGBA8 UNORM render target, exactly width x

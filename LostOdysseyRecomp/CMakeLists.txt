@@ -22,6 +22,8 @@ function(lo_add_header_test name source)
     endif()
 endfunction()
 lo_add_header_test(LoPollWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/poll_wait_test.cpp)
+lo_add_header_test(LoHdrOutputTest ${CMAKE_SOURCE_DIR}/tools/tests/hdr_output_test.cpp)
+lo_add_header_test(LoHdrSceneShaderTest ${CMAKE_SOURCE_DIR}/tools/tests/hdr_scene_shader_test.cpp)
 lo_add_header_test(LoTimeFieldsTest ${CMAKE_SOURCE_DIR}/tools/tests/time_fields_test.cpp)
 lo_add_header_test(LoNotifiedWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/notified_wait_test.cpp)
 lo_add_header_test(LoFrameGenerationPresentTest ${CMAKE_SOURCE_DIR}/tools/tests/frame_generation_present_test.cpp)
@@ -818,13 +820,32 @@ if(WIN32 AND LO_BUILD_GPU)
         set_target_properties(${preprocess} PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
         target_link_libraries(LoPresentCaptureTest PRIVATE ${preprocess})
     endforeach()
-    target_compile_definitions(LoPresentCaptureTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED NOMINMAX)
+    target_compile_definitions(LoPresentCaptureTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED NOMINMAX LO_HAS_FSR=0 LO_HAS_FSR_D3D12=0)
     target_include_directories(LoPresentCaptureTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
     target_compile_options(LoPresentCaptureTest PRIVATE /UNDEBUG /utf-8)
     target_compile_features(LoPresentCaptureTest PRIVATE cxx_std_20)
     set_target_properties(LoPresentCaptureTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
     target_link_options(LoPresentCaptureTest PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
     target_link_libraries(LoPresentCaptureTest PRIVATE plume d3d12 dxgi fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LO_BUILD_GPU)
+    add_executable(LoHdrSurfaceTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/hdr_surface_test.cpp)
+    target_compile_features(LoHdrSurfaceTest PRIVATE cxx_std_20)
+    target_link_libraries(LoHdrSurfaceTest PRIVATE plume SDL2::SDL2-static ${CMAKE_DL_LIBS})
+endif()
+
+if(APPLE AND LO_BUILD_GPU)
+    # The same HDR readback fixture runs on a Mac with a Metal device.
+    add_executable(LoPresentationTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/presentation_test.cpp
+        ${LO_RUNTIME_ROOT}/gpu/presentation.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+    target_include_directories(LoPresentationTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(LoPresentationTest PRIVATE LO_GPU_PLUME NOMINMAX)
+    target_compile_features(LoPresentationTest PRIVATE cxx_std_20)
+    set_target_properties(LoPresentationTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
+    target_link_libraries(LoPresentationTest PRIVATE plume fmt::fmt ${CMAKE_DL_LIBS})
 endif()
 
 # Package the same SPIR-V-capable DXC beside runtime and compiler/GPU fixtures.

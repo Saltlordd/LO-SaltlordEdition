@@ -39,6 +39,10 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 本分支加入了使用 Metal 的 arm64 macOS 实验性路径。Windows 和 Mac 的本地运行时已完成编译链接，有限的新游戏和首战测试也已通过，但目前没有已发布的 macOS 安装包。需要时请按[macOS 构建说明](docs/BUILDING.md#building-on-macos)自行构建；长时间游玩、更广场景、画质和性能验证仍待完成。
 
+### 实验性 HDR（尚未发布的源码）
+
+尚未发布的源码包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 输出路径。在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开冻结的确定性对比帧：左侧是截断在参考白位的 SDR 亮度预览，右侧是正常 HDR tone mapping，并实时更新峰值。可用鼠标或手柄 **X** 键在 Scene 和 Test pattern 间切换；没有有效场景时使用标准图案。菜单打开时只复制一次源画面，不会每帧复制。自动模式优先使用当前显示器回报的峰值；无法获取时使用 1000 nit 内容参考值。当前 Linux Vulkan 路径无法取得显示器峰值回报，因此自动模式使用该参考值。macOS 的自动值根据 EDR 亮度余量估算，并非面板实测尼特值。峰值调整可在校准页预览；峰值和纸白更改保存后无需重启即可生效。初始路径要求关闭抗锯齿、超分和插帧，并使用非 MetalFX 空间滤镜；不支持的格式／色彩空间组合会回退到 SDR。维护者已于 2026-10-02 确认存在 HDR 实机验证，但未记录具体平台、后端和显示器范围，因此不代表跨平台覆盖。跨平台语义和验证限制见 [HDR 技术说明](docs/notes/hdr-output.md)。
+
 ### 最新更新
 
 [v0.7.25](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) 在 F1 调试菜单加入按钮，可在分队期间随时存档再读档后恢复 RB 换人（#74）；修复“东方部族的遗产”区域开启 TAA 或 FSR 时的天空闪烁（#102），并在日志中记录类似的闪烁嫌疑；加固运行时对异常游戏请求的处理；Windows ZIP 清单为旧版 updater 写入 SHA-256 值（#105）；并用全部界面语言说明 Flatpak 的更新方法。源码还包含上文实验性的 Apple Silicon macOS 路径，但不发布 macOS 安装包。历史版本见[更新日志](CHANGELOG.md)，验证范围见[开发状态](docs/STATUS.md)。
@@ -49,7 +53,7 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 | :--- | :--- |
 | 导入与首次设置 | 支持文件夹、XEX、ISO、GOD 和受支持的 DLC，可替换所选光盘；首次启动前设置语言和图形选项。原始来源文件保持不变。 |
 | 语言 | 界面提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于安装的版本。 |
-| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。尚未发布的源码构建还会让比 16:9 更高的屏幕（例如 16:10、3:2 和 4:3）铺满 3D 画面，菜单和电影保持 16:9 布局，让较高屏幕上的 minimap 靠近顶部，并在超宽屏菜单两侧加入黑边（见[技术说明](docs/notes/tall-aspect-layout.md)）。在 Linux 上，v0.7.25 安装包在 NVIDIA 显卡上被报告无法使用 DLSS（[#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)）；修复已合并但尚未发布。 |
+| 显示与画质 | 16:9／21:9 分辨率预设、宽屏开关、Off／FXAA／SMAA／实验性 TAA、DLSS 或 FSR 3.1 超分、滤波和 RGB Range 选项。尚未发布的源码构建还会让比 16:9 更高的屏幕（例如 16:10、3:2 和 4:3）铺满 3D 画面，菜单和电影保持 16:9 布局，让较高屏幕上的 minimap 靠近顶部，并在超宽屏菜单两侧加入黑边（见[技术说明](docs/notes/tall-aspect-layout.md)），并包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性 HDR 及自动／手动峰值校准，详见 [HDR 技术说明](docs/notes/hdr-output.md)；Linux HDR 实机验证仍待完成。在 Linux 上，v0.7.25 安装包在 NVIDIA 显卡上被报告无法使用 DLSS（[#116](https://github.com/freefrank/LostOdysseyRecomp/issues/116)）；修复已合并但尚未发布。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR 控制。实际性能取决于场景和硬件。 |
 | 帧生成 | Windows D3D12 提供关／DLSS／FSR、受支持的 DLSS 倍率和固定 2× FSR。保存后应用支持即时切换的选项；从 DLSS FG 切到 FSR FG 需要重启。尚未发布的源码在 Windows Vulkan 上也提供关／DLSS（固定 2×–6×；启动时为关而之后开启，或切换提供者，需要重启），另有实验性的 Vulkan FSR 2×（仅限源码构建）和实验性的 macOS MetalFX 2×（尚未在 Mac 硬件上运行），见[技术笔记](docs/notes/vulkan-fg-fsr4-metalfx.md)。 |
 | 普通设置 | 使用原版字体，长列表可滚动，提供保存并应用。在图像页按 **Start／Enter** 只把焦点移到 **Save（保存）**，还需确认该项才会保存。需要重启的选项提供 **Now／Later**。 |

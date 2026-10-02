@@ -83,6 +83,22 @@ int main()
     Require(settings::restart::Required(before, after), "DLSS FG to FSR FG requires restart");
     before.frameGenerationProvider = framegen::Provider::Off;
     Require(!settings::restart::Required(before, after), "FG Off to FSR retains live switching");
+    before = settings::Config{};
+    after = before;
+    after.hdr = true;
+    Require(settings::restart::Required(before, after), "HDR toggle requires restart");
+    before = after;
+    after.hdrPaperWhiteNits = 220;
+    Require(!settings::restart::Required(before, after), "HDR paper white changes live");
+    before = after;
+    after.hdrPeakNits = 1200;
+    Require(!settings::restart::Required(before, after), "HDR peak changes live");
+    before = after;
+    after.hdrPeakAutomatic = false;
+    Require(!settings::restart::Required(before, after), "HDR peak mode changes live");
+    before = after;
+    after.frameGenerationProvider = framegen::Provider::Fsr;
+    Require(settings::restart::Required(before, after), "FG change with active HDR requires restart");
     settings::restart::RequestInstall();
     Require(settings::restart::Requested() && settings::restart::InstallRequested() &&
             settings::restart::LaunchArguments(true).find(L"--install") != std::wstring::npos,

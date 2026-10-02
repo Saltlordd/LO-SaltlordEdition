@@ -95,6 +95,10 @@ namespace gpu::renderer
     // nullptr when nothing was resolved there.
     plume::RenderTexture* AcquireResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height, uint32_t& format,
         frame_plan::FramePlan* sourcePlan = nullptr, frame_generation::ResolvedHandoff* handoff = nullptr);
+    // The matching full frontbuffer resolve, in extended gamma-2.2 values.
+    // Null means this frame must use the ordinary SDR resolved surface.
+    void SetHdrSceneEnabled(bool enabled);
+    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height);
     // Opt-in DLSS-G input from the exact current full resolve. Waits for the
     // producer fence only after a matching composited backbuffer is selected.
     bool AcquireFgCompositeInputs(uint32_t physicalAddress, frame_generation::CompositeHandoff& handoff);
