@@ -142,6 +142,9 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Legacy of the Eastern Tribe f1800-f1802 (#102), f7fd depth. Its PS reads
     // only the clip W copy; object motion replays like the depth companion.
     {0xdb23a2ad4493bbb4ull, 0x02ee5f0608be581aull, false},
+    // Old Sorceress' Mansion (#121): the #67 VS with the #102 PS over b030 depth,
+    // from two runtime suspect logs. Same VS, so the same motion fallback as #67.
+    {0xbda41a11626a545cull, 0x02ee5f0608be581aull, true},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)

@@ -73,6 +73,7 @@
 
 | 文档 | 类型 |
 |---|---|
+| [Old Sorceress' Mansion sky jitter (#121) — 2026-10-01](jitter-sky-121-2026-10-01.md) | 历史 |
 | [Cutscene depth and floor jitter — 2026-10-01](jitter-cutscene-f6814-2026-10-01.md) | 历史 |
 | [Temporal jitter coverage review — 2026-09-25](jitter-coverage-2026-09-25.md) | 历史 |
 | [Late-pass jitter follow-up — 2026-09-25](jitter-late-pass-followup-2026-09-25.md) | 历史 |

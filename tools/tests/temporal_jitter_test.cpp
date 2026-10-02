@@ -15,6 +15,7 @@
 #include "f6131_e810_jitter_capture.h"
 #include "f3449_sky_jitter_capture.h"
 #include "f1800_sky_jitter_capture.h"
+#include "issue121_sky_ge1_jitter_capture.h"
 #include "feedback_mapping_cases.h"
 #include "screen_batch_cases.h"
 
@@ -1565,7 +1566,7 @@ static void CapturedSky(const CapturedSkyCase& expected,const Draw& draw)
         message("sky slot 7 is restricted to the reviewed VS/PS pair").c_str());
     Check(DrawPositionVPSlot(draw.vs,expected.otherSkyPs)==-1 &&
         !RequiresEarlierSceneAnchor(draw.vs,expected.otherSkyPs),
-        message("another reviewed sky PS does not authorize this VS").c_str());
+        message("a PS reviewed only with another VS does not authorize this VS").c_str());
     Check(RequiresEarlierSceneAnchor(draw.vs,draw.ps) &&
         !RequiresEarlierSceneAnchor(draw.vs,unmatchedPs) && !RequiresEarlierSceneAnchor(draw.depthVs,0),
         message("sky pair never self-anchors while its depth companion still can").c_str());
@@ -1636,9 +1637,19 @@ static void CapturedSky(const CapturedSkyCase& expected,const Draw& draw)
 static void CapturedF3449Sky()
 {
     // #67 keeps the whole-frame motion fallback of its former unknown writer.
+    // Since #121 the #102 PS is also reviewed for bda41, so the negative
+    // control uses the f6131 late-floor PS, reviewed only with 2078.
     CapturedSky({"f3449",0xbda41a11626a545cull,0xa9e9542e2c60029aull,0xb030ab4e17a20783ull,172,16,
-        true,0x02ee5f0608be581aull},
+        true,0x4013372b6413788full},
         issue67_sky_f3449::draws[0]);
+}
+// #121 Old Sorceress' Mansion: the #67 sky VS with the #102 sky PS over b030
+// depth. Banks come from two reporter runtime logs, not an F1 capture.
+static void CapturedIssue121Sky()
+{
+    for (const auto& draw:issue121_sky_ge1::draws)
+        CapturedSky({"#121 ge1",0xbda41a11626a545cull,0x02ee5f0608be581aull,0xb030ab4e17a20783ull,
+            draw.draw,draw.depthDraw,true,0x4013372b6413788full},draw);
 }
 // Runtime suspect locator (no F1 capture): camera slot choice, same-frame
 // companion lookup, per-pair settling and the fixture-bearing log format.
@@ -1897,6 +1908,8 @@ int main(int argc,char** argv)
     { CapturedF6814Cutscene(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f3449-sky")==0)
     { CapturedF3449Sky(); return 0; }
+    if (argc==2 && std::strcmp(argv[1],"--captured-issue121-sky")==0)
+    { CapturedIssue121Sky(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--captured-f1800-sky")==0)
     { CapturedF1800Sky(); return 0; }
     if (argc==2 && std::strcmp(argv[1],"--suspect-tracker")==0)
@@ -1916,6 +1929,7 @@ int main(int argc,char** argv)
     CapturedF6814Cutscene();
     CapturedF3449Sky();
     CapturedF1800Sky();
+    CapturedIssue121Sky();
     SuspectLocator();
     FeedbackMappingBatch();
     ScreenMappingBatch();
