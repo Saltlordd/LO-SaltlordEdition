@@ -45,7 +45,7 @@ The branch now includes an experimental arm64 Android runtime target alongside t
 
 The Android runtime now loads the development resources, plays the opening video and reaches the first battle on the test tablet. Touch input passed title/menu navigation and two opening-battle attacks with visible damage; one initial-battle shader preparation observed a pause of about 40 seconds. Longer play, audio beyond native queue evidence, other GPUs, 16 KB devices and physical-controller validation remain pending. See the [Android port research note](docs/notes/android-port-research-2026-10-02.md) and [Android DXC build note](docs/notes/android-dxc-build-2026-10-02.md).
 
-The runtime keeps SDL physical-controller support and adds an Android on-screen touch controller that can be hidden and saves its setting automatically. This source path has not yet been accepted through a complete game session. The generated PPC code also remains available as a separate Android ARM64/PIC static-library target.
+The runtime keeps SDL physical-controller support and adds an Android on-screen touch controller. Its source implementation now supports the `Controller settings` size/opacity controls and an `Edit layout` screen for dragging, saving, resetting and showing or hiding individual controls; the layout model checks and device UI flow are verified on the development tablet. This source path has not yet been accepted through a complete game session. The generated PPC code also remains available as a separate Android ARM64/PIC static-library target.
 
 ### Latest changes
 

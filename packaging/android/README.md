@@ -46,9 +46,12 @@ installed with ADB. On the development tablet, the four-disc resources are in
 the app's external files directory with readable permissions; the runtime has
 loaded the XEX, created the Vulkan device and swapchain, and entered real DXC
 shader preparation. The [Android DXC build note](../../docs/notes/android-dxc-build-2026-10-02.md)
-records the native compiler staging details. The newer APK verified the
-swapchain-resize fix with one resize, but the game image remains black; shader
-counts and host-menu input do not establish playable-game support.
+records the native compiler staging details. The current development APK has loaded the XEX, played the opening video,
+reached the first battle and completed two touch-driven attacks with visible
+damage on the development tablet. One initial-battle shader preparation pause
+of about 40 seconds was observed. Longer play, audio beyond native queue
+evidence, other GPUs, 16 KB devices and physical-controller validation remain
+open; these checks do not establish complete-game support.
 
 On Windows PowerShell use:
 
@@ -143,10 +146,14 @@ The Gradle shell can then be packaged from this directory:
 ```
 
 The runtime uses app-owned external files for game data and keeps physical SDL
-controller input. It also provides an on-screen touch controller which can be
-hidden from the Android UI; visibility is persisted with
-`SharedPreferences`. Disabling the controls has been verified on the device;
-restart persistence, game input and physical hardware remain unverified. The
+controller input. Its source touch-controller implementation provides a
+`Controller settings` dialog with **Show touch controls**, **Control size**
+(60–140%), **Opacity** (25–100%), **Apply**, **Cancel** and **Edit layout**.
+The editor provides **SAVE**, **CANCEL**, **RESET** and **HIDE**/**SHOW**;
+controls can be dragged independently, and hidden controls remain selectable
+in the editor. The pure layout model checks and the configurable editor flow
+were verified on the development tablet; broader multitouch and physical
+controller coverage remain pending. The
 BDA vertex-fetch path avoids requiring the complete
 1 GiB vertex arena as one storage-buffer descriptor on devices with a smaller
 reported range. Host HLSL remains unchanged for the desktop path.

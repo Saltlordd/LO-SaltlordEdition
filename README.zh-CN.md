@@ -45,7 +45,7 @@ Windows x64 · Linux x64 · Direct3D 12 · Vulkan
 
 Android 运行时现在能在测试平板加载开发资源、播放开场视频并进入首战。触摸输入已通过标题／菜单导航和首战两次攻击，画面显示伤害；一次首战 shader 准备过程中观测到约 40 秒停顿。长时间游玩、超出 native 队列的音频、其他 GPU、16 KB 设备和实体手柄仍待验证。详见[Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)及 [Android DXC 构建记录](docs/notes/android-dxc-build-2026-10-02.md)。
 
-运行时保留 SDL 实体手柄支持，并加入可以关闭且自动保存设置的 Android 屏幕触摸手柄。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
+运行时保留 SDL 实体手柄支持，并加入 Android 屏幕触摸手柄。源码实现现在支持 `Controller settings` 中的大小／透明度设置，以及可拖动、保存、重置和逐个显示或隐藏控件的 `Edit layout` 页面；布局模型检查和设备 UI 流程已在测试平板验证。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
 
 ### 最新更新
 

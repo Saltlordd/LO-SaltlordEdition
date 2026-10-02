@@ -253,3 +253,10 @@ Adreno 750 真机上的独立 Plume vertex-stage probe 使用 24-byte push const
 替换 APK 前，战斗中关闭触摸控件和 Home/恢复已通过；关闭状态跨 APK 更新与冷启动保留。最终应用重新启用控件后，`SharedPreferences` 的 `enabled=true` 已确认。设备上的临时 probe（26 个文件、2 个目录）及两处合计约 1.8 GiB 的 capture 目录已清理，主机侧证据保留。以上仍不等于完整流程、性能、其他 GPU、16 KB 设备或实体手柄验收。
 
 当前明确的 Android 边界是：桌面在线 updater、桌面自动 restart 和自动 tar capture 打包暂不支持。`app:assembleDebug` 与 `:runtime` 的 Gradle 构建是独立目标；native link、APK 打包、资源加载、shader 准备或首战通过都不能代替实体／触摸输入的更广覆盖、音频确认、前后台恢复、长时间游玩和完整流程验证。未发布、未 push、无用户验收。
+
+
+## 虚拟手柄布局实现 checkpoint（2026-10-02，设备 UI 已限定验证）
+
+Android 源码新增了可配置的十五个虚拟手柄控件，并保留 SDL 实体手柄路径。`Controller settings` 提供 `Show touch controls`、`Control size`（60–140%）、`Opacity`（25–100%）、`Apply`、`Cancel` 和 `Edit layout`；编辑器提供 `SAVE`、`CANCEL`、`RESET` 及按当前选择切换的 `HIDE`／`SHOW`。控件可独立拖动，隐藏控件在编辑器中仍以淡化状态可选；重置位置和可见性时保留全局大小与透明度，顶部中央的 `CTRL` 入口保留可达空间。
+
+`TouchControlLayout` 的模型检查已通过，覆盖默认参考布局、草稿隔离、缩放坐标和边缘限制；最终 APK 的 `assembleDebug`／`lintDebug` 也通过。真机已验证默认参考布局、拖动 A 并保存、隐藏／显示 Y、取消拖动、布局跨 APK 更新与冷启动保留、全局隐藏、尺寸 80%、透明度 59% 及 RESET+SAVE 恢复参考布局；A、START 的 guest input trace 也分别读到 `0x1000`、`0x0010`，释放回零。完整多点触控边缘覆盖、实体手柄和长时间游玩仍待验证。
