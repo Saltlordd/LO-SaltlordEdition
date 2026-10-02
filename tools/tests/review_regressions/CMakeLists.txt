@@ -44,6 +44,7 @@ lo_review_test(LoOcclusionQueriesTest occlusion_queries_test.cpp)
 lo_review_test(LoTemporalJitterTest temporal_jitter_test.cpp)
 # One-file local shader store: keys, recovery, integrity, locking, compaction.
 lo_review_test(LoShaderStoreTest shader_store_test.cpp)
+lo_review_test(LoShadowResolutionTest shadow_resolution_test.cpp)
 # Startup shader-pack download: index, selection, asset URLs, decline record.
 lo_review_test(LoShaderPackIndexTest shader_pack_index_test.cpp "${LO_RUNTIME}/updater/shader_pack_index.cpp")
 # Offline capture, suspect-log and triage tools (standard-library Python).

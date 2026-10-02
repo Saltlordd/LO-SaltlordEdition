@@ -18,4 +18,13 @@ On an NVIDIA RTX 5080, a 60-second Vulkan Uhra scene run with GTAO and 4× shado
 
 None of these three runs exited early or logged an error, AO bypass, device loss or crash. Reviewed 3D and UI screenshots looked normal, and the checked baseline hashes were unchanged. The timed runner then stopped each game process deliberately; exit code -1 is not a natural game exit. These were moving scenes, not frozen visual comparisons or performance benchmarks. Local, unpublished records are in the `shadow-ao-7601/runs/final-gtao4`, `final-ssao2-d3d12` and `final-gtao1-taa` worktree folders.
 
+Merge checks on 2026-10-02 (this branch on top of main `fe89910`+, shared SPIR-V packs):
+
+- Default settings (1× shadows, AO Off), frozen Uhra save, 4K, uncapped, RTX 5080: screenshots of this branch and of main differ by about 1% of pixels (animated characters and foliage), the same as two main runs against each other, on both D3D12 and Vulkan. Frame rates were in the same range (D3D12 212 vs 204, Vulkan 194/218 vs 200/208 FPS), but another process was compiling during some runs, so these are not a benchmark.
+- #118 world-map save, 1600x900: D3D12 and Vulkan with GTAO and 4× shadows rendered correctly; GTAO darkens crevices slightly.
+- M1 Max, Metal, `new-game-battle`: default and GTAO with 4× shadows both passed; the GTAO run logged `AO applied mode=2` with no errors and a normal battle frame.
+- Lenovo TB321FU (Adreno 750), Android: the Graphics page lists both settings; with GTAO and 4× shadows the opening battle logged a 4× shadow raster and `AO applied mode=2` and rendered normally.
+- `LoShadowResolutionTest` now also runs in review_regressions.
+- Independently of these settings, `DropResolved` moves a dropped resolved surface's texture and fetch views to the GPU slot's retired list instead of destroying them while the frame may still use them.
+
 The AO and shadow paths are connected to anti-aliasing, super resolution, frame generation and HDR composition, but those combinations have not been comprehensively exercised. The recorded build had DLSS and FSR disabled. These Uhra checks cover one scene on each backend and do not establish quality, performance, full-map coverage or behavior on other platforms.
