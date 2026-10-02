@@ -2,7 +2,7 @@
 
 [文档总入口](../README.md) · [当前状态](../STATUS.md) · [路线图](../ROADMAP.zh-CN.md) · [历史归档](../archive/README.md)
 
-2026-10-02 整理：本目录收录全部 **156 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
+2026-10-02 整理：本目录收录全部 **159 篇**专项笔记，按主题列出，每篇只出现一次。文件名和原始证据继续保留，目录不重复维护版本发布或任务进度。
 
 ## 如何使用
 
@@ -13,7 +13,7 @@
 | 调查 | 问题分析及其证据边界；此标记不等于对应 Issue 仍开放，现状以 STATUS / 路线图为准。 |
 | 草案 | 设计、研究、需求或发布文案；不代表已实施，也不因年代久远自动取消。 |
 
-分类合计：参考 26、历史 106、调查 14、草案 10。
+分类合计：参考 26、历史 107、调查 16、草案 10。
 
 先用当前状态确认实施、验证、验收和发布，再从下方进入证据。旧命令执行前核对源码、工具及输入；`out/`、本机绝对路径和截图编号是原调查的定位信息，不随仓库分发。已缺失的本地产物标为历史路径，不能视作本次复验。
 
@@ -101,6 +101,7 @@
 | [Fire-hit lighting investigation (2026-09-05)](fire-hit-rendering.md) | 调查 |
 | [GPU 当前说明（2026-09-05）](gpu.md) | 历史 |
 | [Issue #70 DX12/Vulkan optimization](issue-70-dx12-vulkan-optimization.md) | 历史 |
+| [Tall and non-standard aspect layout — 2026-10-01](tall-aspect-layout.md) | 历史 |
 | [Kaim body-shadow flicker: v0.4.0 investigation](kaim-body-shadow-v040.md) | 历史 |
 | [光照 / 阴影续修（2026-09-04）](lighting-stencil-depth-clear.md) | 调查 |
 | [Map12 poster black-patch repair — 2026-09-05](map12-poster-depth.md) | 历史 |
@@ -180,6 +181,7 @@
 | [USA/Europe edition support](europe-support.md) | 参考 |
 | [Issues #54 / #55: audio follow-up and validation](issue-54-55-audio-followup.md) | 历史 |
 | [Issue #74：分队期间随时存档后无法换人（2026-09-29 调查）](issue-74-save-anywhere-party-split.md) | 调查 |
+| [Issue #114: field interaction during a pending battle request](ISSUE_114_FIELD_INTERACTION_20261001.md) | 调查 |
 | [Issue #12: funeral flower hand-in investigation](issue12-funeral-crash.md) | 历史 |
 | [Issue #12 交接（2026-09-09）：根因已定位，生产交花路径已通过](issue12-handoff-2026-09-09.md) | 历史 |
 | [Issue #12 root cause: garbage-collected materials drawn by a stale scene proxy](issue12-root-cause.md) | 历史 |
@@ -203,6 +205,7 @@
 |---|---|
 | [Pull request checks and releases on Gitea](ci-gitea.md) | 参考 |
 | [Developer-tool recovery record — 2026-09-24](developer-tool-recovery-2026-09-24.md) | 历史 |
+| [Android 移植研究（2026-10-02）](android-port-research-2026-10-02.md) | 调查 |
 | [Linux 移植评估与首可玩裁定（2026-09-13）](linux-port-evaluation-2026-09-13.md) | 历史 |
 | [Switch 移植评估与 PC Vulkan 后端交接（2026-09-07）](switch-vulkan-handoff.md) | 历史 |
 

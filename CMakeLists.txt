@@ -20,6 +20,16 @@ set(BUILD_SHARED_LIBS OFF)
 
 # LO_TARGET_PLATFORM / LO_TARGET_ISA for every platform-specific decision below.
 include(cmake/LoPlatform.cmake)
+option(LO_BUILD_ANDROID_PROBE "Build the Android SDL/Vulkan/memory diagnostic app (no game data)" OFF)
+if(LO_BUILD_ANDROID_PROBE)
+    if(NOT ANDROID OR NOT LO_TARGET_ISA STREQUAL "aarch64")
+        message(FATAL_ERROR "The Android probe requires the NDK arm64-v8a toolchain")
+    endif()
+    add_subdirectory(tools/android_probe)
+    return()
+elseif(ANDROID)
+    message(FATAL_ERROR "The Android game runtime is not ported yet; use -DLO_BUILD_ANDROID_PROBE=ON")
+endif()
 # Sandy Bridge baseline (AVX): lets simde map VMX ops to real SSE4.1/AVX intrinsics
 # instead of scalar fallbacks (which pull in C23 roundeven*). Same as UnleashedRecomp.
 # Guarded to x86 so non-x86 Clang builds do not receive an invalid -march; on

@@ -1,0 +1,176 @@
+# Android ARM64 移植研究（2026-10-02）
+
+研究基线：`origin/main` 的 `cf13e15a15e3d21e5c905de5408a8a01bbb17aa6`，本地分支 `trail/android-port-research`。
+
+**初始研究结论（已保留为历史基线）：值得做 ARM64 / Vulkan 原型，但当时源码不能直接编译打包为可玩的 Android 版本。** 已有 ARM64 guest CPU、SDL 和 Vulkan 基础可复用；构建入口、16 KB 主机页、GPU 能力与资源预算、shader 编译和 Android 应用边界仍需适配。现阶段不承诺兼容机型、最低内存、帧率或交付日期。当前开发状态见文末的 checkpoint。
+
+初始研究交付为源码与官方资料研究、平台判定探针和后续验证顺序；当时没有 Android 编译、APK、设备运行、玩家验收或发布。后续开发已加入受限的诊断 APK，但不改变完整游戏尚未接入的结论。
+
+## 证据范围与来源
+
+- 主仓库从最新拉取的 `origin/main` 建立研究分支；原 `trail/tall-ultrawide-layout` 分支保留。
+- 本地依赖：SDL `0aef2c3`、plume `d890ac8`、XenonRecomp `ddd128b`、XenosRecomp `990d03b`。plume 与 XenonRecomp 有原有补丁工作树修改，主仓库设置了 `ignore = dirty`；本研究没有更改它们。
+- `plume-lostodyssey.patch` 的只读 reverse-check 通过；XenonRecomp 的 reverse-check 在 `ppc_context.h` 失败。本次审查发现其 timebase 附近注释差异，相关 ARM64/timebase 结论同时参考仓库保存的补丁；该检查失败不能当作依赖完全同步的证据，后续构建前应重新核对。
+- 已查询 Windows SDK 环境变量、默认 SDK 目录，以及 WSL Manjaro 的 SDK 环境变量和常用 NDK 目录，未发现可用 NDK。不是对所有磁盘或其他主机的完整搜索。
+- `adb devices -l` 没有列出设备，因此下文 GPU、系统调用、性能和生命周期均无 Android 实测。
+- 文中源码行号对应上述提交及本地依赖补丁状态。**证据**表示源码或命令结果；**判断**表示由证据推出的移植工作；**待验证**不构成支持声明。
+
+## 按优先级排列的结论
+
+| 优先级 | 结论 | 可信度与边界 |
+|---|---|---|
+| P0 | 构建系统不接受 Android，应用仍为桌面 executable；需要 NDK target 与 APK/SDLActivity 入口 | 高，直接源码与平台脚本探针 |
+| P0 | Linux guest 内存的 E 别名偏移不符合 16 KB 页对齐；需新的映射方案与语义验证 | 高，直接源码；4 KB Android 也尚未实测 |
+| P0 | Vulkan 支持标签不足以判定可运行；BDA、格式、storage-buffer 限制和资源预算必须逐项检查 | 高，当前渲染器要求明确；目标 GPU 能否满足未知 |
+| P0 | 现有 portable shader pack 不等于完全无需 DXC；内建 shader 与 guest miss 仍有编译路径 | 高，直接源码；Android DXC 构建未做 |
+| P1 | 存储、更新器、前后台/Surface、线程栈需要 Android 适配 | 高，桌面假设明确；实际改动量需原型验证 |
+| P2 | ARM64 guest、SDL 音频和实体手柄可复用，持续性能与触控需另行验证/实现 | 中，代码基础存在；无手机运行证据 |
+
+## 1. 构建与依赖
+
+**证据。** [`cmake/LoPlatform.cmake`](../../cmake/LoPlatform.cmake) 第 9–16 行只接受 Windows、Apple、Linux；第 35–40 行已经识别 `aarch64`。在 WSL Manjaro 执行如下只读脚本探针：
+
+```sh
+cmake -DCMAKE_SYSTEM_NAME=Android -DCMAKE_SYSTEM_PROCESSOR=aarch64 -P cmake/LoPlatform.cmake
+```
+
+退出码 `1`，输出 `Unsupported target platform 'Android'`（第 16 行）。这只验证平台识别模块，不是 NDK configure 或编译结果。
+
+[`CMakeLists.txt`](../../CMakeLists.txt) 第 23–28 行已将 x86 的 `-march=sandybridge` 限制在 x86；[`LostOdysseyRecompLib/CMakeLists.txt`](../../LostOdysseyRecompLib/CMakeLists.txt) 把生成的 PPC C++ 编为静态库。这些是 ARM64 复用基础，无须从 PowerPC 指令翻译重新开始。
+
+但 [`LostOdysseyRecomp/CMakeLists.txt`](../../LostOdysseyRecomp/CMakeLists.txt) 第 136 行仍是 `add_executable`，第 186–191 行对所有 UNIX 使用桌面 RPATH、`pthread dl` 和 `find_package(CURL)`；第 843–858 行的非 Apple DXC 路径指向 `lib/x64/libdxcompiler.so`。Android Bionic 将 pthread 实现放在 libc 中，桌面依赖和 `.so` 不能直接沿用。[Bionic 官方说明](https://android.googlesource.com/platform/bionic/+/main/README.md)
+
+[`thirdparty/ffmpeg.cmake`](../../thirdparty/ffmpeg.cmake) 第 10–35 行已有按平台/ISA 选择配置和 AArch64 NEON 源码的机制；仓库仅有 `thirdparty/ffmpeg-config/macos-aarch64/config.h`。Android 需针对固定的 Xenia FFmpeg fork，用 NDK 生成独立配置并核对 XMA decoder，不能换成没有相同 XMA 支持的普通发行库。
+
+**判断。** 首次实现需要：
+
+1. 新增明确的 `android` 平台分支和 `arm64-v8a` NDK 配置；初期不包含 32-bit ABI。
+2. 建立 SDL2 `SDLActivity` / Gradle 壳，提供 native shared library 入口，处理静态依赖 PIC、JNI、日志与 APK 打包。当前强制静态 SDL 的选项也需与采用的 Android 装载方式一起调整。[SDL2 Android 入口](https://wiki.libsdl.org/SDL2/README-android)
+3. host 与 target 分开：XenonRecomp、Python、shader/pack 工具在构建主机运行；PPC 产物、runtime、SDL、plume、FFmpeg、zstd 等使用 NDK 编译。若保留 libcurl，也需 Android 版本及其 TLS 依赖。生成器不能在构建机上误执行 Android ELF。[NDK CMake](https://developer.android.com/ndk/guides/cmake)、[其他构建系统交叉编译](https://developer.android.com/ndk/guides/other_build_systems)
+4. 起步关闭 DLSS、FG、MetalFX 等不相关路径；FSR/其他画质扩展等首帧稳定后再评估。host 离线 shader 工作与设备运行依赖要显式分开。
+
+建议使用支持 16 KB 对齐的 NDK r28 或更新版本、AGP 8.5.1 或更新版本作为原型工具链起点；具体版本在实现时固定。版本满足要求并不自动修复页粒度语义。[Android 16 KB 指南](https://developer.android.com/guide/practices/page-sizes)
+
+## 2. Guest 内存与 ARM64 运行时
+
+**证据。** [`kernel/guest_address_space_layout.h`](../../LostOdysseyRecomp/kernel/guest_address_space_layout.h) 第 10–16 行定义的 E 视图 backing offset 为 `0xA0001000`。[`kernel/guest_address_space.cpp`](../../LostOdysseyRecomp/kernel/guest_address_space.cpp) 第 199–245 行的非 Mac POSIX 路径在 `0x100000000` 固定预留 4 GiB 虚拟地址，使用 `SYS_memfd_create`，以 `MAP_SHARED | MAP_FIXED` 建立全部四个别名。该 E offset 只对齐到 4 KB，在 16 KB 页设备上不能原样传给 `mmap`。
+
+这里的 **4 GiB 是 guest 虚拟地址预留，不能据此宣称消耗 4 GiB 物理内存**；实际 backing、常驻页和 GPU 资源占用应分别测量。
+
+[`kernel/guest_address_space_macos.cpp`](../../LostOdysseyRecomp/kernel/guest_address_space_macos.cpp) 第 11–18、43–82、107–130 行已针对大页问题跳过 E 视图并设置访问探针，但采用 Mach VM。Android 不能直接复制这一 backend，也不能仅因 Mac 的有限运行成功就宣布所有 E 访问都不存在。
+
+**判断。** Android 应有单独的 guest memory 适配：区分 guest 页与 host 页，探测 `sysconf(_SC_PAGESIZE)`，对 reserve、alias、commit/protect/unmap 和 E 访问建立可观测验证。优先研究保留别名语义的方案；若原型暂时省略 E，必须让实际访问被记录或明确失败，并以覆盖证据限制支持范围。
+
+**待验证。** 4 KB 与 16 KB 环境中的固定地址预留可行性、Bionic/API 对应系统调用、内存保护粒度、压力下的失败处理、长期 guest 内存正确性。
+
+ARM64 其他基础与风险：
+
+- [`cpu/ppc_context.h`](../../LostOdysseyRecomp/cpu/ppc_context.h) 第 3–12 行、[`cpu/guest_thread.cpp`](../../LostOdysseyRecomp/cpu/guest_thread.cpp) 第 29–53、98–118 行使用 guest TLS/context；[`XenonRecomp-lostodyssey.patch`](../../tools/patches/XenonRecomp-lostodyssey.patch) 第 687–698 行的 timebase 使用平台中立的 active game clock。
+- [`os/guest_code_thread.h`](../../LostOdysseyRecomp/os/guest_code_thread.h) 第 46–49 行依赖 Linux 默认大线程栈的假设；Android 必须测量或显式设置 guest worker 栈，不能沿用“Linux 默认 8 MiB”的判断。
+- [`os/platform.h`](../../LostOdysseyRecomp/os/platform.h) 第 7–23 行没有 Android 分类；`__linux__` 会进入 Linux 分支。与 CMake 一样，需要把 Android 的系统边界明确出来。
+- [`os/crash_handler.cpp`](../../LostOdysseyRecomp/os/crash_handler.cpp) 第 364–374 行的非 Windows handler 为空；需要可用的 native crash/logcat 证据，Mac 的 Mach 探针不能代替 Android 诊断。
+
+## 3. Vulkan：版本、Surface、格式与资源预算
+
+**证据。** 当前 plume 请求 Vulkan **1.2**（[`plume_vulkan.cpp`](../../thirdparty/plume/plume_vulkan.cpp) 第 4910–4915 行），DXC SPIR-V 编译也使用 `vulkan1.2` target（[`dxc_compiler.cpp`](../../LostOdysseyRecomp/gpu/shader/dxc_compiler.cpp) 第 234–237 行）。应用已有设备能力门槛：[`gpu/backend_selection.h`](../../LostOdysseyRecomp/gpu/backend_selection.h) 第 39–64 行要求 Vulkan 1.2、BDA、`shaderInt64`、`scalarBlockLayout` 与部分 descriptor limits，并在 `video.cpp` 第 1749 行执行。不能把“手机支持 Vulkan”或某个 Android 版本当作这些条件已满足。[Android Vulkan native engine 指南](https://developer.android.com/games/develop/vulkan/native-engine-support)
+
+### Surface 接入是已知接口缺口
+
+[`thirdparty/plume/CMakeLists.txt`](../../thirdparty/plume/CMakeLists.txt) 第 16–20 行将 SDL Vulkan 选项限制到系统名精确为 `Linux`。Android 会关闭该选项；其 `RenderWindow` 成为 `ANativeWindow*`（[`plume_render_interface_types.h`](../../thirdparty/plume/plume_render_interface_types.h) 第 63–66 行），但应用的通用非 Windows/macOS 分支传入 `SDL_Window*` 并调用 SDL 版本的接口（[`gpu/video.cpp`](../../LostOdysseyRecomp/gpu/video.cpp) 第 1725–1728、1828–1829 行）。
+
+plume 已有 Android native surface 分支（`plume_vulkan.cpp` 第 2163–2174 行），所以方向明确：选择完善 Android SDL Vulkan 集成，或显式取得 `ANativeWindow` 并使用 native 接口；同时处理 Surface 的创建、销毁和重建。
+
+### 设备探针必须覆盖的渲染要求
+
+| 项目 | 当前源码证据 | 移植判断 |
+|---|---|---|
+| WSI | plume 第 45–74 行要求 surface / Android surface 或 SDL WSI，以及 `VK_KHR_swapchain` | 验证实例、设备、present queue 和 swapchain，不能只枚举 GPU |
+| BDA / shaderInt64 / scalarBlockLayout | plume 把 BDA 作为可选能力查询，但应用的 backend gate 已要求这三项；renderer 第 8050–8055 行使用 device address，`common_hlsl.h` 第 10–24 行使用 64 位地址 | 复用已有启动检查并在设备报告中记录结果；不可把 Vulkan 1.2 版本号等同于可选 feature 全部可用 |
+| 已有 descriptor 门槛 | `backend_selection.h` 第 39–64 行要求至少 5 个 descriptor sets、32 个 samplers、96 个 sampled images、1 个 storage buffer、24 字节 push constants | 按 `backend_device.h` 第 27–41 行的实际 Vulkan limit 字段查询；这些数量门槛之外仍要检查下述 buffer range |
+| Storage buffer range | renderer 第 1915–1918 行创建 1 GiB vertex arena，第 1980–1983 行将整段绑定；plume 第 2003–2012 行使用该完整 descriptor range | 查询 `maxStorageBufferRange`；不满足时需要分段绑定/arena 改造，降低分辨率无法解决该限制 |
+| 映射内存预算 | renderer 第 243、428、1886–1906 行有两个 96 MiB upload ring，另有上述 1 GiB mapped arena | 已知请求容量合计约 1.1875 GiB，尚不含纹理、目标、guest backing；不等同于测得 RSS。需按设备预算设计容量与回收 |
+| BC1 / BC2 / BC3 | renderer 第 5475–5477 行将 guest DXT 格式直接映射到 BC；第 5873–5881 行创建失败直接返回 | 检查 sampled format 支持；该路径没有 BC→RGBA 回退，缺失时需解压/转码策略及其内存预算 |
+| 深度与浮点目标 | renderer 第 5352–5364 行使用 `D32_FLOAT_S8_UINT`，第 5175–5189 行使用 RGBA16F 目标 | 按实际用途查询 attachment、sampled、transfer 等 format feature 位，必要时适配格式 |
+
+上述 renderer 引用均指 [`gpu/renderer.cpp`](../../LostOdysseyRecomp/gpu/renderer.cpp)；arena 容量常量位于 [`gpu/render_arena_policy.h`](../../LostOdysseyRecomp/gpu/render_arena_policy.h) 第 7–9 行。
+
+设备探针还应完整记录 Vulkan features（包括 descriptor indexing、scalar block layout 等）、limits、驱动、内存堆/类型，以及一个代表性 shader + pipeline + draw 的结果。仅列出扩展不足以验证功能。没有证据支持现阶段宣称某个 Adreno/Mali 型号可玩，或对两家驱动兼容性作排名。
+
+## 4. Shader 编译与分发
+
+**证据。** portable pack 可以减少 guest shader 编译，但 [`gpu/renderer.cpp`](../../LostOdysseyRecomp/gpu/renderer.cpp) 第 2030–2038、2139、2241–2261 行的内建 shader 仍调用 `CompileCachedHlsl`；[`dxc_compiler.cpp`](../../LostOdysseyRecomp/gpu/shader/dxc_compiler.cpp) 第 333–363 行在 miss 时编译。guest shader miss 在 renderer 第 4733–4750、5000–5011 行也进入编译路径。
+
+缓存身份依赖 `DxcIdentity`（renderer 第 1841 行）；DXC 不能装载时 identity 为空（dxc 第 175–190 行）。非 Mac `.so` 查找路径和现有打包指向桌面/x64，未提供 Android ARM64 DXC。因此“复制 `portable_vk.lospv` 后就能去掉 DXC”不成立。
+
+**两个待选择的实现方向：**
+
+- 构建 Android ARM64/Bionic DXC，保留 miss 编译路径；需验证产物大小、装载、编译峰值内存和线程栈。
+- 将启动内建 shader 与需要的变体一起离线化，定义不依赖设备端 DXC 装载的稳定缓存身份；guest miss 必须有明确的失败/补包机制和可观测日志。此方案需先证明 shader 覆盖，不能用黑屏或静默跳过掩盖缺失。
+
+建议原型先把**最小首帧**所需 shader 离线固定，以快速验证 GPU；完整游戏采用哪种方案，由实际编译成本与覆盖结果决定。SPIR-V 是输入，设备 pipeline cache 仍需按驱动/设备隔离。
+
+## 5. Android 应用边界
+
+| 领域 | 已有行为 | 所需工作 |
+|---|---|---|
+| 入口、路径、更新 | [`main.cpp`](../../LostOdysseyRecomp/main.cpp) 第 65–72 行读 `/proc/self/exe`，第 267–315 行运行桌面 updater / `posix_spawn`；[`os/user_paths.h`](../../LostOdysseyRecomp/os/user_paths.h) 第 19–85 行采用可执行目录或 HOME/XDG | 使用 app-specific files/cache/save 路径；原型禁用桌面自更新；APK 升级交给 Android 安装流程 |
+| 游戏数据 | 当前游戏定位/加载依赖普通目录和文件路径（main 第 318–402 行、[`settings/game_path.h`](../../LostOdysseyRecomp/settings/game_path.h) 第 142–184 行） | 选择 SAF 导入到应用可访问目录，或实现 URI/FD 后端。前者涉及空间和中断恢复，后者涉及 seek/mmap/大量小文件；需明确取舍 |
+| 生命周期 | 当前窗口/输入事件处理主要覆盖桌面事件，未发现应用自己的 `SDL_APP_*` 处理；退出有 `std::_Exit`（main 第 116–122 行、[`hid/hid.cpp`](../../LostOdysseyRecomp/hid/hid.cpp) 第 234–249 行） | 处理前后台、音频暂停、guest 时间/线程、Surface 重建、状态落盘和进程被回收后的重启 |
+| 输入 | SDL_GameController 已有；未发现 runtime 的 `SDL_FINGER*` 处理 | 第一轮用实体手柄验证；触控 UI/虚拟按键为独立后续工作 |
+| 音频 | [`apu/audio.cpp`](../../LostOdysseyRecomp/apu/audio.cpp) 第 96–111、127–175 行使用 SDL float stereo 队列，SDL 子模块自带 Android backend | 可复用，但 XMA、暂停恢复、设备切换与延迟仍需真机验证 |
+
+SAF 返回 URI，不能当作普通路径；provider 给出的 FD 也可能不可 seek。应验证授权持久化、随机读取、目录移动/删除后的错误处理。[SAF 官方指南](https://developer.android.com/training/data-storage/shared/documents-files)、[ContentResolver FD 契约](https://developer.android.com/reference/android/content/ContentResolver#openFileDescriptor(android.net.Uri,%20java.lang.String))
+
+Activity/进程可被系统重建或终止，不能把桌面退出语义直接当成移动生命周期；持续性能应包含热状态与降频。[Activity lifecycle](https://developer.android.com/guide/components/activities/activity-lifecycle)、[Android thermal 指南](https://developer.android.com/games/optimize/adpf/thermal)
+
+## 6. 建议的原型顺序与停止条件
+
+研究基线建议：**ARM64、原厂驱动 Vulkan 1.2 + 经查询满足的功能集、实体手柄、固定横屏、SDR、关闭 FG/高成本画质扩展**。Android 最低 API 尚未定案，由所用 NDK API 和设备范围确定。这是工程提案，不是最低系统/设备支持声明。
+
+| 阶段 | 产物与通过条件 | 不通过时 |
+|---|---|---|
+| A：工具链与空壳 | SDL Android APK 在选定设备启动，native 日志、窗口、音频、手柄可用；ELF/APK 对齐正确 | 修复入口和依赖；不接完整游戏 |
+| B：内存语义 | 分别在 4 KB、16 KB 环境验证真实 guest reserve/alias/protect/unmap、E 访问与 worker 栈 | 调整 backend 或明确限制原型环境；不宣称 16 KB 支持 |
+| C：GPU 首帧 | 记录完整 capabilities，正确创建 Surface、pipeline、代表性纹理和 draw；完成前后台 Surface 重建 | 为缺失功能设计适配；单纯降低分辨率不解决 feature/descriptor 限制 |
+| D：完整运行链接 | NDK 编译 runtime/PPC/依赖，完成 built-in shader 路径；记录所有 shader miss；加载用户提供的数据 | 修复编译/装载/路径与 shader 缺口；不发布可玩声明 |
+| E：有限玩法 | 新游戏、开场、首战、菜单、保存/读取、音频、手柄、前后台/锁屏恢复，截图和日志留证 | 分别记录实现、运行验证和玩家验收，不以启动成功替代玩法验收 |
+| F：持续运行 | 同一设备/驱动/设置下固定场景 20–30 分钟，记录 frame time、RSS、内存峰值、热状态；另测低内存回收/重启后数据 | 优化资源容量/带宽和帧节奏，扩大设备覆盖前保留单机限制 |
+
+A/B/C 可用不含游戏数据的小型探针推进；B/C 是进入完整游戏工作的关键决策门槛。20–30 分钟为研究建议，不是已完成测试或官方验收标准。
+
+后续设备取证至少记录：
+
+```sh
+adb shell getprop ro.product.model
+adb shell getprop ro.build.version.sdk
+adb shell getprop ro.product.cpu.abilist
+adb shell getconf PAGE_SIZE
+```
+
+初始研究时尚未在设备执行上述命令；后续执行结果见文末真机 checkpoint。GPU 探针另行输出 `VkPhysicalDeviceProperties`、features、extensions、limits、format properties 与 memory heaps。APK 检查 `zipalign -c -P 16 -v 4 app.apk`，逐个 native `.so` 核对 ELF LOAD 对齐；同样需要实际 16 KB 运行验证。[官方验证步骤](https://developer.android.com/guide/practices/page-sizes)
+
+## 初始研究快照（截至研究阶段）
+
+已完成：建立研究分支、源码与上游文档审查、平台判定失败复现、依赖来源/工具链可用性检查、分阶段研究记录。
+
+未完成：Android 工具链安装、NDK configure/build、APK、内存/GPU 探针实现、任何 Android 真机或模拟器运行、性能数据、用户验收、commit/push/PR 或发布。现有桌面构建与 Mac 测试均不能补足这些证据。
+
+## 开发 checkpoint（2026-10-02）
+
+在初始研究之后，`trail/android-port-research` 已开始实现一个受限的 Android ARM64 诊断路径。根 CMake 现在识别 Android，并在 `LO_BUILD_ANDROID_PROBE` 路径提前构建探针；完整游戏目标仍被明确拒绝。探针位于 [`tools/android_probe`](../../tools/android_probe/)，APK 工程位于 [`packaging/android`](../../packaging/android/)。它使用 SDL2 的 `SDLActivity` 和 native report UI，提供 **Run checks**、**Test audio** 与 **Copy report** 操作，并将报告写入 `files/probe-report.txt`，native 日志使用 `LOAndroidProbe` 标签。
+
+当前工具链固定为 Gradle 8.11.1（wrapper 含官方 SHA-256 校验）、Android Gradle Plugin 8.9.3、NDK 28.2.13676358、SDK 35、Build Tools 35.0.0、CMake 3.22.1、minSdk 26，且只生成 `arm64-v8a`。WSL 中已确认可复用 `/home/freefrank/Android/Sdk`；不需要另装一套 SDK。构建命令和安装/取证命令见 [`packaging/android/README.md`](../../packaging/android/README.md)。
+
+探针的内存实验使用固定 4 GiB 虚拟地址保留和小别名；当前只对 16 KB 主机页的 E alias 路径明确报告不支持，A/C 检查仍可执行。它不证明完整 guest 映射、保护、取消映射或游戏运行语义。Vulkan 目前只记录能力、限制、格式和内存堆，并在每次检查运行一个 clear/present frame；不含 shader、pipeline 或游戏渲染。探针不请求游戏文件或存储权限。
+
+已完成的主机侧证据：WSL 4 KB memory sentinel 与 cleanup 检查通过，原生 host memory test 覆盖地址冲突安全检查并通过；`assembleDebug` 和 `lintDebug` 均为 `BUILD SUCCESSFUL`。最终修正版 arm64 APK 为 5,757,171 bytes，签名验证通过，`zipalign -c -P 16 -v 4` 通过；三个 native 库均为 ARM64 且满足 16 KB ELF 对齐。CMake 真实 NDK 默认 full-runtime 路径也会按预期拒绝，并提示 `LO_BUILD_ANDROID_PROBE=ON`。SDL Java 使用生成副本应用 USB intent 防护和 AndroidX receiver shim；lint baseline 仅包含 26 条上游 SDL `MissingPermission`，不屏蔽应用或 receiver 新错误。
+
+以上主机侧检查仅证明探针工具链和静态包装正确，不能替代完整游戏验证。设备安装、运行与恢复证据见下方真机 checkpoint；未取得该设备的 logcat 输出，因此设备结论以应用报告与界面取证为依据。
+
+## 首个真机诊断 checkpoint（2026-10-02）
+
+首个设备报告来自 Lenovo TB321FU（Android 16/API 36、arm64，主机页面 4096 字节）；报告原文保存在 [`android-probe-tb321fu-2026-10-02.txt`](android-probe-tb321fu-2026-10-02.txt)。4 GiB 虚拟地址保留、memfd 和小型 A/C/E alias sentinel 检查均通过，结果仍只覆盖小映射可行性，不证明生产 guest 映射和保护语义。该 4 KB 设备不能提供 16 KB 真机支持证据。
+
+设备为 Adreno 750，Vulkan API 1.3.128，驱动版本 `0x802fa028`；`shaderInt64`、buffer device address 和 scalar block layout 均报告可用。BC1/2/3、D32S8、RGBA16F 格式探针和 renderer layout gate 通过，clear submit/present 在 2560×1600 成功。`maxStorageBufferRange` 只有 128 MiB，而当前 vertex arena 需要 1 GiB，因此 vertex arena range gate 失败；这是完整游戏移植的当前 GPU 阻塞项，下一步应适配 render arena，不能用降低分辨率规避。
+
+音频队列 API 提交成功，但只执行了 API/队列检查，未证明人耳可听；本次没有 SDL controller。Android 16 inset 修复后的最终 APK 已重新构建，按钮避开状态栏；三次 Run checks 均在同一进程产生新报告并通过 memory/clear/present，Home 触发 background 后恢复的新 probe 成功，Back 退出并重新启动后的新 probe 也成功。最终 APK SHA-256 为 `3c55eeb2020049d7ad775fdbd768e0adc85b3e338fd24b32f8477a8706be828e`，v2 签名和 16 KB ZIP 对齐通过，`assembleDebug`/`lintDebug` 通过。此次 checkpoint 没有游戏 renderer、shader、资源加载、性能或玩法证据；探针本身不使用游戏资源，16 KB 真机仍未测。

@@ -1,0 +1,110 @@
+plugins {
+    id 'com.android.application'
+}
+
+def sdlJavaSource = file('../../../thirdparty/SDL/android-project/app/src/main/java')
+def generatedSdlJava = layout.buildDirectory.dir('generated/sdl-java')
+def prepareSdlJava = tasks.register('prepareSdlJava', Sync) {
+    from sdlJavaSource
+    into generatedSdlJava
+    doLast {
+        def hidJava = new File(generatedSdlJava.get().asFile, 'org/libsdl/app/HIDDeviceManager.java')
+        def patched = hidJava.getText('UTF-8').replace('\r\n', '\n')
+        def replaceOnce = { String anchor, String replacement ->
+            if (!patched.contains(anchor) || patched.indexOf(anchor) != patched.lastIndexOf(anchor)) {
+                throw new GradleException("Pinned SDL HID source anchor missing or duplicated: ${anchor.lines().first()}")
+            }
+            patched = patched.replace(anchor, replacement)
+        }
+        replaceOnce('''            String action = intent.getAction();
+            if (action.equals(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
+                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                handleUsbDeviceAttached(usbDevice);
+            } else if (action.equals(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                handleUsbDeviceDetached(usbDevice);
+            } else if (action.equals(HIDDeviceManager.ACTION_USB_PERMISSION)) {
+                UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                handleUsbDevicePermission(usbDevice, intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false));
+            }''', '''            if (intent == null) {
+                return;
+            }
+            String action = intent.getAction();
+            UsbDevice usbDevice = intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+            if (action == null || usbDevice == null) {
+                return;
+            }
+            if (action.equals(UsbManager.ACTION_USB_DEVICE_ATTACHED)) {
+                handleUsbDeviceAttached(usbDevice);
+            } else if (action.equals(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+                handleUsbDeviceDetached(usbDevice);
+            } else if (action.equals(HIDDeviceManager.ACTION_USB_PERMISSION)) {
+                boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)
+                    && mUsbManager != null && mUsbManager.hasPermission(usbDevice);
+                handleUsbDevicePermission(usbDevice, granted);
+            }''')
+        replaceOnce('''        mContext.registerReceiver(mUsbBroadcast, filter);''', '''        androidx.core.content.ContextCompat.registerReceiver(mContext, mUsbBroadcast, filter,
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED);''')
+        replaceOnce('''                if (Build.VERSION.SDK_INT >= 33 /* Android 14.0 (U) */) {
+                   Intent intent = new Intent(HIDDeviceManager.ACTION_USB_PERMISSION);
+                   intent.setPackage(mContext.getPackageName());
+                   mUsbManager.requestPermission(usbDevice, PendingIntent.getBroadcast(mContext, 0, intent, flags));
+               } else {
+                   mUsbManager.requestPermission(usbDevice, PendingIntent.getBroadcast(mContext, 0, new Intent(HIDDeviceManager.ACTION_USB_PERMISSION), flags));
+               }''', '''                Intent intent = new Intent(HIDDeviceManager.ACTION_USB_PERMISSION);
+                intent.setPackage(mContext.getPackageName());
+                mUsbManager.requestPermission(usbDevice, PendingIntent.getBroadcast(mContext, 0, intent, flags));''')
+        hidJava.setText(patched, 'UTF-8')
+    }
+}
+
+android {
+    namespace 'io.github.freefrank.lostodyssey.probe'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'io.github.freefrank.lostodyssey.probe'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared'
+                targets 'main'
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path '../../../tools/android_probe/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    // Compile a generated copy of the pinned SDL Java shim with local Android fixes.
+    sourceSets.main.java.srcDir generatedSdlJava
+    lint { baseline = file('lint-baseline.xml') }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging {
+        jniLibs { useLegacyPackaging = false }
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+}
+
+tasks.configureEach {
+    if ((name.startsWith('compile') && name.endsWith('JavaWithJavac')) || name.startsWith('lint')) {
+        dependsOn prepareSdlJava
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
+}
