@@ -55,6 +55,8 @@ struct Config
     GraphicsBackend graphicsBackend = GraphicsBackend::Vulkan; // Applied on the next process start.
 #endif
     uint32_t antialiasing = 0; // 0 Off, 1 FXAA, 2 SMAA, 3 experimental camera-based TAA.
+    uint32_t shadowResolution = 1; // Shadow map width and height multiplier: 1/2/4.
+    uint32_t ambientOcclusion = 0; // 0 Off, 1 SSAO, 2 GTAO.
     uint32_t frameRate = 30;
     bool variableRefreshRate = false; // Opt-in VRR-friendly presentation; does not enable monitor/driver VRR.
     bool hdr = false; // HDR output preference; applied on the next process start.

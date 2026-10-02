@@ -102,6 +102,8 @@ class PackageAppImageTests(unittest.TestCase):
             self.assertEqual((destination / 'usr/bin/LostOdysseyRecomp').read_bytes(), b'mock-runtime')
             self.assertEqual((destination / 'usr/lib/libcurl.so.4').read_bytes(), b'linuxdeploy dependency')
             self.assertTrue((destination / 'usr/share/metainfo/io.github.freefrank.LostOdysseyRecomp.metainfo.xml').is_file())
+            self.assertEqual((destination / 'usr/share/licenses/lost-odyssey-recomp/XeGTAO.txt').read_bytes(),
+                             (ROOT / 'thirdparty/licenses/XeGTAO.txt').read_bytes())
             self.assertTrue((destination / 'AppRun').is_file())
             if os.name != 'nt':
                 link = destination / 'usr/lib/libcurl.so'
@@ -436,6 +438,9 @@ class PackageAppImageTests(unittest.TestCase):
             sdk_dir = fake_root / 'out/deps/nvidia-dlss'
             sdk_dir.mkdir(parents=True, exist_ok=True)
             (sdk_dir / 'LICENSE.txt').write_text('mock license', encoding='utf-8')
+            gtao_license = fake_root / 'thirdparty/licenses/XeGTAO.txt'
+            gtao_license.parent.mkdir(parents=True, exist_ok=True)
+            gtao_license.write_text('mock XeGTAO license', encoding='utf-8')
 
             listing = io.StringIO()
             with patch.object(module, 'ROOT', fake_root):
@@ -445,6 +450,7 @@ class PackageAppImageTests(unittest.TestCase):
             files = set(listing.getvalue().splitlines())
             self.assertIn('usr/bin/ngx/libnvidia-ngx-dlss.so.310.9.1', files)
             self.assertIn('usr/share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/LICENSE.txt', files)
+            self.assertIn('usr/share/licenses/lost-odyssey-recomp/XeGTAO.txt', files)
             # Nothing linuxdeploy rewrites may hold or alias the snippet.
             self.assertEqual([name for name in files
                               if 'ngx-dlss' in name and not name.startswith('usr/bin/ngx/')], [])

@@ -24,6 +24,7 @@ endfunction()
 if(NOT ANDROID)
 lo_add_header_test(LoPollWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/poll_wait_test.cpp)
 lo_add_header_test(LoHdrOutputTest ${CMAKE_SOURCE_DIR}/tools/tests/hdr_output_test.cpp)
+lo_add_header_test(LoShadowResolutionTest ${CMAKE_SOURCE_DIR}/tools/tests/shadow_resolution_test.cpp)
 lo_add_header_test(LoHdrSceneShaderTest ${CMAKE_SOURCE_DIR}/tools/tests/hdr_scene_shader_test.cpp)
 lo_add_header_test(LoTimeFieldsTest ${CMAKE_SOURCE_DIR}/tools/tests/time_fields_test.cpp)
 lo_add_header_test(LoNotifiedWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/notified_wait_test.cpp)
@@ -607,6 +608,14 @@ if(WIN32)
         target_compile_features(LoTemporalAATest PRIVATE cxx_std_20)
         target_compile_definitions(LoTemporalAATest PRIVATE LO_GPU_PLUME NOMINMAX)
         target_link_libraries(LoTemporalAATest PRIVATE plume d3d12 dxgi)
+        add_executable(LoAmbientOcclusionGpuTest EXCLUDE_FROM_ALL
+            ${CMAKE_SOURCE_DIR}/tools/tests/ambient_occlusion_gpu_test.cpp
+            ${LO_RUNTIME_ROOT}/gpu/ambient_occlusion.cpp
+            ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+        target_include_directories(LoAmbientOcclusionGpuTest PRIVATE ${LO_RUNTIME_ROOT} ${CMAKE_SOURCE_DIR}/thirdparty/plume)
+        target_compile_features(LoAmbientOcclusionGpuTest PRIVATE cxx_std_20)
+        target_compile_definitions(LoAmbientOcclusionGpuTest PRIVATE LO_GPU_PLUME NOMINMAX)
+        target_link_libraries(LoAmbientOcclusionGpuTest PRIVATE plume d3d12 dxgi fmt::fmt)
         # HistoryOwner capture uses the same TAA/DXC objects as LoTemporalAATest.
         # platform_stub supplies the offline collection hooks. D3D12 is Windows-only;
         # this block is already inside WIN32 and LO_BUILD_GPU.
@@ -888,7 +897,7 @@ endif() # NOT ANDROID: desktop test executables
 # The Windows SDK compiler is allowed as an explicit fallback, but is not the release contract.
 if(WIN32 AND LO_BUILD_GPU)
     set(LO_DXC_BINARY_DIR "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/bin/x64")
-    foreach(target LostOdysseyRecomp LoShaderTool LoShaderAluTest LoPresentationTest LoTemporalAATest LoRenderResolutionShaderTest LoVulkanBackendTest LoVulkanTextureReuseTest LoShaderStartupCacheTest LoBackendCacheTest LoBackendLifecycleTest LoPresentCaptureTest)
+    foreach(target LostOdysseyRecomp LoShaderTool LoShaderAluTest LoPresentationTest LoTemporalAATest LoAmbientOcclusionGpuTest LoRenderResolutionShaderTest LoVulkanBackendTest LoVulkanTextureReuseTest LoShaderStartupCacheTest LoBackendCacheTest LoBackendLifecycleTest LoPresentCaptureTest)
         if(TARGET ${target})
             foreach(binary dxcompiler.dll dxil.dll)
                 add_custom_command(TARGET ${target} POST_BUILD

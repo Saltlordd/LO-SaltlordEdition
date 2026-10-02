@@ -127,6 +127,7 @@ namespace plume {
 #include <mutex>
 #include <string_view>
 #include "gpu/frame_plan.h"
+#include "gpu/ambient_occlusion.h"
 
 namespace gpu::renderer
 {
@@ -147,6 +148,7 @@ namespace gpu::renderer
             const auto found = catalogRoles.find((uint64_t(base) << 32) | pitch);
             if (found == catalogRoles.end()) return resolution::TargetRole::Unknown;
             return found->second == frame_plan::SurfaceRole::Scene ? resolution::TargetRole::Scene
+                : found->second == frame_plan::SurfaceRole::Shadow ? resolution::TargetRole::Shadow
                 : found->second == frame_plan::SurfaceRole::Fixed ? resolution::TargetRole::Fixed
                 : resolution::TargetRole::Unknown;
         }
@@ -364,6 +366,7 @@ namespace gpu::renderer
             uint32_t width = 0, height = 0;
             uint32_t guestWidth = 0, guestHeight = 0;
             resolution::Size resolutionSize{};
+            bool shadowMap = false;
             uint32_t ScaleX(uint32_t value) const { return resolution::ScaleX(value, resolutionSize.width); }
             uint32_t ScaleY(uint32_t value) const { return resolution::Scale(value, resolutionSize.height); }
             uint32_t depthMsaa = 0;
@@ -509,7 +512,8 @@ namespace gpu::renderer
                 // a distinct output while commands in the slot remain in flight.
                 std::vector<std::unique_ptr<HostTexture>> bloomPrefilterTextures;
                 size_t bloomPrefilterUsed = 0;
-                uint64_t temporalSerial = 0, hdrTemporalSerial = 0, motionSerial = 0;
+                uint64_t temporalSerial = 0, hdrTemporalSerial = 0, motionSerial = 0, aoSerial = 0;
+                std::vector<std::shared_ptr<void>> aoUses;
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
                 uint64_t srUseId = 0;
 #else
@@ -946,6 +950,9 @@ namespace gpu::renderer
                 }
             }
             std::unique_ptr<temporal::HistoryOwner> temporalHistory;
+            std::unique_ptr<ao::AmbientOcclusion> ambientOcclusion;
+            uint32_t aoMode = 0;
+            bool aoActive = false, aoInitFailed = false;
 #if defined(LO_GPU_PLUME)
             dlss::Controller* dlssController = nullptr;
             TemporalUpscaler* temporalUpscaler = nullptr;
@@ -971,6 +978,8 @@ namespace gpu::renderer
             bool actualRasterJitterCaptured=false;
             uint64_t appliedPlanEpoch=~0ull;
             resolution::Size internalSize{}, requestedInternalSize{};
+            resolution::ShadowResolutionState shadowState;
+            uint32_t shadowResolution = 1;
             frame_plan::FramePlan activePlan{};
             // Allocation failures are recorded by the GPU and can be observed
             // after later plan markers have already been committed.
@@ -1052,7 +1061,10 @@ namespace gpu::renderer
                     return;
                 for (auto rs = it->second.begin(); rs != it->second.end(); ++rs)
                     if (rs->destFormat == destFormat) {
+                        if (rs->tex) Gpu().retiredTextures.push_back(std::move(rs->tex));
                         if (rs->hdrTex) Gpu().retiredTextures.push_back(std::move(rs->hdrTex));
+                        for (auto& [key, view] : rs->fetchViews)
+                            if (view) Gpu().retiredTextures.push_back(std::move(view));
                         it->second.erase(rs);
                         break;
                     }
@@ -3805,6 +3817,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 s.retiredTextures.clear();
                 s.samplerVersions.clear();
                 s.bloomPrefilterUsed = 0;
+                s.aoUses.clear();
+                if (ambientOcclusion) ambientOcclusion->ReleaseCompletedThrough(s.aoSerial);
                 if(temporalHistory)temporalHistory->ReleaseCompletedThrough(s.temporalSerial);
                 else if(sparseCollector)sparseCollector->ReleaseCompleted();
                 if(hdrTemporalHistory)hdrTemporalHistory->ReleaseCompletedThrough(s.hdrTemporalSerial);
@@ -3969,6 +3983,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (Gpu().srIsolatedAccepted) lists[listCount++] = Gpu().srIsolated.get();
                     if (Gpu().srContinuationOpen) lists[listCount++] = Gpu().srContinuation.get();
                 }
+                Gpu().aoSerial = ambientOcclusion ? ambientOcclusion->RecordedSerial() : 0;
                 Gpu().temporalSerial = temporalHistory ? temporalHistory->RecordedSerial() : 0;
                 Gpu().hdrTemporalSerial = hdrTemporalHistory ? hdrTemporalHistory->RecordedSerial() : 0;
                 Gpu().motionSerial = motionReplay ? motionReplay->RecordedSerial() : 0;
@@ -5265,6 +5280,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const resolution::Size requested{selected.width, selected.height};
                 const bool first = appliedPlanEpoch == ~0ull;
                 const bool requestChanged = requested != requestedInternalSize;
+                // Snapshot once per renderer frame, before borrowing draw attachments.
+                const auto desiredShadow = shadowState.BeginFrame(frame, settings::GetConfig().shadowResolution);
+                const bool shadowChanged = desiredShadow != shadowResolution;
                 const bool epochChanged = selected.geometryEpoch != appliedPlanEpoch;
                 const bool recreateFeature =
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -5276,13 +5294,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     ((srReconfigureFrame != ~0ull && srReconfigureFrame != frame) ||
                       (epochChanged && temporalUpscaler->HasFeatureState()));
 #endif
-                if (!epochChanged && !requestChanged && !first && !recreateFeature) return true;
+                if (!epochChanged && !requestChanged && !first && !recreateFeature && !shadowChanged) return true;
                 requestedInternalSize = requested;
                 const auto effective = requested;
                 // No guest draw attachments, upload offsets or descriptors have
                 // been borrowed yet. Reconfigure here, never in a scene-copy draw.
                 // Keep the NGX session/parameters, releasing only the old feature.
-                if (effective != internalSize || recreateFeature) {
+                if (effective != internalSize || recreateFeature || shadowChanged) {
                     if (!Flush() || !WaitForGpu() || !video::WaitForPresentGpu()) return false;
                     if (recreateFeature) {
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -5299,7 +5317,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         srReconfigureFrame = ~0ull;
                     }
                 }
-                if (effective != internalSize) {
+                if (effective != internalSize || shadowChanged) {
                     // active points into renderTargets; parked/scratch may also
                     // be referenced by completed NGX lists. Clear only after the
                     // drain, before destroying the map it points into.
@@ -5322,6 +5340,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     sceneAAConfigFrame = ~0ull;
                     ++temporalEpoch;
                 }
+                if (shadowChanged) LOG_INFO("renderer: shadow resolution requested={}x effective={}x allocation_fallback={}",
+                    shadowState.Requested(), desiredShadow, shadowState.Failed());
+                shadowResolution = desiredShadow;
                 internalSize = effective;
                 appliedPlanEpoch = selected.geometryEpoch;
                 LOG_INFO("renderer: internal resolution f{} plan={} epoch={} requested={}x{} effective={}x{} cpu_readback={} allocation_fallback={}",
@@ -5371,13 +5392,26 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return committedPlan.geometryEpoch != 0 && failedPlanEpochs.contains(committedPlan.geometryEpoch);
             }
 
+            void FailSurfaceAllocation(bool shadow)
+            {
+                if (shadow && shadowResolution > 1) {
+                    // Retry at 1x next renderer frame without poisoning the CPU
+                    // scene plan (which may already be at its minimum size).
+                    shadowState.AllocationFailed();
+                    return;
+                }
+                FailCurrentPlan();
+            }
+
             HostTexture* GetRenderTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool depth)
             {
                 // EDRAM targets have no intrinsic height and ours is only guessed
                 // from the scissor, so draws and resolves may disagree on it: key
                 // by tile base, format and pitch only and grow the texture when a
                 // taller extent shows up.
-                height = std::clamp<uint32_t>((height + 31) & ~31u, 32, 2048);
+                const auto role = ResolveCatalogRole(base, pitch);
+                if (role == resolution::TargetRole::Shadow && shadowState.Failed() && shadowResolution > 1) return nullptr;
+                height = resolution::TargetGuestHeight(role, height);
                 // Depth formats (D24S8 / D24FS8) alias the same tiles and share our
                 // host format, so they are one target.
                 // One host texture per (base, pitch, storage class).
@@ -5388,9 +5422,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 uint32_t effectiveHeight = height;
                 if (it != renderTargets.end())
                     effectiveHeight = std::max(effectiveHeight, it->second->guestHeight);
-                const auto role = ResolveCatalogRole(base, pitch);
                 const resolution::Size legacySize{activePlan.legacyWidth,activePlan.legacyHeight};
-                resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize);
+                resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize, shadowResolution);
                 if (sceneCopyPromotion.activeMapping && key == sceneCopyPromotion.key && sceneCopyPromotion.frame == frame &&
                     sceneCopyPromotion.epoch == activePlan.geometryEpoch)
                     desiredSize = {activePlan.output.width, activePlan.output.height};
@@ -5400,8 +5433,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // A catalog publication can arrive after a target's first
                     // use. Test its effective mapping before returning a cache
                     // hit so the old native/square allocation is never reused.
-                    if (it->second->guestHeight >= height && it->second->resolutionSize == desiredSize)
+                    if (it->second->guestHeight >= height && it->second->resolutionSize == desiredSize) {
+                        it->second->shadowMap = role == resolution::TargetRole::Shadow;
                         return it->second.get();
+                    }
                     oldTarget = std::move(it->second);
                     renderTargets.erase(it);
                 }
@@ -5413,13 +5448,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 tex->guestWidth = pitch;
                 tex->guestHeight = effectiveHeight;
                 tex->resolutionSize = desiredSize;
+                tex->shadowMap = role == resolution::TargetRole::Shadow;
                 tex->width = std::max(1u, tex->ScaleX(pitch));
                 tex->height = std::max(1u, tex->ScaleY(effectiveHeight));
                 RenderTextureDesc desc = RenderTextureDesc::Texture2D(tex->width, tex->height, 1, tex->format, depth ? RenderTextureFlag::DEPTH_TARGET : RenderTextureFlag::RENDER_TARGET);
                 tex->texture = device->createTexture(desc);
                 tex->layout = RenderTextureLayout::UNKNOWN;
                 if (!tex->texture) {
-                    FailCurrentPlan();
+                    FailSurfaceAllocation(tex->shadowMap);
                     LOG_ERROR("renderer: render target allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", pitch, effectiveHeight, tex->width, tex->height);
                     if (oldTarget) Gpu().retiredTextures.push_back(std::move(oldTarget));
                     return nullptr;
@@ -5449,7 +5485,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                 }
                 if (oldTarget) Gpu().retiredTextures.push_back(std::move(oldTarget));
-                LOG_INFO("renderer: new {} target base={:#x} fmt={} guest={}x{} physical={}x{} scale={}x{}", depth ? "depth" : "color", base, format, pitch, effectiveHeight, tex->width, tex->height, tex->resolutionSize.width, tex->resolutionSize.height);
+                LOG_INFO("renderer: new {} target base={:#x} fmt={} guest={}x{} physical={}x{} scale={}x{} shadow={}", depth ? "depth" : "color", base, format, pitch, effectiveHeight, tex->width, tex->height, tex->resolutionSize.width, tex->resolutionSize.height, tex->shadowMap);
                 HostTexture* result = tex.get();
                 renderTargets.emplace(key, std::move(tex));
                 return result;
@@ -5721,15 +5757,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             view->guestWidth = width;
                             view->guestHeight = height;
                             view->resolutionSize = rs->tex->resolutionSize;
+                            view->shadowMap = rs->tex->shadowMap;
                             view->width = physicalWidth;
                             view->height = physicalHeight;
                             view->texture = device->createTexture(RenderTextureDesc::Texture2D(physicalWidth, physicalHeight, 1, view->format));
                         }
                         if (!view->texture) {
-                            FailCurrentPlan();
+                            FailSurfaceAllocation(rs->tex->shadowMap);
                             LOG_ERROR("renderer: fetch view allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", width, height, physicalWidth, physicalHeight);
                             return nullptr;
                         }
+                        view->shadowMap = rs->tex->shadowMap;
                         Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
                         Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
                         RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
@@ -6571,6 +6609,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 render_batch::CpuTimer<> taaInit(cpuTimingEnabled);
                 if(sceneAAConfigFrame!=frame) {
                     sceneAAConfigFrame=frame;
+                    const uint32_t requestedAo = settings::GetConfig().ambientOcclusion;
+                    const uint32_t selectedAo = requestedAo <= 2 ? requestedAo : 0;
+                    if (aoMode != selectedAo) {
+                        aoMode = selectedAo;
+                        LOG_INFO("renderer: ambient occlusion mode={}", aoMode);
+                        if (temporalHistory) temporalHistory->Reset();
+                        if (hdrTemporalHistory) hdrTemporalHistory->Reset();
+                        ++temporalEpoch;
+                    }
+                    aoActive = aoMode != 0 && !resolveReadback && !aoInitFailed;
+                    if (aoActive && !ambientOcclusion) {
+                        ambientOcclusion = std::make_unique<ao::AmbientOcclusion>();
+                        if (!ambientOcclusion->Init(device)) {
+                            LOG_ERROR("renderer: AO initialization failed: {}", ambientOcclusion->LastError());
+                            ambientOcclusion.reset(); aoInitFailed = true; aoActive = false;
+                        }
+                    }
                     frameSrOptions = {};
                     if (activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) {
                         const uint32_t percent = std::min(settings::GetConfig().fsrSharpnessPercent, 100u);
@@ -6627,8 +6682,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                 }
                 const bool temporalActive = temporal::TemporalConsumerActive(temporalExperiment, temporalInputProbe, dlssSrRequested, nativeFgInputs);
-                const bool trackTemporalScene = !debugCaptureDir.empty() || temporalActive || activeSpatialAA;
+                const bool trackTemporalScene = !debugCaptureDir.empty() || temporalActive || activeSpatialAA || aoActive;
                 if (trackTemporalScene && temporalScene.Frame() != frame) {
+                    static const bool traceAo = std::getenv("LO_AO_TRACE") != nullptr;
+                    static uint32_t aoTraceFrames = 0;
+                    if (aoActive && traceAo && frame % 120 == 0 && aoTraceFrames++ < 32)
+                        LOG_INFO("renderer: AO scene frame={} draws={} depth={} color={} copies={} reason={}", temporalScene.Frame(),
+                            temporalScene.Draws(), temporalScene.Depth().ordinal, temporalScene.Color().ordinal, temporalScene.Copies(), uint32_t(temporalScene.Reason()));
                     const auto now = std::chrono::steady_clock::now();
                     srFrameDeltaMilliseconds = srTimedFrame == ~0ull ? 0.0f :
                         std::chrono::duration<float, std::milli>(now - srFrameTime).count();
@@ -6706,6 +6766,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 std::optional<temporal::TemporalFrameInputs> nativeFgSceneCopyInputs;
                 std::shared_ptr<fsr_alpha::MaskLease> selectedFsrMaskLease;
                 bool sceneAARecorded=false,temporalAARecorded=false,hdrTonemapRecorded=false;
+                ao::Output sceneAo{};
+                RenderTexture* sceneAoSource = nullptr;
+                // Upload/descriptor reservations can Flush while this draw is being
+                // prepared. Keep the final consumer slot, not only the producer.
+                struct RetainAoConsumer {
+                    Renderer* owner; ao::Output& output;
+                    ~RetainAoConsumer() { if (output.lifetime) owner->Gpu().aoUses.push_back(output.lifetime); }
+                } retainAo{this,sceneAo};
                 std::optional<temporal::SceneAnchor> temporalDrawAnchor;
 
                 SharedConstants shared{};
@@ -6762,6 +6830,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 RenderViewport rasterViewport = viewport;
                 rasterViewport.x *= rasterScaleX; rasterViewport.y *= rasterScaleY;
                 rasterViewport.width *= rasterScaleX; rasterViewport.height *= rasterScaleY;
+                if (depth && depth->shadowMap) {
+                    static uint32_t shadowRasterLogs = 0;
+                    if (shadowRasterLogs++ < 4) LOG_INFO("renderer: shadow raster mask={} depth_only={} viewport=({},{} {}x{}) scale={}x{}",
+                        key.colorMask, depthOnlyRaster, rasterViewport.x, rasterViewport.y, rasterViewport.width, rasterViewport.height, rasterScaleX, rasterScaleY);
+                }
                 render_batch::CpuTimer<> taaJitter(cpuTimingEnabled);
                 const bool constantScreenSample = key.vs == 0xe810cfacc107fd3cull &&
                     key.ps == 0xfe31f3d6588fde95ull && ps &&
@@ -6776,7 +6849,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // bda also appears with a different camera. Reviewed sky pairs
                 // require a scene camera observed before the draw instead of
                 // self-anchoring it.
-                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
+                if((temporalActive||activeSpatialAA||aoActive)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
                     temporalViewport&&depth&&(depthControl&4)) {
                     temporal::SceneAnchor anchor;
                     std::copy_n(vsConstants+temporalSlot*4,16,anchor.vpBits.begin());
@@ -7267,6 +7340,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     source->writeX == 0 && source->writeY == 0 &&
                                     source->writeWidth == tex->width && source->writeHeight == tex->height &&
                                     source->tex->width == tex->width && source->tex->height == tex->height};
+                            static const bool traceAoCopy = std::getenv("LO_AO_TRACE") != nullptr;
+                            static uint32_t aoTraceCopies = 0;
+                            if (aoActive && traceAoCopy && frame % 120 == 0 && aoTraceCopies++ < 32) {
+                                const auto* source = FindResolved(address, format);
+                                LOG_INFO("renderer: AO copy frame={} full={} format={} found={} sdr={} ordinal={} extent={}x{} viewport={}x{} anchor={}x{} rb_identity={}",
+                                    frame, fullSceneCopy, format, bool(source), source ? source->sdrWriteOrdinal : 0, source ? source->writeOrdinal : 0,
+                                    tex->width, tex->height, rasterViewport.width, rasterViewport.height, temporalScene.Anchor().viewport.width, temporalScene.Anchor().viewport.height,
+                                    color_qualification::CheckNetIdentityRBSwap(fetch[0], fetch[3], source ? source->swapRedBlue : false));
+                            }
                         }
                         HostTexture* bloomFiltered = nullptr;
                         RenderTexture* bloomPrefilterInput = nullptr;
@@ -7359,11 +7441,78 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         RenderTexture* temporalDisplay=nullptr;
                         RenderFormat temporalDisplayFormat=tex->format;
                         bool temporalDisplayFromHistory = false;
+                        RenderTexture* aoColor = nullptr;
+                        RenderTexture* sceneInput = tex->texture.get();
                         if(temporalSceneCopy && fullSceneCopy && s==ps && slot==0 &&
                            rasterViewport.width==tex->width && rasterViewport.height==tex->height &&
                            rasterViewport.width==temporalScene.Anchor().viewport.width && rasterViewport.height==temporalScene.Anchor().viewport.height) {
                             render_batch::CpuTimer<> taaResolve(cpuTimingEnabled);
                             temporalScene.ObserveColor(*temporalSceneCopy);
+                            if (aoActive && ambientOcclusion && temporalScene.Ready() && tex->format == RenderFormat::R8G8B8A8_UNORM) {
+                                const auto& observedDepth = temporalScene.Depth();
+                                // SceneObservation stores a resolve format, including
+                                // kDepthResolveTag; FindResolved expects a guest fetch
+                                // format (22/23 for depth) and cannot use this identity.
+                                ResolvedSurface* sourceDepth = nullptr;
+                                if (auto found = resolved.find(observedDepth.address); found != resolved.end())
+                                    for (auto& candidate : found->second)
+                                        if (candidate.destFormat == observedDepth.format) { sourceDepth = &candidate; break; }
+                                auto* sourceColor = FindResolved(temporalSceneCopy->address, temporalSceneCopy->format);
+                                static const bool traceAoInputs = std::getenv("LO_AO_TRACE") != nullptr;
+                                static uint32_t aoTraceInputs = 0;
+                                if (traceAoInputs && frame % 120 == 0 && aoTraceInputs++ < 32)
+                                    LOG_INFO("renderer: AO inputs frame={} depth_found={} depth_frame={} depth_ord={}/{} full={} depth_format={} depth_size={}x{} color_match={}",
+                                        frame, bool(sourceDepth && sourceDepth->tex), sourceDepth ? sourceDepth->frame : 0,
+                                        sourceDepth ? sourceDepth->writeOrdinal : 0, observedDepth.ordinal, observedDepth.fullExtent,
+                                        sourceDepth && sourceDepth->tex ? uint32_t(sourceDepth->tex->format) : 0,
+                                        sourceDepth && sourceDepth->tex ? sourceDepth->tex->width : 0, sourceDepth && sourceDepth->tex ? sourceDepth->tex->height : 0,
+                                        sourceColor && sourceColor->tex.get() == tex);
+                                if (sourceDepth && sourceDepth->tex && sourceDepth->frame == frame &&
+                                    sourceDepth->writeOrdinal == observedDepth.ordinal && observedDepth.fullExtent &&
+                                    sourceDepth->tex->format == RenderFormat::R32_FLOAT &&
+                                    sourceDepth->tex->width == tex->width && sourceDepth->tex->height == tex->height &&
+                                    sourceColor && sourceColor->tex.get() == tex && sourceColor->frame == frame &&
+                                    sourceColor->writeOrdinal == temporalSceneCopy->ordinal &&
+                                    sourceColor->sdrWriteOrdinal != 0 && sourceColor->sdrWriteOrdinal == sourceColor->writeOrdinal &&
+                                    color_qualification::CheckNetIdentityRBSwap(fetch[0], fetch[3], sourceColor->swapRedBlue)) {
+                                    temporal::Matrix vp{};
+                                    for (uint32_t i=0;i<16;++i) vp[i]=std::bit_cast<float>(temporalScene.Anchor().vpBits[i]);
+                                    auto camera = temporal::Camera::Create(vp,temporalScene.Anchor().viewport);
+                                    if (camera) {
+                                        Transition(*tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                        Transition(*sourceDepth->tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                        ao::Inputs inputs;
+                                        inputs.color=tex->texture.get();inputs.depth=sourceDepth->tex->texture.get();
+                                        inputs.camera=&*camera;inputs.width=tex->width;inputs.height=tex->height;
+                                        inputs.mode=static_cast<ao::Mode>(aoMode);
+                                        if (actualRasterJitterCaptured) {inputs.jitterX=actualRasterJitter.pixelX;inputs.jitterY=actualRasterJitter.pixelY;}
+                                        static const char* aoDebug=std::getenv("LO_AO_DEBUG");
+                                        if (aoDebug) {
+                                            if (std::string_view(aoDebug)=="ao") inputs.debug=ao::Debug::Visibility;
+                                            else if (std::string_view(aoDebug)=="normals") inputs.debug=ao::Debug::Normals;
+                                            else if (std::string_view(aoDebug)=="depth") inputs.debug=ao::Debug::Depth;
+                                        }
+                                        if (sourceColor->hdrTex && sourceColor->hdrTex->texture && sourceColor->hdrFrame == frame &&
+                                            sourceColor->hdrWriteOrdinal == sourceColor->writeOrdinal &&
+                                            sourceColor->hdrTex->width == tex->width && sourceColor->hdrTex->height == tex->height) {
+                                            Transition(*sourceColor->hdrTex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                            inputs.hdrColor=sourceColor->hdrTex->texture.get();
+                                        }
+                                        sceneAo=ambientOcclusion->Record(commandList,inputs);
+                                        if (sceneAo.color) {
+                                            sceneAoSource=tex->texture.get();sceneInput=aoColor=sceneAo.color;
+                                            Gpu().aoUses.push_back(sceneAo.lifetime);
+                                            static uint32_t aoLogs = 0;
+                                            if (aoLogs++ < 4) LOG_INFO("renderer: AO applied mode={} frame={} size={}x{} color_ordinal={} depth_ordinal={} hdr={}",
+                                                aoMode, frame, tex->width, tex->height, sourceColor->writeOrdinal, observedDepth.ordinal, bool(sceneAo.hdrColor));
+                                            if (resolveTraceRemaining) QueueResolveTrace(aoColor,tex->format,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0040u);
+                                        } else {
+                                            static uint32_t failures=0;
+                                            if (failures++<8) LOG_WARNING("renderer: AO bypass: {}",ambientOcclusion->LastError());
+                                        }
+                                    }
+                                }
+                            }
                             if ((temporalInputProbe || dlssSrRequested || nativeFgInputs) && temporalHistory && temporalScene.Ready() &&
                                 tex->format==RenderFormat::R8G8B8A8_UNORM) {
                                 Transition(*tex,RenderTextureLayout::COPY_SOURCE,RenderBarrierStage::COPY);
@@ -7451,7 +7600,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                             drawTemporalTracker.Failed() ? 1 : 0, motionInitFailed ? 1 : 0, mvError);
                                     }
                                 };
-                                if (!temporalHistory->CaptureColorInputs(commandList, tex->texture.get(), temporalScene, activePlan, sample,
+                                if (aoColor) commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(aoColor,RenderTextureLayout::COPY_SOURCE));
+                                if (!temporalHistory->CaptureColorInputs(commandList, sceneInput, temporalScene, activePlan, sample,
                                         qualifiedEncoding, motionOptions.consume ? &motionView : nullptr,
                                         srTimeReset ? temporal::TemporalResetReason::FrameDiscontinuity : temporal::TemporalResetReason::None,
                                         // Camera/depth reconstruction is independent of optional
@@ -7561,7 +7711,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 const double jx = temporalJitter ? sample.pixelX : 0, jy = temporalJitter ? sample.pixelY : 0;
                                 FinishMotion(temporalHistory.get());
                                 const bool consumeMotion = motionOptions.consume && (!taaLiveApplied || taaLiveOptions.mv_consume);
-                                temporalDisplay=temporalHistory->ResolveColor(commandList,tex->texture.get(),temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
+                                if (aoColor) commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(aoColor,RenderTextureLayout::COPY_SOURCE));
+                                temporalDisplay=temporalHistory->ResolveColor(commandList,sceneInput,temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
                                     consumeMotion ? &motionView : nullptr, motionOptions.debug, &ActiveTaaOptions());
                                 if (taaLiveDirectory) {
                                     taaLiveResolvedFrame=frame;taaLiveWidth=tex->width;taaLiveHeight=tex->height;
@@ -7590,6 +7741,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         QueueResolveTrace(temporalHistory->CurrentReactiveMask(),RenderFormat::R8_UNORM,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0006u);
                                 }
                             }
+                            if (aoColor) commandList->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(aoColor,RenderTextureLayout::SHADER_READ));
                             if(!temporalDisplay && activeSpatialAA && sceneProcessor && !sceneAABusy &&
                                sceneAAAppliedFrame!=frame && temporalScene.Ready() &&
                                (sceneAAMode==1||sceneAAMode==2||sceneAAMode==3) && tex->format==RenderFormat::R8G8B8A8_UNORM) {
@@ -7598,7 +7750,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         RenderFormat::R8G8B8A8_UNORM,RenderTextureFlag::RENDER_TARGET));
                                     sceneAAWidth=tex->width;sceneAAHeight=tex->height;
                                 }
-                                if(sceneAAOutput && sceneProcessor->ProcessSceneColor(commandList,tex->texture.get(),sceneAAOutput.get(),
+                                if(sceneAAOutput && sceneProcessor->ProcessSceneColor(commandList,sceneInput,sceneAAOutput.get(),
                                     tex->width,tex->height,static_cast<gpu::Antialiasing>(sceneAAMode==3?2:sceneAAMode))) {
                                     tex->layout=RenderTextureLayout::SHADER_READ;
                                     temporalDisplay=sceneAAOutput.get();sceneAABusy=true;sceneAARecorded=true;
@@ -7609,7 +7761,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             taaResolve.AddTo(tTaa);
                         }
                         if (diagnosticFullSceneCopy)
-                            QueueResolveTrace(temporalDisplay ? temporalDisplay : tex->texture.get(), temporalDisplay ? temporalDisplayFormat : tex->format,
+                            QueueResolveTrace(temporalDisplay ? temporalDisplay : sceneInput, temporalDisplay ? temporalDisplayFormat : tex->format,
                                 tex->width, tex->height, RenderTextureLayout::SHADER_READ, 0xffff0021u);
                         uint32_t d3 = fetch[3];
                         shared.textureInfo[slot] = ((fetch[0] >> 2) & 0xFF) | (((d3 >> 1) & 0xFFF) << 8);
@@ -7628,12 +7780,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         const bool afEligible = sampling::Eligible(samplerKey, tex->guestBytes != 0,
                             dimension, s == ps && depth && (depthControl & 2) && !(shared.vtxFmt & 1) &&
                                 !((vs->info.textureSlotMask >> slot) & 1),
-                            temporalDisplay || bloomFiltered || hdrBinding);
+                            temporalDisplay || aoColor || bloomFiltered || hdrBinding);
                         const auto samplerIndex = GetSamplerIndex(samplerKey, afEligible);
                         if (!samplerIndex) { failedPlan = true; return; }
                         shared.samplerIndex[slot] = *samplerIndex;
                         samplerKey = ActualSamplerKey(*samplerIndex);
-                        textureBindings[bank][slot] = temporalDisplay ? temporalDisplay :
+                        textureBindings[bank][slot] = temporalDisplay ? temporalDisplay : aoColor ? aoColor :
                             bloomFiltered ? bloomFiltered->texture.get() : hdrBinding ? hdrBinding : tex->texture.get();
                         // Candidate only: a later VS binding or a failed draw
                         // can still replace/cancel it. Confirm after recording.
@@ -7646,12 +7798,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 s == ps ? "ps" : "vs"});
 #if defined(LO_GPU_PLUME)
                         if (s == ps && key.ps == 0xb4b4d54a7a2d6b96ull && slot == 1 && bank == 0 &&
-                            !temporalDisplay && !bloomFiltered && !hdrBinding)
+                            !temporalDisplay && !aoColor && !bloomFiltered && !hdrBinding)
                             alphaPostDepth = AlphaPostDepthInput{tex->texture.get(), tex->format,
                                 tex->width, tex->height, samplerKey};
                         if (s == ps && !alphaBridgeFetches.empty() &&
                             alphaBridgeFetches.back().slot == slot && alphaBridgeFetches.back().bank == bank) {
-                            alphaBridgeFetches.back().substitution = temporalDisplay ? "temporal_display" :
+                            alphaBridgeFetches.back().substitution = temporalDisplay ? "temporal_display" : aoColor ? "ambient_occlusion" :
                                 bloomFiltered ? "bloom_prefilter" : hdrBinding ? "hdr_temporal" : "none";
                             alphaBridgeFetches.back().samplerKey = samplerKey;
                             alphaBridgeFetches.back().prefilterOutput =
@@ -7663,7 +7815,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 #endif
                         if (selectedBinding) {
                             selectedBinding->bank = bank;
-                            if (temporalDisplay || bloomFiltered || hdrBinding) {
+                            if (temporalDisplay || aoColor || bloomFiltered || hdrBinding) {
                                 // No bloom-filtered TextureKind exists. Unknown
                                 // avoids reporting a filtered texture as a direct resolve.
                                 selectedBinding->kind = temporalDisplay ?
@@ -8305,7 +8457,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (source && source->tex && source->hdrTex && source->hdrTex->texture &&
                             source->hdrWriteOrdinal == source->writeOrdinal && source->hdrFrame == frame &&
                             source->hdrTex->width >= copyWidth && source->hdrTex->height >= copyHeight &&
-                            textureBindings[0][0] == source->tex->texture.get()) {
+                            (textureBindings[0][0] == source->tex->texture.get() ||
+                             (sceneAo.color && sceneAo.hdrColor && sceneAoSource == source->tex->texture.get() &&
+                              textureBindings[0][0] == sceneAo.color))) {
                             if (!color->hdrSidecar || !color->hdrSidecar->texture ||
                                 color->hdrSidecar->width != color->width ||
                                 color->hdrSidecar->height != color->height) {
@@ -8323,12 +8477,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 Transition(*color->hdrSidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                                 commandList->setFramebuffer(GetFramebuffer(color->hdrSidecar.get(), nullptr));
                                 commandList->clearColor(0, RenderColor(0, 0, 0, 1));
-                                Transition(*source->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                                auto* hdrCopySource=sceneAo.hdrColor && sceneAoSource==source->tex->texture.get() ? sceneAo.hdrColor : source->hdrTex->texture.get();
+                                if (hdrCopySource==source->hdrTex->texture.get())
+                                    Transition(*source->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                                else commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(hdrCopySource,RenderTextureLayout::COPY_SOURCE));
                                 Transition(*color->hdrSidecar, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
                                 RenderBox box{0, 0, int32_t(copyWidth), int32_t(copyHeight), 0, 1};
                                 commandList->copyTextureRegion(
                                     RenderTextureCopyLocation::Subresource(color->hdrSidecar->texture.get()),
-                                    RenderTextureCopyLocation::Subresource(source->hdrTex->texture.get()),
+                                    RenderTextureCopyLocation::Subresource(hdrCopySource),
                                     0, 0, 0, &box);
                                 color->hdrFrame = frame;
                                 color->hdrValid = true;
@@ -10250,7 +10407,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t guestH = std::clamp<uint32_t>(std::max(destHeight, y0 + h), 1, 8192);
                 const uint32_t texW = std::max(1u, depth.ScaleX(guestW)), texH = std::max(1u, depth.ScaleY(guestH));
                 if (texW > 16384 || texH > 16384) {
-                    FailCurrentPlan();
+                    FailSurfaceAllocation(depth.shadowMap);
                     LOG_ERROR("renderer: depth resolve exceeds texture limit physical={}x{}; native resolution fallback next frame", texW, texH);
                     return false;
                 }
@@ -10270,12 +10427,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rs.tex->height = texH;
                     rs.tex->guestWidth = guestW; rs.tex->guestHeight = guestH;
                     rs.tex->resolutionSize = depth.resolutionSize;
+                    rs.tex->shadowMap = depth.shadowMap;
                     rs.tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1, RenderFormat::R32_FLOAT,
                         vulkan ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE));
                     rs.tex->layout = RenderTextureLayout::UNKNOWN;
                     if (!rs.tex->texture)
                     {
-                        FailCurrentPlan();
+                        FailSurfaceAllocation(depth.shadowMap);
                         LOG_ERROR("renderer: depth resolve allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", guestW, guestH, texW, texH);
                         DropResolved(destBase, destFormat);
                         return false;
@@ -10284,6 +10442,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (created++ < 8)
                         LOG_INFO("renderer: resolved depth surface {:#x} guest={}x{} physical={}x{} dest fmt={}", destBase, guestW, guestH, texW, texH, destFormat & 0xFFF);
                 }
+                rs.tex->shadowMap = depth.shadowMap;
                 rs.destFormat = destFormat;
                 rs.destPitch = destPitch;
                 rs.swapRedBlue = false;
@@ -10315,7 +10474,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (taa_collection::Enabled())
                     rs.tex->bindingProducer.Copy(depth.bindingProducer, taa_collection::ConsentEpoch(), frame,
                         x0 == 0 && y0 == 0 && w == texW && h == texH);
-                if (!debugCaptureDir.empty() || temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs || activeSpatialAA) {
+                if (!debugCaptureDir.empty() || temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs || activeSpatialAA || aoActive) {
                     temporalScene.ObserveDepth(depth.allocationSerial, {frame, rs.writeOrdinal, destBase, destFormat,
                         texW, texH, x0 == 0 && y0 == 0 && w == texW && h == texH});
                     if((temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs) && temporalHistory && temporalScene.Depth().ordinal==rs.writeOrdinal) {
@@ -10341,7 +10500,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t guestH = std::clamp<uint32_t>(std::max(destHeight, y0 + h), 1, 8192);
                 const uint32_t texW = std::max(1u, color.ScaleX(guestW)), texH = std::max(1u, color.ScaleY(guestH));
                 if (texW > 16384 || texH > 16384) {
-                    FailCurrentPlan();
+                    FailSurfaceAllocation(color.shadowMap);
                     LOG_ERROR("renderer: color resolve exceeds texture limit physical={}x{}; native resolution fallback next frame", texW, texH);
                     return false;
                 }
@@ -10366,11 +10525,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rs.tex->height = texH;
                     rs.tex->guestWidth = guestW; rs.tex->guestHeight = guestH;
                     rs.tex->resolutionSize = color.resolutionSize;
+                    rs.tex->shadowMap = color.shadowMap;
                     rs.tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1, destHost, RenderTextureFlag::RENDER_TARGET));
                     rs.tex->layout = RenderTextureLayout::UNKNOWN;
                     if (!rs.tex->texture)
                     {
-                        FailCurrentPlan();
+                        FailSurfaceAllocation(color.shadowMap);
                         LOG_ERROR("renderer: color resolve allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", guestW, guestH, texW, texH);
                         DropResolved(destBase, destFormat);
                         return false;
@@ -10393,6 +10553,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.destFormat = destFormat;
                 rs.destPitch = destPitch;
                 rs.swapRedBlue = ((Reg(REG_RB_COPY_DEST_INFO) >> 24) & 1) != 0;
+                rs.tex->shadowMap = color.shadowMap;
                 if (x0 >= texW || y0 >= texH) return true;
                 w = std::min(w, texW - x0);
                 h = std::min(h, texH - y0);
@@ -10494,6 +10655,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
             void Resolve()
             {
+                // A new renderer frame may start with a resolve/clear, before
+                // any draw. Apply the same frame snapshot before borrowing RTs.
+                if (!ApplyInternalResolution()) return;
                 FlushMotionReplayQueue();
                 ScopedTimer timer{ tResolve, cpuTimingEnabled };
                 nResolve++;

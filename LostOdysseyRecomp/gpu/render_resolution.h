@@ -7,7 +7,34 @@ struct Size {
     uint32_t width = 1280, height = 720;
     bool operator==(const Size&) const = default;
 };
-enum class TargetRole : uint8_t { Unknown, Scene, Fixed };
+enum class TargetRole : uint8_t { Unknown, Scene, Fixed, Shadow };
+inline constexpr uint32_t ShadowMultiplier(uint32_t value) { return value == 2 || value == 4 ? value : 1; }
+class ShadowResolutionState {
+    uint64_t frame_ = ~0ull;
+    uint32_t requested_ = 1, frameValue_ = 1;
+    bool failed_ = false;
+public:
+    uint32_t BeginFrame(uint64_t frame, uint32_t requested) {
+        if (frame != frame_) {
+            frame_ = frame;
+            requested = ShadowMultiplier(requested);
+            if (requested != requested_) failed_ = false;
+            requested_ = requested;
+            frameValue_ = failed_ ? 1 : requested_;
+        }
+        return frameValue_;
+    }
+    void AllocationFailed() { failed_ = true; }
+    bool Failed() const { return failed_; }
+    uint32_t Requested() const { return requested_; }
+};
+inline constexpr uint32_t TargetGuestHeight(TargetRole role, uint32_t height) {
+    // ShadowDepthRT/ShadowDepthZ are 864-square guest allocations backed by an
+    // 880-pixel EDRAM pitch. Reserve its padded 896-row atlas before the first
+    // tile, since growing a depth RT loses contents.
+    if (role == TargetRole::Shadow) height = (std::max)(height, 896u);
+    return std::clamp<uint32_t>((height + 31) & ~31u, 32, 2048);
+}
 // The guest remains 1280x720. Host scene targets follow the output aspect;
 // the camera and Canvas hooks preserve scene and UI proportions separately.
 // A mode sets the 16:9 content area: wider outputs keep its height and widen,
@@ -59,7 +86,7 @@ inline constexpr Size TargetSize(uint32_t pitch, uint32_t height, Size internal)
 inline constexpr Size TargetSizeForRole(TargetRole role, uint32_t pitch, uint32_t height, Size plan) {
     switch (role) {
     case TargetRole::Scene: return plan;
-    case TargetRole::Fixed: return {};
+    case TargetRole::Fixed: case TargetRole::Shadow: return {};
     case TargetRole::Unknown: {
         // Scale by the plan's 16:9 area, which is its full height only on
         // outputs at least as wide as 16:9.
@@ -72,7 +99,11 @@ inline constexpr Size TargetSizeForRole(TargetRole role, uint32_t pitch, uint32_
 // A plan may carry a sub-720 official DLSS input. Only catalogued Scene targets
 // receive that size; Fixed and Unknown retain their legacy mappings and never
 // invent an aspect ratio from a rounded recommended input.
-inline constexpr Size TargetSizeForPlan(TargetRole role, uint32_t pitch, uint32_t height, Size input, Size legacy) {
+inline constexpr Size TargetSizeForPlan(TargetRole role, uint32_t pitch, uint32_t height, Size input, Size legacy, uint32_t shadowMultiplier = 1) {
+    if (role == TargetRole::Shadow) {
+        const auto scale = ShadowMultiplier(shadowMultiplier);
+        return {1280 * scale, 720 * scale};
+    }
     return role == TargetRole::Scene ? input : TargetSizeForRole(role, pitch, height, legacy);
 }
 inline constexpr uint32_t TargetHeight(uint32_t pitch, uint32_t height, uint32_t internalHeight) {

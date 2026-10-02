@@ -48,6 +48,9 @@ Config Validate(Config value)
         value.frameGenerationTargetFps = 0;
     }
     if (value.antialiasing > 3) value.antialiasing = 0;
+    if (value.shadowResolution != 1 && value.shadowResolution != 2 && value.shadowResolution != 4)
+        value.shadowResolution = 1;
+    if (value.ambientOcclusion > 2) value.ambientOcclusion = 0;
     value.fxaa = value.antialiasing == 1;
     value.frameRate = gpu::frame_rate::Normalize(value.frameRate);
     if (value.debugLanguage > 1) value.debugLanguage = 0;
@@ -118,6 +121,10 @@ Config Read()
             value.graphicsBackend = GraphicsBackend(number);
         else if (key == "antialiasing")
             value.antialiasing = number;
+        else if (key == "shadow_resolution")
+            value.shadowResolution = number;
+        else if (key == "ambient_occlusion")
+            value.ambientOcclusion = number;
         else if (key == "scaling_quality")
             value.scalingQuality = number;
         else if (key == "expand_rgb_range" && number <= 1)
@@ -247,6 +254,8 @@ static bool WriteConfig(const Config &value)
            << "\ngraphics_backend=" << uint32_t(value.graphicsBackend)
            << "\ndebug_language=" << value.debugLanguage
            << "\nantialiasing=" << value.antialiasing << "\nframe_rate=" << value.frameRate
+           << "\nshadow_resolution=" << value.shadowResolution
+           << "\nambient_occlusion=" << value.ambientOcclusion
            << "\nscaling_quality=" << value.scalingQuality
            << "\nexpand_rgb_range=" << (value.expandRgbRange ? 1 : 0)
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
