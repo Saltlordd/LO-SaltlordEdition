@@ -3371,6 +3371,21 @@
       },
       "title": "Flicker triage tooling and review-regressions coverage",
       "body_sha256": "a11bd5c9e91a1e76f084d6a3275d4054a2b79752e0045eb1dc177f67bbe24c7f"
+    },
+    "shader-delivery-v080": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-Exrs",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Shader cache",
+        "Status": "In Progress",
+        "Delivery": "In progress",
+        "Release": "v0.8.0",
+        "Start date": "2026-10-02",
+        "Evidence": "PR #141 (one-file shader store) is merged (2026-10-02) and unreleased; PR #142 (startup pack download) is open and was tested against a local HTTP server only. The three packs are exported and not published; the release changes and the local cache cleanup are not started.",
+        "Source key": "shader-delivery-v080"
+      },
+      "title": "Shader delivery: one-file store, startup pack download and cache cleanup (v0.8.0)",
+      "body_sha256": "f9e31200f74a89ba3bc577621f86786c4e7771c566ac20107010e8ae78ae364e"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"
