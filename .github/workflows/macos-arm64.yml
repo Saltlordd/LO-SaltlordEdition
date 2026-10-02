@@ -60,7 +60,7 @@ jobs:
       - name: Build libraries and tests
         run: |
           # Tests that compile runtime sources or generated PPC headers need game data.
-          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoQuitActionHookTest|LoPresentationTest)$'
+          excluded='^(LoDiscRuntimeTest|LoGuestDispatchTest|LoGuestPrintfTest|LoStorageTest|LoHidTest|LoAndroidTouchInputTest|LoQuitActionHookTest|LoPresentationTest)$'
           ninja -C out/build/macos -t targets all | grep -oE '^Lo[A-Za-z0-9]+(Test|Probe|Tool):' | tr -d ':' | sort -u |
             grep -vE "$excluded" > out/build/macos/ci-targets.txt
           ninja -C out/build/macos plume spirv-cross-msl SDL2-static XenonUtils lo_portable_shader_pack lo_menu_lzo \
