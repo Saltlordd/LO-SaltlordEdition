@@ -163,4 +163,31 @@ jobs:
         run: |
           set -o pipefail
           cd dxc-macos14
-          DYLD_PRINT_LIBRARIES=1 ./LoRenderResolutionShaderTest 2>&1 | grep -v -E '^dyld\[[0-9]+\]: /(usr/lib|System)/'
+          DYLD_PRINT_LIBRARIES=1 ./LoRenderResolutionShaderTest 2>&1 | grep -v -E '^dyld\[[0-9]+\]: (<[^>]+> )?/(usr/lib|System)/'
+      - name: Repeat with the DXC from the v0.7.35 disk image
+        run: |
+          set -o pipefail
+          curl -sSfL -o lo.dmg https://github.com/freefrank/LostOdysseyRecomp/releases/download/v0.7.35/LostOdysseyRecomp-macos-arm64-v0.7.35.dmg
+          # The release asset's published SHA-256 digest.
+          echo "4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94  lo.dmg" | shasum -a 256 -c
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/lo-dmg" lo.dmg
+          app="$RUNNER_TEMP/lo-dmg/LostOdysseyRecomp.app"
+          echo "LSMinimumSystemVersion: $(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")"
+          cp "$app/Contents/MacOS/libdxcompiler.dylib" dxc-macos14/libdxcompiler.dylib
+          shasum -a 256 dxc-macos14/libdxcompiler.dylib
+          cd dxc-macos14
+          DYLD_PRINT_LIBRARIES=1 ./LoRenderResolutionShaderTest 2>&1 | grep -v -E '^dyld\[[0-9]+\]: (<[^>]+> )?/(usr/lib|System)/'
+      - name: Start the v0.7.35 runtime without game data
+        run: |
+          app="$RUNNER_TEMP/lo-dmg/LostOdysseyRecomp.app"
+          otool -l "$app/Contents/MacOS/LostOdysseyRecomp" | grep -A4 LC_BUILD_VERSION | grep -E 'minos|sdk'
+          export HOME="$RUNNER_TEMP/lo-home" LO_HEADLESS=1 LO_LOG_FILE="$RUNNER_TEMP/lo-runtime.log"
+          mkdir -p "$HOME"
+          status=0
+          perl -e 'alarm shift; exec @ARGV or die "exec: $!\n"' 60 "$app/Contents/MacOS/LostOdysseyRecomp" || status=$?
+          cat "$LO_LOG_FILE" || true
+          echo "exit status: $status"
+          # A headless start without game data logs its version, then exits with 1.
+          test "$status" -eq 1
+          grep -q 'source version: 0.7.35' "$LO_LOG_FILE"
+          grep -q 'missing default.xex' "$LO_LOG_FILE"
