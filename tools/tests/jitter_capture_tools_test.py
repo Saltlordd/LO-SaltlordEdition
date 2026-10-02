@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from tools.capture_analysis import export_jitter_fixture, jitter_candidates, suspect_log, trace
+from tools.capture_analysis import export_jitter_fixture, jitter_candidates, suspect_log, trace, triage_suspect
 
 
 DEPTH = "1111111111111111"
@@ -224,6 +224,93 @@ class SuspectLogTest(unittest.TestCase):
             rows = suspect_log.parse_log(log)
             self.assertEqual(len(rows), 1)
             self.assertIsNotNone(suspect_log.fixture_row(rows[0]))
+
+
+TRIAGE_VS = """void main()
+{
+r0.x = float(xeVertexId);
+r1 = XeVF_0;
+xePV = r1.xxxx * c[7].xyzw;
+xePV = r1.yyyy * c[8].xyzw + xePV;
+xePV = r1.zzzz * c[9].xyzw + xePV;
+xePV = r1.wwww * c[10].xyzw + xePV;
+oPos = xePV;
+o4.xyzw = xePV.xyzw;
+o0.xyzw = r1.xyzw;
+if ((xeFlags & 8u) != 0u) oPos.xy = oPos.xy;
+}
+"""
+TRIAGE_PS = """void main(
+	in float4 iPos : SV_Position,
+	in float4 i0 : TEXCOORD0,
+	in float4 i4 : TEXCOORD4,
+	out float4 oC0 : SV_Target0)
+{
+	int a0 = 0;
+	r0 = i0;
+	r4 = i4;
+	r1 = XeTextureResult(XeTex2D(tex2D_0, XeSampler(0u), r0.xy, float2(0, 0), 0u, false), 0u);
+	xeDbgTex = r1;
+	ps = max(r4.w, r4.w);
+	oC0.w = ps;
+	oC0.xyz = r1.xyz;
+	if (func == 0) pass = false;
+}
+"""
+
+
+class TriageSuspectTest(unittest.TestCase):
+    def run_triage(self, root, ps_text=TRIAGE_PS, mapping_extra="", pairs="", include_mapped=False):
+        log = root / "runtime.log"
+        log.write_text(suspect_lines()[0])
+        hlsl = root / "hlsl"
+        hlsl.mkdir(exist_ok=True)
+        (hlsl / f"vs_{MATERIAL}.hlsl").write_text(TRIAGE_VS)
+        (hlsl / f"ps_{PIXEL}.hlsl").write_text(ps_text)
+        mapping = root / "temporal_scene.h"
+        mapping.write_text("inline int PositionVPSlot(uint64_t shader) { switch(shader) {\n"
+                           f"case 0x{DEPTH}ull:return 4;\n{mapping_extra}"
+                           "default:return -1; }}\n"
+                           f"inline constexpr SkyMaterialPair SkyMaterialPairs[]{{\n{pairs}}};\n")
+        output = root / f"triage-{len(list(root.glob('triage-*.json')))}.json"
+        args = ["--log", str(log), "--hlsl-dir", str(hlsl), "--mapping", str(mapping), "--output", str(output)]
+        triage_suspect.main(args + (["--include-mapped"] if include_mapped else []))
+        return json.loads(output.read_text())["pairs"]
+
+    def test_safe_material_over_jittered_depth_suggests_vs_wide_mapping(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pair, = self.run_triage(Path(tmp))
+            self.assertEqual(pair["action"], "map_vs_wide")
+            self.assertEqual(pair["slot"], 7)
+            self.assertEqual(pair["shaders"]["vs"]["vp_outputs"], [{"output": "o4", "components": "xyzw"}])
+            self.assertEqual(pair["shaders"]["ps"]["clip_inputs"], ["i4"])
+            self.assertEqual(pair["shaders"]["ps"]["unsupported"], [])
+            self.assertIn(f"case 0x{MATERIAL}ull", pair["snippets"]["temporal_scene.h"])
+            self.assertIn("suspect_log.py", pair["snippets"]["fixture"])
+
+    def test_vs_already_paired_with_another_ps_keeps_exact_pairs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pair, = self.run_triage(Path(tmp), pairs=f"    {{0x{MATERIAL}ull, 0x{'4'*16}ull, true}},\n")
+            self.assertEqual(pair["action"], "map_exact_pair")
+            self.assertIn(f"0x{PIXEL}ull, true", pair["snippets"]["temporal_scene.h"])
+
+    def test_clip_xy_sampling_or_screen_position_holds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            screen = TRIAGE_PS.replace("r0.xy, float2", "r4.xy, float2")
+            pair, = self.run_triage(Path(tmp), ps_text=screen)
+            self.assertEqual(pair["action"], "hold")
+            self.assertTrue(any("clip X/Y" in reason for reason in pair["reasons"]))
+            position = TRIAGE_PS.replace("oC0.xyz = r1.xyz;", "oC0.xyz = iPos.xyz;")
+            pair, = self.run_triage(Path(tmp), ps_text=position)
+            self.assertEqual(pair["action"], "hold")
+            self.assertIn("PS reads SV_Position", pair["reasons"])
+
+    def test_mapped_pairs_are_listed_only_on_request(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mapped = f"case 0x{MATERIAL}ull:return 7;\n"
+            self.assertEqual(self.run_triage(Path(tmp), mapping_extra=mapped), [])
+            pair, = self.run_triage(Path(tmp), mapping_extra=mapped, include_mapped=True)
+            self.assertEqual(pair["action"], "already_mapped_vs")
 
 
 if __name__ == "__main__":
