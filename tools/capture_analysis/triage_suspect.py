@@ -36,7 +36,7 @@ import trace  # noqa: E402
 SKY_PAIR = re.compile(r"\{\s*0x([0-9a-fA-F]{16})ull\s*,\s*0x([0-9a-fA-F]{16})ull\s*,\s*(true|false)\s*\}")
 DECLARATION = re.compile(r"^(?:float[234]?|int|uint|bool|CubeMapData)\s+\w+\s*=\s*[^;]*;$")
 DEBUG_COPY = re.compile(r"^xeDbgTex\s*=\s*r\d+\s*;$")
-GUEST_REGISTER = re.compile(r"\b(?:r\d+|i\d+|xePV|ps)\b")
+GUEST_REGISTER = re.compile(r"\b(?:r\d+|xePV|ps)\b")
 SCREEN_POSITION = re.compile(r"\biPos\b")
 
 
@@ -112,12 +112,14 @@ def review_shaders(vs_text: str | None, ps_text: str | None, scratch: Path) -> d
         signature_end = body.index("{")
         review = ps.get("clip_input_review") or {}
         # Translator scaffolding the clip review cannot parse: declarations,
-        # debug texture copies and the host alpha-test epilogue, which uses no
-        # guest register. Guest control flow keeps its registers and stays.
+        # debug texture copies, the host alpha-test epilogue and the host debug
+        # view (xeFlags, i15), none of which use a guest register or the clip
+        # copy. Guest control flow keeps its registers and stays.
+        clip_inputs = {f"i{n}" for n in copies}
         unsupported = [entry for entry in review.get("unsupported", [])
                        if not DECLARATION.match(entry["text"]) and not DEBUG_COPY.match(entry["text"])
-                       and GUEST_REGISTER.search(entry["text"])]
-        clip_inputs = {f"i{n}" for n in copies}
+                       and (GUEST_REGISTER.search(entry["text"]) or
+                            any(re.search(rf"\b{name}\b", entry["text"]) for name in clip_inputs))]
         screen_fetches = [f for f in ps["fetches"] if any(
             dep.split(".")[0] in clip_inputs and dep.endswith((".x", ".y")) for dep in f["coordinate_dependencies"])]
         result["ps"] = {
