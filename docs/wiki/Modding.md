@@ -17,7 +17,7 @@ Mods do not modify `LO.fpi`, FPD archives or other imported game files. Mod pack
 
 ## Start here
 
-[Create and install a mod](Creating-Mods.md) explains the manifest-to-PNG-to-ZIP workflow. [API reference](Modding-API.md) defines identities, resolution, the binary image format and extension points. [Mod Organizer 2](Mod-Organizer-2.md) describes the external-manager contract and its current limitations. [Validation](Modding-Validation.md) separates automated checks from game/MO2 acceptance. [Runtime texture replacement](Runtime-Texture-Replacement.md) records the remaining general GPU work.
+[Create and install a mod](Creating-Mods.md) explains the manifest-to-PNG-to-ZIP workflow. [API reference](Modding-API.md) defines identities, resolution, the binary image format and extension points. [Asset inventory](Asset-Inventory.md) explains the read-only four-disc resource catalog and its counting limits. [Mod Organizer 2](Mod-Organizer-2.md) describes the external-manager contract and its current limitations. [Validation](Modding-Validation.md) separates automated checks from game/MO2 acceptance. [Runtime texture replacement](Runtime-Texture-Replacement.md) records the remaining general GPU work.
 
 ## Installation essentials
 

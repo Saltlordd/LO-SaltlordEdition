@@ -12,6 +12,7 @@ This directory contains version-controlled developer utilities, build helpers, o
 
 | Task | Start here | Main effects |
 |---|---|---|
+| Build a read-only resource catalog for Mod development | [`asset_inventory/README.md`](asset_inventory/README.md), [`docs/wiki/Asset-Inventory.md`](../docs/wiki/Asset-Inventory.md) | Reads four-disc FPI/FPD data and writes metadata-only SQLite/CSV reports; does not launch the game and does not require WSL or Docker. |
 | Inspect an F1 capture, compare frames, or review temporal-jitter candidates | [`capture_analysis/README.md`](capture_analysis/README.md) | Read capture files; write explicit reports, previews, or reviewed fixtures. No game launch. |
 | Translate or audit shaders and portable shader packs | [`shader_analysis/README.md`](shader_analysis/README.md), [`PORTABLE_SHADER_PACK.md`](../docs/PORTABLE_SHADER_PACK.md) | Read inputs and write explicit reports/build outputs; shader-pack merge compiles and writes a new pack. |
 | Archive private opt-in feedback and review cases | [`feedback_archive/README.md`](feedback_archive/README.md) | Offline ledger writes selected private archive paths; archive refresh performs read-only D1 queries. No public data or Git publication. |
@@ -117,6 +118,7 @@ The catalog below lists maintained groups and representative root utilities. `th
 |---|---|---|
 | `tools/modding/lo_mod.py` | Builds v1 image mod ZIPs with `LOTEX1` payloads and validated relative asset keys. | Local write: Creates a mod archive at an explicit output path; does not modify imported game files. |
 | `tools/modding/publish_wiki.py` | Stages the maintained Modding API and workflow pages into an existing cloned Wiki repository. | Local write: Updates only managed Wiki pages and navigation; requires an explicit cloned destination. |
+| [`tools/asset_inventory/inventory.py`](asset_inventory/README.md) | Scans a complete four-disc game root, hashes complete resource payloads, decodes package metadata, classifies exports, and supports `scan`, `reparse`, `report`, and `query`. | Read-only game input; writes metadata-only SQLite, reports, and CSV/CSV.GZ files to an explicit external output directory. Does not extract original payloads, launch the game, or require WSL/Docker. |
 
 ### 9. Project management and issue triage
 
