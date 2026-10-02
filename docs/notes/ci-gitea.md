@@ -81,6 +81,12 @@ ones the release does not have yet, so a failed platform leaves the draft
 without a partial package set. Unlike the GitHub workflow, the build jobs do
 not upload to the release themselves.
 
+Since PR #127, both build jobs fetch the pinned Vulkan shader pack before
+compiling and pass it as `LO_PORTABLE_SHADER_PACK`; the runtime build runs
+`LoShaderPackTool verify-runtime` against the private disc 1 image and fails
+if the pack does not match ([refresh procedure](../PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
+Build-only run 485 printed `runtime_compatibility_verified: true` on both.
+
 The Gitea job token cannot reach GitHub, so every GitHub operation uses
 `LO_GITHUB_TOKEN` with `GH_REPO` pinned to `freefrank/LostOdysseyRecomp`:
 creating the draft, uploading the packages, publishing, downloading the pinned
