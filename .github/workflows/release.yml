@@ -481,7 +481,9 @@ jobs:
               f'LostOdysseyRecomp-linux-x64-{tag}.flatpak',
           }
           names = {asset['name'] for asset in assets}
-          assert names == expected, 'Expected exactly the installable packages; shader packs live on the shader-packs release'
+          # The macOS disk image is built on a Mac and uploaded separately.
+          optional = {f'LostOdysseyRecomp-macos-arm64-{tag}.dmg'}
+          assert expected <= names <= expected | optional, 'Expected the installable packages and at most the macOS disk image; shader packs live on the shader-packs release'
           assert all(asset['size'] > 0 and asset['state'] == 'uploaded' for asset in assets), 'Incomplete release upload'
           PY
           if [ "$(jq -r '.isDraft' release.json)" != true ]; then
