@@ -308,15 +308,6 @@ jobs:
         run: |
           git -C tools/XenonRecomp apply --reverse --check ../patches/XenonRecomp-lostodyssey.patch >/dev/null 2>&1 || git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
           git -C thirdparty/plume apply --reverse --check ../../tools/patches/plume-lostodyssey.patch >/dev/null 2>&1 || git -C thirdparty/plume apply ../../tools/patches/plume-lostodyssey.patch
-      - name: Apply SDL PipeWire compatibility patch
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          patch = Path('packaging/linux/patches/sdl2-pipewire-node-type.patch').read_bytes().replace(b'\r\n', b'\n')
-          source = Path('thirdparty/SDL/src/audio/pipewire/SDL_pipewire.c').read_bytes()
-          Path('out/sdl-pipewire.patch').write_bytes(patch.replace(b'\n', b'\r\n') if b'\r\n' in source else patch)
-          PY
-          patch -d thirdparty/SDL -p1 --binary --fuzz=0 --forward --batch -i ../../out/sdl-pipewire.patch
       - name: Build recompiler tools
         run: |
           cmake -S tools/xexdump -B out/build/tools -G Ninja \
