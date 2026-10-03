@@ -6,7 +6,9 @@
 #include "../os/user_paths.h"
 
 #include <cstdlib>
-#if defined(__linux__) && !defined(_WIN32)
+#if defined(__ANDROID__)
+#include <SDL.h>
+#elif defined(__linux__) && !defined(_WIN32)
 #include <unistd.h>
 #endif
 #if defined(__APPLE__)
@@ -17,7 +19,58 @@ extern char** environ;
 
 namespace updater
 {
-#if defined(__linux__) && !defined(_WIN32)
+#if defined(__ANDROID__)
+// Android: an APK cannot replace itself, so a newer release that carries an
+// Android asset is offered, and accepting hands its download to the browser.
+// The APK keeps one signing key, so it installs over the current one.
+StartupResult PrepareAtStartup(const StartupOptions &options)
+{
+    StartupResult result;
+    const char *disabled = std::getenv("LO_NO_UPDATE");
+    if (!options.automaticUpdates || (disabled && std::string_view(disabled) != "0"))
+    {
+        result.status = StartupStatus::Disabled;
+        result.detail = !options.automaticUpdates ? "automatic_updates=0" : "LO_NO_UPDATE";
+        return result;
+    }
+    std::string error;
+    const auto current = ParseVersion(options.currentVersion).value_or(*ParseVersion("0.0.0"));
+    std::string releaseText;
+    if (!ReadResponse(options.releaseApiUrl, 2 * 1024 * 1024, releaseText, error))
+    {
+        result.status = StartupStatus::Offline; result.detail = error; return result;
+    }
+    auto release = ParseGitHubRelease(releaseText, error);
+    if (!release)
+    {
+        result.status = StartupStatus::InvalidRelease; result.detail = error; return result;
+    }
+    auto remote = ParseVersion(release->tag);
+    if (!remote || !ShouldUpdateToLatest(current, *remote))
+    {
+        result.status = StartupStatus::UpToDate; result.detail = release->tag; return result;
+    }
+    auto asset = SelectAsset(*release, "android", "arm64", error);
+    if (!asset)
+    {
+        result.status = StartupStatus::NoCompatibleAsset; result.detail = error; return result;
+    }
+    const auto changelog = ReleaseChangelog(*release, options.uiLanguage);
+    if (!options.confirmUpdate || !options.confirmUpdate(release->tag, changelog, options.uiLanguage))
+    {
+        result.status = StartupStatus::Cancelled; result.detail = "user declined update"; return result;
+    }
+    if (SDL_OpenURL(asset->url.c_str()) != 0)
+    {
+        result.status = StartupStatus::DownloadFailed;
+        result.detail = std::string("could not open ") + asset->url + ": " + SDL_GetError();
+        return result;
+    }
+    result.status = StartupStatus::ExternalUpdateAvailable;
+    result.detail = "opened " + asset->url;
+    return result;
+}
+#elif defined(__linux__) && !defined(_WIN32)
 StartupResult PrepareAtStartup(const StartupOptions &options)
 {
     StartupResult result;

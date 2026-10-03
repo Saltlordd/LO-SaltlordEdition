@@ -59,6 +59,8 @@ public final class GpuDriverActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         PlayerLogs.installCrashHandler(this);
+        // Make the game folders before the first start so they can be filled over USB.
+        GameStorage.prepare(this);
         fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
         if (!fromGame) {
             // Shows the previous run's logs over USB, complete even after a crash.
@@ -75,7 +77,9 @@ public final class GpuDriverActivity extends Activity {
     }
 
     private void launchGame() {
-        startActivity(new Intent(this, RuntimeActivity.class));
+        // Without game data the game folder page comes first.
+        startActivity(new Intent(this, GameStorage.hasGame(this) ? RuntimeActivity.class
+                                                                 : GameFolderActivity.class));
         finish();
     }
 

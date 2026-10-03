@@ -1148,7 +1148,9 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
     {
         for (const auto& d : selection.discs)
         {
-            if (!replace && std::filesystem::exists(dest / ("disc" + std::to_string(d.disc)), ec))
+            const auto slot = dest / ("disc" + std::to_string(d.disc));
+            if (!replace && std::filesystem::exists(slot, ec) &&
+                !(std::filesystem::is_directory(slot, ec) && std::filesystem::is_empty(slot, ec)))
                 throw Error("Disc " + std::to_string(d.disc) + " is already installed; existing files were kept");
         }
 
@@ -1156,7 +1158,11 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         for (uint32_t n = 1; n <= 4; ++n)
         {
             auto existing = dest / ("disc" + std::to_string(n));
-            if (std::filesystem::exists(existing, ec) &&
+            // An empty slot folder (made by hand or by an older Android app
+            // that prepared disc1-disc4) holds no disc to retain.
+            const bool emptySlot = !IsSymlinkOrReparse(existing) &&
+                std::filesystem::is_directory(existing, ec) && std::filesystem::is_empty(existing, ec);
+            if (!emptySlot && std::filesystem::exists(existing, ec) &&
                 std::none_of(selection.discs.begin(), selection.discs.end(), [n](const DiscInfo& disc) { return disc.disc == n; }))
             {
                 if (IsSymlinkOrReparse(existing)) throw Error("Disc destination is a link: " + existing.string());
@@ -1526,6 +1532,9 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         {
             if (IsSymlinkOrReparse(slot.target)) throw Error("Import target is a link: " + slot.target.string());
             std::filesystem::create_directories(slot.target.parent_path());
+            // An empty slot folder holds nothing to back up.
+            if (std::filesystem::is_directory(slot.target) && std::filesystem::is_empty(slot.target))
+                std::filesystem::remove(slot.target);
             if (std::filesystem::exists(slot.target))
             {
                 if (!replace) throw Error("Import target already exists: " + slot.target.string());

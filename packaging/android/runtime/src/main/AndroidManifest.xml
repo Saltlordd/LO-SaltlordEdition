@@ -1,7 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- Startup download of the precompiled shader pack and of GPU driver packages. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Optional custom game folder: the runtime opens game files by path, so a
+         folder outside Android/data needs All files access (Android 11+) or the
+         storage permission (Android 8-10). The app folder needs neither. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
     <uses-feature android:name="android.hardware.vulkan.level" android:version="0" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />
@@ -10,8 +20,9 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:theme="@android:style/Theme.Material.NoActionBar"
-        android:hardwareAccelerated="true">
-        <!-- Launcher: the GPU driver page on Qualcomm devices, then the game. -->
+        android:hardwareAccelerated="true"
+        android:requestLegacyExternalStorage="true">
+        <!-- Launcher: the GPU driver page on Qualcomm devices, then the game (or the game folder page without game data). -->
         <activity android:name=".GpuDriverActivity"
             android:exported="true"
             android:screenOrientation="sensorLandscape"
@@ -21,6 +32,10 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity android:name=".GameFolderActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation" />
         <!-- Exported so `adb shell am start -n …/.RuntimeActivity` still skips the driver page. -->
         <activity android:name=".RuntimeActivity"
             android:exported="true"

@@ -10,7 +10,7 @@
 
 // HTTPS through java.net.HttpURLConnection over JNI: the platform's TLS and
 // certificate store, no libcurl. SDL attaches the calling thread to the VM.
-// The shader pack download uses it; app updates stay manual on Android.
+// The shader pack download and the app update check use it.
 namespace updater
 {
 namespace

@@ -439,6 +439,18 @@ void RunReimportTest()
     std::filesystem::copy_file(root / "sources" / "disc1" / "default.xex", dest / "default.xex");
     try { install::ReimportContent(selection, dest); } catch (const install::Error&) { flatRejected = true; }
     Require(flatRejected, "flat default.xex destination accepted for disc replacement");
+
+    // Empty disc slot folders (made by hand or by the Android app) hold no
+    // disc: a partial import neither validates them nor refuses to fill them.
+    for (const bool reimport : {true, false})
+    {
+        const auto prepared = root / (reimport ? "prepared-reimport" : "prepared-install");
+        for (uint32_t n = 1; n <= 4; ++n) std::filesystem::create_directories(prepared / ("disc" + std::to_string(n)));
+        const auto result = reimport ? install::ReimportContent(discOnly, prepared) : install::InstallContent(discOnly, prepared);
+        Require(result.discs == std::vector<int>{1} && std::filesystem::exists(prepared / "disc1" / "default.xex") &&
+                std::filesystem::is_empty(prepared / "disc2"),
+                std::string("import into empty slot folders failed (") + (reimport ? "reimport" : "install") + ")");
+    }
     std::cout << "[PASS] selective reimport, preparation/publish/callback rollback, retained backups and overlap" << std::endl;
 }
 } // namespace

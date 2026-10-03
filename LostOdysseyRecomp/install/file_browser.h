@@ -76,10 +76,36 @@ inline std::vector<DirectoryItem> GetSystemRoots()
             roots.push_back({ rootStr, std::filesystem::path(rootStr), true, true });
         }
     }
+#elif defined(__ANDROID__)
+    // Shared storage volumes: the internal one and every mounted SD card or
+    // USB drive (/storage/<uuid>). Reading them needs All files access.
+    roots.push_back({ "Internal storage", std::filesystem::path("/storage/emulated/0"), true, true });
+    std::error_code ec;
+    std::vector<DirectoryItem> volumes;
+    for (const auto& entry : std::filesystem::directory_iterator("/storage", ec))
+    {
+        const auto name = entry.path().filename().string();
+        if (name == "emulated" || name == "self" || !entry.is_directory(ec)) continue;
+        volumes.push_back({ "SD card " + name, entry.path(), true, true });
+    }
+    std::sort(volumes.begin(), volumes.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+    roots.insert(roots.end(), volumes.begin(), volumes.end());
 #else
     roots.push_back({ "/", std::filesystem::path("/"), true, true });
 #endif
     return roots;
+}
+
+// Where source browsing starts when no folder was given.
+inline std::filesystem::path DefaultSourceDirectory()
+{
+#if defined(__ANDROID__)
+    std::error_code ec;
+    const std::filesystem::path download("/storage/emulated/0/Download");
+    return std::filesystem::is_directory(download, ec) ? download : std::filesystem::path("/storage/emulated/0");
+#else
+    return std::filesystem::current_path();
+#endif
 }
 
 // Lists entries inside directory, sorted alphabetically, directories first
