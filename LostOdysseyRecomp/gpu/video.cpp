@@ -724,9 +724,9 @@ namespace gpu::video
         }
 
         // Frame generation presents through each SDK's own swap chain. D3D12
-        // and Metal recreate that chain in SDR; Vulkan DLSS-G accepts the
-        // HDR10 chain plume prefers (Streamline DLSS-G guide 11.0) and is
-        // opt-in with LO_HDR_FG=1 while that is being evaluated.
+        // and Metal recreate that chain in SDR, and the Vulkan FSR presenter
+        // only takes RGBA8/BGRA8. Vulkan DLSS-G accepts the HDR10 chain plume
+        // prefers (Streamline DLSS-G guide 11.0); LO_HDR_FG=0 opts out.
         bool HdrFrameGenerationCompatible()
         {
             const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
@@ -734,8 +734,9 @@ namespace gpu::video
                 settings::GetConfig(), std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
                 std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
             if (!fg.Enabled()) return true;
-            const char* allow = std::getenv("LO_HDR_FG");
-            return g_vulkan && allow && std::strcmp(allow, "1") == 0;
+            if (!g_vulkan || fg.config.provider != framegen::Provider::Dlss) return false;
+            const char* optOut = std::getenv("LO_HDR_FG");
+            return !optOut || std::strcmp(optOut, "0") != 0;
         }
 
         // Per-frame scene conditions. The HDR swap chain stays; a frame that
@@ -1992,7 +1993,7 @@ namespace gpu::video
                 if (!HdrConfigurationCompatible())
                     LOG_INFO("HDR: swap chain requested; the HDR scene pauses while AA or upscaling is selected");
             } else if (hdrConfig.hdr && g_vulkan) {
-                LOG_WARNING("HDR: SDR swap chain retained; DLSS-G presents through its own swap chain (set LO_HDR_FG=1 to try it with the HDR10 swap chain)");
+                LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain here (FSR FG, or DLSS-G with LO_HDR_FG=0)");
             } else if (hdrConfig.hdr) {
                 LOG_WARNING("HDR: SDR swap chain retained; requires AA off, upscaling off, frame generation off and a non-MetalFX scaling filter on this backend");
             }
