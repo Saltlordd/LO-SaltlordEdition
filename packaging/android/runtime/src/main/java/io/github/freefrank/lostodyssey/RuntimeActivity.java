@@ -25,6 +25,7 @@ public final class RuntimeActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        GameStorage.prepare(this);
         GpuDriverStore.markBootPending(this);
         if (mLayout != null && !mBrokenLibraries) {
             touchControls = new TouchControlsView(this);
@@ -78,8 +79,7 @@ public final class RuntimeActivity extends SDLActivity {
 
     @Override
     protected String[] getArguments() {
-        File external = getExternalFilesDir(null);
-        File game = new File(external != null ? external : getFilesDir(), "game/disc1");
+        File game = GameStorage.disc1(this);
         // Custom Vulkan driver (libadrenotools): the hook libraries sit in the
         // extracted native library directory, the chosen package in its own folder.
         nativeSetenv("LO_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir + "/");

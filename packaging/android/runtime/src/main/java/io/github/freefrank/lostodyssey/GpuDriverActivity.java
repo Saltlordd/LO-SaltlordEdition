@@ -58,6 +58,8 @@ public final class GpuDriverActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Make the game folders before the first start so they can be filled over USB.
+        GameStorage.prepare(this);
         fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
         if (!fromGame) {
             if (!GpuDriverStore.supported()) { launchGame(); return; }
