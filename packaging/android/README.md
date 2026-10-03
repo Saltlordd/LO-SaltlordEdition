@@ -259,15 +259,27 @@ The catalog and package logic has JVM tests:
 
 ## Continuous integration
 
-`.gitea/workflows/android-apk.yml` builds this APK on git.zkx.ca's privileged
-Linux runner for every push that touches the runtime, the Android packaging,
-the patches or the workflow, and on manual dispatch. It follows this document:
-host recompiler tools and PPC code generation as in the Linux release job, the
-Android SDK packages from `sdkmanager`, `tools/android/build-dxc.sh` for the
-Android DXC, `tools/android/build-runtime.sh` (assemble + lint), then
-`:runtime:testDebugUnitTest`. The SDK/NDK, the DXC build, the Gradle home and
-ccache live on the runner's `LO_CI_CACHE` volume, so only the first run pays
-for the DXC compile. The APK is uploaded as the
-`LostOdysseyRecomp-android-arm64-debug` artifact and the result is mirrored to
-the GitHub commit as `gitea/android-apk`. A green run proves packaging, lint
-and the JVM tests, not device behaviour.
+Two Gitea workflows build this APK through `tools/android/ci_build.sh` on
+git.zkx.ca's privileged Linux runner, after the same host recompiler tools and
+PPC code generation as the Linux release job. The script installs the Android
+SDK packages with `sdkmanager`, builds or reuses the Android DXC
+(`tools/android/build-dxc.sh`), runs `tools/android/build-runtime.sh`
+(assemble + lint) and `:runtime:testDebugUnitTest`. The SDK/NDK, the DXC build,
+the Gradle home, ccache and the auto-generated debug keystore live on the
+runner's `LO_CI_CACHE` volume, so only the first run pays for the DXC compile
+and every CI APK carries the same debug signature.
+
+- `.gitea/workflows/android-apk.yml` runs on pushes that touch
+  `packaging/android`, `tools/android` or `thirdparty/libadrenotools`, and on
+  manual dispatch; it uploads `LostOdysseyRecomp-android-arm64-debug` and
+  mirrors the result to the GitHub commit as `gitea/android-apk`.
+- `.gitea/workflows/release.yml` has an Android job for every `v*` tag (and
+  build-only dispatches). It builds the release build type with the tag as
+  `versionName` (`versionCode` = major×1000000 + minor×10000 + patch) and
+  publishes `LostOdysseyRecomp-android-arm64-<tag>.apk` with the other
+  packages. Configure the Gitea secrets `LO_ANDROID_KEYSTORE` (base64 of the
+  keystore), `LO_ANDROID_KEYSTORE_PASSWORD`, `LO_ANDROID_KEY_ALIAS` and
+  `LO_ANDROID_KEY_PASSWORD` for a real release signature; until then the APK is
+  signed with the persistent CI debug keystore.
+
+A green run proves packaging, lint and the JVM tests, not device behaviour.

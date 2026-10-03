@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# CI: Android SDK packages, Android DXC, runtime build, APK packaging and the
+# runtime module's JVM tests. Shared by .gitea/workflows/android-apk.yml (push /
+# dispatch check) and the Android job of release.yml. Expects the host
+# recompiler tools to have generated the PPC sources already (same steps as the
+# Linux release job), JDK 17, Ninja, ccache, a CMake >= 3.28 on PATH, and
+# LO_CI_CACHE pointing at the runner's persistent volume.
+#
+# Outputs out/apk/LostOdysseyRecomp-android-arm64-<RELEASE_TAG|debug>.apk.
+# With RELEASE_TAG set the APK is the release build type, signed with the
+# LO_ANDROID_KEYSTORE* secrets when they are configured and with the persistent
+# debug keystore otherwise (see packaging/android/runtime/build.gradle).
+set -euo pipefail
+
+repo=$(cd "$(dirname "$0")/../.." && pwd)
+cache=${LO_CI_CACHE:?Set LO_CI_CACHE to the persistent cache volume of the runner}
+ndk_version=28.2.13676358
+cmdline_tools_url=${LO_ANDROID_CMDLINE_TOOLS:-https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip}
+jobs=${LO_BUILD_JOBS:-20}
+
+export ANDROID_HOME="$cache/android-sdk"
+export LO_DXC_CACHE_DIR="$cache/android-dxc"
+export GRADLE_USER_HOME="$cache/gradle"
+# AGP's auto-generated debug keystore lives under this home; keeping it on the
+# volume makes every CI APK carry the same debug signature (installable over
+# the previous one).
+export ANDROID_USER_HOME="$cache/android-user-home"
+export CCACHE_DIR="$cache/ccache"
+export CCACHE_BASEDIR="$repo"
+export CCACHE_NOHASHDIR=1
+export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-20G}
+mkdir -p "$ANDROID_HOME" "$LO_DXC_CACHE_DIR" "$GRADLE_USER_HOME" "$ANDROID_USER_HOME" "$CCACHE_DIR"
+ccache --zero-stats >/dev/null || true
+
+echo "== Android SDK packages"
+sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+if [[ ! -x "$sdkmanager" ]]; then
+    tmp=$(mktemp -d)
+    wget -q -O "$tmp/cmdline-tools.zip" "$cmdline_tools_url"
+    sha256sum "$tmp/cmdline-tools.zip"
+    unzip -q "$tmp/cmdline-tools.zip" -d "$tmp"
+    mkdir -p "$ANDROID_HOME/cmdline-tools"
+    rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+    mv "$tmp/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+    rm -rf "$tmp"
+fi
+yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
+"$sdkmanager" --install "platforms;android-35" "build-tools;35.0.0" "platform-tools" \
+    "ndk;$ndk_version" "cmake;3.22.1" >/dev/null
+"$sdkmanager" --list_installed
+
+echo "== Android DXC"
+LO_DXC_JOBS=$jobs bash "$repo/tools/android/build-dxc.sh"
+
+echo "== Runtime build, debug APK and lint"
+export LO_ANDROID_BUILD_DIR="$repo/out/build/android-runtime"
+export LO_ANDROID_DXC="$repo/out/android-dxc/libdxcompiler.so"
+export LO_BUILD_JOBS=$jobs
+bash "$repo/tools/android/build-runtime.sh" \
+    -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+ccache --show-stats || true
+
+echo "== JVM tests"
+(cd "$repo/packaging/android" && ./gradlew :runtime:testDebugUnitTest)
+
+mkdir -p "$repo/out/apk"
+rm -f "$repo/out/apk"/*.apk
+if [[ -n "${RELEASE_TAG:-}" ]]; then
+    echo "== Release APK for $RELEASE_TAG"
+    (cd "$repo/packaging/android" && ./gradlew :runtime:assembleRelease -PloVersionName="$RELEASE_TAG")
+    cp "$repo/packaging/android/runtime/build/outputs/apk/release/runtime-release.apk" \
+        "$repo/out/apk/LostOdysseyRecomp-android-arm64-$RELEASE_TAG.apk"
+else
+    cp "$repo/packaging/android/runtime/build/outputs/apk/debug/runtime-debug.apk" \
+        "$repo/out/apk/LostOdysseyRecomp-android-arm64-debug.apk"
+fi
+sha256sum "$repo/out/apk"/*.apk
