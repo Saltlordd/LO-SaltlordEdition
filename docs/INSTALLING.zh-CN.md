@@ -2,13 +2,13 @@
 
 [English](INSTALLING.md)
 
-本文说明已发布的 v0.7.35 安装包和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
+本文说明已发布的 v0.8.0 安装包和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
 
 ## Windows 快速开始
 
 需要 Windows x64 和支持 AVX 的 CPU。Windows 默认使用 Direct3D 12。发布包已经包含导入器、更新器、DXC v1.8.2407 DLL 对及依赖许可证；游玩发布包不需要安装 Python 或 Visual Studio。
 
-1. 从 [v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)下载 `LostOdysseyRecomp-windows-x64-v0.7.35.zip`。
+1. 从 [v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)下载 `LostOdysseyRecomp-windows-x64-v0.8.0.zip`。
 2. 将完整 ZIP 解压到可写目录，避免放在 `Program Files` 下。
 3. 运行 `LostOdysseyRecomp.exe`。未找到可用的游戏安装时，会打开内置导入器。
 4. 首次设置中选择界面语言、游戏语言和图形选项，完成着色器准备后进入游戏。游戏可能会先询问是否下载所选渲染器的预编译着色器，见[着色器准备](#shader-preparation)。
@@ -56,21 +56,21 @@ DLC 可以直接选择，也可以放在扫描目录中。支持的包需要包�
 
 ## Linux 安装包
 
-Linux 只使用 Vulkan。 [v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。
+Linux 只使用 Vulkan。 [v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。不发布 Linux AArch64 安装包；实验性的源码构建和交叉编译路径见 [LINUX_ARM64.md](LINUX_ARM64.md)。
 
 ### AppImage
 
-下载 `LostOdysseyRecomp-linux-x64-v0.7.35.AppImage` 后运行：
+下载 `LostOdysseyRecomp-linux-x64-v0.8.0.AppImage` 后运行：
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.7.35.AppImage
-./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.0.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.0.AppImage
 ```
 
 可以直接使用图形导入器。若要指定路径启动，可传入游戏目录、`disc1` 或 `default.xex`：
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.0.AppImage --game /path/to/game
 ```
 
 正常挂载运行的 AppImage 会把存档和设置放在 Linux 用户目录，见[文件位置](#file-locations)。`--game` 只选择游戏数据，不会切换为便携存储；把 `game-path.txt` 放在外层 `.AppImage` 文件旁不能配置这种运行方式。
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 再安装并运行下载的 bundle：
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.35.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.0.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -107,7 +107,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## macOS（Apple Silicon，实验性）
 
-[v0.7.35 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)提供 `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，因此 macOS 会拦截首次启动。
+[v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)提供 `LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.8.0 应用声明的最低系统是 macOS 15.0。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，并且会一直如此：维护者于 2026-10-03 决定不做 Developer ID 签名和公证。因此 macOS 会拦截首次启动。
 
 1. 下载磁盘映像并打开。
 2. 把 `LostOdysseyRecomp.app` 拖到窗口中的 Applications 链接上，然后推出磁盘映像。
@@ -120,7 +120,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 游戏内的更新检查只在新版本带有磁盘映像时提示打开发布页。更新时请下载新的磁盘映像，并替换“应用程序”中的应用；存档和设置在应用之外，会保留。
 
-验证范围仅限一台 Mac。在维护者的 M1 Max（macOS 26.6.2）上，开场新游戏战斗用 Metal 运行，并使用了下载的 Metal 着色器包；在没有 EDR 余量的外接显示器上请求 HDR 时输出保持 SDR，尚未见到 Metal 的 HDR 输出本身。长时间游玩、更广场景和其他 Mac 尚未测试。需要自行构建时见 [BUILDING.md](BUILDING.md#building-on-macos)；磁盘映像的制作方法见 [MACOS_RELEASE.md](MACOS_RELEASE.md)。
+验证范围仅限一台 Mac。在维护者的 M1 Max（macOS 26.6.2）上，开场新游戏战斗用 Metal 运行，并使用了下载的 Metal 着色器包；在没有 EDR 余量的外接显示器上请求 HDR 时输出保持 SDR，当时尚未见到 Metal 的 HDR 输出本身。另外也用源码构建在这台 Mac 上跑过开启 GTAO 和 4× 阴影的开场战斗。长时间游玩、更广场景和其他 Mac 尚未测试。需要自行构建时见 [BUILDING.md](BUILDING.md#building-on-macos)；磁盘映像的制作方法见 [MACOS_RELEASE.md](MACOS_RELEASE.md)。
 
 ## 首次设置和普通设置
 
@@ -138,6 +138,8 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 
 - **下载 (A)** 从 GitHub 的 `shader-packs` 发布页下载并显示进度，**取消 (B)** 可中止。只有文件的大小和 SHA-256 与发布清单一致、并且与游戏匹配时才会使用，否则游戏改为在本机编译着色器。选择下载可以省去数分钟的着色器编译。
 - **跳过 (B)** 在本机编译着色器。这个选择会一直记到着色器更新为止，记录在 `shaders/` 目录的 `declined-downloads.txt` 中（见 [README 的文件列表](../README.zh-CN.md#文件与目录)）。不做选择直接关闭窗口，下次启动会再次询问。
+
+自 v0.8.0 起，Vulkan（Windows、Linux）和 Metal（macOS）共用一个包 `portable_vk.lospv`，DirectX 12 仍用 `portable_dx12.lospd`。着色器 contract 变了，需要新的包，所以更新后第一次启动会提示下载。
 
 离线或没有为你的版本发布着色器包时，游戏不会询问，直接在本机编译着色器。之后的启动会复用编译好的着色器。文件和校验见[着色器包参考](PORTABLE_SHADER_PACK.md#startup-download)。
 

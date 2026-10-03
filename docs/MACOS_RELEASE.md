@@ -1,38 +1,48 @@
 # macOS releases
 
-macOS support is an experimental Apple Silicon integration. v0.7.35 is the first
-release with a macOS package: `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`, a
-disk image that is ad-hoc signed and not notarized. GitHub CI builds the source
+macOS support is an experimental Apple Silicon integration. v0.7.35 was the
+first release with a macOS package and v0.8.0 is the second:
+`LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`, a disk image that is ad-hoc signed
+and not notarized. Both stay that way: on 2026-10-03 the maintainer decided that
+Developer ID signing and notarization will not be done. GitHub CI builds the source
 and tests that do not require private game data; it does not link a complete
 runtime with game data, so the disk image is built on a Mac and uploaded to the
 release by hand.
 
-## Disk image (v0.7.35)
+## Disk image (v0.8.0)
 
 Build the runtime first using [the macOS build instructions](BUILDING.md#building-on-macos).
 Then run this on the Mac that built the executable:
 
 ```sh
-python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.7.35 --dmg
+python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8.0 --dmg
 ```
 
 - `--dmg` writes a compressed HFS+ disk image, with the volume name "Lost
   Odyssey Recomp", that holds `LostOdysseyRecomp.app` and a link to
   `/Applications`. Without it the script writes a ZIP.
-- `--version v0.7.35` sets the asset tag, so the file is named
-  `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`. Keep the `v`: the script uses
+- `--version v0.8.0` sets the asset tag, so the file is named
+  `LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`. Keep the `v`: the script uses
   the text as given, and the in-game updater looks for exactly this name. Do not
   use `--release` here; it needs a Developer ID identity, and the script exits
   without one.
 - Without `--identity` the app is signed ad hoc and the image is not signed.
   Neither is notarized.
 - The app declares macOS 15.0 as its minimum (`MINIMUM_MACOS` in the script,
-  matching `CMAKE_OSX_DEPLOYMENT_TARGET`). The v0.7.35 image was made before
-  this change and still declares 14.0; see
+  matching `CMAKE_OSX_DEPLOYMENT_TARGET`), so the v0.8.0 app declares 15.0. The
+  v0.7.35 image was made before this change and still declares 14.0; see
   [Minimum macOS version](#minimum-macos-version).
 - Upload the image to the release by hand. The release workflow's publish step
   accepts the three packages built by CI and, at most, this one disk image
   beside them.
+
+### v0.8.0 image
+
+The v0.8.0 disk image is built on the maintainer's M1 Max from tag `v0.8.0` with
+`python3 tools/package_macos.py --version v0.8.0 --dmg` and uploaded to the
+release by hand. Its size, SHA-256 and image checks are not recorded here yet;
+add them, as for the v0.7.35 image below, after the image is built and the release is
+published.
 
 ### Published image, 2026-10-02
 
@@ -130,7 +140,8 @@ run.
 
 ## Minimum macOS version
 
-Builds after v0.7.35 require macOS 15.0: `CMAKE_OSX_DEPLOYMENT_TARGET` and the
+Builds after v0.7.35 require macOS 15.0, so v0.8.0 is the first release whose
+app declares it: `CMAKE_OSX_DEPLOYMENT_TARGET` and the
 app's `LSMinimumSystemVersion` are 15.0, and configuring a build directory that
 cached the earlier 14.0 default raises it to 15.0. The v0.7.35 image still
 declares 14.0, but macOS 15 or later is its supported range too. The reasons:
@@ -186,6 +197,10 @@ gameplay, image quality, performance or complete-playthrough acceptance. Record
 the Mac model, macOS version, source commit, game edition and tested scenes
 alongside any local result. Keep the existing Windows/Linux release records
 separate from this experimental path.
+
+For v0.8.0 no game run with its disk image is recorded here yet. The v0.7.35
+runs below are the existing record; a later source build also ran the opening
+battle with GTAO and 4× shadows on the same Mac ([changelog](../CHANGELOG.md)).
 
 For v0.7.35 the recorded game runs are on one Mac, the maintainer's M1 Max
 (macOS 26.6.2). The opening new-game battle scenario ran with Metal. The Metal

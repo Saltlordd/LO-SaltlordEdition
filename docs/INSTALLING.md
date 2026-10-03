@@ -2,13 +2,13 @@
 
 [简体中文](INSTALLING.zh-CN.md)
 
-This guide covers the published v0.7.35 packages and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
+This guide covers the published v0.8.0 packages and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
 
 ## Windows quick start
 
 Windows x64 and an AVX-capable CPU are required. Direct3D 12 is the default graphics backend. The release package already contains the importer, updater, DXC v1.8.2407 DLL pair and dependency licenses; Python and Visual Studio are not required to play.
 
-1. Download `LostOdysseyRecomp-windows-x64-v0.7.35.zip` from the [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35).
+1. Download `LostOdysseyRecomp-windows-x64-v0.8.0.zip` from the [v0.8.0 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0).
 2. Extract the complete ZIP to a writable folder outside `Program Files`.
 3. Run `LostOdysseyRecomp.exe`. If no usable game installation is found, the built-in importer opens.
 4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation. It may first offer to download precompiled shaders for the selected renderer; see [Shader preparation](#shader-preparation).
@@ -56,21 +56,21 @@ Game data normally goes under `game/disc1` through `game/disc4`, with DLC under 
 
 ## Linux packages
 
-Linux runs through Vulkan. The [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated.
+Linux runs through Vulkan. The [v0.8.0 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated. No Linux AArch64 package is published; an experimental source and cross-build path is described in [LINUX_ARM64.md](LINUX_ARM64.md).
 
 ### AppImage
 
-Download `LostOdysseyRecomp-linux-x64-v0.7.35.AppImage`, then run:
+Download `LostOdysseyRecomp-linux-x64-v0.8.0.AppImage`, then run:
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.7.35.AppImage
-./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.0.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.0.AppImage
 ```
 
 You can import game data from the graphical importer. For a direct launch, pass the game directory, `disc1`, or `default.xex`:
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.7.35.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.0.AppImage --game /path/to/game
 ```
 
 A normally mounted AppImage stores saves and settings in your Linux user directories; see [file locations](#file-locations). `--game` chooses the game data and does not switch to portable storage. Putting `game-path.txt` beside the outer `.AppImage` file does not configure this mode.
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 Then install and run the downloaded bundle:
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.35.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.0.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -107,7 +107,7 @@ Keep the ELF directory as the working directory when you want portable `save/`, 
 
 ## macOS (Apple Silicon, experimental)
 
-The [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) provides `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.7.35 app still declares macOS 14.0, but its bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, so macOS blocks the first launch.
+The [v0.8.0 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0) provides `LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.8.0 app declares macOS 15.0 as its minimum. The v0.7.35 app still declared macOS 14.0, but the bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, and it stays that way: the maintainer decided on 2026-10-03 not to do Developer ID signing or notarization. macOS therefore blocks the first launch.
 
 1. Download the disk image and open it.
 2. Drag `LostOdysseyRecomp.app` onto the Applications link in the window, then eject the disk image.
@@ -120,7 +120,7 @@ The app keeps game data, settings, saves, profiles and the shader cache in `~/Li
 
 The game's update check only offers to open the release page when a newer release has a disk image. To update, download the new image and replace the app in Applications; your saves and settings live outside the app and stay.
 
-Validation is limited to one Mac. On the maintainer's M1 Max (macOS 26.6.2) the opening new-game battle ran with Metal and used the downloaded Metal shader pack; HDR requested on an external display without EDR headroom stayed in SDR, and Metal HDR output itself has not been seen. Long play, broader scenes and other Macs have not been tested. To build the app yourself, see [BUILDING.md](BUILDING.md#building-on-macos); [MACOS_RELEASE.md](MACOS_RELEASE.md) describes how the disk image is made.
+Validation is limited to one Mac. On the maintainer's M1 Max (macOS 26.6.2) the opening new-game battle ran with Metal and used the downloaded Metal shader pack; HDR requested on an external display without EDR headroom stayed in SDR, and Metal HDR output itself had not been seen in that run. A source build with GTAO and 4× shadows also ran the opening battle on that Mac. Long play, broader scenes and other Macs have not been tested. To build the app yourself, see [BUILDING.md](BUILDING.md#building-on-macos); [MACOS_RELEASE.md](MACOS_RELEASE.md) describes how the disk image is made.
 
 ## First launch and settings
 
@@ -136,6 +136,8 @@ Release packages carry no precompiled shaders. When none matching the selected r
 
 - **Download (A)** fetches the pack from the `shader-packs` release on GitHub and shows progress; **Cancel (B)** stops it. The game uses the file only if its size and SHA-256 match the published list and it fits the game; otherwise it compiles the shaders on your PC. Accepting avoids several minutes of shader compilation.
 - **Skip (B)** compiles the shaders on your PC. The choice is remembered until the shaders change, in `declined-downloads.txt` in the `shaders/` folder (see the [README's file list](../README.md#files-and-folders)). Closing the window without choosing asks again at the next start.
+
+Since v0.8.0, Vulkan (Windows, Linux) and Metal (macOS) read one pack, `portable_vk.lospv`, and DirectX 12 keeps `portable_dx12.lospd`. The new shader contract needs the new packs, so the first start after updating offers the download.
 
 When you are offline, or no pack is published for your version, the game compiles the shaders on your PC without asking. Later launches reuse the compiled shaders. The [pack reference](PORTABLE_SHADER_PACK.md#startup-download) lists the files and the checks.
 
