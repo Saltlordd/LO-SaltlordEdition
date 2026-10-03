@@ -161,8 +161,8 @@ reported range. Host HLSL remains unchanged for the desktop path.
 Android shows the update prompt at startup and opens the APK download in the
 browser; desktop-style automatic install and restart and automatic tar
 capture packaging are not supported by this development target. The app
-creates `game/disc1`–`disc4` under `Android/data/<package>/files/` on the
-internal storage and every SD card when opened, and the game reads the first
+creates `game/` with a `README.txt` under `Android/data/<package>/files/` on the
+internal storage and every SD card when opened (the discs are copied in), and the game reads the first
 storage with `game/disc1/default.xex`, else the internal one. A folder chosen on
 the **Game folder** page (shown at launch when no game data is found, and from
 **CTRL → Game folder**) is checked first; the game reads files by path, so it

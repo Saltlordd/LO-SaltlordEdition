@@ -128,9 +128,9 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 [v0.8.6 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)随安装包一起提供 `LostOdysseyRecomp-android-arm64-v0.8.6.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
 
-1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次：它会在内部存储和每张 SD 卡上建好 `Android/data/io.github.freefrank.lostodyssey/files/game/disc1`–`disc4` 和一个 `README.txt`（当前源码；旧版本要等游戏本身启动后才建目录）。然后关闭。
+1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次：它会在内部存储和每张 SD 卡上建好 `Android/data/io.github.freefrank.lostodyssey/files/game/` 目录，里面有一个 `README.txt`（当前源码；旧版本要等游戏本身启动后才建目录）。然后关闭。
 2. 在电脑上准备游戏数据。最省事的办法是直接在设备上导入（见下面的说明）；否则用任一桌面版的导入器生成 `game/disc1`–`disc4`，有 DLC 的话还有 `game/dlc/<content-id>`，方法见[导入游戏数据](#automatic-content-import)。
-3. 用 USB 把设备连到电脑，选文件传输（MTP）模式，把光盘内容复制到 `Android/data/io.github.freefrank.lostodyssey/files/` 下的 `game/disc1`–`disc4`（内部存储或 SD 卡均可），使 `…/files/game/disc1/default.xex` 存在。游戏使用第一个存在该文件的存储（内部存储或 SD 卡），否则用内部存储。必须有第 1 张光盘，其余光盘在它旁边查找。也可以 `adb push` 到 `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game`。设备上的文件管理器一般写不进 `Android/data`。
+3. 用 USB 把设备连到电脑，选文件传输（MTP）模式，把导入器生成的 `disc1`–`disc4` 目录（和 `dlc/`）复制到 `Android/data/io.github.freefrank.lostodyssey/files/` 下的 `game` 目录里（内部存储或 SD 卡均可），使 `…/files/game/disc1/default.xex` 存在。游戏使用第一个存在该文件的存储（内部存储或 SD 卡），否则用内部存储。必须有第 1 张光盘，其余光盘在它旁边查找。也可以 `adb push` 到 `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game`。设备上的文件管理器一般写不进 `Android/data`。
 
    在设备上导入（当前源码，v0.8.6 之后）：**Game folder** 页面有 **Import disc images…** 按钮，启动和桌面版相同的导入器（来源、光盘与 DLC 检查、目标、带进度的导入）。来源可以是内部存储或 SD 卡上任意位置的光盘镜像（`.iso`）或已解出的光盘；来源浏览器左侧列出 **Internal storage** 和每张 **SD card <id>**，默认从 Download 开始。目标默认是已设置的自定义游戏文件夹，没有设置则是内部存储上的应用目录 `Android/data/io.github.freefrank.lostodyssey/files/game/`；也可以在导入器里选别的目标，导入到应用目录以外的文件夹时，应用会把它记为自定义游戏文件夹。四张光盘约需 20 GB 空闲空间，另加来源镜像。需要“所有文件访问”权限（Android 8–10 为存储权限），页面会先请求。导入完成后直接启动游戏；取消则回到 **Game folder** 页面，游戏运行中开始导入会在确认后先停止游戏。操作：屏幕手柄（方向键或左摇杆，**A** 选择，**B** 返回，**X** 选定当前文件夹，**Y** 在目标页面新建文件夹）、实体手柄，或点按列表行和按钮。桌面导入器加 USB 复制仍然可用。
 
@@ -178,7 +178,7 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 | AppImage；位于只读目录的 Linux 原生 ELF | 存档、档案、缓存和游戏数据：`~/.local/share/lost-odyssey-recomp/`。设置与游戏路径：`~/.config/lost-odyssey-recomp/`。日志：`~/.local/state/lost-odyssey-recomp/logs/`。 |
 | Flatpak | 主机目录为 `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`：存档、档案、缓存和游戏数据在 `data/`；设置与游戏路径在 `config/lost-odyssey-recomp/`；日志在 `.local/state/lost-odyssey-recomp/logs/`。 |
 | macOS `.app`（实验性） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
-| Android APK（实验性） | 游戏数据：内部存储或 SD 卡上的 `Android/data/io.github.freefrank.lostodyssey/files/game/`（目录由应用建好，光盘手动复制）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，GPU 驱动包在 `gpu_driver/`。日志在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。 |
+| Android APK（实验性） | 游戏数据：内部存储或 SD 卡上的 `Android/data/io.github.freefrank.lostodyssey/files/game/`（`game` 目录和 `README.txt` 由应用建好，`disc1`–`disc4` 手动复制进去）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，GPU 驱动包在 `gpu_driver/`。日志在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。 |
 
 F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 列出了全部文件、目录和[命令行参数](../README.zh-CN.md#命令行参数)。
 

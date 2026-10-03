@@ -29,7 +29,7 @@ Windows x64 · Linux x64 · macOS arm64（实验性） · Direct3D 12 · Vulkan 
 | Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.6.AppImage` | 用 `chmod +x` 赋予执行权限后运行。使用 Vulkan。 |
 | Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.6.flatpak` | 安装 Freedesktop 26.08 运行时，再安装下载的 bundle。见 [Flatpak 安装命令](docs/INSTALLING.zh-CN.md#flatpak)。使用 Vulkan。 |
 | macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.8.6.dmg` | 打开磁盘映像，把 `LostOdysseyRecomp.app` 拖到 Applications 链接（即“应用程序”文件夹）。应用未经公证，macOS 会拦截首次启动：先尝试打开应用，再到“系统设置 → 隐私与安全性”点击 **仍要打开**。需要 macOS 15 或更高版本的 Apple Silicon Mac；游戏目前只在 macOS 26.6.2 上运行过。使用 Metal。见 [macOS 安装步骤](docs/INSTALLING.zh-CN.md#macos)。 |
-| Android arm64（实验性） | `LostOdysseyRecomp-android-arm64-v0.8.6.apk` | 安装 APK（按提示允许来自浏览器或文件管理器的安装），先打开一次应用（它会建好 `Android/data/io.github.freefrank.lostodyssey/files/game/disc1`–`disc4`），用 USB 把解出的光盘复制到这些目录（当前源码也可以在 **Game folder** 页面改选其他文件夹），再打开应用。高通设备首次启动前会先显示 **GPU driver** 页面。需要支持 Vulkan 的 64 位 Android 8.0 及以上设备，使用 Vulkan。见 [Android 步骤](docs/INSTALLING.zh-CN.md#android)。 |
+| Android arm64（实验性） | `LostOdysseyRecomp-android-arm64-v0.8.6.apk` | 安装 APK（按提示允许来自浏览器或文件管理器的安装），先打开一次应用（它会建好 `Android/data/io.github.freefrank.lostodyssey/files/game/`），用 USB 把解出的 `disc1`–`disc4` 复制到这个目录里（当前源码也可以在 **Game folder** 页面改选其他文件夹），再打开应用。高通设备首次启动前会先显示 **GPU driver** 页面。需要支持 Vulkan 的 64 位 Android 8.0 及以上设备，使用 Vulkan。见 [Android 步骤](docs/INSTALLING.zh-CN.md#android)。 |
 
 1. **导入游戏数据。** 未找到可用的游戏安装时会打开内置导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、XDVDFS ISO 或 GOD 数据。
 2. **选择界面语言、游戏语言和图形设置。** 完成设置和着色器预编译后进入游戏；如果没有装好所选渲染器的预编译着色器，游戏会先询问是否下载，选择跳过则在本机编译。后续启动会复用着色器缓存。
@@ -49,7 +49,7 @@ v0.8.6 包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性
 
 实验性的 arm64 APK `LostOdysseyRecomp-android-arm64-v0.8.6.apk` 是 [v0.8.6 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)的一部分：发布流程会和其他安装包一起构建它。它最初是在 v0.8.0 发布后手动补充上传的。它是开发构建（应用名显示为 "Lost Odyssey (development)"），不是普遍支持的 Android 版本。应用使用项目固定的 debug 签名并一直保持，因此每个版本都能覆盖安装上一个版本。运行时使用 SDL Android activity、应用专属 external storage、Android ARM64 FFmpeg 配置和 Android DXC 构建。工具链和当前验证边界见 [Android 构建说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
 
-**安装。** 装好 APK 后，把游戏数据放到应用读取的位置：可以直接在设备上导入（当前源码，v0.8.6 之后：**Game folder** 页面有 **Import disc images…** 按钮，运行和桌面版相同的导入器，来源可以是内部存储或 SD 卡上的 `.iso` 镜像或已解出的光盘；需要“所有文件访问”权限，默认导入到自定义游戏文件夹，没有设置则导入到下面的应用目录，完成后直接启动游戏），也可以先用任一桌面版的导入器生成 `game/disc1`–`disc4`（以及 `game/dlc/…`），再用 USB 文件传输模式把这个 `game` 目录复制到 `Android/data/io.github.freefrank.lostodyssey/files/`（应用一打开就会在内部存储和每张 SD 卡上建好 `game/disc1`–`disc4` 和一个 `README.txt`；四张光盘约 20 GB）。必须有第 1 张光盘。游戏读取第一个存在 `game/disc1/default.xex` 的存储（内部存储或 SD 卡），否则用内部存储。当前源码中，开启 **Automatic updates** 时应用启动会检查新版本，并显示和桌面版相同的更新提示（**Download (A)** / **Later (B)**）；接受后在浏览器里打开 APK 下载，再覆盖安装即可。下个版本发布。首次启动时高通设备会先显示 **GPU driver** 页面（见下文），然后游戏会提示下载 Vulkan 着色器包，用屏幕上的 **A** 键接受。设置在游戏内的设置页面修改。步骤见[安装指南](docs/INSTALLING.zh-CN.md#android)，Android 的目录见[文件与目录](#文件与目录)。
+**安装。** 装好 APK 后，把游戏数据放到应用读取的位置：可以直接在设备上导入（当前源码，v0.8.6 之后：**Game folder** 页面有 **Import disc images…** 按钮，运行和桌面版相同的导入器，来源可以是内部存储或 SD 卡上的 `.iso` 镜像或已解出的光盘；需要“所有文件访问”权限，默认导入到自定义游戏文件夹，没有设置则导入到下面的应用目录，完成后直接启动游戏），也可以先用任一桌面版的导入器生成 `game/disc1`–`disc4`（以及 `game/dlc/…`），再用 USB 文件传输模式把这个 `game` 目录复制到 `Android/data/io.github.freefrank.lostodyssey/files/`（应用一打开就会在内部存储和每张 SD 卡上建好 `game` 目录和一个 `README.txt`；四张光盘约 20 GB）。必须有第 1 张光盘。游戏读取第一个存在 `game/disc1/default.xex` 的存储（内部存储或 SD 卡），否则用内部存储。当前源码中，开启 **Automatic updates** 时应用启动会检查新版本，并显示和桌面版相同的更新提示（**Download (A)** / **Later (B)**）；接受后在浏览器里打开 APK 下载，再覆盖安装即可。下个版本发布。首次启动时高通设备会先显示 **GPU driver** 页面（见下文），然后游戏会提示下载 Vulkan 着色器包，用屏幕上的 **A** 键接受。设置在游戏内的设置页面修改。步骤见[安装指南](docs/INSTALLING.zh-CN.md#android)，Android 的目录见[文件与目录](#文件与目录)。
 
 **日志。** 应用把日志写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。报告闪退或黑屏时，先再打开一次应用，再用 USB 文件传输模式连接电脑，附上该目录中最新的 `runtime-*.log`、`native-stderr.log` 以及所有 `java-crash-*.txt`；详见 [Android 日志](docs/INSTALLING.zh-CN.md#android-logs)。
 
@@ -166,7 +166,7 @@ Android 的应用私有存储是 `/data/data/io.github.freefrank.lostodyssey/fil
 
 | 内容 | 位置 | 说明 |
 | :--- | :--- | :--- |
-| 导入的游戏数据 | 数据目录的 `game/`，内含 `disc1/`–`disc4/` 和 `dlc/` | 导入器的默认目标，也可以导入到其他位置。Android：`Android/data/io.github.freefrank.lostodyssey/files/game/`（内部存储或 SD 卡），应用首次打开时建好，光盘需手动复制进去，或在 **Game folder** 页面用 **Import disc images…**（当前源码）。当前源码：在 **CTRL → Game folder** 选定的文件夹（含 `disc1`）优先使用，需要“所有文件访问”权限。 |
+| 导入的游戏数据 | 数据目录的 `game/`，内含 `disc1/`–`disc4/` 和 `dlc/` | 导入器的默认目标，也可以导入到其他位置。Android：`Android/data/io.github.freefrank.lostodyssey/files/game/`（内部存储或 SD 卡），应用首次打开时建好该目录，`disc1`–`disc4` 需手动复制进去，或在 **Game folder** 页面用 **Import disc images…**（当前源码）。当前源码：在 **CTRL → Game folder** 选定的文件夹（含 `disc1`）优先使用，需要“所有文件访问”权限。 |
 | 所选游戏目录 | `game-path.txt`：便携方式在程序旁，否则在配置目录 | 由导入器写入。 |
 | 设置 | 配置目录的 `settings.ini` 和 `taa-collection.ini` | 没有 `settings.ini` 时会运行首次启动设置。 |
 | 存档 | 数据目录的 `save/` | 更新时保留。 |
