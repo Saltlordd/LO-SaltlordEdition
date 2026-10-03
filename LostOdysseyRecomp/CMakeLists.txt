@@ -896,17 +896,17 @@ endif() # NOT ANDROID: desktop test executables
 
 # Package the same SPIR-V-capable DXC beside runtime and compiler/GPU fixtures.
 # The Windows SDK compiler is allowed as an explicit fallback, but is not the release contract.
+# One custom target stages each file once. Per-target POST_BUILD copies of the
+# same destination raced on macOS: CMake's copy unlinks and re-creates the
+# destination, so two concurrent copies failed the build with ENOENT.
+set(LO_DXC_RUNTIME_FILES)
+set(LO_DXC_RUNTIME_TARGETS)
 if(WIN32 AND LO_BUILD_GPU)
     set(LO_DXC_BINARY_DIR "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/bin/x64")
-    foreach(target LostOdysseyRecomp LoShaderTool LoShaderAluTest LoPresentationTest LoTemporalAATest LoAmbientOcclusionGpuTest LoRenderResolutionShaderTest LoVulkanBackendTest LoVulkanTextureReuseTest LoShaderStartupCacheTest LoBackendCacheTest LoBackendLifecycleTest LoPresentCaptureTest)
-        if(TARGET ${target})
-            foreach(binary dxcompiler.dll dxil.dll)
-                add_custom_command(TARGET ${target} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${LO_DXC_BINARY_DIR}/${binary}" "$<TARGET_FILE_DIR:${target}>/${binary}" VERBATIM)
-            endforeach()
-        endif()
+    foreach(binary dxcompiler.dll dxil.dll)
+        list(APPEND LO_DXC_RUNTIME_FILES "${LO_DXC_BINARY_DIR}/${binary}")
     endforeach()
+    set(LO_DXC_RUNTIME_TARGETS LostOdysseyRecomp LoShaderTool LoShaderAluTest LoPresentationTest LoTemporalAATest LoAmbientOcclusionGpuTest LoRenderResolutionShaderTest LoVulkanBackendTest LoVulkanTextureReuseTest LoShaderStartupCacheTest LoBackendCacheTest LoBackendLifecycleTest LoPresentCaptureTest)
 elseif(UNIX AND NOT ANDROID AND LO_BUILD_GPU)
     if(LO_TARGET_PLATFORM STREQUAL "macos")
         # Universal (arm64 + x86_64) build shipped with dxc-bin.
@@ -928,15 +928,28 @@ elseif(UNIX AND NOT ANDROID AND LO_BUILD_GPU)
             message(STATUS "No bundled Linux DXC architecture mapping for '${CMAKE_SYSTEM_PROCESSOR}'")
         endif()
     endif()
-    get_filename_component(LO_DXC_SO_NAME "${LO_DXC_SO}" NAME)
     if(LO_DXC_SO AND EXISTS "${LO_DXC_SO}")
         install(FILES "${LO_DXC_SO}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
+        list(APPEND LO_DXC_RUNTIME_FILES "${LO_DXC_SO}")
     endif()
-    foreach(target LostOdysseyRecomp LoShaderTool LoRenderResolutionShaderTest)
-        if(TARGET ${target} AND LO_DXC_SO AND EXISTS "${LO_DXC_SO}")
-            add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LO_DXC_SO}" "$<TARGET_FILE_DIR:${target}>/${LO_DXC_SO_NAME}" VERBATIM)
+    set(LO_DXC_RUNTIME_TARGETS LostOdysseyRecomp LoShaderTool LoRenderResolutionShaderTest)
+endif()
+if(LO_DXC_RUNTIME_FILES)
+    # Every target in the list links into this directory (no OUTPUT_DIRECTORY override).
+    set(LO_DXC_STAGED_FILES)
+    foreach(source IN LISTS LO_DXC_RUNTIME_FILES)
+        get_filename_component(LO_DXC_FILE_NAME "${source}" NAME)
+        set(staged "${CMAKE_CURRENT_BINARY_DIR}/${LO_DXC_FILE_NAME}")
+        add_custom_command(OUTPUT "${staged}"
+            COMMAND ${CMAKE_COMMAND} -E copy "${source}" "${staged}"
+            DEPENDS "${source}"
+            COMMENT "Staging ${LO_DXC_FILE_NAME}" VERBATIM)
+        list(APPEND LO_DXC_STAGED_FILES "${staged}")
+    endforeach()
+    add_custom_target(lo_dxc_runtime DEPENDS ${LO_DXC_STAGED_FILES})
+    foreach(target IN LISTS LO_DXC_RUNTIME_TARGETS)
+        if(TARGET ${target})
+            add_dependencies(${target} lo_dxc_runtime)
         endif()
     endforeach()
 endif()
