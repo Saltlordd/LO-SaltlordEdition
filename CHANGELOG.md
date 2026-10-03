@@ -8,10 +8,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- Fixed battles with dialogue pausing for a long time between lines, or getting stuck, at 90 and 120 FPS (#148, #173).
 - Android on Qualcomm devices can now use a Mesa Turnip Vulkan driver. The device's own driver leaves the highlighted menu row's text invisible; Turnip draws it. A **GPU driver** page opens before the first game start and from **CTRL → GPU driver** while playing: download a driver from the same sources as the Eden emulator, or install a zip, and pick it. Changing the driver restarts the game. The Android app now has a launcher icon.
 
 ### 简体中文
 
+- 修复 90／120 FPS 下带台词的战斗在台词之间长时间停顿甚至卡住的问题（#148、#173）。
 - 高通设备上的 Android 版现在可以使用 Mesa Turnip Vulkan 驱动。设备自带的驱动会让菜单光标所在行的文字消失，Turnip 能正常显示。首次启动游戏前会打开 **GPU driver** 页面，游戏中也可从 **CTRL → GPU driver** 进入：从和 Eden 模拟器相同的来源下载驱动，或从 zip 安装，然后选用。切换驱动会重启游戏。Android 应用现在有了启动图标。
 
 ## [v0.8.0](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0) — 2026-10-03

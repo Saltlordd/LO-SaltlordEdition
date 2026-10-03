@@ -61,5 +61,6 @@ g++ -std=c++20 -Wall -Wextra -Werror -ILostOdysseyRecomp \
 
 - Hungry Man差事计时按帧计数：`patches/hungry_man_timer.cpp`按30 FPS等效更新计数。
 - 战斗相机旋转平滑器按12.5 ms步长重采样历史，要求每帧至少12.5 ms：`patches/battle_camera_smoother.cpp`只在累计满一步时更新它（#117，[详情](battle-camera-120fps-2026-10-01.md)）。
+- 战斗台词等待曾把每次实际脚本更新的 60 Hz 步长截断并丢弃小数，导致原生90/120 FPS下等待可能没有进展：`patches/battle_script_timer.cpp`在更新之间保留 fractional tick，再在等待 consumer 前提供累计整数步长。原始 PPC fixture 与关闭修正的负对照均通过；完整运行时构建、真实场景运行和玩家验收仍待完成（#148，[详情](issue-148-battle-dialogue-timing.md)）。
 
 排查同类问题时，先按帧记录相关对象的状态，再用硬件写断点找到写入者，并在该函数中查找固定步长或帧计数的假设。
