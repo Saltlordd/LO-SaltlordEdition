@@ -72,6 +72,10 @@ int wmain(int argc, wchar_t** argv)
     CheckFreshProcess(executable, "0");
     Write("save_anywhere=2\n");
     Check(!settings::Read().saveAnywhere, "invalid key defaults off");
+    Write("no_random_encounters=1\n");
+    Check(settings::Read().noRandomEncounters, "no random encounters read from INI");
+    Write("no_random_encounters=2\n");
+    Check(!settings::Read().noRandomEncounters, "invalid no random encounters value defaults off");
 
     Write("shadow_resolution=2\nambient_occlusion=1\n");
     Check(settings::Read().shadowResolution == 2 && settings::Read().ambientOcclusion == 1,
@@ -105,6 +109,9 @@ int wmain(int argc, wchar_t** argv)
     CheckFreshProcess(executable, "0");
 
     debug_menu::SetSaveAnywhereEnabled(true);
+    Check(settings::SaveNoRandomEncounters(true) && settings::GetConfig().noRandomEncounters &&
+          Contents().find("no_random_encounters=1\n") != std::string::npos,
+        "no random encounters persists");
     settings::Config graphics = settings::GetConfig();
     graphics.width = 1800;
     graphics.shadowResolution = 4;
@@ -114,6 +121,7 @@ int wmain(int argc, wchar_t** argv)
           Contents().find("shadow_resolution=4\nambient_occlusion=2\n") != std::string::npos,
         "shadow and AO choices roundtrip through stable INI keys");
     Check(settings::Read().saveAnywhere, "ordinary save retains debug-only preference");
+    Check(settings::Read().noRandomEncounters, "ordinary save retains no random encounters");
     Check(settings::SaveDebugLanguage(1) && settings::Read().saveAnywhere,
         "debug language save retains save-anywhere preference");
     for (const auto fps : gpu::frame_rate::kNativeRates)

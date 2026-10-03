@@ -78,6 +78,7 @@ struct Config
     bool automaticUpdates = true;
     bool skipShaderPrebuild = false;
     bool saveAnywhere = false; // Debug-only preference; defaults off for existing profiles.
+    bool noRandomEncounters = false; // Debug-only preference, persisted like saveAnywhere.
     bool operator==(const Config &) const = default;
 };
 Config GetConfig();
@@ -86,5 +87,6 @@ void PreviewConfig(const Config &config);
 bool SaveConfig(const Config &config);
 bool SaveDebugLanguage(uint32_t language);
 bool SaveSaveAnywhere(bool enabled);
+bool SaveNoRandomEncounters(bool enabled);
 uint32_t GameLanguage();
 } // namespace settings
