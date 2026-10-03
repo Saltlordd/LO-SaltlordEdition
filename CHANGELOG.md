@@ -4,12 +4,13 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
-## Unreleased / 未发布
+## [v0.8.5](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5) — 2026-10-03
 
 ### English
 
 - Fixed battles with dialogue pausing for a long time between lines, or getting stuck, at 90 and 120 FPS (#148, #173).
 - Added a **No Random Encounters** switch to the F1 Debug Menu, below Save Anywhere. Story battles still happen.
+- The release now includes the experimental Android arm64 APK, built together with the other packages.
 - Android on Qualcomm devices can now use a Mesa Turnip Vulkan driver. The device's own driver leaves the highlighted menu row's text invisible; Turnip draws it. A **GPU driver** page opens before the first game start and from **CTRL → GPU driver** while playing: download a driver from the same sources as the Eden emulator, or install a zip, and pick it. Changing the driver restarts the game. The Android app now has a launcher icon.
 - Continue now finds a save whenever its `save.bin` is intact, including a renamed or copied slot folder and a slot whose `.lo-content` was damaged by a crash (#175).
 - Saves are now written to disk before the game moves on, so a crash or power loss right after saving no longer wipes them (#175).
@@ -18,6 +19,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 - 修复 90／120 FPS 下带台词的战斗在台词之间长时间停顿甚至卡住的问题（#148、#173）。
 - F1 调试菜单在随时存档下方新增“不遇敌”开关，剧情战斗仍会发生。
+- 本版本起，实验性的 Android arm64 APK 随发布一起提供，和其他安装包一起构建。
 - 高通设备上的 Android 版现在可以使用 Mesa Turnip Vulkan 驱动。设备自带的驱动会让菜单光标所在行的文字消失，Turnip 能正常显示。首次启动游戏前会打开 **GPU driver** 页面，游戏中也可从 **CTRL → GPU driver** 进入：从和 Eden 模拟器相同的来源下载驱动，或从 zip 安装，然后选用。切换驱动会重启游戏。Android 应用现在有了启动图标。
 - 只要 `save.bin` 完好，“继续游戏”现在都能找到存档，包括被改名或复制过来的存档文件夹，以及 `.lo-content` 因崩溃损坏的存档（#175）。
 - 存档现在会先写入磁盘再继续游戏，存档后立刻崩溃或断电不会再把存档清空（#175）。

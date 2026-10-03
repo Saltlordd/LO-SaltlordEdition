@@ -2,13 +2,13 @@
 
 [English](INSTALLING.md)
 
-本文说明已发布的 v0.8.0 安装包（含发布后补充的实验性 Android APK）和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
+本文说明已发布的 v0.8.5 安装包（含实验性 Android APK）和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
 
 ## Windows 快速开始
 
 需要 Windows x64 和支持 AVX 的 CPU。Windows 默认使用 Direct3D 12。发布包已经包含导入器、更新器、DXC v1.8.2407 DLL 对及依赖许可证；游玩发布包不需要安装 Python 或 Visual Studio。
 
-1. 从 [v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)下载 `LostOdysseyRecomp-windows-x64-v0.8.0.zip`。
+1. 从 [v0.8.5 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5)下载 `LostOdysseyRecomp-windows-x64-v0.8.5.zip`。
 2. 将完整 ZIP 解压到可写目录，避免放在 `Program Files` 下。
 3. 运行 `LostOdysseyRecomp.exe`。未找到可用的游戏安装时，会打开内置导入器。
 4. 首次设置中选择界面语言、游戏语言和图形选项，完成着色器准备后进入游戏。游戏可能会先询问是否下载所选渲染器的预编译着色器，见[着色器准备](#shader-preparation)。
@@ -56,21 +56,21 @@ DLC 可以直接选择，也可以放在扫描目录中。支持的包需要包�
 
 ## Linux 安装包
 
-Linux 只使用 Vulkan。 [v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。不发布 Linux AArch64 安装包；实验性的源码构建和交叉编译路径见 [LINUX_ARM64.md](LINUX_ARM64.md)。
+Linux 只使用 Vulkan。 [v0.8.5 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。不发布 Linux AArch64 安装包；实验性的源码构建和交叉编译路径见 [LINUX_ARM64.md](LINUX_ARM64.md)。
 
 ### AppImage
 
-下载 `LostOdysseyRecomp-linux-x64-v0.8.0.AppImage` 后运行：
+下载 `LostOdysseyRecomp-linux-x64-v0.8.5.AppImage` 后运行：
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.8.0.AppImage
-./LostOdysseyRecomp-linux-x64-v0.8.0.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.5.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.5.AppImage
 ```
 
 可以直接使用图形导入器。若要指定路径启动，可传入游戏目录、`disc1` 或 `default.xex`：
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.8.0.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.5.AppImage --game /path/to/game
 ```
 
 正常挂载运行的 AppImage 会把存档和设置放在 Linux 用户目录，见[文件位置](#file-locations)。`--game` 只选择游戏数据，不会切换为便携存储；把 `game-path.txt` 放在外层 `.AppImage` 文件旁不能配置这种运行方式。
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 再安装并运行下载的 bundle：
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.0.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.5.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -107,7 +107,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## macOS（Apple Silicon，实验性）
 
-[v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)提供 `LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.8.0 应用声明的最低系统是 macOS 15.0。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，并且会一直如此：维护者于 2026-10-03 决定不做 Developer ID 签名和公证。因此 macOS 会拦截首次启动。
+[v0.8.5 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5)提供 `LostOdysseyRecomp-macos-arm64-v0.8.5.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.8.0 和 v0.8.5 应用声明的最低系统都是 macOS 15.0。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，并且会一直如此：维护者于 2026-10-03 决定不做 Developer ID 签名和公证。因此 macOS 会拦截首次启动。
 
 1. 下载磁盘映像并打开。
 2. 把 `LostOdysseyRecomp.app` 拖到窗口中的 Applications 链接上，然后推出磁盘映像。
@@ -126,7 +126,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## Android（实验性）
 
-[v0.8.0 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)在发布后补充了 `LostOdysseyRecomp-android-arm64-v0.8.0.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
+[v0.8.5 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5)随安装包一起提供 `LostOdysseyRecomp-android-arm64-v0.8.5.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
 
 1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次让它建好目录，然后关闭。
 2. 在电脑上准备游戏数据。Android 上没有导入器：用任一桌面版的导入器生成 `game/disc1`–`disc4`，有 DLC 的话还有 `game/dlc/<content-id>`，方法见[导入游戏数据](#automatic-content-import)。

@@ -1,40 +1,48 @@
 # macOS releases
 
 macOS support is an experimental Apple Silicon integration. v0.7.35 was the
-first release with a macOS package and v0.8.0 is the second:
-`LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`, a disk image that is ad-hoc signed
-and not notarized. Both stay that way: on 2026-10-03 the maintainer decided that
+first release with a macOS package, followed by v0.8.0 and v0.8.5:
+`LostOdysseyRecomp-macos-arm64-v0.8.5.dmg`, a disk image that is ad-hoc signed
+and not notarized. All of them stay that way: on 2026-10-03 the maintainer decided that
 Developer ID signing and notarization will not be done. GitHub CI builds the source
 and tests that do not require private game data; it does not link a complete
 runtime with game data, so the disk image is built on a Mac and uploaded to the
 release by hand.
 
-## Disk image (v0.8.0)
+## Disk image (v0.8.5)
 
 Build the runtime first using [the macOS build instructions](BUILDING.md#building-on-macos).
 Then run this on the Mac that built the executable:
 
 ```sh
-python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8.0 --dmg
+python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8.5 --dmg
 ```
 
 - `--dmg` writes a compressed HFS+ disk image, with the volume name "Lost
   Odyssey Recomp", that holds `LostOdysseyRecomp.app` and a link to
   `/Applications`. Without it the script writes a ZIP.
-- `--version v0.8.0` sets the asset tag, so the file is named
-  `LostOdysseyRecomp-macos-arm64-v0.8.0.dmg`. Keep the `v`: the script uses
+- `--version v0.8.5` sets the asset tag, so the file is named
+  `LostOdysseyRecomp-macos-arm64-v0.8.5.dmg`. Keep the `v`: the script uses
   the text as given, and the in-game updater looks for exactly this name. Do not
   use `--release` here; it needs a Developer ID identity, and the script exits
   without one.
 - Without `--identity` the app is signed ad hoc and the image is not signed.
   Neither is notarized.
 - The app declares macOS 15.0 as its minimum (`MINIMUM_MACOS` in the script,
-  matching `CMAKE_OSX_DEPLOYMENT_TARGET`), so the v0.8.0 app declares 15.0. The
-  v0.7.35 image was made before this change and still declares 14.0; see
+  matching `CMAKE_OSX_DEPLOYMENT_TARGET`), so the v0.8.0 and v0.8.5 apps declare
+  15.0. The v0.7.35 image was made before this change and still declares 14.0; see
   [Minimum macOS version](#minimum-macos-version).
 - Upload the image to the release by hand. The release workflow's publish step
-  accepts the three packages built by CI and, at most, this one disk image
-  beside them.
+  accepts the four packages built by CI (Windows ZIP, AppImage, Flatpak and the
+  Android APK) and, at most, this one disk image beside them.
+
+### v0.8.5 image
+
+The v0.8.5 disk image is built on the maintainer's M1 Max from tag `v0.8.5` with
+`python3 tools/package_macos.py --version v0.8.5 --dmg` and uploaded to the
+release by hand. Its size, SHA-256 and image checks are not recorded here yet;
+add them, as for the v0.7.35 image below, after the image is built and the release is
+published.
 
 ### v0.8.0 image
 
@@ -198,7 +206,7 @@ the Mac model, macOS version, source commit, game edition and tested scenes
 alongside any local result. Keep the existing Windows/Linux release records
 separate from this experimental path.
 
-For v0.8.0 no game run with its disk image is recorded here yet. The v0.7.35
+For v0.8.0 and v0.8.5 no game run with their disk images is recorded here yet. The v0.7.35
 runs below are the existing record; a later source build also ran the opening
 battle with GTAO and 4× shadows on the same Mac ([changelog](../CHANGELOG.md)).
 
