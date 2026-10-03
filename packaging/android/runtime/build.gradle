@@ -8,6 +8,8 @@ apply from: '../sdl-java.gradle'
 // tools/android/build-runtime.sh builds/stages its NDK libraries first.
 def stagedLibraries = rootProject.layout.buildDirectory.dir('runtime-jni')
 def runtimeLibraries = ['libmain.so', 'libSDL2.so', 'libc++_shared.so', 'libdxcompiler.so']
+// libadrenotools hook libraries: present only when the custom Vulkan driver loader is built.
+def optionalLibraries = ['libhook_impl.so', 'libmain_hook.so', 'libfile_redirect_hook.so', 'libgsl_alloc_hook.so']
 def checkNativeLibraries = tasks.register('checkNativeLibraries') {
     doLast {
         runtimeLibraries.each { name ->
@@ -16,7 +18,8 @@ def checkNativeLibraries = tasks.register('checkNativeLibraries') {
             }
         }
         fileTree(stagedLibraries).matching { include '**/*.so' }.each { library ->
-            if (library.parentFile.name != 'arm64-v8a' || !runtimeLibraries.contains(library.name)) {
+            if (library.parentFile.name != 'arm64-v8a' ||
+                    (!runtimeLibraries.contains(library.name) && !optionalLibraries.contains(library.name))) {
                 throw new GradleException("Unexpected staged native library: ${library}")
             }
         }
@@ -45,9 +48,17 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    packaging { jniLibs { useLegacyPackaging = false } }
+    // Extracted native libraries: libadrenotools opens its hook libraries by
+    // path from nativeLibraryDir when a custom Vulkan driver is loaded.
+    packaging { jniLibs { useLegacyPackaging = true } }
     buildTypes { release { minifyEnabled false } }
 }
 
 tasks.named('preBuild') { dependsOn checkNativeLibraries }
-dependencies { implementation 'androidx.core:core:1.15.0' }
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
+    // JVM tests of the driver catalog/store logic (`:runtime:testDebugUnitTest`);
+    // the real org.json replaces the SDK stub that throws on the host.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
