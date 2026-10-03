@@ -56,6 +56,10 @@ Maintainer decisions on 2026-10-03, recorded in the `Evidence` field only (3 ope
 - `linux-aarch64-platform`: ships as is, without an ARM64 hardware validation gate.
 - `experimental-android-platform`: the maintainer will add Android CI later. In a later pass the maintainer deferred Android out of v0.8.0 because of an upstream Qualcomm bug: the item moved from In Progress / In progress / v0.8.0 to Paused / Deferred with `Release` cleared (`clearProjectV2ItemFieldValue`), and its body records the deferral. The bug details are not recorded in the repository.
 
+## Shader cache cleanup deferred
+
+The maintainer deferred the local shader-cache cleanup out of v0.8.0. `shader-delivery-v080` moved from In Progress / In progress / v0.8.0 to Paused / Deferred with `Release` cleared; its body and Evidence record the deferral, and the parts shipped in v0.7.35 are unchanged.
+
 ## Evidence boundaries
 
 Read on 2026-10-03: the commits on `fix/native-frontend-rework` (local and git.zkx.ca; the branch is not on GitHub), the PR #84 and PR #89 states and the PR #89 closing comment, the PR #83 state, the PR #98 merge, and the Issue states and closure times above. The 70% native draw share, the per-swap count and the 4K120 ABBA numbers are quoted from the PR #89 closing comment and were not measured again. No build, game run or test was run for this pass.
