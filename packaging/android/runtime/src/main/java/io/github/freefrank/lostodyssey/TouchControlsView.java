@@ -370,6 +370,10 @@ final class TouchControlsView extends View {
             driverButton.setAllCaps(false);
             content.addView(driverButton);
         }
+        Button folderButton = new Button(activity);
+        folderButton.setText("Game folder …");
+        folderButton.setAllCaps(false);
+        content.addView(folderButton);
 
         AlertDialog settingsDialog = new AlertDialog.Builder(activity)
             .setTitle("Controller settings")
@@ -395,6 +399,10 @@ final class TouchControlsView extends View {
                 activity.openGpuDriverPage();
             });
         }
+        folderButton.setOnClickListener(v -> {
+            settingsDialog.dismiss();
+            activity.openGameFolderPage();
+        });
         settingsDialog.show();
     }
 

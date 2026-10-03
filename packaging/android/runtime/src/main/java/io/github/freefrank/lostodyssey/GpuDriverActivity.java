@@ -74,7 +74,9 @@ public final class GpuDriverActivity extends Activity {
     }
 
     private void launchGame() {
-        startActivity(new Intent(this, RuntimeActivity.class));
+        // Without game data the game folder page comes first.
+        startActivity(new Intent(this, GameStorage.hasGame(this) ? RuntimeActivity.class
+                                                                 : GameFolderActivity.class));
         finish();
     }
 

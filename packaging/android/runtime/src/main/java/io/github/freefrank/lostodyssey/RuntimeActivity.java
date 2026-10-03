@@ -11,6 +11,8 @@ import org.libsdl.app.SDLActivity;
 
 /** Experimental game runtime. User-supplied discs live in app-owned storage. */
 public final class RuntimeActivity extends SDLActivity {
+    /** Starts the native importer (into {@link GameStorage#importRoot}) instead of the game. */
+    static final String EXTRA_IMPORT = "import";
     /** A start that stays in the foreground this long counts as reached for the driver choice. */
     private static final long BOOT_SETTLED_MS = 15000;
 
@@ -43,6 +45,13 @@ public final class RuntimeActivity extends SDLActivity {
         startActivity(intent);
     }
 
+    /** Opens the game folder page over the game (CTRL dialog). */
+    void openGameFolderPage() {
+        Intent intent = new Intent(this, GameFolderActivity.class);
+        intent.putExtra(GameFolderActivity.EXTRA_FROM_GAME, true);
+        startActivity(intent);
+    }
+
     @Override
     protected void onPause() {
         if (touchControls != null) touchControls.onHostPause();
@@ -70,6 +79,15 @@ public final class RuntimeActivity extends SDLActivity {
         // A normal exit is not a failed start, however short it was.
         GpuDriverStore.clearBootPending(this);
         super.onDestroy();
+        // A cancelled or failed import returns from the native main instead of
+        // starting the game. Go back to the game folder page in a new process,
+        // since the native runtime runs only once per process.
+        if (isFinishing() && getIntent().getBooleanExtra(EXTRA_IMPORT, false)) {
+            Intent intent = new Intent(this, GameFolderActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            Runtime.getRuntime().exit(0);
+        }
     }
 
     @Override
@@ -79,7 +97,8 @@ public final class RuntimeActivity extends SDLActivity {
 
     @Override
     protected String[] getArguments() {
-        File game = GameStorage.disc1(this);
+        boolean importing = getIntent().getBooleanExtra(EXTRA_IMPORT, false);
+        File game = importing ? GameStorage.importRoot(this) : GameStorage.disc1(this);
         // Custom Vulkan driver (libadrenotools): the hook libraries sit in the
         // extracted native library directory, the chosen package in its own folder.
         nativeSetenv("LO_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir + "/");
@@ -103,6 +122,11 @@ public final class RuntimeActivity extends SDLActivity {
                     if (value != null) nativeSetenv(name, String.valueOf(value));
                 }
             }
+        }
+        if (importing) {
+            //noinspection ResultOfMethodCallIgnored
+            game.mkdirs();
+            return new String[] { "--game", game.getAbsolutePath(), "--install", "--quiet-kernel" };
         }
         return new String[] { "--game", game.getAbsolutePath(), "--quiet-kernel" };
     }
