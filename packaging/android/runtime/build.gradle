@@ -8,6 +8,8 @@ apply from: '../sdl-java.gradle'
 // tools/android/build-runtime.sh builds/stages its NDK libraries first.
 def stagedLibraries = rootProject.layout.buildDirectory.dir('runtime-jni')
 def runtimeLibraries = ['libmain.so', 'libSDL2.so', 'libc++_shared.so', 'libdxcompiler.so']
+// libadrenotools hook libraries: present only when the custom Vulkan driver loader is built.
+def optionalLibraries = ['libhook_impl.so', 'libmain_hook.so', 'libfile_redirect_hook.so', 'libgsl_alloc_hook.so']
 def checkNativeLibraries = tasks.register('checkNativeLibraries') {
     doLast {
         runtimeLibraries.each { name ->
@@ -16,12 +18,28 @@ def checkNativeLibraries = tasks.register('checkNativeLibraries') {
             }
         }
         fileTree(stagedLibraries).matching { include '**/*.so' }.each { library ->
-            if (library.parentFile.name != 'arm64-v8a' || !runtimeLibraries.contains(library.name)) {
+            if (library.parentFile.name != 'arm64-v8a' ||
+                    (!runtimeLibraries.contains(library.name) && !optionalLibraries.contains(library.name))) {
                 throw new GradleException("Unexpected staged native library: ${library}")
             }
         }
     }
 }
+
+// Release packaging (tools/android/ci_build.sh) passes the version tag:
+// -PloVersionName=v0.8.0 gives versionName 0.8.0 and versionCode 80000
+// (major*1000000 + minor*10000 + patch), so updates install over each other.
+def loVersionName = (project.findProperty('loVersionName') ?: '0.1.0-dev').toString().replaceFirst(/^v/, '')
+def loVersionMatch = loVersionName =~ /^(\d+)\.(\d+)\.(\d+)/
+def loVersionCode = loVersionMatch.find()
+    ? loVersionMatch.group(1).toInteger() * 1000000 + loVersionMatch.group(2).toInteger() * 10000 + loVersionMatch.group(3).toInteger()
+    : 1
+// Signing: the app is debug-signed, always (maintainer decision, 2026-10-03:
+// no release keystore). LO_ANDROID_DEBUG_KEYSTORE points the debug signing
+// config at the project's fixed keystore (CI: the one that signed v0.8.0), so
+// every release installs over the previous one; unset, AGP's own debug
+// keystore is used.
+def loDebugKeystore = System.getenv('LO_ANDROID_DEBUG_KEYSTORE')
 
 android {
     namespace 'io.github.freefrank.lostodyssey'
@@ -32,9 +50,12 @@ android {
         applicationId 'io.github.freefrank.lostodyssey'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0-dev'
+        versionCode loVersionCode
+        versionName loVersionName
         ndk { abiFilters 'arm64-v8a' }
+    }
+    if (loDebugKeystore) {
+        signingConfigs.debug.storeFile = file(loDebugKeystore)
     }
     sourceSets.main {
         java.srcDir layout.buildDirectory.dir('generated/sdl-java')
@@ -45,9 +66,22 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    packaging { jniLibs { useLegacyPackaging = false } }
-    buildTypes { release { minifyEnabled false } }
+    // Extracted native libraries: libadrenotools opens its hook libraries by
+    // path from nativeLibraryDir when a custom Vulkan driver is loaded.
+    packaging { jniLibs { useLegacyPackaging = true } }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
 }
 
 tasks.named('preBuild') { dependsOn checkNativeLibraries }
-dependencies { implementation 'androidx.core:core:1.15.0' }
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
+    // JVM tests of the driver catalog/store logic (`:runtime:testDebugUnitTest`);
+    // the real org.json replaces the SDK stub that throws on the host.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}

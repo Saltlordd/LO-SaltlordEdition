@@ -4,14 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
-## Unreleased
+## Unreleased / 未发布
 
 ### English
 
+- Android on Qualcomm devices can now use a Mesa Turnip Vulkan driver. The device's own driver leaves the highlighted menu row's text invisible; Turnip draws it. A **GPU driver** page opens before the first game start and from **CTRL → GPU driver** while playing: download a driver from the same sources as the Eden emulator, or install a zip, and pick it. Changing the driver restarts the game. The Android app now has a launcher icon.
 - Continue now finds saves whose folder under `save\` was renamed or copied from another slot (#175).
 
 ### 简体中文
 
+- 高通设备上的 Android 版现在可以使用 Mesa Turnip Vulkan 驱动。设备自带的驱动会让菜单光标所在行的文字消失，Turnip 能正常显示。首次启动游戏前会打开 **GPU driver** 页面，游戏中也可从 **CTRL → GPU driver** 进入：从和 Eden 模拟器相同的来源下载驱动，或从 zip 安装，然后选用。切换驱动会重启游戏。Android 应用现在有了启动图标。
 - `save\` 下的存档文件夹被改名或从其他槽位复制过来后，“继续游戏”现在也能找到它（#175）。
 
 ## [v0.8.0](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0) — 2026-10-03
@@ -26,7 +28,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - More Settings texts are translated into Japanese, Korean and Simplified Chinese.
 - On Windows, a broken `OptiScaler.dll` no longer shows an error dialog at startup.
 - The macOS app now requires macOS 15 or later.
-- This release does not include an Android APK yet.
+- An experimental Android arm64 APK was added to this release after publication (see the Android section of the README).
 
 ### 简体中文
 
@@ -38,7 +40,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - 设置菜单又有一批文字翻译为日语、韩语和简体中文。
 - Windows 上，损坏的 `OptiScaler.dll` 不再在启动时弹出错误对话框。
 - macOS 版本现在需要 macOS 15 或更高版本。
-- 本版本暂不提供 Android APK。
+- 发布后补充上传了实验性的 Android arm64 APK（见 README 的 Android 一节）。
 
 ## [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) — 2026-10-02
 
