@@ -158,8 +158,12 @@ BDA vertex-fetch path avoids requiring the complete
 1 GiB vertex arena as one storage-buffer descriptor on devices with a smaller
 reported range. Host HLSL remains unchanged for the desktop path.
 
-Android online updating, desktop-style automatic restart and automatic tar
-capture packaging are not supported by this development target. A successful
+Android shows the update prompt at startup and opens the APK download in the
+browser; desktop-style automatic install and restart and automatic tar
+capture packaging are not supported by this development target. The app
+creates `game/disc1`–`disc4` under `Android/data/<package>/files/` on the
+internal storage and every SD card when opened, and the game reads the first
+storage with `game/disc1/default.xex`, else the internal one. A successful
 native link or Gradle package is not gameplay acceptance; install the APK and
 record resource loading, shader compilation, input, audio, lifecycle and a
 bounded game-flow test separately.

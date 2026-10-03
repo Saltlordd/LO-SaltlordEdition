@@ -128,15 +128,15 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 [v0.8.6 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)随安装包一起提供 `LostOdysseyRecomp-android-arm64-v0.8.6.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
 
-1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次让它建好目录，然后关闭。
+1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次：它会在内部存储和每张 SD 卡上建好 `Android/data/io.github.freefrank.lostodyssey/files/game/disc1`–`disc4` 和一个 `README.txt`（当前源码；旧版本要等游戏本身启动后才建目录）。然后关闭。
 2. 在电脑上准备游戏数据。Android 上没有导入器：用任一桌面版的导入器生成 `game/disc1`–`disc4`，有 DLC 的话还有 `game/dlc/<content-id>`，方法见[导入游戏数据](#automatic-content-import)。
-3. 用 USB 把设备连到电脑，选文件传输（MTP）模式，把这个 `game` 目录复制到 `Android/data/io.github.freefrank.lostodyssey/files/`，使 `…/files/game/disc1/default.xex` 存在。必须有第 1 张光盘，其余光盘在它旁边查找。也可以 `adb push` 到 `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game`。设备上的文件管理器一般写不进 `Android/data`。
+3. 用 USB 把设备连到电脑，选文件传输（MTP）模式，把光盘内容复制到 `Android/data/io.github.freefrank.lostodyssey/files/` 下的 `game/disc1`–`disc4`（内部存储或 SD 卡均可），使 `…/files/game/disc1/default.xex` 存在。游戏使用第一个存在该文件的存储（内部存储或 SD 卡），否则用内部存储。必须有第 1 张光盘，其余光盘在它旁边查找。也可以 `adb push` 到 `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game`。设备上的文件管理器一般写不进 `Android/data`。
 4. 打开应用。高通设备会先显示 **GPU driver** 页面：设备自带的 Vulkan 驱动会让菜单光标所在行的文字消失，所以下载一个 Mesa Turnip 驱动包（KIMCHI `Turnip_v26.0.0_R8.zip` 在 Adreno 750 上验证过；页面会显示 Eden 模拟器对你的型号推荐哪个），或者保留 **System GPU driver**，然后按 **Start game**。之后可从 **CTRL → GPU driver** 再进这个页面；切换驱动会重启游戏。其他设备直接进入游戏。
 5. 游戏会用和桌面相同的窗口提示下载 Vulkan 着色器包，用屏幕上的 **A** 键接受（**B** 跳过并在设备上编译，需要几分钟）。之后启动会复用缓存。
 
 游戏画面上有触摸手柄。**CTRL** 打开手柄设置（大小、透明度、布局编辑器和 GPU driver 页面）；连接 USB 或蓝牙手柄后触摸手柄自动隐藏。设置在游戏内的设置页面修改，没有首次设置页面。
 
-应用把设置放在私有存储的 `files/config/`，存档、档案、着色器包和缓存放在 `files/` 下，日志在 `files/state/logs/`，下载的 GPU 驱动包在 `files/gpu_driver/`。私有存储文件管理器看不到；卸载应用会连同 `Android/data` 里的游戏数据一起删除。更新时直接覆盖安装新 APK，存档和设置会保留。
+应用把设置放在私有存储的 `files/config/`，存档、档案、着色器包和缓存放在 `files/` 下，日志在 `files/state/logs/`，下载的 GPU 驱动包在 `files/gpu_driver/`。私有存储文件管理器看不到；卸载应用会连同 `Android/data` 里的游戏数据一起删除。当前源码中，开启 **Automatic updates** 时应用启动会检查新版本，并显示和桌面版相同的更新提示（**Download (A)** / **Later (B)**），接受后在浏览器里打开 APK 下载。更新时直接覆盖安装新 APK，存档和设置会保留。
 
 目前的验证：在维护者的平板上，开发构建能播放开场视频、进入首战，并在 Turnip 驱动下正常显示菜单。长时间游玩、Turnip 下的性能、其他 GPU、16 KB 页设备和实体手柄尚未测试。
 
@@ -171,7 +171,7 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 | AppImage；位于只读目录的 Linux 原生 ELF | 存档、档案、缓存和游戏数据：`~/.local/share/lost-odyssey-recomp/`。设置与游戏路径：`~/.config/lost-odyssey-recomp/`。日志：`~/.local/state/lost-odyssey-recomp/logs/`。 |
 | Flatpak | 主机目录为 `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`：存档、档案、缓存和游戏数据在 `data/`；设置与游戏路径在 `config/lost-odyssey-recomp/`；日志在 `.local/state/lost-odyssey-recomp/logs/`。 |
 | macOS `.app`（实验性） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
-| Android APK（实验性） | 游戏数据：`Android/data/io.github.freefrank.lostodyssey/files/game/`（手动复制）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，日志在 `state/logs/`，GPU 驱动包在 `gpu_driver/`。 |
+| Android APK（实验性） | 游戏数据：内部存储或 SD 卡上的 `Android/data/io.github.freefrank.lostodyssey/files/game/`（目录由应用建好，光盘手动复制）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，日志在 `state/logs/`，GPU 驱动包在 `gpu_driver/`。 |
 
 F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 列出了全部文件、目录和[命令行参数](../README.zh-CN.md#命令行参数)。
 

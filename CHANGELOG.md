@@ -4,6 +4,18 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- Android now checks for updates at startup and shows the same update prompt as the desktop; accepting opens the APK download in the browser.
+- Android now creates the `game/disc1`–`disc4` folders as soon as the app is opened, on the internal storage and on SD cards, so they show up over USB (fixes the missing folders on devices that start on the GPU driver page); the game reads whichever storage holds `game/disc1/default.xex`.
+
+### 简体中文
+
+- Android 现在启动时检查更新，并显示和桌面版相同的更新提示；接受后在浏览器里打开 APK 下载。
+- Android 现在应用一打开就在内部存储和 SD 卡上建好 `game/disc1`–`disc4` 目录，电脑通过 USB 就能看到（修复先进入 GPU driver 页面的设备上找不到目录的问题）；游戏读取存有 `game/disc1/default.xex` 的存储。
+
 ## [v0.8.6](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) — 2026-10-03
 
 ### English
