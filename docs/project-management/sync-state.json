@@ -2966,42 +2966,41 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "In Progress",
+        "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "Planned v0.8.0 platform target. Bounded experimental AArch64 build path under investigation in PR #60 (live DXC fallback and CMake cross-compilation). Implementation, native runner hardware validation, and packaging not started.",
+        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware.",
         "Source key": "linux-aarch64-platform"
       },
       "title": "Establish native Linux AArch64 platform support",
-      "body_sha256": "fbda6d032cd8f621524f20bdc4554b3986c6de092878ccaf6170b51ccea26f59"
+      "body_sha256": "49a47c17c85a6c9b567fd5d471ebb2632ac1417932a0b1dddd3edea13e695d2a"
     },
     "experimental-android-platform": {
       "id": "PVTI_lAHOAAsUY84Biy1azg814CI",
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "In Progress",
+        "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "Planned v0.8.0 experimental platform target. Feasibility exploration for Android NDK, Vulkan surface, and touch/gamepad input. No implementation or build pipeline established.",
+        "Evidence": "PR #150 (2026-10-02) merged an experimental Android ARM64 SDL/Vulkan runtime, touch and physical controllers and a development APK build; PR #152 added the shared SPIR-V pack download. On an Adreno 750 tablet (4 KB pages) it plays the opening video, reaches the first battle and completes two touch attacks. No APK is published; longer play, 16 KB devices, other GPUs and physical controllers are unverified.",
         "Source key": "experimental-android-platform"
       },
       "title": "Experimental Android platform support",
-      "body_sha256": "970e9404c678b3c48e563cb420546bcefcfe5be97c356c52600e27d12ab719fe"
+      "body_sha256": "5a91ef73703f0fc26a3175afb3bde1b7c0d5624f42f670043c791897b3b86fda"
     },
     "remove-pm4-translator": {
       "id": "PVTI_lAHOAAsUY84Biy1azg816wM",
       "fields": {
         "Kind": "Infrastructure",
         "Area": "GPU architecture",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Planned v0.8.0 delivery target (execution step 8); replacement architecture investigation starts early in parallel. Does not predetermine alternative presentation architectures, direct execution, or runtime implementations.",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Moved out of v0.8.0 by the maintainer on 2026-10-03. The native front end (fix/native-frontend-rework, PR #89 closed unmerged) sends about 70% of Uhra plaza draws through the native path but did not lower CmdProc CPU (4K120 ABBA 7.24 vs 7.06 ms/frame). Shader preparation, special draws, recorded commands, events, swap and presentation still need PM4; no PM4-free mode exists.",
         "Source key": "remove-pm4-translator"
       },
       "title": "Remove the PM4 translator",
-      "body_sha256": "870827978fa798f90ffc49bd863fc956cb3ce32024f8c8413516ec82dedd88df"
+      "body_sha256": "f423d43fd8427cad2b14535367b225a7f3308bf9f466f83b30cdd96b953daa99"
     },
     "fsr-frame-generation": {
       "id": "PVTI_lAHOAAsUY84Biy1azg83gNM",
@@ -3120,11 +3119,13 @@
       "fields": {
         "Kind": "Research",
         "Area": "Native migration",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Evidence": "Architecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "Architecture map, XEX consumer inventory and first-draw candidate delivered in draft PR #83 (closed 2026-09-30, not merged). The map fed the PM4-bypass prototype (PR #84) and the native front end (PR #89); neither was merged. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
         "Source key": "native-migration-architecture-boundaries"
-      }
+      },
+      "title": "Map progressive native migration boundaries",
+      "body_sha256": "7cfba2e503d52e617b125afaff04a5276f9143fae39b98272690e7ed2385f8f1"
     },
     "native-renderer-pm4-bypass-prototype": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6R6gU",
@@ -3135,7 +3136,9 @@
         "Delivery": "Implemented",
         "Evidence": "The bounded PM4-bypass prototype is implemented at ce45afe (draft PR #84). Same-EXE D3D12 title comparison exited 0 on both paths, but CmdProc CPU/logged-frame rose 1.172737 to 1.450276 ms (+23.7%). The performance go gate failed; default PM4 remains active and expansion is not accepted.",
         "Source key": "native-renderer-pm4-bypass-prototype"
-      }
+      },
+      "title": "Prototype one bounded PM4-bypass draw path",
+      "body_sha256": "67278c6d8e90823864215a75ea2c4dd35f96785f4c6a1a5af67e28bcbd2c7389"
     },
     "native-renderer-conditional-coverage-expansion": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6R6gs",
@@ -3144,7 +3147,7 @@
         "Area": "Native migration / renderer",
         "Status": "Paused",
         "Delivery": "Deferred",
-        "Evidence": "Conditional work is paused because the bounded PM4-bypass prototype did not demonstrate a benefit; its performance go gate failed. Preserve the PM4 fallback and do not expand coverage.",
+        "Evidence": "Conditional work is paused because neither the bounded PM4-bypass prototype (PR #84) nor the later native front end (PR #89, about 70% of Uhra plaza draws native) lowered CmdProc CPU; both performance go gates failed. Preserve the PM4 fallback and do not expand coverage.",
         "Source key": "native-renderer-conditional-coverage-expansion"
       }
     },
@@ -3297,7 +3300,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Evidence": "The PR #135 guard shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): the touch-entry check (C1) takes its original rejection branch while a battle request is queued or loading. A 264-check fixture with the original game functions and a full runtime link passed. Gameplay validation of the reported softlock is pending: the maintainer said on 2026-10-01 that the bug could come from the original game rather than the recomp, and on 2026-10-02 that an in-game check was done in a Codex session, which has no repository record. The full softlock mechanism and reporter confirmation remain open.",
         "Source key": "issue-114-container-enemy-softlock",
@@ -3309,7 +3312,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Linux",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #120 makes the game look for DLSS in its own folder and ships NVIDIA's unmodified NGX snippet in the AppImage and Flatpak; packaging fails if the AppImage copy differs. Awaiting reporter confirmation of the packaged build; the maintainer posted the v0.7.35 notice on 2026-10-02. The reporter's 2026-10-02 06:30 UTC log (v0.7.25 with LO_DLSS_RUNTIME_PATH) shows DLAA active on an RTX 4070 SUPER under Linux; that is the workaround, not the packaged v0.7.35 path, which has not run on an NVIDIA GPU under Linux.",
         "Source key": "issue-116-linux-nvidia-dlss",
@@ -3335,7 +3338,7 @@
         "Area": "Rendering",
         "Status": "Awaiting validation",
         "Delivery": "Released",
-        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #122 runs the game's occlusion queries on the host GPU on Direct3D 12 and Vulkan (Metal keeps the old counts). On an RTX 5080 the sun and glare no longer show through the cliff at the #118 spot (Vulkan; strict mode not run there). AMD and Intel GPUs, including the reporter's RX 6600, are unchecked. Awaiting reporter confirmation above and under water; the maintainer posted the v0.7.35 notice on 2026-10-02.",
+        "Evidence": "v0.7.35 shipped PR #122 (host GPU occlusion queries on Direct3D 12 and Vulkan). The reporter wrote on 2026-10-02 that the sun still flickered on the RX 6600 in v0.7.35. PR #149 (merged to main 2026-10-02, not released) keeps each query count for the object that issued it: in a 23-second sail past the #118 cliff on an AMD Radeon 8060S (D3D12 through Proton) v0.7.35 flashed three times and the fix never did. Awaiting reporter confirmation after the next release.",
         "Source key": "issue-118-sun-occlusion-lens-flare",
         "Release": "v0.7.35"
       }
@@ -3345,7 +3348,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Temporal rendering",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #128 adds the exact sky pair to SkyMaterialPairs, checked with the shader banks from the reporter's two runtime logs. Not rechecked in the game (there is no save at the mansion). The same PR also jitters the f6814 cutscene passes (recorded under taa-jitter-fixes-20261001). Awaiting reporter confirmation; the maintainer posted the v0.7.35 notice on 2026-10-02.",
         "Source key": "issue-121-old-sorceress-mansion-sky-flicker",
