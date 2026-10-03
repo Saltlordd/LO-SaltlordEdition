@@ -216,3 +216,43 @@ adb shell rm /data/local/tmp/lo-portable_vk.lospv
 
 The pack avoids on-device DXC work for covered shaders; driver pipeline
 creation and shaders outside the pack may still need preparation.
+
+## GPU driver (Qualcomm devices)
+
+The Qualcomm proprietary Vulkan driver renders the text on the highlighted
+menu row fully transparent (Adreno 750, every renderer input identical to
+Windows). A Mesa Turnip driver renders it correctly, so the runtime can load a
+driver package through [libadrenotools](../../thirdparty/libadrenotools)
+(BSD-2, vendored at `8fae8ce`; its hook libraries are packaged and extracted
+with the APK, which is why `useLegacyPackaging` is on).
+
+On an arm64 device with Android 9+ and `/dev/kgsl-3d0` the launcher opens the
+**GPU driver** page before the first game start; later starts go straight to
+the game, and **CTRL → GPU driver** opens the page while playing (changing the
+driver there restarts the process, because the driver is bound before the
+Vulkan instance). The page lists the installed packages plus **System GPU
+driver**, downloads packages from the same five GitHub release feeds as the
+Eden emulator's driver fetcher (Mr. Purple Turnip, GameHub Adreno 8xx, KIMCHI
+Turnip, Weab-Chan Freedreno, Whitebelyash Turnip; zip assets only, feeds cached
+for an hour in `cache/gpu_driver_catalog/`), shows Eden's recommendation for
+the Adreno model from `/sys/class/kgsl/kgsl-3d0/gpu_model`, and installs a zip
+from the file picker. The menu-text fix was verified with KIMCHI
+`Turnip_v26.0.0_R8.zip`. Other devices and non-Qualcomm GPUs never see the page.
+
+Packages are the libadrenotools format (flat zip with `meta.json` naming the
+`.so` in `libraryName`; `minApi` is checked). Each package is extracted into
+`files/gpu_driver/<zip name>/`; the choice is stored in the `gpu_driver`
+preferences (`selected`, empty for the system driver) and passed to the native
+loader as `LO_CUSTOM_DRIVER_DIR` and `LO_VK_CUSTOM_DRIVER`. A package that
+loads but cannot create a Vulkan instance or device falls back to the system
+driver in-process; a start that never reaches the game (the process dies within
+15 seconds) selects the system driver again and reopens the page with a notice.
+`adb shell am start -n io.github.freefrank.lostodyssey/.RuntimeActivity` still
+starts the game directly, honouring the stored choice; debug builds also accept
+`--es LO_VK_CUSTOM_DRIVER <file> --es LO_CUSTOM_DRIVER_DIR <dir>` to override it.
+
+The catalog and package logic has JVM tests:
+
+```sh
+./gradlew :runtime:testDebugUnitTest
+```
