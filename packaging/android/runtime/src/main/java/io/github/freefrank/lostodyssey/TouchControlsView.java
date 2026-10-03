@@ -13,6 +13,7 @@ import android.util.SparseArray;
 import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -359,6 +360,17 @@ final class TouchControlsView extends View {
         content.addView(opacityLabel);
         content.addView(opacity);
 
+        // Qualcomm devices: open the GPU driver page (download / switch Turnip).
+        Button driverButton = null;
+        if (GpuDriverStore.supported()) {
+            driverButton = new Button(activity);
+            GpuDriverStore.Installed driver = GpuDriverStore.selectedDriver(activity);
+            driverButton.setText("GPU driver: " + (driver != null ? driver.metadata.name : "System")
+                + " …");
+            driverButton.setAllCaps(false);
+            content.addView(driverButton);
+        }
+
         AlertDialog settingsDialog = new AlertDialog.Builder(activity)
             .setTitle("Controller settings")
             .setView(content)
@@ -377,6 +389,12 @@ final class TouchControlsView extends View {
             controllerHint = null;
             settingsChoiceEdited = false;
         });
+        if (driverButton != null) {
+            driverButton.setOnClickListener(v -> {
+                settingsDialog.dismiss();
+                activity.openGpuDriverPage();
+            });
+        }
         settingsDialog.show();
     }
 
