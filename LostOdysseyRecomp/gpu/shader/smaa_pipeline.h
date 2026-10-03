@@ -5,19 +5,21 @@
 
 // SMAA 1x HIGH, upstream color-edge/weight/neighborhood passes. Display-encoded
 // color and lookup data use UNORM views, with no implicit sRGB conversion.
+// The HDR variant crops and blends in FP16 for the extended-gamma scene; edge
+// and weight stages stay RGBA8 masks.
 struct SmaaPipeline
 {
     using Device = plume::RenderDevice;
     Device *device = nullptr;
     std::unique_ptr<plume::RenderPipelineLayout> layout;
     std::unique_ptr<plume::RenderShader> shaders[3];
-    std::unique_ptr<plume::RenderPipeline> pipelines[3];
+    std::unique_ptr<plume::RenderPipeline> pipelines[3], hdrNeighborhood;
     std::unique_ptr<plume::RenderDescriptorSet> sets[3], cropSet;
     std::unique_ptr<plume::RenderSampler> point;
-    std::unique_ptr<plume::RenderTexture> area, search, stages[4];
-    std::unique_ptr<plume::RenderFramebuffer> fb[4];
+    std::unique_ptr<plume::RenderTexture> area, search, stages[4], hdrStages[2];
+    std::unique_ptr<plume::RenderFramebuffer> fb[4], hdrFb[2];
     std::unique_ptr<plume::RenderBuffer> areaUpload, searchUpload;
-    uint32_t width=0, height=0;
+    uint32_t width=0, height=0, hdrWidth=0, hdrHeight=0;
     bool uploaded=false, vulkan=false;
 
     bool Init(Device *d, plume::RenderShader *vs, plume::RenderSampler *linear, bool useVulkan=false)
@@ -80,6 +82,10 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
             pd.renderTargetCount=1;pd.renderTargetFormat[0]=RenderFormat::R8G8B8A8_UNORM;
             pd.renderTargetBlend[0]=RenderBlendDesc::Copy();pd.cullMode=RenderCullMode::NONE;
             pipelines[i]=d->createGraphicsPipeline(pd);if(!pipelines[i]) return false;
+            if(i==2) {
+                pd.renderTargetFormat[0]=RenderFormat::R16G16B16A16_FLOAT;
+                hdrNeighborhood=d->createGraphicsPipeline(pd);if(!hdrNeighborhood) return false;
+            }
             sets[i]=set.create(d);sets[i]->setSampler(3,linear);sets[i]->setSampler(4,point.get());
         }
         RenderDescriptorSetBuilder crop;
@@ -98,8 +104,10 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
         lookup(SEARCHTEX_WIDTH,SEARCHTEX_HEIGHT,1,RenderFormat::R8_UNORM,searchTexBytes,search,searchUpload);
         return true;
     }
+    // hdr: the source is an extended-gamma FP16 scene and cropPipeline renders
+    // to FP16; the returned texture is FP16. Otherwise unchanged RGBA8 SDR.
     plume::RenderTexture *Draw(plume::RenderCommandList *c,plume::RenderTexture *source,uint32_t w,uint32_t h,
-        plume::RenderPipelineLayout *cropLayout,plume::RenderPipeline *cropPipeline)
+        plume::RenderPipelineLayout *cropLayout,plume::RenderPipeline *cropPipeline,bool hdr=false)
     {
         using namespace plume;
         // Owner must wait its presentation fence between calls, including resize.
@@ -121,33 +129,46 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
             }
             width=w;height=h;
         }
+        if(hdr && (hdrWidth!=w || hdrHeight!=h)) {
+            for(int i=0;i<2;++i) {
+                hdrFb[i].reset();hdrStages[i]=device->createTexture(RenderTextureDesc::Texture2D(w,h,1,RenderFormat::R16G16B16A16_FLOAT,RenderTextureFlag::RENDER_TARGET));
+                const RenderTexture *attachment[]={hdrStages[i].get()};hdrFb[i]=device->createFramebuffer(RenderFramebufferDesc(attachment,1));
+            }
+            hdrWidth=w;hdrHeight=h;
+        }
+        RenderTexture *cropped=hdr?hdrStages[0].get():stages[0].get();
+        RenderTexture *output=hdr?hdrStages[1].get():stages[3].get();
+        RenderFramebuffer *croppedFb=hdr?hdrFb[0].get():fb[0].get();
+        RenderFramebuffer *outputFb=hdr?hdrFb[1].get():fb[3].get();
         RenderViewport vp(0,0,float(w),float(h));RenderRect rect(0,0,w,h);
         c->setViewports(&vp,1);c->setScissors(&rect,1);
         // Native-size crop removes padded storage before neighborhood searches.
         c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(source,RenderTextureLayout::SHADER_READ));
-        c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(stages[0].get(),RenderTextureLayout::COLOR_WRITE));
-        c->setFramebuffer(fb[0].get());cropSet->setTexture(0,source,RenderTextureLayout::SHADER_READ);
+        c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(cropped,RenderTextureLayout::COLOR_WRITE));
+        c->setFramebuffer(croppedFb);cropSet->setTexture(0,source,RenderTextureLayout::SHADER_READ);
         cropSet->setTexture(2,source,RenderTextureLayout::SHADER_READ);
         // Match Presentation's complete 64-byte push-constant range. Cropping
-        // remains display-encoded SDR; the final pass owns output conversion.
+        // keeps the source encoding; the final pass owns output conversion.
         struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange,outputFlags;float outputScale,peakRatio;float calibrationRect[4]; }
             crop{0,0,float(w),float(h),float(w),float(h),0,0,0,0,1,1};
         c->setGraphicsPipelineLayout(cropLayout);c->setPipeline(cropPipeline);
         c->setGraphicsPushConstants(0,&crop);c->setGraphicsDescriptorSet(cropSet.get(),0);c->drawInstanced(3,1,0,0);
         // Initialize every descriptor even where an entry point does not consume it.
         for(int i=0;i<3;++i) {
-            sets[i]->setTexture(0,stages[i==2?0:i].get(),RenderTextureLayout::SHADER_READ);
+            sets[i]->setTexture(0,i==1?stages[1].get():cropped,RenderTextureLayout::SHADER_READ);
             sets[i]->setTexture(1,i==2?stages[2].get():area.get(),RenderTextureLayout::SHADER_READ);
             sets[i]->setTexture(2,search.get(),RenderTextureLayout::SHADER_READ);
         }
         float metrics[]={1.0f/w,1.0f/h,float(w),float(h)};
         for(int i=0;i<3;++i) {
-            c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(stages[i].get(),RenderTextureLayout::SHADER_READ));
-            c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(stages[i+1].get(),RenderTextureLayout::COLOR_WRITE));
-            c->setFramebuffer(fb[i+1].get());c->clearColor(0,RenderColor(0,0,0,0));
-            c->setGraphicsPipelineLayout(layout.get());c->setPipeline(pipelines[i].get());
+            RenderTexture *input=i==0?cropped:stages[i].get();
+            RenderTexture *target=i==2?output:stages[i+1].get();
+            c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(input,RenderTextureLayout::SHADER_READ));
+            c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(target,RenderTextureLayout::COLOR_WRITE));
+            c->setFramebuffer(i==2?outputFb:fb[i+1].get());c->clearColor(0,RenderColor(0,0,0,0));
+            c->setGraphicsPipelineLayout(layout.get());c->setPipeline(i==2&&hdr?hdrNeighborhood.get():pipelines[i].get());
             c->setGraphicsPushConstants(0,metrics);c->setGraphicsDescriptorSet(sets[i].get(),0);c->drawInstanced(3,1,0,0);
         }
-        return stages[3].get();
+        return output;
     }
 };

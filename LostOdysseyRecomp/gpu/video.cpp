@@ -741,10 +741,11 @@ namespace gpu::video
 
         // Per-frame scene conditions. The HDR swap chain stays; a frame that
         // fails these presents its SDR scene through the output transform.
+        // FXAA/SMAA/TAA run on the FP16 scene; upscaling still pauses it.
         bool HdrConfigurationCompatible()
         {
             const auto config = settings::GetConfig();
-            return config.antialiasing == 0 && config.upscaler == upscaling::Upscaler::Off &&
+            return config.upscaler == upscaling::Upscaler::Off &&
                 config.scalingQuality != settings::ScalingMetalFx && HdrFrameGenerationCompatible();
         }
 
@@ -1991,7 +1992,7 @@ namespace gpu::video
                 swapDescription.format = plume::RenderFormat::R16G16B16A16_FLOAT;
                 swapDescription.outputMode = plume::RenderOutputMode::HDR_LINEAR;
                 if (!HdrConfigurationCompatible())
-                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while AA or upscaling is selected");
+                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while upscaling is selected");
             } else if (hdrConfig.hdr && g_vulkan) {
                 LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain here (FSR FG, or DLSS-G with LO_HDR_FG=0)");
             } else if (hdrConfig.hdr) {
@@ -3701,8 +3702,10 @@ namespace gpu::video
                     const auto decision = frame_plan::ResolvePresentationDecision(&sourcePlan,
                         renderer::SceneAAApplied(physicalAddress & 0x1FFFFFFF), uint32_t(presentationOptions.antialiasing),
                         uint32_t(presentationOptions.scalingFilter));
-                    const PresentationOptions sourceOptions{decision.requestedAA == 3 ? Antialiasing::SMAA :
-                        static_cast<Antialiasing>(decision.requestedAA),
+                    // Scene AA already applied: the HDR path takes Draw (not
+                    // DrawComposited) and must not run the pass a second time.
+                    const PresentationOptions sourceOptions{decision.bypassAA ? Antialiasing::Off :
+                        decision.requestedAA == 3 ? Antialiasing::SMAA : static_cast<Antialiasing>(decision.requestedAA),
                         decision.scalingQuality ? ScalingFilter::Bicubic : ScalingFilter::Bilinear,
                         presentationOptions.expandRgbRange, hdrScene};
                     if(decision.bypassAA && !hdrScene)

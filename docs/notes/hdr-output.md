@@ -7,7 +7,7 @@ This note documents the experimental HDR path for the cross-platform renderer, w
 HDR is opt-in in the Graphics menu and takes effect after a restart. The current implemented configuration is:
 
 - Windows with Direct3D 12 or Vulkan, Linux with Vulkan, or macOS with Metal. Vulkan selects an exact HDR surface format/color-space pair; an unsupported pair uses SDR.
-- Anti-aliasing Off, upscaling Off and a non-MetalFX spatial filter. On Vulkan, `hdr=1` creates the HDR swap chain regardless of AA and upscaling; while one of them is selected, each frame presents its SDR scene through the output transform instead, and turning them off takes effect without a restart. Direct3D 12 and Metal still decide at startup, because their frame generation reconcile replaces the swap chain in SDR and is skipped while an HDR swap chain exists.
+- Any anti-aliasing mode, upscaling Off and a non-MetalFX spatial filter. FXAA and SMAA run a second time on the extended-gamma FP16 resolve (`Presentation::ProcessSceneColor(..., hdr=true)`, FP16 intermediates, luma decided on the saturated value so edges match the SDR pass) and TAA runs a second `temporal::HistoryOwner` on it in the raw extended-gamma domain with the same depth, jitter and motion; the sidecar copy follows the AA output's FP16 twin the way it follows AO's. A frame whose twin is missing presents SDR. On Vulkan, `hdr=1` creates the HDR swap chain regardless of upscaling; while upscaling is selected, each frame presents its SDR scene through the output transform instead, and turning it off takes effect without a restart. Direct3D 12 and Metal still decide at startup, because their frame generation reconcile replaces the swap chain in SDR and is skipped while an HDR swap chain exists.
 - Frame generation Off, except DLSS frame generation on Vulkan. The SDK swap chains that frame generation presents through are SDR on Direct3D 12 and Metal, and the Vulkan FSR presenter only takes RGBA8/BGRA8. Vulkan DLSS-G accepts the HDR10/PQ chain plume prefers (Streamline DLSS-G guide section 11, which rejects FP16 scRGB), so `hdr=1` with DLSS-G on Vulkan creates the HDR swap chain; `LO_HDR_FG=0` keeps the SDR chain instead.
 - Paper-white 80–400 nits and manually entered peak from paper-white through 10,000 nits.
 
@@ -55,7 +55,7 @@ The review of PR #145 changed three things before merging.
 
 Known limits found in the review and left for later:
 
-- Frame generation other than Vulkan DLSS-G, and AA/upscaling/MetalFX scaling on Direct3D 12 and Metal, still decide the swap chain at startup. If `hdr=1` is saved while one of them is on, turning it off later does not prompt for the restart that would enable HDR. (On Vulkan, AA and upscaling no longer have this limit: the HDR swap chain exists whenever `hdr=1` and the scene falls back per frame.)
+- Frame generation other than Vulkan DLSS-G, and upscaling/MetalFX scaling on Direct3D 12 and Metal, still decide the swap chain at startup. If `hdr=1` is saved while one of them is on, turning it off later does not prompt for the restart that would enable HDR. (On Vulkan, upscaling no longer has this limit: the HDR swap chain exists whenever `hdr=1` and the scene falls back per frame; AA no longer pauses HDR on any backend.)
 - If the Vulkan presentation pipeline cannot be rebuilt after a surface format change, later frames use the old pipeline.
 - The Vulkan SDR swap chain now accepts only RGBA8 or BGRA8 with the sRGB nonlinear color space and logs a warning on every resize; a WSI without that pair fails where it used to work. `VK_EXT_hdr_metadata` is enabled but unused.
 - Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report. Since the swap chain no longer waits for AA and upscaling to be off, this now also reaches `hdr=1` users who have them on; Android takes the same path, and its surface rebuild on resume (`EnsureAndroidSurfaceSwapChain`) still recreates the chain in RGBA8.
@@ -71,6 +71,17 @@ Four isolated Windows Vulkan runs on an RTX 5080 (driver 616.56, 2560×1440, the
 - SMAA with `hdr=1`, frame generation off: HDR swap chain, scene paused, no errors; this `DrawComposited` → `Draw(hdrScene=false)` path onto a PQ target was unreachable before this change.
 
 These are log and SDR-preview results, not HDR panel measurements: `display_active=false display_state_known=false transport=true` on Windows Vulkan, as in the known limits above. A 25-second Direct3D 12 run with the same settings right afterwards reported `display_active=true display_state_known=true peak=1015` from DXGI, so Windows HDR was on for the Vulkan runs and the PQ output went to an HDR-mode display; what it looked like on that panel was not recorded.
+
+## AA on the HDR scene — 2026-10-02
+
+Same rig and protocol as above (RTX 5080, Vulkan, 2560×1440, frozen Uhra save, foreground, 70 s each, fixed-swap screenshot at swap 4500, all exit 0 and no `[error]` lines). The periodic `renderer HDR: forwarded copies` tally says which producer the sidecar followed.
+
+- FXAA + `hdr=1`: `HDR: scene_enabled=true`; after the save loaded every forwarded copy came from the FP16 AA twin (`scene_aa=5821`, `resolve=779` for the title screen before it). Screenshot intact.
+- SMAA + `hdr=1`: the same, `scene_aa=5816`. Screenshot intact.
+- TAA + `hdr=1`: the second `HistoryOwner` resolved every scene frame (`scene_taa=5823`, `scene TAA twin … recorded=true`), the TAA shaders are untouched (`LoTemporalJitterTest` passes). Screenshot intact. CPU-side `taa_ms` stayed around 0.18 ms per frame; GPU cost is a second TAA resolve at scene resolution.
+- SDR unchanged: `hdr=0` SMAA runs of the stage 0 and stage 1 binaries differ at swap 4500 by the same amount two stage 0 runs differ from each other (84.1 % / 84.7 % identical pixels; the scene animates), and `LoPresentationTest` (14 checks) and `LoMenuFlowTest` (11 checks) pass. The FXAA shader's luma now saturates its input, which is exact for RGBA8 sources.
+
+Found and fixed on the way: the scene processor records the SDR pass and the HDR pass into the same command list, and the first build let them share `Presentation`'s pass pool and `SmaaPipeline` (an FXAA intermediate was re-created as FP16 while the SDR draw still referenced it, `VK_ERROR_DEVICE_LOST`). SDR and HDR now own separate pass pools and SMAA instances.
 
 ## Unfinished validation
 

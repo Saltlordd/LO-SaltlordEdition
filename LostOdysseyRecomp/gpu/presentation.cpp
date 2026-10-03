@@ -18,7 +18,10 @@ struct Presentation::Impl
     bool vulkan = false;
     RenderFormat swapchainFormat = RenderFormat::R8G8B8A8_UNORM;
     hdr::OutputTransform output;
-    SmaaPipeline smaa;
+    // Index 1 serves an HDR scene. The scene processor records an SDR and an
+    // HDR pass into one command list per frame, so neither may touch the
+    // other's descriptors, framebuffers or intermediates.
+    SmaaPipeline smaa[2];
     std::unique_ptr<RenderPipelineLayout> layout;
     std::unique_ptr<RenderShader> vs, ps;
     std::unique_ptr<RenderPipeline> pipeline;
@@ -36,7 +39,7 @@ struct Presentation::Impl
         uint32_t width = 0, height = 0;
         RenderFormat format = RenderFormat::UNKNOWN;
     };
-    std::vector<Pass> passes;
+    std::vector<Pass> passes[2];
     bool EnsureUiPipelines();
 };
 struct Presentation::UiCompositionLease
@@ -141,7 +144,9 @@ float3 resample(float2 pixel) {
     float3 c=sampleFrame(base+float2(0,1)),d=sampleFrame(base+1);
     return clamp(sum,min(min(a,b),min(c,d)),max(max(a,b),max(c,d)));
 }
-float luma(float3 c) { return dot(c,float3(0.299,0.587,0.114)); }
+// Edge decisions on the SDR range only: an extended-gamma scene keeps its
+// highlights, but above white the luma contrast is as saturated SDR would see.
+float luma(float3 c) { return dot(saturate(c),float3(0.299,0.587,0.114)); }
 float3 encodeOutput(float3 color) {
     if ((outputFlags & 8) != 0) {
         color = mul(float3x3(0.627404,0.329283,0.043313,
@@ -263,19 +268,16 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
     desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
     desc.cullMode = RenderCullMode::NONE;
     p.pipeline = device->createGraphicsPipeline(desc);
-    p.hdrPipeline.reset();
-    if (swapchainFormat == RenderFormat::R16G16B16A16_FLOAT ||
-        swapchainFormat == RenderFormat::R10G10B10A2_UNORM || swapchainFormat == RenderFormat::B10G10R10A2_UNORM) {
-        desc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
-        p.hdrPipeline = device->createGraphicsPipeline(desc);
-    }
+    // FP16 intermediates serve HDR swap chains and the scene processor's
+    // extended-gamma AA pass, so every instance owns the variant.
+    desc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
+    p.hdrPipeline = device->createGraphicsPipeline(desc);
     desc.renderTargetFormat[0] = swapchainFormat;
     p.presentPipeline = device->createGraphicsPipeline(desc);
 
-    p.initialized = bool(p.pipeline) && bool(p.presentPipeline) &&
-        ((swapchainFormat != RenderFormat::R16G16B16A16_FLOAT &&
-          swapchainFormat != RenderFormat::R10G10B10A2_UNORM && swapchainFormat != RenderFormat::B10G10R10A2_UNORM) || bool(p.hdrPipeline)) &&
-        p.smaa.Init(device, p.vs.get(), p.sampler.get(), p.vulkan);
+    p.initialized = bool(p.pipeline) && bool(p.presentPipeline) && bool(p.hdrPipeline) &&
+        p.smaa[0].Init(device, p.vs.get(), p.sampler.get(), p.vulkan) &&
+        p.smaa[1].Init(device, p.vs.get(), p.sampler.get(), p.vulkan);
     return p.initialized;
 }
 bool Presentation::Impl::EnsureUiPipelines()
@@ -351,7 +353,7 @@ float4 pixelUi(float4 position : SV_Position) : SV_Target {
     return true;
 }
 bool Presentation::ProcessSceneColor(RenderCommandList *commands, RenderTexture *source, RenderTexture *target,
-                                     uint32_t width, uint32_t height, Antialiasing antialiasing)
+                                     uint32_t width, uint32_t height, Antialiasing antialiasing, bool hdr)
 {
     if (!commands || !source || !target || source == target || !width || !height ||
         width > 16384 || height > 16384 || !impl->initialized ||
@@ -359,8 +361,9 @@ bool Presentation::ProcessSceneColor(RenderCommandList *commands, RenderTexture 
          antialiasing != Antialiasing::SMAA))
         return false;
     // Reuse the tested source-size AA passes, including SMAA's padded crop.
-    Draw(commands, source, target, width, height, width, height,
-         PresentationOptions{antialiasing, ScalingFilter::Bilinear}, false);
+    PresentationOptions options{antialiasing, ScalingFilter::Bilinear};
+    options.hdrScene = hdr;
+    Draw(commands, source, target, width, height, width, height, options, false);
     commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(source, RenderTextureLayout::SHADER_READ));
     commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(target, RenderTextureLayout::SHADER_READ));
     return true;
@@ -427,7 +430,8 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
 {
     auto &p = *impl;
     if (!sw || !sh || !ow || !oh) return;
-    const bool hdrScene = options.hdrScene && p.output.linear && bool(p.hdrPipeline);
+    // Off-screen scene processing keeps FP16 regardless of the output transform.
+    const bool hdrScene = options.hdrScene && bool(p.hdrPipeline) && (p.output.linear || !toSwapchain);
     const auto intermediateFormat = hdrScene ? RenderFormat::R16G16B16A16_FLOAT : RenderFormat::R8G8B8A8_UNORM;
     auto* intermediatePipeline = hdrScene ? p.hdrPipeline.get() : p.pipeline.get();
     RenderTexture *original = source;
@@ -438,12 +442,13 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
     const float x = scale == 1.0f ? std::floor((ow-width)*0.5f) : (ow-width)*0.5f;
     const float y = scale == 1.0f ? std::floor((oh-height)*0.5f) : (oh-height)*0.5f;
     size_t passIndex=0;
+    auto &passes=p.passes[hdrScene ? 1 : 0];
     auto render=[&](RenderTexture *input,RenderTexture *output,uint32_t iw,uint32_t ih,
                     uint32_t tw,uint32_t th,float ox,float oy,float ew,float eh,uint32_t aa,uint32_t filter,
                     uint32_t expandRange,
                     RenderPipeline *pipe) {
-        if(passIndex==p.passes.size()) p.passes.emplace_back();
-        auto &pass=p.passes[passIndex++];
+        if(passIndex==passes.size()) passes.emplace_back();
+        auto &pass=passes[passIndex++];
         if(!pass.descriptors) {
             RenderDescriptorSetBuilder set;
             set.begin();set.addTexture(0);set.addSampler(p.vulkan ? 1 : 0);set.addTexture(p.vulkan ? 2 : 1);set.end();
@@ -488,10 +493,11 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         return output;
     };
     // AA is evaluated once at actual source resolution, independent of scaling.
-    if(!hdrScene && options.antialiasing==Antialiasing::SMAA)
-        source=p.smaa.Draw(commands,source,sw,sh,p.layout.get(),p.pipeline.get());
-    else if(!hdrScene && options.antialiasing==Antialiasing::FXAA)
-        source=render(source,nullptr,sw,sh,sw,sh,0,0,float(sw),float(sh),1,0,0,p.pipeline.get());
+    // An HDR scene runs the same passes with FP16 intermediates.
+    if(options.antialiasing==Antialiasing::SMAA)
+        source=p.smaa[hdrScene ? 1 : 0].Draw(commands,source,sw,sh,p.layout.get(),intermediatePipeline,hdrScene);
+    else if(options.antialiasing==Antialiasing::FXAA)
+        source=render(source,nullptr,sw,sh,sw,sh,0,0,float(sw),float(sh),1,0,0,intermediatePipeline);
     // Large reductions use full coverage at each stage. No tap count truncation,
     // and no artificial reduced input presented as a game rendering speedup.
     const uint32_t desiredW=std::max(1u,uint32_t(std::ceil(width)));
@@ -528,7 +534,7 @@ bool Presentation::Init(plume::RenderDevice *, plume::RenderFormat)
     return false;
 }
 bool Presentation::ProcessSceneColor(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *,
-                                     uint32_t, uint32_t, Antialiasing)
+                                     uint32_t, uint32_t, Antialiasing, bool)
 {
     return false;
 }

@@ -47,6 +47,8 @@ class Presentation
     // Source: sampleable RGBA8 UNORM, at least width x height (top-left crop).
     // Target: distinct, caller-owned RGBA8 UNORM render target, exactly width x
     // height. Alpha is written as 1, matching the existing presentation AA.
+    // hdr: source and target are instead R16G16B16A16_FLOAT extended-gamma
+    // scenes; the passes keep values above 1 and decide edges on the SDR range.
     // Records transitions; both textures finish in SHADER_READ. Invalid basic
     // arguments return false without recording commands; texture properties are
     // caller preconditions because RenderTexture exposes no description query.
@@ -57,7 +59,7 @@ class Presentation
     // and scissor before resuming guest draws, and retain textures through fence.
     bool ProcessSceneColor(plume::RenderCommandList *commands, plume::RenderTexture *source,
                            plume::RenderTexture *target, uint32_t width, uint32_t height,
-                           Antialiasing antialiasing);
+                           Antialiasing antialiasing, bool hdr = false);
     // Composite an independently produced straight-alpha UI image over a
     // HUD-less output-resolution scene. This performs no AA or scaling and is
     // intended for the final real/generated-frame presentation stage. Source
