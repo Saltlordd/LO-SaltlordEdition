@@ -3390,14 +3390,15 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Shader cache",
-        "Status": "Paused",
-        "Delivery": "Deferred",
+        "Status": "Todo",
+        "Delivery": "In progress",
         "Start date": "2026-10-02",
         "Evidence": "PR #141 (one-file shader store), PR #142 (startup pack download) and PR #144 (release packages without packs, plus a published-index check) are merged (2026-10-02) and shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). Its release run (Gitea run 135) passed the pack-contract check, and the packages carry no shader pack (Windows ZIP 77.1 MB, AppImage 76.3 MB, Flatpak 54.1 MB). The three packs are in the shader-packs prerelease; downloads worked on Windows and an M1 Max Mac; the Linux download path was not run. Local cache cleanup is not started; the maintainer deferred it out of v0.8.0 on 2026-10-03. No player confirmation.",
-        "Source key": "shader-delivery-v080"
+        "Source key": "shader-delivery-v080",
+        "Release": "v0.9.0"
       },
       "title": "Shader delivery: one-file store, startup pack download and cache cleanup (v0.8.0)",
-      "body_sha256": "4221c33cb71167362a429ee71d67abe91e6ccfa3f853d75a6c1f8dcd3baa6078"
+      "body_sha256": "f49177677dd5be66656734105c2c5615d853ec5dbc768391c24b5c89708e5e73"
     },
     "release-v0-7-35": {
       "id": "PVTI_lAHOAAsUY84Biy1azg-GUuc",
