@@ -52,7 +52,7 @@ packaging steps, the AppDir layout and failure handling, not a real AppImage
 or Flatpak; the release workflow builds and checks those. Both scripts also
 run directly, for example `python3 tools/tests/package_appimage_test.py`.
 
-The Linux CI entry is `.gitea/workflows/review-regressions.yml` on git.zkx.ca, which runs on branch pushes, including changes to the packaging scripts; the GitHub copy only runs when started manually.
+The Linux CI entry is `.gitea/workflows/review-regressions.yml` on git.zkx.ca, which runs on branch pushes, including changes to the packaging scripts. It has no GitHub copy.
 
 For a separate ThreadSanitizer check of the changed callbacks:
 

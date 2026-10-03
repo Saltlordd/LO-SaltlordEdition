@@ -3,8 +3,8 @@
 Since 2026-09-30 the four short Windows/Linux pull request checks below run on
 Gitea Actions at `git.zkx.ca`; GitHub queues were too slow for these short
 jobs. Windows and Linux release packaging followed on 2026-10-01 (see
-[Releases](#releases)). The GitHub copies of those workflows keep only
-`workflow_dispatch`, so they can still be started manually. The macOS arm64
+[Releases](#releases)). These four checks exist only on Gitea; their GitHub
+copies were removed on 2026-10-02. The macOS arm64
 workflow is an explicit exception: on `macos-26`, pushes to `main` and pull
 requests targeting `main` build libraries and tests without game data; it does
 not link the complete game runtime. Full ARM64 runtime and gameplay evidence
@@ -20,9 +20,8 @@ and issue triage stay on GitHub.
 
 ## Running the checks
 
-Push the branch to the Gitea remote. Each workflow keeps the path filter of
-its GitHub original and runs on branch pushes, Gitea pull requests or a manual
-start. A newer push to the same branch cancels the older run.
+Push the branch to the Gitea remote. Each workflow has a path filter and runs
+on branch pushes, Gitea pull requests or a manual start. A newer push to the same branch cancels the older run.
 
 ```powershell
 git push zkx <branch>
