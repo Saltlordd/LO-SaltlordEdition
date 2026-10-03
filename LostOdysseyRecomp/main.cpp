@@ -343,7 +343,16 @@ int main(int argc, char* argv[])
     if (requestedInstall)
     {
         const auto result = install::RunHost(executableDirectory, &gameRoot, true);
-        return (result == install::HostResult::Installed || result == install::HostResult::AlreadyPresent) ? 0 : 1;
+        const bool installed = result == install::HostResult::Installed || result == install::HostResult::AlreadyPresent;
+#if LO_PLATFORM_ANDROID
+        // The game folder page starts the importer; a finished import goes
+        // straight into the game, anything else returns to that page.
+        if (!installed)
+            return result == install::HostResult::Cancelled ? 0 : 1;
+        LOG_INFO("imported game data into {}", FileSystem::PathUtf8(gameRoot));
+#else
+        return installed ? 0 : 1;
+#endif
     }
 
     if (!explicitGame && !std::filesystem::exists(gameRoot / "default.xex"))

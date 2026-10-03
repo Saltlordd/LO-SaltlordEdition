@@ -5,6 +5,9 @@
 #include "file_browser.h"
 #include "import_game.h"
 #include "../hid/controller_prompts.h"
+#if defined(__ANDROID__)
+#include "../hid/android_touch.h"
+#endif
 #include "../settings/config.h"
 
 #include <atomic>
@@ -364,7 +367,7 @@ InstallerResult ShowInstallerUI(const std::filesystem::path& executableDirectory
     std::filesystem::path startSource = initialSource;
     if (startSource.empty() || !std::filesystem::exists(startSource))
     {
-        startSource = std::filesystem::current_path();
+        startSource = ui::DefaultSourceDirectory();
     }
     state.currentSourceBrowse = startSource;
     state.sourceItems = ui::ListDirectory(state.currentSourceBrowse);
@@ -816,6 +819,10 @@ InstallerResult ShowInstallerUI(const std::filesystem::path& executableDirectory
     };
 
     ui::StickNavigation stickNavigation;
+#if defined(__ANDROID__)
+    // Ignore a button still held from before the window opened.
+    uint16_t touchButtons = hid::android_touch::Snapshot().buttons;
+#endif
     while (!state.quit)
     {
         consumeWorkerEvents();
@@ -1140,6 +1147,43 @@ InstallerResult ShowInstallerUI(const std::filesystem::path& executableDirectory
                 }
             }
         }
+#if defined(__ANDROID__)
+        // The on-screen controller covers the window and feeds hid, not SDL
+        // events: its newly pressed buttons and its left stick act like a pad's.
+        {
+            const auto touch = hid::android_touch::Snapshot();
+            const uint16_t pressed = touch.buttons & ~touchButtons;
+            touchButtons = touch.buttons;
+            if (state.destNaming)
+            {
+                if (pressed & (0x1000 | 0x8000)) confirmNewFolder(); // A, Y
+                else if (pressed & 0x2000) cancelNewFolder(); // B
+            }
+            else if (pressed)
+            {
+                if (pressed & 0x0001) handleNavUp();
+                if (pressed & 0x0002) handleNavDown();
+                if (pressed & 0x0004) handleNavLeft();
+                if (pressed & 0x0008) handleNavRight();
+                if (pressed & 0x1000) handleAction(); // A
+                else if (pressed & 0x2000) handleCancel(); // B
+                else if (pressed & 0x4000) handleSelectCurrent(); // X
+                else if (pressed & 0x8000) // Y
+                {
+                    if (state.screen == ScreenState::BrowseDest) beginNewFolder();
+                    else handleSelectCurrent();
+                }
+            }
+            // hid's stick Y points up; SDL's points down.
+            const int touchY = -int(touch.leftY);
+            if (!state.isScanning.load() && !state.isImporting.load() && !state.destNaming &&
+                std::max(std::abs(int(touch.leftX)), std::abs(touchY)) > std::max(std::abs(stickX), std::abs(stickY)))
+            {
+                stickX = touch.leftX;
+                stickY = touchY;
+            }
+        }
+#endif
         switch (stickNavigation.Update(stickX, stickY, SDL_GetTicks64()))
         {
         case ui::Direction::Left: handleNavLeft(); break;
