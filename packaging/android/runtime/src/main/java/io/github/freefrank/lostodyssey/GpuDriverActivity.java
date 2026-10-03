@@ -58,8 +58,11 @@ public final class GpuDriverActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        PlayerLogs.installCrashHandler(this);
         fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
         if (!fromGame) {
+            // Shows the previous run's logs over USB, complete even after a crash.
+            PlayerLogs.publish(this);
             if (!GpuDriverStore.supported()) { launchGame(); return; }
             failedDriver = GpuDriverStore.takeFailedBoot(this);
             if (failedDriver == null && GpuDriverStore.choiceMade(this)) { launchGame(); return; }

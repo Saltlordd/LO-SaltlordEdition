@@ -159,6 +159,41 @@ static bool RetryWithSystemVulkanDriver(const char* stage)
 #endif
 }
 
+#ifdef __ANDROID__
+// Every GPU the instance reports, before device creation can fail or crash:
+// player reports name a phone, not the driver that actually loaded.
+static void LogVulkanPhysicalDevices(VkInstance instance)
+{
+    uint32_t count = 0;
+    if (!instance || vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || !count) {
+        LOG_WARNING("vulkan: no physical devices reported");
+        return;
+    }
+    std::vector<VkPhysicalDevice> devices(count);
+    if (vkEnumeratePhysicalDevices(instance, &count, devices.data()) < VK_SUCCESS) return;
+    devices.resize(count);
+    for (const auto device : devices) {
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(device, &properties);
+        const uint32_t driver = properties.driverVersion;
+        LOG_INFO("vulkan gpu: name='{}' vendor={:#06x} device={:#010x} api={}.{}.{} driver_raw={:#x} driver_decoded={}.{}.{}",
+            properties.deviceName, properties.vendorID, properties.deviceID,
+            VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion),
+            VK_API_VERSION_PATCH(properties.apiVersion), driver, driver >> 22, (driver >> 12) & 0x3ff, driver & 0xfff);
+        // driverName/driverInfo tell the Qualcomm proprietary driver from
+        // Turnip and carry the Mesa or vendor build string.
+        if (properties.apiVersion < VK_API_VERSION_1_2 || !vkGetPhysicalDeviceProperties2) continue;
+        VkPhysicalDeviceDriverProperties driverProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+        VkPhysicalDeviceProperties2 properties2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driverProperties};
+        vkGetPhysicalDeviceProperties2(device, &properties2);
+        LOG_INFO("vulkan gpu driver: id={} name='{}' info='{}' conformance={}.{}.{}.{}",
+            uint32_t(driverProperties.driverID), driverProperties.driverName, driverProperties.driverInfo,
+            driverProperties.conformanceVersion.major, driverProperties.conformanceVersion.minor,
+            driverProperties.conformanceVersion.subminor, driverProperties.conformanceVersion.patch);
+    }
+}
+#endif
+
 
 #ifdef LO_GPU_PLUME
 namespace plume
@@ -1941,6 +1976,9 @@ namespace gpu::video
                 g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
 #endif
             if (!g_interface) return "API/loader initialization failed";
+#ifdef __ANDROID__
+            LogVulkanPhysicalDevices(static_cast<plume::VulkanInterface*>(g_interface.get())->instance);
+#endif
 #if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
             if (g_vulkan) {
                 const auto fg = VulkanFgRequest();
@@ -1954,6 +1992,7 @@ namespace gpu::video
                 g_interface.reset();
                 g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
                 if (!g_interface) return "API/loader initialization failed";
+                LogVulkanPhysicalDevices(static_cast<plume::VulkanInterface*>(g_interface.get())->instance);
                 g_device = g_interface->createDevice();
             }
 #endif

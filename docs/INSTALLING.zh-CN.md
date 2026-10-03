@@ -136,7 +136,10 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 游戏画面上有触摸手柄。**CTRL** 打开手柄设置（大小、透明度、布局编辑器和 GPU driver 页面）；连接 USB 或蓝牙手柄后触摸手柄自动隐藏。设置在游戏内的设置页面修改，没有首次设置页面。
 
-应用把设置放在私有存储的 `files/config/`，存档、档案、着色器包和缓存放在 `files/` 下，日志在 `files/state/logs/`，下载的 GPU 驱动包在 `files/gpu_driver/`。私有存储文件管理器看不到；卸载应用会连同 `Android/data` 里的游戏数据一起删除。更新时直接覆盖安装新 APK，存档和设置会保留。
+应用把设置放在私有存储的 `files/config/`，存档、档案、着色器包和缓存放在 `files/` 下，下载的 GPU 驱动包在 `files/gpu_driver/`。私有存储文件管理器看不到；卸载应用会连同 `Android/data` 里的游戏数据一起删除。更新时直接覆盖安装新 APK，存档和设置会保留。
+
+<a id="android-logs"></a>
+日志写在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，电脑通过 USB 连接可以复制：`runtime-<timestamp>.log` 是本次和之前两次运行的日志，`native-stderr.log`（以及上一次运行的 `native-stderr.previous.log`）包含 native 输出和崩溃报告，应用本身出错时还会有 `java-crash-<time>.txt`。运行日志开头记录了手机型号、Android 版本、GPU、Vulkan 驱动和所选的 GPU 驱动包。游戏闪退或一直黑屏时，复制前先再打开一次应用，让电脑看到完整的文件，然后把这些文件附到报告里。Android 11 及以上设备上的文件管理器一般打不开 `Android/data`。使用 adb 时，`adb logcat -s LostOdyssey` 可以实时看到同样的内容。
 
 目前的验证：在维护者的平板上，开发构建能播放开场视频、进入首战，并在 Turnip 驱动下正常显示菜单。长时间游玩、Turnip 下的性能、其他 GPU、16 KB 页设备和实体手柄尚未测试。
 
@@ -171,7 +174,7 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 | AppImage；位于只读目录的 Linux 原生 ELF | 存档、档案、缓存和游戏数据：`~/.local/share/lost-odyssey-recomp/`。设置与游戏路径：`~/.config/lost-odyssey-recomp/`。日志：`~/.local/state/lost-odyssey-recomp/logs/`。 |
 | Flatpak | 主机目录为 `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`：存档、档案、缓存和游戏数据在 `data/`；设置与游戏路径在 `config/lost-odyssey-recomp/`；日志在 `.local/state/lost-odyssey-recomp/logs/`。 |
 | macOS `.app`（实验性） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
-| Android APK（实验性） | 游戏数据：`Android/data/io.github.freefrank.lostodyssey/files/game/`（手动复制）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，日志在 `state/logs/`，GPU 驱动包在 `gpu_driver/`。 |
+| Android APK（实验性） | 游戏数据：`Android/data/io.github.freefrank.lostodyssey/files/game/`（手动复制）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，GPU 驱动包在 `gpu_driver/`。日志在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。 |
 
 F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 列出了全部文件、目录和[命令行参数](../README.zh-CN.md#命令行参数)。
 
@@ -193,7 +196,7 @@ Linux 根据实际 ELF 所在目录是否可写来选择便携存储，否则使
 
 ## 报告启动或画面问题
 
-附上 `logs/runtime-<timestamp>.log` 的完整当前日志，并提供启动日志附近记录的 executable/source version、backend、GPU 和 driver 信息。设置 `LO_LOG_FILE=<path>` 可指定日志路径；设置 `LO_LOG_FILE=0` 可关闭重复文件输出。
+附上 `logs/runtime-<timestamp>.log` 的完整当前日志，并提供启动日志附近记录的 executable/source version、backend、GPU 和 driver 信息。设置 `LO_LOG_FILE=<path>` 可指定日志路径；设置 `LO_LOG_FILE=0` 可关闭重复文件输出。Android 的日志在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，见 [Android 日志](#android-logs)。
 
 遇到画面问题时，打开 **F1 → 常规 → 捕获渲染状态**，确认后**关闭 F1** 恢复渲染。程序捕获接下来的三个帧并在后台归档。重新打开菜单查看结果，附上所示路径的归档文件。Windows 为 `.zip`，Linux 和 macOS 为 `.tar.gz`；归档失败时会保留原始目录。归档包含截图和渲染／着色器数据，分享前请检查内容。
 

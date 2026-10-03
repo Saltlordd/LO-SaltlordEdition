@@ -4,6 +4,18 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- Android: logs are now written to `Android/data/io.github.freefrank.lostodyssey/files/logs/`, which a PC can copy over USB, and also go to logcat.
+- Android: native crashes and uncaught Java exceptions are written to that folder, and the log records the phone model, GPU and Vulkan driver.
+
+### 简体中文
+
+- Android：日志改为写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，电脑可通过 USB 复制，同时输出到 logcat。
+- Android：native 崩溃和未捕获的 Java 异常会写到该目录，日志中记录手机型号、GPU 和 Vulkan 驱动。
+
 ## [v0.8.6](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) — 2026-10-03
 
 ### English

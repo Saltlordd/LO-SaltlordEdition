@@ -16,7 +16,10 @@ public final class RuntimeActivity extends SDLActivity {
 
     private TouchControlsView touchControls;
     private final Handler bootHandler = new Handler(Looper.getMainLooper());
-    private final Runnable bootSettled = () -> GpuDriverStore.clearBootPending(this);
+    private final Runnable bootSettled = () -> {
+        GpuDriverStore.clearBootPending(this);
+        PlayerLogs.publish(this);
+    };
 
     static native void nativeSetTouchInput(int buttons, int leftTrigger, int rightTrigger,
                                            int leftX, int leftY, int rightX, int rightY);
@@ -24,6 +27,7 @@ public final class RuntimeActivity extends SDLActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        PlayerLogs.installCrashHandler(this);
         super.onCreate(savedInstanceState);
         GpuDriverStore.markBootPending(this);
         if (mLayout != null && !mBrokenLibraries) {
@@ -45,6 +49,8 @@ public final class RuntimeActivity extends SDLActivity {
     @Override
     protected void onPause() {
         if (touchControls != null) touchControls.onHostPause();
+        // Leaving the game is when a player connects USB to fetch the log.
+        PlayerLogs.publish(this);
         super.onPause();
     }
 
@@ -83,6 +89,9 @@ public final class RuntimeActivity extends SDLActivity {
         // Custom Vulkan driver (libadrenotools): the hook libraries sit in the
         // extracted native library directory, the chosen package in its own folder.
         nativeSetenv("LO_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir + "/");
+        // Logs go where a PC can copy them over USB; the device line names the phone.
+        nativeSetenv("LO_LOG_DIR", PlayerLogs.directory(this).getAbsolutePath());
+        nativeSetenv("LO_ANDROID_DEVICE", PlayerLogs.deviceDescription());
         GpuDriverStore.Installed driver = GpuDriverStore.selectedDriver(this);
         if (driver != null) {
             nativeSetenv("LO_CUSTOM_DRIVER_DIR", driver.directory.getAbsolutePath() + "/");

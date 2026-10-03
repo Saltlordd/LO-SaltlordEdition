@@ -296,6 +296,7 @@ and logs.
 | Setting | Effect |
 |---|---|
 | `LO_LOG_FILE=<path>` | Append logs to a selected file; `0` disables the duplicate file sink. Default: a separate timestamped file under `logs/`. |
+| `LO_LOG_DIR=<folder>` | Folder for the default timestamped logs instead of `logs/`; the Android app sets it to its external `files/logs/`. `LO_LOG_FILE` takes precedence. |
 | `LO_BACKGROUND=1` | Hidden rendering window; background audio is muted by default. |
 | `LO_HEADLESS=1` | No video device/window; not equivalent to hidden rendering. |
 | `LO_AUDIO_MUTE=1` | Mute device output. |

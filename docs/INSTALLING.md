@@ -136,7 +136,10 @@ The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag
 
 Touch controls appear over the game. **CTRL** opens the controller settings (size, opacity, layout editor, and the GPU driver page); a USB or Bluetooth controller hides the touch controls automatically. Settings are changed on the in-game Settings page; there is no first-launch page.
 
-The app keeps settings in its private storage under `files/config/`, saves, profiles, the shader pack and cache under `files/`, logs under `files/state/logs/` and downloaded GPU driver packages under `files/gpu_driver/`. Private storage is not visible to file managers; uninstalling the app deletes it together with the game data in `Android/data`. To update, install the new APK over the old one; saves and settings stay.
+The app keeps settings in its private storage under `files/config/`, saves, profiles, the shader pack and cache under `files/` and downloaded GPU driver packages under `files/gpu_driver/`. Private storage is not visible to file managers; uninstalling the app deletes it together with the game data in `Android/data`. To update, install the new APK over the old one; saves and settings stay.
+
+<a id="android-logs"></a>
+Logs are written to `Android/data/io.github.freefrank.lostodyssey/files/logs/`, where a PC connected over USB can copy them: `runtime-<timestamp>.log` for the current and two previous runs, `native-stderr.log` (and `native-stderr.previous.log` from the run before) with native output and crash reports, and `java-crash-<time>.txt` when the app itself fails. The phone model, Android version, GPU, Vulkan driver and the selected GPU driver package are recorded near the start of the runtime log. If the game crashes or stays black, open the app once more before copying, so the PC sees the complete files, and attach them to the report. On-device file managers on Android 11 and later usually cannot open `Android/data`. With adb, `adb logcat -s LostOdyssey` shows the same lines live.
 
 Validation so far: on the maintainer's tablet the development build plays the opening video, reaches the first battle and shows the menu correctly with the Turnip driver. Longer play, performance under Turnip, other GPUs, 16 KB-page devices and physical controllers have not been tested.
 
@@ -167,7 +170,7 @@ When you are offline, or no pack is published for your version, the game compile
 | AppImage; native Linux ELF in a read-only directory | Saves, profiles, cache and game data: `~/.local/share/lost-odyssey-recomp/`. Settings and game path: `~/.config/lost-odyssey-recomp/`. Logs: `~/.local/state/lost-odyssey-recomp/logs/`. |
 | Flatpak | Under `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`: saves, profiles, cache and game files use `data/`; settings and game path use `config/lost-odyssey-recomp/`; logs use `.local/state/lost-odyssey-recomp/logs/`. |
 | macOS `.app` (experimental) | Saves, profiles, cache, game data, settings and game path: `~/Library/Application Support/LostOdysseyRecomp/`. Logs: `~/Library/Logs/LostOdysseyRecomp/logs/`. |
-| Android APK (experimental) | Game data: `Android/data/io.github.freefrank.lostodyssey/files/game/` (copied by hand). App-private storage `files/`: settings in `config/`, saves, profiles, shader pack and cache beside them, logs in `state/logs/`, GPU driver packages in `gpu_driver/`. |
+| Android APK (experimental) | Game data: `Android/data/io.github.freefrank.lostodyssey/files/game/` (copied by hand). App-private storage `files/`: settings in `config/`, saves, profiles, shader pack and cache beside them, GPU driver packages in `gpu_driver/`. Logs: `Android/data/io.github.freefrank.lostodyssey/files/logs/`. |
 
 F1 render captures go to `captures/` and mods to `mods/`. In a portable layout both sit beside the executable. Otherwise captures use the settings folder and mods the data folder. The [README](../README.md#files-and-folders) lists every file and folder and the [command-line options](../README.md#command-line-options).
 
@@ -189,7 +192,7 @@ For a manual update, close the game before replacing program files. Keep a copy 
 
 ## Reporting a startup or rendering failure
 
-Attach the complete current runtime log from `logs/runtime-<timestamp>.log` and include the executable or source version, backend, GPU and driver details shown near startup. Set `LO_LOG_FILE=<path>` to choose another log path, or `LO_LOG_FILE=0` to disable the duplicate file sink.
+Attach the complete current runtime log from `logs/runtime-<timestamp>.log` and include the executable or source version, backend, GPU and driver details shown near startup. Set `LO_LOG_FILE=<path>` to choose another log path, or `LO_LOG_FILE=0` to disable the duplicate file sink. On Android the logs are in `Android/data/io.github.freefrank.lostodyssey/files/logs/`; see [Android logs](#android-logs).
 
 For a visible rendering issue, open **F1 → Overview → Capture Render State**, confirm, then **close F1** so rendering resumes. The next three frames are captured and archived in the background. Reopen the menu to read the result, then attach the archive at the displayed path. Windows produces a `.zip`; Linux and macOS produce a `.tar.gz`. If archiving fails, the raw capture directory remains. Capture archives include screenshots and rendering/shader data; review their contents before sharing.
 

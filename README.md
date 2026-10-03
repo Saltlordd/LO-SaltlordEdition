@@ -51,6 +51,8 @@ An experimental arm64 APK, `LostOdysseyRecomp-android-arm64-v0.8.6.apk`, is part
 
 **Installing.** Install the APK, then put your game data where the app looks for it: there is no importer on Android, so use the desktop importer (any package) to produce `game/disc1`–`disc4` (and `game/dlc/…`), connect the device to a PC over USB in file-transfer mode and copy that `game` folder into `Android/data/io.github.freefrank.lostodyssey/files/` (the folder exists after the app has been opened once; the four discs take about 20 GB). Disc 1 is required. On the first start a Qualcomm device shows the **GPU driver** page (see below); then the game offers the Vulkan shader pack download, which you accept with the on-screen **A** button. Settings are changed on the in-game Settings page. The [installation guide](docs/INSTALLING.md#android) has the steps and the [file locations](#files-and-folders) the Android rows.
 
+**Logs.** The app writes its logs to `Android/data/io.github.freefrank.lostodyssey/files/logs/`. To report a crash or a black screen, open the app once more, connect the device to a PC over USB in file-transfer mode and attach the newest `runtime-*.log`, `native-stderr.log` and any `java-crash-*.txt` from that folder; see [Android logs](docs/INSTALLING.md#android-logs).
+
 The Android runtime now loads the development resources, plays the opening video and reaches the first battle on the test tablet. Touch input passed title/menu navigation and two opening-battle attacks with visible damage; one initial-battle shader preparation observed a pause of about 40 seconds. Longer play, audio beyond native queue evidence, other GPUs, 16 KB devices and physical-controller validation remain pending. See the [Android port research note](docs/notes/android-port-research-2026-10-02.md) and [Android DXC build note](docs/notes/android-dxc-build-2026-10-02.md).
 
 The runtime keeps SDL physical-controller support and adds an Android on-screen touch controller. Its source implementation now supports the `Controller settings` size/opacity controls and an `Edit layout` screen for dragging, saving, resetting and showing or hiding individual controls; the layout model checks and device UI flow are verified on the development tablet. This source path has not yet been accepted through a complete game session. The generated PPC code also remains available as a separate Android ARM64/PIC static-library target.
@@ -156,11 +158,11 @@ The Windows ZIP is **portable**: everything stays in the folder you extracted it
 | Linux AppImage | `~/.config/lost-odyssey-recomp/` | `~/.local/share/lost-odyssey-recomp/` | `~/.local/state/lost-odyssey-recomp/` |
 | Linux Flatpak | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/config/lost-odyssey-recomp/` | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/data/` (`/var/data` inside the sandbox) | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/.local/state/lost-odyssey-recomp/` |
 | macOS `.app` (experimental) | `~/Library/Application Support/LostOdysseyRecomp/` | same | `~/Library/Logs/LostOdysseyRecomp/` |
-| Android APK (experimental) | app-private storage, `files/config/` | app-private storage, `files/` | app-private storage, `files/state/` |
+| Android APK (experimental) | app-private storage, `files/config/` | app-private storage, `files/` | app-private storage, `files/state/`; logs in `Android/data/io.github.freefrank.lostodyssey/files/logs/` |
 
 On Linux, set `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` to move the AppImage folders.
 
-On Android, app-private storage is `/data/data/io.github.freefrank.lostodyssey/files/`, which file managers cannot show. Game data is the exception: the app reads it from its external files folder, `Android/data/io.github.freefrank.lostodyssey/files/game/`, which a PC connected over USB can write to.
+On Android, app-private storage is `/data/data/io.github.freefrank.lostodyssey/files/`, which file managers cannot show. Game data and logs are the exceptions: they live in the app's external files folder, where a PC connected over USB can reach them. The app reads game data from `Android/data/io.github.freefrank.lostodyssey/files/game/` and writes logs to `Android/data/io.github.freefrank.lostodyssey/files/logs/`.
 
 | Content | Location | Notes |
 | :--- | :--- | :--- |
@@ -170,7 +172,7 @@ On Android, app-private storage is `/data/data/io.github.freefrank.lostodyssey/f
 | Saves | data folder: `save/` | Keep when updating. |
 | Profiles | data folder: `profile/` | Keep when updating. `LO_PROFILE_DIR` overrides it. |
 | Shader and pipeline cache | data folder: `cache/shaders/` | Rebuilt if deleted. `LO_SHADER_CACHE_DIR` overrides it. |
-| Logs | log folder: `logs/runtime-*.log` and `logs/shader-*.jsonl` | The current run and the two previous runs are kept. |
+| Logs | log folder: `logs/runtime-*.log` and `logs/shader-*.jsonl` | The current run and the two previous runs are kept. Android: `Android/data/io.github.freefrank.lostodyssey/files/logs/`, also with `native-stderr.log` and `java-crash-*.txt`. |
 | F1 render captures | config folder: `captures/` | `.zip` on Windows, `.tar.gz` on Linux and macOS. |
 | Mods | `mods/`: beside the program when portable, otherwise in the data folder | `LO_MODS_DIR` overrides it. |
 | Shader packs | install folder: `shaders/` beside the program when portable, otherwise `shaders/` in the data folder | The game downloads the pack for the selected renderer here (`portable_vk.lospv` for Vulkan, Metal and Android, or `portable_dx12.lospd`); skipping the offer is remembered in `declined-downloads.txt` in the same folder. v0.7.25 and earlier bundled `shaders/portable_vk.lospv` beside the program. |
