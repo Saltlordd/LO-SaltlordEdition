@@ -48,6 +48,14 @@ On the maintainer's decisions the same night, P3's remainder moved to the backlo
 | `temporal-phased-p3-fg-infrastructure` | In Progress / In progress / v0.8.0 | Paused / Deferred / none; body and Evidence | The foundation (PR #72) is merged and used by the shipped frame generation. Its synchronization hazard is inside Streamline and stays under `streamline-vulkan-present-after-write`; resize, mode-switch and exit validation moved to P4. |
 | `temporal-phased-p4-dlss-fg-2x` | In Progress / In progress / v0.8.0 | Done / Validated / v0.8.0; body and Evidence | Maintainer acceptance of all P4 validation on 2026-10-03, including the lifecycle validation moved from P3. All criteria are checked on that acceptance; no new run is attached. |
 
+## Platform decisions
+
+Maintainer decisions on 2026-10-03, recorded in the `Evidence` field only (3 operations through `sync.py --apply`, read back with 0 mismatches):
+
+- `native-macos-platform`: macOS packages stay ad-hoc signed; Developer ID signing and notarization will not be done. [MACOS_RELEASE](../MACOS_RELEASE.md#signed-release-workflow) keeps the helper for reference.
+- `linux-aarch64-platform`: ships as is, without an ARM64 hardware validation gate.
+- `experimental-android-platform`: the maintainer will add Android CI later.
+
 ## Evidence boundaries
 
 Read on 2026-10-03: the commits on `fix/native-frontend-rework` (local and git.zkx.ca; the branch is not on GitHub), the PR #84 and PR #89 states and the PR #89 closing comment, the PR #83 state, the PR #98 merge, and the Issue states and closure times above. The 70% native draw share, the per-swap count and the 4K120 ABBA numbers are quoted from the PR #89 closing comment and were not measured again. No build, game run or test was run for this pass.

@@ -2298,7 +2298,7 @@
         "Delivery": "Released",
         "Source key": "native-macos-platform",
         "Release": "v0.7.35",
-        "Evidence": "First macOS package shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted), ahead of the v0.8.0 plan: LostOdysseyRecomp-macos-arm64-v0.7.35.dmg (60,429,795 bytes, SHA-256 4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94), experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand. The arm64/Metal source-build path was in v0.7.25. Validated only on one M1 Max (macOS 26.6.2): the opening new-game battle with Metal and the downloaded Metal shader pack. The app declares macOS 14.0 but has only run on 26.6.2. Long play, broader scenes, other Macs, performance, notarization and Metal HDR or MetalFX output on Mac hardware are open. Issue #96 closed as completed on 2026-10-01."
+        "Evidence": "First macOS package shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted), ahead of the v0.8.0 plan: LostOdysseyRecomp-macos-arm64-v0.7.35.dmg (60,429,795 bytes, SHA-256 4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94), experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand. The arm64/Metal source-build path was in v0.7.25. Validated only on one M1 Max (macOS 26.6.2): the opening new-game battle with Metal and the downloaded Metal shader pack. The app declares macOS 14.0 but has only run on 26.6.2. Long play, broader scenes, other Macs, performance and Metal HDR or MetalFX output on Mac hardware are open. On 2026-10-03 the maintainer decided that macOS packages stay ad-hoc signed: Developer ID signing and notarization will not be done. Issue #96 closed as completed on 2026-10-01."
       },
       "title": "Establish a native macOS (AArch64 / Apple Silicon) port",
       "body_sha256": "5e4f82cfc85649a96cbe3dcc319124d18b2f51ce8af37bec4eae1651fc84bd7a"
@@ -2968,7 +2968,7 @@
         "Status": "In Progress",
         "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware.",
+        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate.",
         "Source key": "linux-aarch64-platform"
       },
       "title": "Establish native Linux AArch64 platform support",
@@ -2982,7 +2982,7 @@
         "Status": "In Progress",
         "Delivery": "In progress",
         "Release": "v0.8.0",
-        "Evidence": "PR #150 (2026-10-02) merged an experimental Android ARM64 SDL/Vulkan runtime, touch and physical controllers and a development APK build; PR #152 added the shared SPIR-V pack download. On an Adreno 750 tablet (4 KB pages) it plays the opening video, reaches the first battle and completes two touch attacks. No APK is published; longer play, 16 KB devices, other GPUs and physical controllers are unverified.",
+        "Evidence": "PR #150 (2026-10-02) merged an experimental Android ARM64 SDL/Vulkan runtime, touch and physical controllers and a development APK build; PR #152 added the shared SPIR-V pack download. On an Adreno 750 tablet (4 KB pages) it plays the opening video, reaches the first battle and completes two touch attacks. No APK is published; longer play, 16 KB devices, other GPUs and physical controllers are unverified. The maintainer will add Android CI later (2026-10-03).",
         "Source key": "experimental-android-platform"
       },
       "title": "Experimental Android platform support",

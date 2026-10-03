@@ -93,9 +93,9 @@ sharing them.
 
 ## Signed release workflow
 
-This is the Developer ID workflow. v0.7.35 does not use it, because no Developer
-ID certificate is available. It remains for a later release that is signed and
-notarized.
+This is the Developer ID workflow. No release uses it: on 2026-10-03 the
+maintainer decided that macOS packages stay ad-hoc signed and will not be
+Developer ID signed or notarized. The helper is kept for reference.
 
 The release helper performs a clean-tree check, configures and builds the
 runtime, signs the app, and notarizes it using the default `lo-notary` profile
@@ -122,8 +122,8 @@ helper. The repository bundle identifier is
 `io.github.freefrank.LostOdysseyRecomp`.
 
 The helper calls `tools/package_macos.py` without `--dmg`, so it still writes a
-ZIP and prints a `.zip` path, while the updater only selects a `.dmg`. Before the
-next Developer ID release, add `--dmg` to that call and update the file name the
+ZIP and prints a `.zip` path, while the updater only selects a `.dmg`. Before any
+Developer ID release, add `--dmg` to that call and update the file name the
 helper prints. With `--identity` and `--notarize`, the script notarizes and
 staples the app first and then signs the image; that combination has not been
 run.
