@@ -3587,7 +3587,22 @@ namespace gpu::video
                 if (g_hdrSceneEnabled) {
                     uint32_t hdrWidth = 0, hdrHeight = 0;
                     auto* hdrSource = renderer::AcquireHdrResolvedSurface(physicalAddress & 0x1FFFFFFF, hdrWidth, hdrHeight);
-                    if (hdrSource && hdrWidth >= sourceWidth && hdrHeight >= sourceHeight) {
+                    // MetalFX spatial scaling below outputs RGBA8; keep the SDR
+                    // frame as its input and apply the scene as a gain afterwards.
+                    bool metalFxUpscale = false;
+#if LO_PLATFORM_MACOS
+                    if (g_presentation && g_swapChain && settings::GetConfig().scalingQuality == settings::ScalingMetalFx &&
+                        sourceWidth && sourceHeight) {
+                        const double scale = std::min(double(g_swapChain->getWidth()) / sourceWidth, double(g_swapChain->getHeight()) / sourceHeight);
+                        metalFxUpscale = std::min(g_swapChain->getWidth(), uint32_t(std::lround(sourceWidth * scale))) > sourceWidth ||
+                            std::min(g_swapChain->getHeight(), uint32_t(std::lround(sourceHeight * scale))) > sourceHeight;
+                    }
+#endif
+                    if (hdrSource && metalFxUpscale && hdrWidth >= sourceWidth && hdrHeight >= sourceHeight) {
+                        hdrGainSource = hdrSource;
+                        hdrGainWidth = hdrWidth; hdrGainHeight = hdrHeight;
+                        hdrGainValidWidth = sourceWidth; hdrGainValidHeight = sourceHeight;
+                    } else if (hdrSource && hdrWidth >= sourceWidth && hdrHeight >= sourceHeight) {
                         source = hdrSource;
                         hdrScene = true;
                         static uint32_t admitted = 0;
