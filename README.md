@@ -111,11 +111,13 @@ Press **F1**, or **LB+RB** on a controller (**L1+R1** on PlayStation layouts), t
 
 ### Overview: captures and game actions
 
-**Overview** shows the current map name and ID. It also contains the menu language, **Capture render state**, **Save Anywhere**, and actions to request a win for the current battle or cancel a pending win request.
+**Overview** shows the current map name and ID. It also contains the menu language, **Capture render state**, **Save Anywhere**, **No Random Encounters**, and actions to request a win for the current battle or cancel a pending win request.
 
 To record a rendering problem, select **Capture render state**, confirm, then **close the menu so rendering can continue**. The capture collects three frames and creates an archive in `captures/` in the background. The status message gives its absolute path: `.zip` on Windows or `.tar.gz` on Linux. If archiving fails, the original capture directory remains available. Captures include screenshots, rendering data, shaders and logs; review the contents before sharing.
 
 **Save Anywhere** enables the original game's **System → Save** action. Close the Debug Menu and reopen the game's System menu to use it. It does not create a separate quicksave.
+
+**No Random Encounters** stops random battles while you walk around the field. Story and other scripted battles still happen.
 
 > [!WARNING]
 > **Save Anywhere has a known party-state limitation.** Loading a save made after the party splits can lose RB character switching ([#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)). Keep a separate normal save. Since v0.7.25, Save Anywhere stays off while the party is split, and the F1 menu's **Force RB Party Switch** button turns switching back on after loading an older save of this kind.
@@ -141,7 +143,7 @@ Fast-forward works independently of memory editing and currently requires a cont
 
 Memory editing is off by default. To change game data, first back up your save and enter a controllable scene outside battle. Enable **Allow memory edits**, choose an action, then confirm **Yes**. When the status shows a pending change, close F1 to let the action run. Reopen the menu to check the result. A scene change cancels a pending edit.
 
-The menu language and Save Anywhere option are written to `settings.ini`. Fast-forward settings and memory-edit permission reset when the program restarts. Changes to game values can become part of a normal game save.
+The menu language, Save Anywhere and No Random Encounters options are written to `settings.ini`. Fast-forward settings and memory-edit permission reset when the program restarts. Changes to game values can become part of a normal game save.
 
 ## Files and folders
 
