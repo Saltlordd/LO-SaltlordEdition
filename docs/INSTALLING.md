@@ -2,13 +2,13 @@
 
 [简体中文](INSTALLING.zh-CN.md)
 
-This guide covers the published v0.8.5 packages (including the experimental Android APK) and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
+This guide covers the published v0.8.6 packages (including the experimental Android APK) and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
 
 ## Windows quick start
 
 Windows x64 and an AVX-capable CPU are required. Direct3D 12 is the default graphics backend. The release package already contains the importer, updater, DXC v1.8.2407 DLL pair and dependency licenses; Python and Visual Studio are not required to play.
 
-1. Download `LostOdysseyRecomp-windows-x64-v0.8.5.zip` from the [v0.8.5 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5).
+1. Download `LostOdysseyRecomp-windows-x64-v0.8.6.zip` from the [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6).
 2. Extract the complete ZIP to a writable folder outside `Program Files`.
 3. Run `LostOdysseyRecomp.exe`. If no usable game installation is found, the built-in importer opens.
 4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation. It may first offer to download precompiled shaders for the selected renderer; see [Shader preparation](#shader-preparation).
@@ -56,21 +56,21 @@ Game data normally goes under `game/disc1` through `game/disc4`, with DLC under 
 
 ## Linux packages
 
-Linux runs through Vulkan. The [v0.8.5 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated. No Linux AArch64 package is published; an experimental source and cross-build path is described in [LINUX_ARM64.md](LINUX_ARM64.md).
+Linux runs through Vulkan. The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated. No Linux AArch64 package is published; an experimental source and cross-build path is described in [LINUX_ARM64.md](LINUX_ARM64.md).
 
 ### AppImage
 
-Download `LostOdysseyRecomp-linux-x64-v0.8.5.AppImage`, then run:
+Download `LostOdysseyRecomp-linux-x64-v0.8.6.AppImage`, then run:
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.8.5.AppImage
-./LostOdysseyRecomp-linux-x64-v0.8.5.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
 ```
 
 You can import game data from the graphical importer. For a direct launch, pass the game directory, `disc1`, or `default.xex`:
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.8.5.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage --game /path/to/game
 ```
 
 A normally mounted AppImage stores saves and settings in your Linux user directories; see [file locations](#file-locations). `--game` chooses the game data and does not switch to portable storage. Putting `game-path.txt` beside the outer `.AppImage` file does not configure this mode.
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 Then install and run the downloaded bundle:
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.5.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.6.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -107,7 +107,7 @@ Keep the ELF directory as the working directory when you want portable `save/`, 
 
 ## macOS (Apple Silicon, experimental)
 
-The [v0.8.5 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5) provides `LostOdysseyRecomp-macos-arm64-v0.8.5.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.8.0 and v0.8.5 apps declare macOS 15.0 as their minimum. The v0.7.35 app still declared macOS 14.0, but the bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, and it stays that way: the maintainer decided on 2026-10-03 not to do Developer ID signing or notarization. macOS therefore blocks the first launch.
+The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) provides `LostOdysseyRecomp-macos-arm64-v0.8.6.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.8.0 and v0.8.6 apps declare macOS 15.0 as their minimum. The v0.7.35 app still declared macOS 14.0, but the bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, and it stays that way: the maintainer decided on 2026-10-03 not to do Developer ID signing or notarization. macOS therefore blocks the first launch.
 
 1. Download the disk image and open it.
 2. Drag `LostOdysseyRecomp.app` onto the Applications link in the window, then eject the disk image.
@@ -126,7 +126,7 @@ Validation is limited to one Mac. On the maintainer's M1 Max (macOS 26.6.2) the 
 
 ## Android (experimental)
 
-The [v0.8.5 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5) carries `LostOdysseyRecomp-android-arm64-v0.8.5.apk`, built with the other packages. It needs a 64-bit (arm64) Android 8.0 or newer device with Vulkan and about 20 GB of free storage for the four discs, and renders with Vulkan. The app is labelled "Lost Odyssey (development)" and is signed with the project's debug key, which every release keeps (the maintainer decided not to use a release keystore), so updates install over each other; Android refuses to install it over an APK with another signature, such as your own build, so uninstall that one first. Validation is one tablet (Lenovo TB321FU, Adreno 750); see the limits at the end.
+The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) carries `LostOdysseyRecomp-android-arm64-v0.8.6.apk`, built with the other packages. It needs a 64-bit (arm64) Android 8.0 or newer device with Vulkan and about 20 GB of free storage for the four discs, and renders with Vulkan. The app is labelled "Lost Odyssey (development)" and is signed with the project's debug key, which every release keeps (the maintainer decided not to use a release keystore), so updates install over each other; Android refuses to install it over an APK with another signature, such as your own build, so uninstall that one first. Validation is one tablet (Lenovo TB321FU, Adreno 750); see the limits at the end.
 
 1. Download the APK on the device, open it and allow installs from your browser or file manager when Android asks. Open the app once so it creates its folders, then close it.
 2. Prepare the game data on a PC. There is no importer on Android: use the desktop importer (any package) to produce `game/disc1`–`disc4` and, if you have it, `game/dlc/<content-id>` as described in [Importing game data](#automatic-content-import).
