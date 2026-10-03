@@ -50,6 +50,8 @@ public final class GameFolderActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // A cancelled import reopens this page as the first one of a new process.
+        PlayerLogs.installCrashHandler(this);
         super.onCreate(savedInstanceState);
         fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
         // A finished import into another folder becomes the custom folder.

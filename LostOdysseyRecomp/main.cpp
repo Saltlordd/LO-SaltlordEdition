@@ -204,8 +204,17 @@ int main(int argc, char* argv[])
     // Relative caches and diagnostics must never be written into app_process's
     // working directory, including explicit --game launches.
     std::filesystem::current_path(executableDirectory);
-    std::freopen((executableDirectory / "native-stderr.log").c_str(), "a", stderr);
-    std::setvbuf(stderr, nullptr, _IONBF, 0);
+    {
+        // The app points LO_LOG_DIR at Android/data/<package>/files/logs, which
+        // players can copy over USB. Keep the previous run's stderr beside it.
+        const char* logDir = getenv("LO_LOG_DIR");
+        const auto stderrDir = logDir && *logDir ? std::filesystem::u8path(logDir) : executableDirectory;
+        std::error_code ec;
+        std::filesystem::create_directories(stderrDir, ec);
+        std::filesystem::rename(stderrDir / "native-stderr.log", stderrDir / "native-stderr.previous.log", ec);
+        std::freopen((stderrDir / "native-stderr.log").c_str(), "w", stderr);
+        std::setvbuf(stderr, nullptr, _IONBF, 0);
+    }
 #endif
     os::user_paths::Initialize(executableDirectory);
     const auto modsRoot = os::user_paths::UsePortableLayout()
@@ -231,8 +240,11 @@ int main(int argc, char* argv[])
     {
         const auto ticks = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
+        // LO_LOG_DIR moves the default logs folder (the Android app sets it).
+        const char* logDir = getenv("LO_LOG_DIR");
         const std::filesystem::path logPath = logOverride
             ? std::filesystem::u8path(logOverride)
+            : logDir && *logDir ? std::filesystem::u8path(logDir) / fmt::format("runtime-{}.log", ticks)
             : (os::user_paths::UsePortableLayout() ? std::filesystem::path(fmt::format("logs/runtime-{}.log", ticks)) : os::user_paths::StateDir() / "logs" / fmt::format("runtime-{}.log", ticks));
         std::error_code ec;
         if (logPath.has_parent_path())

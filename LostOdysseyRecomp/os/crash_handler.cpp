@@ -11,13 +11,24 @@
 #include <dbghelp.h>
 #include <psapi.h>
 #pragma comment(lib, "dbghelp.lib")
+#elif defined(__ANDROID__)
+#include <atomic>
+#include <exception>
+#include <typeinfo>
+#include <cxxabi.h>
+#include <algorithm>
+#include <cerrno>
+#include <cstring>
+#include <fcntl.h>
+#include <signal.h>
+#include <ucontext.h>
+#include <unistd.h>
+#include <unwind.h>
+#endif
 
+#if defined(_WIN32) || defined(__ANDROID__)
 namespace
 {
-    // Cached before game threads start. No CRT environment access during a crash.
-    char g_dumpList[1024]{};
-    volatile LONG g_crashActive = 0;
-
     struct CrashText
     {
         char data[2048];
@@ -50,36 +61,17 @@ namespace
         }
     };
 
-    const char* ExceptionName(DWORD code) noexcept
-    {
-        switch (code)
-        {
-        case EXCEPTION_ACCESS_VIOLATION: return "ACCESS_VIOLATION";
-        case EXCEPTION_IN_PAGE_ERROR: return "IN_PAGE_ERROR";
-        case EXCEPTION_ILLEGAL_INSTRUCTION: return "ILLEGAL_INSTRUCTION";
-        case EXCEPTION_INT_DIVIDE_BY_ZERO: return "INT_DIVIDE_BY_ZERO";
-        case EXCEPTION_STACK_OVERFLOW: return "STACK_OVERFLOW";
-        case EXCEPTION_BREAKPOINT: return "BREAKPOINT";
-        case EXCEPTION_PRIV_INSTRUCTION: return "PRIV_INSTRUCTION";
-        case 0xE06D7363u: return "CPP_EXCEPTION";
-        default: return "EXCEPTION";
-        }
-    }
-
-    void EnterCrash() noexcept
-    {
-        if (InterlockedCompareExchange(&g_crashActive, 1, 0) != 0)
-        {
-            constexpr char message[] = "\n[crash] secondary failure while reporting; terminating\n";
-            os::logger::EmergencyWrite(message, sizeof(message) - 1);
-            TerminateProcess(GetCurrentProcess(), EXCEPTION_NONCONTINUABLE_EXCEPTION);
-        }
-    }
-
     bool ReadLocal(const void* address, void* result, size_t size) noexcept
     {
+#ifdef _WIN32
         SIZE_T read = 0;
         return address && ReadProcessMemory(GetCurrentProcess(), address, result, size, &read) && read == size;
+#else
+        // The only caller reads this thread's live PPCContext.
+        if (!address) return false;
+        memcpy(result, address, size);
+        return true;
+#endif
     }
 
     struct GuestRegisters
@@ -104,6 +96,61 @@ namespace
         result.ctr = copy.ctr.u64;
         result.valid = true;
         return result;
+    }
+
+    void WriteGuestRegisters(const GuestRegisters& guest) noexcept
+    {
+        CrashText text;
+        if (!guest.valid)
+            text.Text("[crash] guest context unavailable on this thread\n");
+        else
+        {
+            for (unsigned i = 0; i < 32; i += 8)
+            {
+                text.Text("[crash] r").Decimal(i).Text("-").Decimal(i + 7).Text(":");
+                for (unsigned j = 0; j < 8; ++j) text.Text(" ").Hex(guest.r[i + j]);
+                text.Text("\n");
+            }
+            text.Text("[crash] guest r1=").Hex(guest.r[1]).Text(" r3=").Hex(guest.r[3])
+                .Text(" r4=").Hex(guest.r[4]).Text(" r5=").Hex(guest.r[5]).Text(" r13=").Hex(guest.r[13])
+                .Text(" lr=").Hex(guest.lr, 16).Text(" ctr=").Hex(guest.ctr, 16).Text("\n");
+        }
+        text.Text("[crash] essential report complete\n").Write();
+    }
+}
+#endif
+
+#ifdef _WIN32
+namespace
+{
+    // Cached before game threads start. No CRT environment access during a crash.
+    char g_dumpList[1024]{};
+    volatile LONG g_crashActive = 0;
+
+    const char* ExceptionName(DWORD code) noexcept
+    {
+        switch (code)
+        {
+        case EXCEPTION_ACCESS_VIOLATION: return "ACCESS_VIOLATION";
+        case EXCEPTION_IN_PAGE_ERROR: return "IN_PAGE_ERROR";
+        case EXCEPTION_ILLEGAL_INSTRUCTION: return "ILLEGAL_INSTRUCTION";
+        case EXCEPTION_INT_DIVIDE_BY_ZERO: return "INT_DIVIDE_BY_ZERO";
+        case EXCEPTION_STACK_OVERFLOW: return "STACK_OVERFLOW";
+        case EXCEPTION_BREAKPOINT: return "BREAKPOINT";
+        case EXCEPTION_PRIV_INSTRUCTION: return "PRIV_INSTRUCTION";
+        case 0xE06D7363u: return "CPP_EXCEPTION";
+        default: return "EXCEPTION";
+        }
+    }
+
+    void EnterCrash() noexcept
+    {
+        if (InterlockedCompareExchange(&g_crashActive, 1, 0) != 0)
+        {
+            constexpr char message[] = "\n[crash] secondary failure while reporting; terminating\n";
+            os::logger::EmergencyWrite(message, sizeof(message) - 1);
+            TerminateProcess(GetCurrentProcess(), EXCEPTION_NONCONTINUABLE_EXCEPTION);
+        }
     }
 
     // Write the fault identity before guest reads, module-loader or symbol work.
@@ -151,26 +198,6 @@ namespace
         else
             text.Text("[crash] module=unavailable\n");
         text.Write();
-    }
-
-    void WriteGuestRegisters(const GuestRegisters& guest) noexcept
-    {
-        CrashText text;
-        if (!guest.valid)
-            text.Text("[crash] guest context unavailable on this thread\n");
-        else
-        {
-            for (unsigned i = 0; i < 32; i += 8)
-            {
-                text.Text("[crash] r").Decimal(i).Text("-").Decimal(i + 7).Text(":");
-                for (unsigned j = 0; j < 8; ++j) text.Text(" ").Hex(guest.r[i + j]);
-                text.Text("\n");
-            }
-            text.Text("[crash] guest r1=").Hex(guest.r[1]).Text(" r3=").Hex(guest.r[3])
-                .Text(" r4=").Hex(guest.r[4]).Text(" r5=").Hex(guest.r[5]).Text(" r13=").Hex(guest.r[13])
-                .Text(" lr=").Hex(guest.lr, 16).Text(" ctr=").Hex(guest.ctr, 16).Text("\n");
-        }
-        text.Text("[crash] essential report complete\n").Write();
     }
 
     bool ParseNumber(const char*& p, const char* end, unsigned base, uint32_t& value) noexcept
@@ -368,6 +395,229 @@ void InstallCrashHandler()
     SetUnhandledExceptionFilter(CrashFilter);
     std::set_terminate(TerminateHandler);
     std::signal(SIGABRT, AbortHandler);
+}
+#elif defined(__ANDROID__)
+namespace
+{
+    constexpr int kSignals[] = {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT, SIGTRAP};
+    struct sigaction g_previous[std::size(kSignals)]{};
+    std::atomic<bool> g_crashActive{false};
+    std::terminate_handler g_previousTerminate = nullptr;
+
+    const char* SignalName(int signal) noexcept
+    {
+        switch (signal)
+        {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGBUS: return "SIGBUS";
+        case SIGILL: return "SIGILL";
+        case SIGFPE: return "SIGFPE";
+        case SIGABRT: return "SIGABRT";
+        case SIGTRAP: return "SIGTRAP";
+        default: return "SIGNAL";
+        }
+    }
+
+    uintptr_t ParseHex(const char*& p, const char* end) noexcept
+    {
+        uintptr_t value = 0;
+        for (; p != end; ++p)
+        {
+            const char c = *p;
+            const unsigned digit = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : 16;
+            if (digit == 16) break;
+            value = value * 16 + digit;
+        }
+        return value;
+    }
+
+    void SkipField(const char*& p, const char* end) noexcept
+    {
+        while (p != end && *p == ' ') ++p;
+        while (p != end && *p != ' ') ++p;
+        while (p != end && *p == ' ') ++p;
+    }
+
+    // The file and load base of a code address, read from /proc/self/maps.
+    // dladdr and dl_iterate_phdr take the linker lock, which a crash inside
+    // dlopen (a custom GPU driver loading) may already hold.
+    struct Module
+    {
+        uintptr_t base = 0;
+        uintptr_t start = 0, stop = 0; // the mapping holding the address
+        char path[256]{};
+        bool found = false;
+    };
+
+    bool MatchMapsLine(const char* p, const char* end, uintptr_t address, Module& file, Module& result) noexcept
+    {
+        const uintptr_t start = ParseHex(p, end);
+        if (p == end || *p != '-') return false;
+        ++p;
+        const uintptr_t stop = ParseHex(p, end);
+        SkipField(p, end); // perms
+        const uintptr_t offset = ParseHex(p, end);
+        SkipField(p, end); // dev
+        SkipField(p, end); // inode
+        const size_t length = std::min<size_t>(size_t(end - p), sizeof(file.path) - 1);
+        // A file's mappings are consecutive; the one at offset 0 is its load base.
+        if (offset == 0)
+        {
+            file.base = start;
+            memcpy(file.path, p, length);
+            file.path[length] = 0;
+        }
+        if (address < start || address >= stop) return false;
+        result.found = true;
+        result.start = start;
+        result.stop = stop;
+        memcpy(result.path, p, length);
+        result.path[length] = 0;
+        result.base = length && strcmp(result.path, file.path) == 0 ? file.base : start - offset;
+        return true;
+    }
+
+    Module FindModule(uintptr_t address) noexcept
+    {
+        Module result, file;
+        const int fd = open("/proc/self/maps", O_RDONLY | O_CLOEXEC);
+        if (fd < 0) return result;
+        char buffer[4096];
+        size_t used = 0;
+        for (bool eof = false; !eof || used;)
+        {
+            if (!eof)
+            {
+                const ssize_t got = read(fd, buffer + used, sizeof(buffer) - used);
+                if (got < 0 && errno == EINTR) continue;
+                if (got <= 0) eof = true;
+                else used += size_t(got);
+            }
+            const char* newline = static_cast<const char*>(memchr(buffer, '\n', used));
+            size_t lineSize;
+            if (newline) lineSize = size_t(newline - buffer);
+            else if (eof || used == sizeof(buffer)) lineSize = used;
+            else continue;
+            if (MatchMapsLine(buffer, buffer + lineSize, address, file, result)) break;
+            const size_t consumed = newline ? lineSize + 1 : lineSize;
+            memmove(buffer, buffer + consumed, used - consumed);
+            used -= consumed;
+        }
+        close(fd);
+        return result;
+    }
+
+    // "libmain.so+0x1234" is what llvm-addr2line needs with the matching build.
+    void WriteAddress(CrashText& text, uintptr_t address) noexcept
+    {
+        text.Text("0x").Hex(address, 16);
+        const Module module = FindModule(address);
+        if (!module.found) return;
+        const char* name = module.path[0] ? module.path : "[anonymous]";
+        for (const char* p = module.path; *p; ++p)
+            if (*p == '/') name = p + 1;
+        text.Text(" ").Text(name).Text("+0x").Hex(address - module.base, 8);
+    }
+
+    void RestorePreviousHandlers() noexcept
+    {
+        for (size_t i = 0; i < std::size(kSignals); ++i)
+            sigaction(kSignals[i], &g_previous[i], nullptr);
+    }
+
+    void SignalHandler(int signal, siginfo_t* info, void* context) noexcept
+    {
+        const int savedErrno = errno;
+        if (!g_crashActive.exchange(true))
+        {
+            CrashText text;
+            const int code = info ? info->si_code : 0;
+            const auto fault = info ? reinterpret_cast<uintptr_t>(info->si_addr) : 0;
+            text.Text("\n[crash] ").Text(SignalName(signal)).Text(" signal=").Decimal(unsigned(signal))
+                .Text(" code=").Text(code < 0 ? "-" : "").Decimal(unsigned(code < 0 ? -code : code))
+                .Text(" thread=").Decimal(unsigned(gettid())).Text(" version=").Text(lo_version::Source).Text("\n");
+            if (signal != SIGABRT && signal != SIGTRAP)
+            {
+                text.Text("[crash] fault address=0x").Hex(fault, 16);
+                const auto base = reinterpret_cast<uintptr_t>(g_memory.base);
+                if (base && fault >= base && fault - base < PPC_MEMORY_SIZE)
+                    text.Text(" guest=0x").Hex(fault - base);
+                text.Text("\n");
+            }
+            text.Write();
+#if defined(__aarch64__)
+            const auto& machine = static_cast<const ucontext_t*>(context)->uc_mcontext;
+            text.Text("[crash] pc=");
+            WriteAddress(text, machine.pc);
+            text.Text("\n[crash] lr=");
+            WriteAddress(text, machine.regs[30]);
+            text.Text("\n[crash] sp=0x").Hex(machine.sp, 16).Text(" fp=0x").Hex(machine.regs[29], 16).Text("\n").Write();
+#else
+            (void)context;
+#endif
+            WriteGuestRegisters(ReadGuestRegisters());
+#if defined(__aarch64__)
+            // Frame-pointer walk: no unwinder, allocation or linker lock. Frames
+            // must stay inside the faulting thread's stack mapping: x29 in a
+            // vendor driver may not be a frame pointer, and a fault here (with
+            // SIGSEGV blocked) would kill the process before the tombstone.
+            text.Text("[crash] host backtrace (frame pointers)\n").Write();
+            const Module stack = FindModule(machine.sp);
+            uintptr_t frame = machine.regs[29];
+            for (unsigned depth = 0; depth < 48 && stack.found && frame % 16 == 0 &&
+                frame >= stack.start && frame <= stack.stop - 16; ++depth)
+            {
+                const auto* record = reinterpret_cast<const uintptr_t*>(frame);
+                const uintptr_t next = record[0], ret = record[1];
+                if (!ret) break;
+                text.Text("[crash]   #").Decimal(depth).Text(" ");
+                WriteAddress(text, ret);
+                text.Text("\n").Write();
+                if (next <= frame) break;
+                frame = next;
+            }
+#endif
+            text.Text("[crash] handing over to the system crash reporter\n").Write();
+        }
+        // Let debuggerd write its tombstone and logcat backtrace: a hardware
+        // fault re-executes into the previous handler; a sent signal is re-sent
+        // and stays pending until this handler returns.
+        RestorePreviousHandlers();
+        if (!info || info->si_code <= 0)
+            tgkill(getpid(), gettid(), signal);
+        errno = savedErrno;
+    }
+
+    void TerminateHandler() noexcept
+    {
+        CrashText text;
+        text.Text("\n[crash] std::terminate");
+        if (const auto* type = abi::__cxa_current_exception_type())
+            text.Text(" exception_type=").Text(type->name());
+        try
+        {
+            if (const auto exception = std::current_exception())
+                std::rethrow_exception(exception);
+        }
+        catch (const std::exception& e) { text.Text(" what=").Text(e.what()); }
+        catch (...) {}
+        text.Text("\n").Write();
+        if (g_previousTerminate) g_previousTerminate();
+        abort();
+    }
+}
+
+void InstallCrashHandler()
+{
+    // Bionic gives every thread an alternate signal stack, so a stack
+    // overflow on a guest thread still reaches the handler.
+    struct sigaction action{};
+    action.sa_sigaction = SignalHandler;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&action.sa_mask);
+    for (size_t i = 0; i < std::size(kSignals); ++i)
+        sigaction(kSignals[i], &action, &g_previous[i]);
+    g_previousTerminate = std::set_terminate(TerminateHandler);
 }
 #else
 void InstallCrashHandler() {}

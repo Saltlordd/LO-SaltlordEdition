@@ -36,6 +36,26 @@ python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8
   accepts the four packages built by CI (Windows ZIP, AppImage, Flatpak and the
   Android APK) and, at most, this one disk image beside them.
 
+### v0.8.6 image
+
+The v0.8.6 release was published at 2026-10-03T20:46:53Z ([release
+record](STATUS.md#v086-published--2026-10-03)). The image was built on the
+maintainer's M1 Max (macOS 26.6.2) from tag `v0.8.6` (`b639c39`) with
+`python3 tools/package_macos.py --version v0.8.6 --dmg` and uploaded to the
+draft release by hand before publication (GitHub dates the asset
+2026-10-03T20:27:48Z). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.6.dmg` at 60,437,598 bytes with SHA-256
+`71a1770662799539d22c5f41cbf95fa231c9bc848e01623f9e752bc4cba27853`, which equals
+the SHA-256 computed on the Mac. Checks on the built file:
+
+- `hdiutil verify` reports the image valid.
+- `codesign --verify --strict --deep` passes on the app. The signature is ad hoc
+  and the identifier is `io.github.freefrank.LostOdysseyRecomp`.
+- The bundle version (`CFBundleShortVersionString`) is `0.8.6`.
+
+Limits: no game run was made with this image, it was not installed from a
+download and the Gatekeeper approval flow was not exercised.
+
 ### v0.8.5 image
 
 The v0.8.5 release was published at 2026-10-03T18:45:17Z ([release
@@ -224,8 +244,8 @@ the Mac model, macOS version, source commit, game edition and tested scenes
 alongside any local result. Keep the existing Windows/Linux release records
 separate from this experimental path.
 
-For v0.8.0 and v0.8.5 no game run with their disk images is recorded here; the
-no acceptance of either release is recorded. The v0.7.35
+For v0.8.0, v0.8.5 and v0.8.6 no game run with their disk images is recorded
+here, and no acceptance of any of the three releases is recorded. The v0.7.35
 runs below are the existing record; a later source build also ran the opening
 battle with GTAO and 4× shadows on the same Mac ([changelog](../CHANGELOG.md)).
 

@@ -270,6 +270,28 @@ The catalog and package logic has JVM tests:
 ./gradlew :runtime:testDebugUnitTest
 ```
 
+## Logs
+
+`RuntimeActivity` sets `LO_LOG_DIR` to `getExternalFilesDir(null)/logs`, so the
+runtime log, `shader-*.jsonl` and `native-stderr.log` land in
+`Android/data/io.github.freefrank.lostodyssey/files/logs/`, which players can
+copy over USB without adb. `PlayerLogs` media-scans that folder when the
+launcher opens, 15 s after a start and when the game is paused, because MTP
+lists only scanned files at their scanned size. Uncaught Java exceptions are
+written to `java-crash-<ms>.txt` (newest five kept).
+
+Every log line also goes to logcat with the tag `LostOdyssey`. Fatal native signals append a `[crash]` report (signal, fault
+address, `pc`/`lr` as `libmain.so+0x…`, guest registers and a frame-pointer
+backtrace) and then pass the signal on, so the system tombstone is still
+written. Resolve the offsets with the matching unstripped `libmain.so`:
+
+```sh
+llvm-addr2line -Cfe libmain.so 0x1234
+```
+
+The startup lines `LO_ANDROID_DEVICE=…`, `vulkan gpu:` and `vulkan gpu driver:`
+name the phone, every Vulkan device and its driver before device creation.
+
 ## Continuous integration
 
 Two Gitea workflows build this APK through `tools/android/ci_build.sh` on

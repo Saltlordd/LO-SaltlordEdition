@@ -51,6 +51,8 @@ v0.8.6 包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性
 
 **安装。** 装好 APK 后，把游戏数据放到应用读取的位置：可以直接在设备上导入（当前源码，v0.8.6 之后：**Game folder** 页面有 **Import disc images…** 按钮，运行和桌面版相同的导入器，来源可以是内部存储或 SD 卡上的 `.iso` 镜像或已解出的光盘；需要“所有文件访问”权限，默认导入到自定义游戏文件夹，没有设置则导入到下面的应用目录，完成后直接启动游戏），也可以先用任一桌面版的导入器生成 `game/disc1`–`disc4`（以及 `game/dlc/…`），再用 USB 文件传输模式把这个 `game` 目录复制到 `Android/data/io.github.freefrank.lostodyssey/files/`（应用一打开就会在内部存储和每张 SD 卡上建好 `game/disc1`–`disc4` 和一个 `README.txt`；四张光盘约 20 GB）。必须有第 1 张光盘。游戏读取第一个存在 `game/disc1/default.xex` 的存储（内部存储或 SD 卡），否则用内部存储。当前源码中，开启 **Automatic updates** 时应用启动会检查新版本，并显示和桌面版相同的更新提示（**Download (A)** / **Later (B)**）；接受后在浏览器里打开 APK 下载，再覆盖安装即可。下个版本发布。首次启动时高通设备会先显示 **GPU driver** 页面（见下文），然后游戏会提示下载 Vulkan 着色器包，用屏幕上的 **A** 键接受。设置在游戏内的设置页面修改。步骤见[安装指南](docs/INSTALLING.zh-CN.md#android)，Android 的目录见[文件与目录](#文件与目录)。
 
+**日志。** 应用把日志写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。报告闪退或黑屏时，先再打开一次应用，再用 USB 文件传输模式连接电脑，附上该目录中最新的 `runtime-*.log`、`native-stderr.log` 以及所有 `java-crash-*.txt`；详见 [Android 日志](docs/INSTALLING.zh-CN.md#android-logs)。
+
 Android 运行时现在能在测试平板加载开发资源、播放开场视频并进入首战。触摸输入已通过标题／菜单导航和首战两次攻击，画面显示伤害；一次首战 shader 准备过程中观测到约 40 秒停顿。长时间游玩、超出 native 队列的音频、其他 GPU、16 KB 设备和实体手柄仍待验证。详见[Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)及 [Android DXC 构建记录](docs/notes/android-dxc-build-2026-10-02.md)。
 
 运行时保留 SDL 实体手柄支持，并加入 Android 屏幕触摸手柄。源码实现现在支持 `Controller settings` 中的大小／透明度设置，以及可拖动、保存、重置和逐个显示或隐藏控件的 `Edit layout` 页面；布局模型检查和设备 UI 流程已在测试平板验证。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
@@ -156,11 +158,11 @@ Windows ZIP 是**便携式**的，所有文件都留在解压目录里。Linux �
 | Linux AppImage | `~/.config/lost-odyssey-recomp/` | `~/.local/share/lost-odyssey-recomp/` | `~/.local/state/lost-odyssey-recomp/` |
 | Linux Flatpak | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/config/lost-odyssey-recomp/` | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/data/`（沙盒内为 `/var/data`） | `~/.var/app/io.github.freefrank.LostOdysseyRecomp/.local/state/lost-odyssey-recomp/` |
 | macOS `.app`（实验性） | `~/Library/Application Support/LostOdysseyRecomp/` | 同左 | `~/Library/Logs/LostOdysseyRecomp/` |
-| Android APK（实验性） | 应用私有存储 `files/config/` | 应用私有存储 `files/` | 应用私有存储 `files/state/` |
+| Android APK（实验性） | 应用私有存储 `files/config/` | 应用私有存储 `files/` | 应用私有存储 `files/state/`；日志在 `Android/data/io.github.freefrank.lostodyssey/files/logs/` |
 
 Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 改变 AppImage 使用的目录。
 
-Android 的应用私有存储是 `/data/data/io.github.freefrank.lostodyssey/files/`，文件管理器看不到。游戏数据是例外：应用从内部存储或 SD 卡上的 `Android/data/io.github.freefrank.lostodyssey/files/game/` 读取（用第一个存在 `game/disc1/default.xex` 的），电脑通过 USB 连接可以写入。当前源码（v0.8.6 之后）中，**Game folder** 页面（找不到游戏数据时自动打开，也可从 **CTRL → Game folder** 进入）可以改为指向内部存储或 SD 卡上的任意文件夹，游戏会先在那里查找，页面上的 **Import disc images…** 按钮可以直接导入到设备上。
+Android 的应用私有存储是 `/data/data/io.github.freefrank.lostodyssey/files/`，文件管理器看不到。游戏数据和日志是例外：它们在应用的外部文件目录里，电脑通过 USB 连接可以访问。应用从内部存储或 SD 卡上的 `Android/data/io.github.freefrank.lostodyssey/files/game/` 读取游戏数据（用第一个存在 `game/disc1/default.xex` 的），把日志写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。当前源码（v0.8.6 之后）中，**Game folder** 页面（找不到游戏数据时自动打开，也可从 **CTRL → Game folder** 进入）可以改为指向内部存储或 SD 卡上的任意文件夹，游戏会先在那里查找，页面上的 **Import disc images…** 按钮可以直接导入到设备上。
 
 | 内容 | 位置 | 说明 |
 | :--- | :--- | :--- |
@@ -170,7 +172,7 @@ Android 的应用私有存储是 `/data/data/io.github.freefrank.lostodyssey/fil
 | 存档 | 数据目录的 `save/` | 更新时保留。 |
 | 个人配置（profile） | 数据目录的 `profile/` | 更新时保留。可用 `LO_PROFILE_DIR` 改变位置。 |
 | 着色器与管线缓存 | 数据目录的 `cache/shaders/` | 删除后会重新生成。可用 `LO_SHADER_CACHE_DIR` 改变位置。 |
-| 日志 | 日志目录的 `logs/runtime-*.log` 和 `logs/shader-*.jsonl` | 保留本次和之前两次运行的日志。 |
+| 日志 | 日志目录的 `logs/runtime-*.log` 和 `logs/shader-*.jsonl` | 保留本次和之前两次运行的日志。Android：`Android/data/io.github.freefrank.lostodyssey/files/logs/`，另有 `native-stderr.log` 和 `java-crash-*.txt`。 |
 | F1 渲染捕获 | 配置目录的 `captures/` | Windows 为 `.zip`，Linux 和 macOS 为 `.tar.gz`。 |
 | Mod | `mods/`：便携方式在程序旁，否则在数据目录 | 可用 `LO_MODS_DIR` 改变位置。 |
 | 着色器包 | 安装目录：便携方式为程序旁的 `shaders/`，否则为数据目录的 `shaders/` | 游戏会把所选渲染器的包下载到这里（Vulkan、Metal 和 Android 用 `portable_vk.lospv`，DirectX 12 用 `portable_dx12.lospd`）；选择跳过会记录在同一目录的 `declined-downloads.txt` 中。v0.7.25 及更早版本在程序旁附带 `shaders/portable_vk.lospv`。 |

@@ -151,3 +151,14 @@ Not established: maintainer acceptance of v0.8.0 or v0.8.5; reporter confirmatio
 ### Release lane follow-up
 
 Later on 2026-10-03 the maintainer moved the three items still in the published v0.8.0 lane to v0.9.0: `temporal-phased-p0-common-contracts-probe`, `linux-aarch64-platform` and `frame-generation-research` (Release field only; Status and Delivery unchanged). The plan showed 3 updates and 0 conflicts; after `--apply` the Project read back v0.9.0 for all three and a new plan showed 0 operations. The maintainer then scheduled `shader-delivery-v080` (the remaining cache cleanup) for v0.9.0: Status Paused → Todo, Delivery Deferred → In progress (four of its five steps shipped in v0.7.35), Release v0.9.0, plus a dated note in its body. The plan showed 1 updated item with 4 operations and 0 conflicts; the Project read back Todo / In progress / v0.9.0 and a new plan showed 0 operations.
+
+## v0.8.6 release
+
+[v0.8.6](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) was published at 2026-10-03T20:46:53Z (tag commit `b639c39`). After commit `3d3e164` moved #114 back to Todo / Not started, the manifest still had no release item and no item for [#171](https://github.com/freefrank/LostOdysseyRecomp/issues/171) (the earlier judgment call above that left #171 without an item predates its fix and closure). The first plan showed 2 created items, 0 updated, 0 conflicts and 18 operations; `--apply` created both and a new plan showed 257 unchanged items and 0 operations. The Project readback matched both manifest records. Only Project items changed on GitHub; no Issue, pull request, comment, label or release was touched.
+
+| Key | Fields | Basis |
+| --- | --- | --- |
+| `release-v0-8-6` | Release, Done / Released / v0.8.6, 2026-10-03 | Publication record: tag, Gitea run 214 (six jobs succeeded, the Linux shader-pack check passed), the five assets with sizes and SHA-256 (GitHub API); the macOS image was built on the Mac and uploaded by hand. Done means published, not accepted. |
+| `issue-171-lunar-palace-platforms-rise` ([#171](https://github.com/freefrank/LostOdysseyRecomp/issues/171)) | Bug, Done / Released / v0.8.6, Field interaction | The cause was the #114 touch-entry guard, removed in `058d8ff`. The maintainer verified it with the reporter's save on a diagnostic build, not the release package, and closed the Issue at 20:54:17Z. Done because the maintainer closed it (the #114, #116, #121 and #175 precedent); the reporter has not confirmed. |
+
+Not established: maintainer acceptance of v0.8.6; reporter confirmation of #171; any run of the v0.8.6 packages.

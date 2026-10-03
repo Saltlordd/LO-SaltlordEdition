@@ -6738,6 +6738,46 @@
       ],
       "source_lines": [],
       "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-6",
+      "title": "Publish the Lunar Palace platform fix in v0.8.6",
+      "body": "<!-- lo-project:release-v0-8-6 -->\n\nv0.8.6 于 2026-10-03T20:46:53Z 发布。它不是草稿或预发布版本，是当前最新的正式版本，包含 v0.8.5 之后合并到 `main` 的全部工作。发布不等于验收，维护者尚未验收 v0.8.6。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.6`（tag 对象 `95c8030`）指向 `main` 上的提交 `b639c39`（`docs: prepare v0.8.6 release notes`；前两个提交 `656cb25` 把源码版本号改为 0.8.6，`058d8ff` 是代码改动）\n- [x] Gitea Actions [run 214](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/214)（API id 604，2026-10-03 20:24:55Z 开始）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：Prepare FSR Vulkan build inputs、Create draft release、Android Release、Windows Release、Linux Release 和 Publish complete release 六个 job 全部成功\n- [x] 在维护者的 M1 Max 上从 tag 构建 macOS 磁盘映像（DMG），手工上传到草稿发布页（GitHub 记录 20:27:48Z），不是 CI 产物\n- [ ] 取得 #171 报告者对 v0.8.6 的确认\n- [ ] 维护者验收 v0.8.6\n\n## Delivery verification\n\n发布页 [v0.8.6](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) 的五个附件（大小和 SHA-256 为 GitHub API 在 2026-10-03 读取的值）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.6.zip` | 77,145,524 | `e91e49f5bcb74174319604304680aab82fb667d365faeb1dda6bb45f14ca5325` |\n| `LostOdysseyRecomp-linux-x64-v0.8.6.AppImage` | 76,306,936 | `ce05a6f50821d1090c67a37471142a16684302409f6f137ac0aeec9ab641d874` |\n| `LostOdysseyRecomp-linux-x64-v0.8.6.flatpak` | 54,116,648 | `48282bca3ea5e0a7577c9a3f38b9845cef35f2dc227ae2b33ba9f1ed7f7f6abd` |\n| `LostOdysseyRecomp-android-arm64-v0.8.6.apk` | 45,159,622 | `cbaab1f17d9beaa4625670723edf3a0b87d9e6657c8a077935ad1216715dcf5c` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.6.dmg` | 60,437,598 | `71a1770662799539d22c5f41cbf95fa231c9bc848e01623f9e752bc4cba27853` |\n\nLinux job 的“Check published shader packs”步骤（`publish_shader_packs.py --check`）通过，打印的契约是 DirectX 12 `239f8775…` 和 Vulkan `eecb4425…`。四个 CI 安装包没有下载、解包或运行过。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.5..v0.8.6` 中的代码改动只有一项：提交 `058d8ff`（没有 PR）撤销 v0.7.35 为 #114 加入的“战斗请求排队时拒绝接触检测”守卫。这个守卫让每一帧的“A 碰到 B”判断（C1）在战斗请求排队期间都返回假，月之宫（Lunar Palace）的柱子升降台脚本把它当成“台上没有柱子”，于是把平台升起并写入持久位，导致随机战斗后平台自行升起、柱子悬空（Issue #171）。撤销后 #114 最初的软锁窗口重新出现，维护者已重新打开 #114，计划另找不改变接触判断的修复。\n\n## Validation and acceptance\n\n没有用 v0.8.6 安装包本身做过游戏运行。#171 的验证是维护者用报告者的存档在一个诊断构建上做的：有守卫时一场战斗就让平台升起，没有守卫时不会。#171 在发布后由维护者关闭（2026-10-03T20:54:17Z），报告者没有回复，没有报告者确认。维护者尚未验收 v0.8.6；发布不是报告者确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.6 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)\n- [v0.8.5…v0.8.6 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.5...v0.8.6)\n- [Gitea Actions run 214](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/214)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/b639c3991184918075d66d14e31d8e5ee1d81c93/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.6",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.6 at 2026-10-03T20:46:53Z: latest release, annotated tag at commit b639c399 on main, built and published by Gitea Actions run 214 (six jobs succeeded; the Linux shader-pack check passed). Assets: Windows ZIP 77,145,524 B (SHA-256 e91e49f5...), Linux AppImage 76,306,936 B (ce05a6f5...), Flatpak 54,116,648 B (48282bca...), Android APK 45,159,622 B (cbaab1f1...; CI-built) and macOS DMG 60,437,598 B (71a17706...; built on the maintainer's M1 Max, uploaded by hand). Published, not accepted: the #171 reporter has not confirmed, and no game run was made with the v0.8.6 packages."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.5...v0.8.6",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/214",
+        "b639c3991184918075d66d14e31d8e5ee1d81c93",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "issue-171-lunar-palace-platforms-rise",
+      "title": "[Bug The great ancient ruins Disc 4, unable to go further due to a bug",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/171",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Field interaction",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.6",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "In the Lunar Palace the two platforms that start with pillars on them rose by themselves after a random battle, leaving the pillars floating. The cause was the #114 touch-entry guard (PR #135, shipped in v0.7.35); it made the per-frame touch poll read false while a battle request was queued, and the platform scripts read that as no pillar on the platform. The guard was removed in v0.8.6 (commit 058d8ffd; published 2026-10-03T20:46:53Z; not accepted). The maintainer verified it with the reporter's save on a diagnostic build, not the release package: with the guard one battle broke the platform, without it the platform stayed down. Closed as completed by the maintainer at 2026-10-03T20:54:17Z after replying that v0.8.6 fixes it. The reporter has not replied, so there is no reporter confirmation. Saves made after the platform had risen keep that state. The removal re-opens the #114 softlock window."
+      }
     }
   ]
 }

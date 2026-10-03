@@ -182,6 +182,25 @@ the release's Linux job, which makes the same check mandatory for a tag, succeed
 [STATUS](../STATUS.md#v085-published--2026-10-03). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
+Fifth release, 2026-10-03: v0.8.6 (tag commit `b639c39`) was built and published
+by [run 214](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/214)
+(API id 604), started at 20:24:55Z. All six jobs succeeded (UTC, read through the
+Gitea API on 2026-10-03 after publication): create draft 20:26:20-20:26:31, FSR
+inputs 20:24:55-20:36:12, Android APK 20:26:32-20:32:53, Windows build and ZIP
+20:36:16-20:43:18, Linux AppImage and Flatpak 20:36:15-20:45:44 and publish
+20:45:46-20:46:54, which published at 2026-10-03T20:46:53Z. About 22 minutes
+passed from the run start to publication. The macOS disk image was uploaded to
+the draft by hand (GitHub dates the asset 20:27:48Z), before the publish job ran.
+The Linux job's "Check published shader packs" step (job log read through the
+API) built `LoShaderPackTool` and ran `publish_shader_packs.py --check` at
+20:42:30-20:42:34Z; the check passed and the step did not take the warning
+branch. It printed the contracts `d3d12 239f8775...` and `vulkan eecb4425...`
+(the values already recorded for v0.8.5) and "The shader-packs index lists packs
+for all renderers of this runtime". As the tag is set, a failing check would have
+stopped the job. No game run was made with the packages; see
+[STATUS](../STATUS.md#v086-published--2026-10-03). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the

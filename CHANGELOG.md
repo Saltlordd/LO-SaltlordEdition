@@ -12,6 +12,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android now creates the `game/disc1`–`disc4` folders as soon as the app is opened, on the internal storage and on SD cards, so they show up over USB (fixes the missing folders on devices that start on the GPU driver page); the game reads whichever storage holds `game/disc1/default.xex`.
 - Android now has a **Game folder** page (opened when no game data is found, and from **CTRL → Game folder**) where you can choose any folder on the internal storage or an SD card, so the game can be copied with an on-device file manager instead of a PC; this needs the "All files access" permission, and changing the folder restarts the game.
 - Android now has an **Import disc images…** button on the **Game folder** page that runs the desktop importer on the device, reading disc images (`.iso`) or extracted discs from the internal storage or an SD card and starting the game when the import finishes; it works with the on-screen controller, a physical controller or touch.
+- Android: logs are now written to `Android/data/io.github.freefrank.lostodyssey/files/logs/`, which a PC can copy over USB, and also go to logcat.
+- Android: native crashes and uncaught Java exceptions are written to that folder, and the log records the phone model, GPU and Vulkan driver.
 
 ### 简体中文
 
@@ -19,6 +21,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android 现在应用一打开就在内部存储和 SD 卡上建好 `game/disc1`–`disc4` 目录，电脑通过 USB 就能看到（修复先进入 GPU driver 页面的设备上找不到目录的问题）；游戏读取存有 `game/disc1/default.xex` 的存储。
 - Android 新增 **Game folder** 页面（找不到游戏数据时自动打开，也可从 **CTRL → Game folder** 进入），可以选择内部存储或 SD 卡上的任意文件夹，不用电脑也能用设备上的文件管理器复制游戏；需要“所有文件访问”权限，更改文件夹会重启游戏。
 - Android 的 **Game folder** 页面新增 **Import disc images…** 按钮，在设备上运行和桌面版相同的导入器，可从内部存储或 SD 卡读取光盘镜像（`.iso`）或已解出的光盘，导入完成后直接启动游戏；支持屏幕手柄、实体手柄和触摸操作。
+- Android：日志改为写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，电脑可通过 USB 复制，同时输出到 logcat。
+- Android：native 崩溃和未捕获的 Java 异常会写到该目录，日志中记录手机型号、GPU 和 Vulkan 驱动。
 
 ## [v0.8.6](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) — 2026-10-03
 
