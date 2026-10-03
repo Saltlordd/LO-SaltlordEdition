@@ -48,6 +48,12 @@ retain their input dimensions. Letterboxing/pillarboxing is rejected because
 this path has no subregion tags. The fully composited color includes game UI;
 no separated HUD or dynamic-object motion coverage is promised.
 
+Update, 2026-10-02: the bars limit above describes the 2026-10-01 state. Since
+PR #146 (shipped in v0.7.35) an output taller than 16:9 renders the 3D scene
+across the whole drawable, so the bars that kept frame generation off on those
+outputs are gone and it now runs on them. That has not been tested; see the
+[tall layout note](tall-aspect-layout.md#review-changes--2026-10-02).
+
 ### FSR queue and resource ownership
 
 `fsr_frame_generation_vulkan.cpp` loads the local Vulkan FFX API DLL and queries
@@ -134,10 +140,12 @@ its Vulkan FFX API runtime (the SDK can build it with `FFX_API_BACKEND=VK_X64`):
 -DLO_FSR_VULKAN_FG_RUNTIME=/path/to/amd_fidelityfx_vk.dll
 ```
 
-The DLL is copied beside the game. No SDK binaries are committed. On Windows the
-game looks for the DLSS, Streamline and FidelityFX runtimes beside the executable
-first, so an explicit `--game` launch from another working directory still finds
-them; staged test directories that hold their own copies keep working. Select
+The DLL is copied beside the game. No SDK binaries are committed. The game looks
+for the DLSS, Streamline and FidelityFX runtimes in the executable's `ngx/`
+folder (Linux packages), then beside the executable, and only then in the working
+directory (`os/runtime_libraries.h`). An explicit `--game` launch from another
+working directory therefore still finds them, and staged test directories that
+hold their own copies keep working. Select
 Vulkan and FSR in Graphics, save, and restart when prompted, or use:
 
 ```powershell
@@ -490,6 +498,11 @@ including `LO_ENABLE_VULKAN_FSR_FG`) and checked as follows.
     longer ends the process: generation continued after the capture (prepared
     frames 473 → 773, no errors). Shutdown then waits for the 1.6 GB capture
     archive, as it does on `main`.
+
+Update, 2026-10-02: the window-aspect gate in the resize bullet above was
+recorded before PR #146 (shipped in v0.7.35), which fills outputs taller than
+16:9 with the 3D scene. Frame generation is no longer kept off there, and that
+change is untested ([tall layout note](tall-aspect-layout.md#review-changes--2026-10-02)).
 
 Remaining hardware acceptance: AMD and Intel Vulkan adapters and Apple Metal
 devices, exclusive fullscreen, first frame/camera cuts, live provider changes

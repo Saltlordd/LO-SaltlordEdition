@@ -14,11 +14,15 @@
 namespace os::user_paths
 {
     inline bool g_usePortableLayout = true;
+    inline std::filesystem::path g_executableDirectory;
     inline bool IsExecutableDirWritable(const std::filesystem::path& path);
     inline void Initialize(const std::filesystem::path& executableDirectory)
     {
+        g_executableDirectory = executableDirectory;
 #ifdef _WIN32
         g_usePortableLayout = true;
+#elif LO_PLATFORM_ANDROID
+        g_usePortableLayout = false;
 #elif LO_PLATFORM_MACOS
         // Never write into an app bundle: it may be user-writable, but changing
         // its contents breaks the code signature. Plain folders stay portable.
@@ -50,6 +54,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_ANDROID
+        return g_executableDirectory / "config";
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Application Support");
 #else
@@ -62,6 +68,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_ANDROID
+        return g_executableDirectory;
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Application Support");
 #else
@@ -76,6 +84,8 @@ namespace os::user_paths
     {
 #ifdef _WIN32
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
+#elif LO_PLATFORM_ANDROID
+        return g_executableDirectory / "state";
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Logs");
 #else
@@ -95,6 +105,8 @@ namespace os::user_paths
 #endif
     }
     inline bool UsePortableLayout() { return g_usePortableLayout; }
+    // The running executable's directory; empty before Initialize.
+    inline const std::filesystem::path& ExecutableDir() { return g_executableDirectory; }
 
     // Portable launches deliberately retain the working-directory settings
     // contract, including isolated --game launches. Read-only installations

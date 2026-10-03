@@ -1,0 +1,111 @@
+# Experimental HDR output
+
+This note documents the experimental HDR path for the cross-platform renderer, which ships in v0.7.35 (tag `v0.7.35`, 2026-10-02). It describes the current implementation and validation boundary; it does not establish complete or cross-platform physical-display coverage. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify the platform, backend or display.
+
+## Scope and use
+
+HDR is opt-in in the Graphics menu and takes effect after a restart. The current implemented configuration is:
+
+- Windows with Direct3D 12 or Vulkan, Linux with Vulkan, or macOS with Metal. Vulkan selects an exact HDR surface format/color-space pair; an unsupported pair uses SDR.
+- Any anti-aliasing mode, any upscaler (DLSS, FSR, MetalFX temporal) and any scaling filter including MetalFX spatial. Upscalers keep running on the SDR scene exactly as before (no SDK HDR mode); the extended-gamma resolve of the pre-upscale scene is kept on the promoted target's resolve (`ResolvedSurface::hdrGain`), and presentation synthesizes the HDR frame from the final SDR frame (upscaled, with UI) with `Presentation::ComposeHdrGain`: per channel `gain = max(hdr, 1)` sampled bilinearly from the small scene, applied only to pixels that are themselves near clipping (`smoothstep(0.8, 1, max(sdr))`), so an unclipped pixel is the upscaled SDR value unchanged and a clipped one gets the game's real excess back. UI over a clipped area is scaled with it. The calibration page cannot freeze an upscaled frame and shows the test pattern. FXAA and SMAA run a second time on the extended-gamma FP16 resolve (`Presentation::ProcessSceneColor(..., hdr=true)`, FP16 intermediates, luma decided on the saturated value so edges match the SDR pass) and TAA runs a second `temporal::HistoryOwner` on it in the raw extended-gamma domain with the same depth, jitter and motion; the sidecar copy follows the AA output's FP16 twin the way it follows AO's. A frame whose twin is missing presents SDR. On Vulkan, `hdr=1` creates the HDR swap chain regardless of upscaling; while upscaling is selected, each frame presents its SDR scene through the output transform instead, and turning it off takes effect without a restart. Direct3D 12 and Metal still decide at startup, because their frame generation reconcile replaces the swap chain in SDR and is skipped while an HDR swap chain exists.
+- Frame generation Off, except DLSS frame generation on Vulkan. The SDK swap chains that frame generation presents through are SDR on Direct3D 12 and Metal, and the Vulkan FSR presenter only takes RGBA8/BGRA8. Vulkan DLSS-G accepts the HDR10/PQ chain plume prefers (Streamline DLSS-G guide section 11, which rejects FP16 scRGB), so `hdr=1` with DLSS-G on Vulkan creates the HDR swap chain; `LO_HDR_FG=0` keeps the SDR chain instead.
+- Paper-white 80–400 nits and manually entered peak from paper-white through 10,000 nits.
+
+Auto peak is the default. It follows the current display's reported peak when available, otherwise uses a 1000-nit content reference. The Linux Vulkan path does not yet obtain a display peak, so Auto currently uses that fallback there. Existing `hdr_peak_nits` profiles without `hdr_peak_auto` retain their manual choice. The **HDR peak brightness** page freezes a deterministic comparison frame and renders it through the actual output transfer: the left view is an SDR brightness preview clipped at reference white, while the right view uses normal HDR tone mapping and updates the peak live. Mouse or controller **X** switches between the Scene and Test pattern; if no valid scene is available, the standard pattern is used. The menu copies its source once when opened rather than every frame. Use the slider, type a numeric value, or restore Auto. Changes preview while the page is open and apply after saving Graphics settings; only the HDR output toggle needs a restart. Unsupported display state or scene input uses the existing SDR path. The pattern cannot demonstrate HDR while output is inactive. See the [Linux/Vulkan implementation note](linux-vulkan-hdr.md) for WSI conditions and pending hardware acceptance. Savestate work is unrelated to this change.
+
+## Output semantics
+
+Windows Direct3D 12 requests an FP16 scRGB swap chain. The renderer treats scRGB 1.0 as the Windows reference of 80 nits and scales the requested content reference white from that value. Peak highlights are compressed to the requested ratio before output.
+
+Metal requests an FP16 Extended Linear sRGB EDR surface. macOS does not expose the system SDR white as an absolute nit value through this path. Auto multiplies the content paper-white reference by available EDR headroom and labels that value an estimate; manual values set a content peak ratio. Neither is a measured absolute panel luminance claim, and actual output depends on system EDR headroom.
+
+Vulkan requests FP16 extended-linear or packed ten-bit HDR10/PQ only when the active surface advertises that exact format and color-space pair. The final PQ pass converts the game's BT.709 working gamut to BT.2020 and encodes ST2084 after scene composition. The swap chain's HDR content transport can be known while the physical monitor state remains unknown; transport alone does not prove that the monitor is in HDR mode. An SDR-only pair stays SDR even when a device exposes `VK_EXT_hdr_metadata` or a ten-bit SDR format.
+
+The SDR screenshot/preview path remains an explicitly gamma-encoded preview of the linear output. It is useful for checking fallback and tone-map continuity, but it is not an HDR display capture.
+
+For the platform API background, see Microsoft's [High Dynamic Range](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/high-dynamic-range) guidance and Apple's [Performing your own tone mapping](https://developer.apple.com/documentation/metal/performing-your-own-tone-mapping).
+
+## Current validation
+
+The Windows runtime and SDK build links successfully. On an RTX 5080, a hidden-window DXGI test negotiated an active FP16 scRGB HDR swap chain and reported a 1015.27-nit display peak. This confirms HDR capability and color-space negotiation, not visual correctness.
+
+The Windows D3D12 and Vulkan GPU pattern, scene, peak-adjustment and PQ fixtures passed. Windows Vulkan negotiated an HDR10/PQ surface with HDR content transport while the physical monitor state remained unknown; HDR→SDR→HDR swap-chain renegotiation passed. Menu flow, rendering, default SDR SMAA/FXAA presentation and the one-time calibration-page source copy passed targeted checks. These are controlled fixture results, not an HDR image-quality acceptance on a physical display.
+
+An isolated D3D12 Uhra smoke run using the HDR build ran for 120 seconds and exited normally. The run exercised the tone-map sidecar, padded FP16 scene allocation, full-scene copy, HDR resolve and video extended-scene path. At swap 1600, the 1280×720 FP16 swapchain read back a linear maximum of 9.9296875 and reference white of 2.5375 (203/80), with 8350 pixels above reference white. The roughly 794.38-nit scRGB value is a nominal conversion, not a physical measurement. The SDR preview showed the Uhra scene and its UI intact.
+
+The earlier Windows Vulkan Uhra smoke completed 120 seconds with exit 0 and no forced stop. It negotiated HDR10/PQ and reached the extended scene path; swap1600 readback decoded a maximum of 794.5004 content nits with 8618 pixels above the 203-nit reference white. Its SDR preview was intact. This is pipeline evidence, not a panel measurement. The subsequent frozen-scene capture check is recorded separately below.
+
+Offline D3D12 and SPIR-V/Vulkan HDR math, SDR paths and separated-UI lease checks pass. Calibration menu flow, numeric/slider input, configuration migration and software raster controls pass targeted Windows tests. On WSLg 1.0.73 with Mesa Dozen 26.2.2, Plume Vulkan, the surface probe and CPU math compiled. The SDL Wayland surface probe requested HDR, selected BGRA8/sRGB SDR instead, and passed resize. That WSLg surface exposed no HDR presentation transport in this test; these checks do not establish Linux HDR display output.
+
+## Frozen game-scene preview validation — 2026-10-02
+
+The calibration page now prefers an owned FP16 snapshot of a valid HDR game scene at host-menu entry. The left view clips the same source at reference white as an SDR luminance preview; it is not a separate capture of the stock SDR renderer. The right view uses the normal HDR highlight mapping and current peak setting. Scene/Test pattern can be selected with the mouse or controller X. An absent or stale HDR resolve keeps the test pattern available. Gameplay records only source identity and extent; copying happens once at overlay entry, and the owned texture is released after the present fence when gameplay resumes. Independent source storage survives swapchain resizing.
+
+The full Windows runtime build passed. D3D12 and Vulkan fixtures verified test-pattern output, the same frozen scene in both halves, peak adjustment, menu transfer and PQ output. Menu flow/render tests and the default SDR/SMAA/FXAA and production capture regressions passed. The first Windows Vulkan Uhra overlay smoke ran 120 seconds and froze a 1280x720 HDR scene; the follow-up capture ran 95 seconds, exported that scene successfully and exited 0 without a forced stop. Its original extended-gamma maximum was 3.130859375, with 8238 source pixels above 1. The 203/1015-nit preview rendered from that capture had maxima of 202.96875 and 748.75 content nits in the SDR/HDR halves; 1104 paired pixels differed by more than 1 nit. A shared Reinhard curve was used only for the chat's SDR PNG. These are shader/readback values, not measured panel luminance; the maintainer-confirmed on-device validation has no platform/backend/display breakdown yet.
+
+The opt-in `LO_HDR_CALIBRATION_CAPTURE=<path>` diagnostic writes the frozen source when a screenshot is requested. Its local replay format starts with `LOHDR1 <width> <height>\n`, followed by tightly packed RGBA16F extended-gamma pixels. Normal gameplay performs no CPU readback for calibration. Local evidence is under `out/hdr/scene-preview` and `out/hdr/game-smoke-hdr-scene-capture`; captures contain private game imagery and are not packaged or committed.
+
+## Review changes — 2026-10-02
+
+The review of PR #145 changed three things before merging.
+
+- **Inactive linear output.** D3D12 and Metal keep their FP16 swap chain when the display is not in HDR mode (Windows HDR off, an SDR monitor, a Mac without EDR headroom). The final pass decoded those pixels with a 2.2 power curve, and the compositor re-encodes with the sRGB curve, which crushed shadows: 8-bit level 13 came back as about 5. That case now decodes with the sRGB curve, so SDR pixels round-trip exactly; screenshot previews re-encode with the same curve.
+- **Display polling.** On D3D12 with an HDR swap chain, the display query walks every adapter output, about half a millisecond, and ran on every present. It now runs once a second and after swap chain changes.
+- **macOS CI.** The presentation fixture includes the generated PPC headers, so the no-game-data macOS build now skips it.
+
+Known limits found in the review and left for later:
+
+- Frame generation other than Vulkan DLSS-G still decides the swap chain at startup. If `hdr=1` is saved while one of them is on, turning it off later does not prompt for the restart that would enable HDR. (On Vulkan, upscaling no longer has this limit: the HDR swap chain exists whenever `hdr=1` and the scene falls back per frame; AA no longer pauses HDR on any backend.)
+- If the Vulkan presentation pipeline cannot be rebuilt after a surface format change, later frames use the old pipeline.
+- The Vulkan SDR swap chain now accepts only RGBA8 or BGRA8 with the sRGB nonlinear color space and logs a warning on every resize; a WSI without that pair fails where it used to work. `VK_EXT_hdr_metadata` is enabled but unused.
+- Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report. Since the swap chain no longer waits for AA and upscaling to be off, this now also reaches `hdr=1` users who have them on; Android takes the same path, and its surface rebuild on resume (`EnsureAndroidSurfaceSwapChain`) still recreates the chain in RGBA8.
+- On the calibration page, Esc cancels the changes, but controller B keeps them.
+
+## HDR swap chain with AA, upscaling and DLSS-G — 2026-10-02
+
+Four isolated Windows Vulkan runs on an RTX 5080 (driver 616.56, 2560×1440, the frozen Uhra save, `tools/perf/run-fg-game.ps1` with `-SettingsOverrides`/`-ExtraEnvironment`, foreground, 75–110 s each). Every run negotiated `VK_FORMAT_A2B10G10R10_UNORM_PACK32` + `VK_COLOR_SPACE_HDR10_ST2084_EXT` when it requested HDR and exited 0.
+
+- DLSS DLAA + SMAA with `hdr=1`: HDR swap chain created, `HDR: scene_enabled=false`, SDR scene on the PQ chain, no errors.
+- AA off, upscaling off, DLSS-G ×2 with `LO_HDR_FG=1` (the opt-in at the time; it is the default since the same day): `HDR: scene_enabled=true`, `HDR: extended scene selected`, DLSS-G `enabled=true runtime=ready status=0`, 9,867 generated intervals over 110 s (89.9 % of samples enabled; the one 17.8 s interruption was the save load, `reason=resource_boundary`), `sdk_errors=0`. The SDR preview screenshot of the Great Gate scene was intact.
+- The same with the SDR swap chain (then the default, now `LO_HDR_FG=0`): `HDR: SDR swap chain retained`, DLSS-G generated 8,397 intervals over 90 s.
+- SMAA with `hdr=1`, frame generation off: HDR swap chain, scene paused, no errors; this `DrawComposited` → `Draw(hdrScene=false)` path onto a PQ target was unreachable before this change.
+
+These are log and SDR-preview results, not HDR panel measurements: `display_active=false display_state_known=false transport=true` on Windows Vulkan, as in the known limits above. A 25-second Direct3D 12 run with the same settings right afterwards reported `display_active=true display_state_known=true peak=1015` from DXGI, so Windows HDR was on for the Vulkan runs and the PQ output went to an HDR-mode display; what it looked like on that panel was not recorded.
+
+## AA on the HDR scene — 2026-10-02
+
+Same rig and protocol as above (RTX 5080, Vulkan, 2560×1440, frozen Uhra save, foreground, 70 s each, fixed-swap screenshot at swap 4500, all exit 0 and no `[error]` lines). The periodic `renderer HDR: forwarded copies` tally says which producer the sidecar followed.
+
+- FXAA + `hdr=1`: `HDR: scene_enabled=true`; after the save loaded every forwarded copy came from the FP16 AA twin (`scene_aa=5821`, `resolve=779` for the title screen before it). Screenshot intact.
+- SMAA + `hdr=1`: the same, `scene_aa=5816`. Screenshot intact.
+- TAA + `hdr=1`: the second `HistoryOwner` resolved every scene frame (`scene_taa=5823`, `scene TAA twin … recorded=true`), the TAA shaders are untouched (`LoTemporalJitterTest` passes). Screenshot intact. CPU-side `taa_ms` stayed around 0.18 ms per frame; GPU cost is a second TAA resolve at scene resolution.
+- Direct3D 12, SMAA + `hdr=1`, 45 s: FP16 scRGB chain with `display_active=true peak=1015`, `scene_aa=2215` forwarded copies after the save loaded, no errors. The startup rule on D3D12/Metal no longer rejects AA, so this is the first D3D12 run with an HDR swap chain and AA together.
+- SDR unchanged: with `hdr=0` the code takes the same objects as before (`passes[0]`, `smaa[0]`, the RGBA8 pipelines, the `DrawComposited` bypass), and the FXAA shader's luma now saturates its input, which is exact for RGBA8 sources. As a weaker runtime check, `hdr=0` SMAA runs of the stage 0 and stage 1 binaries differ at swap 4500 by the same amount two stage 0 runs differ from each other (84.1 % / 84.7 % identical pixels; the scene animates). `LoPresentationTest` (14 checks), `LoMenuFlowTest` (11 checks) and `LoPresentCaptureTest` pass.
+- Not exercised: presentation-level AA on an HDR frame (an HDR frame whose scene AA did not apply now runs FXAA/SMAA on the FP16 source inside the final `Draw`; every scene frame in these runs forwarded through the twin instead), AO together with AA, Android, Metal, and the GPU cost of the second AA pass (only the CPU record time was logged; the twin doubles the AA work whenever HDR is on). `Presentation::Init` now requires the FP16 pipeline on every instance, and `smaa[1]` allocates RGBA8 crop/output stages it never uses in HDR mode.
+
+Found and fixed on the way: the scene processor records the SDR pass and the HDR pass into the same command list, and the first build let them share `Presentation`'s pass pool and `SmaaPipeline` (an FXAA intermediate was re-created as FP16 while the SDR draw still referenced it, `VK_ERROR_DEVICE_LOST`). SDR and HDR now own separate pass pools and SMAA instances.
+
+## Upscaling with the presentation highlight gain — 2026-10-02
+
+Same rig and protocol (RTX 5080, 2560×1440 output, frozen Uhra save, foreground, exit 0, no `[error]` lines). `LO_SCREENSHOT_PRESENTED=1` read the presented frame back at swap 4500 and decoded it (`HDR screenshot: … linear_max=<content nits>`); an SDR frame on the PQ chain decodes to the 203-nit reference white, so the readback is the pass/fail signal.
+
+| Run | Gain applied | Presented peak |
+|---|---|---|
+| Vulkan, DLSS DLAA (2560×1440 → 2560×1440) | yes, 1:1 gain map | 841.8 nits, 9,246 pixels above white |
+| Vulkan, DLSS Quality (1707×960 → 2560×1440) | yes, upsampled gain map | 886.4 nits, 6,040 above white |
+| Vulkan, FSR Quality (1706×960 → 2560×1440) | yes | 885.0 nits, 7,913 above white |
+| Vulkan, DLSS-G ×2 + DLAA, 80 s | yes | DLSS-G `runtime=ready status=0`, 4,391 generated intervals |
+| Direct3D 12, DLSS Quality, 45 s | yes | `display_active=true peak=1015`; readback swap not reached in 45 s |
+
+Before the fix the same DLAA/Quality/FSR runs decoded 204.8 / 205.0 / 204.8 nits: the sidecar was never recorded because the recording block, not only the forwarding, was gated on `requestedUpscaler == Off`; and the first attempt to find the input resolve by the consumer's color texture failed because DLSS reads its own copy (`promotion source … found=`), so the scene is now identified through `temporalScene.Color()`. With DLAA (input == output) the first working build presented the raw sidecar instead of the DLAA'd frame because the same-size check in `AcquireHdrResolvedSurface` admitted it; gain surfaces now have their own `AcquireHdrGainSurface` and are never returned as a direct scene.
+
+Mac and Android, same day, on the same branch:
+
+- M1 Max + M27P20 (EDR, `display_active=true peak=1030`), `new-game-battle` at 2560×1440 run frontmost. MetalFX temporal (`upscaler=3`): the battle presented through the gain pass (`gain=1835` frames), readback `linear_max=4.73` in EDR units (1.0 = SDR white, peak ratio 5.07), 67,277 pixels above white, 0 errors. MetalFX spatial (`scaling_quality=2`, 720p internal): the first build presented the FP16 scene directly and then scaled it through MetalFX's RGBA8 output, which clipped it to `linear_max=1.0`; the fix keeps the SDR frame as MetalFX's input and applies the gain afterwards: `linear_max=4.27`, 3,980 above white, `gain=2190`, 0 errors. The opening movie and title stay SDR frames as on Windows.
+- Lenovo TB321FU (Adreno 750, Android 16): the user's own settings (`hdr=1`, SMAA, GTAO, 720p internal, 120 FPS). The surface negotiated A2B10G10R10 + HDR10_ST2084, `scene_enabled=true`, and in the Wohl save `forwarded copies … scene_aa=1472` with `presented frames direct=5204`, 0 errors. This also covered AO together with AA: `AO applied … hdr=true` followed by `scene AA twin … input=ao recorded=true`. No nits readback exists on Android (the screenshot path is SurfaceFlinger's SDR composition), so this is log evidence only.
+
+SDR previews look like the SDR runs (the preview tone-maps the HDR frame). A frame on which the upscaler falls back (`dlss status=Fallback`) has no promoted target and presents SDR for that frame; in these runs that happened once per DLSS run, at the scene load, and never in steady state (the `HDR: presented frames direct=/gain=/sdr=` tally every 600 frames shows it). The host menu composites its own CPU frame, so the backdrop behind Settings is SDR in every HDR configuration (pre-existing). Not checked: the gain map at a highlight's dark edge on a panel (the brightness weight is the only halo guard), UI over clipped areas, AO + upscaling, Android with an upscaler (the development build has none), and a nits readback with DLSS-G (that run's readback swap was not reached).
+
+## Unfinished validation
+
+On 2026-10-02 the Metal HDR path compiled on an M1 Max (macOS 26.6.2) and the opening battle ran with HDR requested, but that Mac was in clamshell mode on an external display without EDR headroom: the game kept its linear EDR output without HDR (`encoding=2 display_active=false`), the inactive case changed above. Its screenshots matched an SDR run, but they are re-encoded previews and could not show the shadow difference. Metal HDR output itself has not been seen yet. Linux Wayland/Gamescope HDR and packaged AppImage/Flatpak output have not been run on HDR hardware in the collected evidence. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify its platform/backend/display scope. Broader scenes, GPUs, display modes, monitor changes, system HDR toggles, performance and long play remain open validation work.

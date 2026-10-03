@@ -37,7 +37,28 @@ lo_review_test(LoTextureLayoutTest texture_layout_test.cpp)
 lo_review_test(LoAudioCallbackTest audio_callback_test.cpp)
 lo_review_test(LoSettingsPathTest settings_path_test.cpp "${LO_RUNTIME}/updater/update.cpp")
 lo_review_test(LoUserPathsTest user_paths_test.cpp)
+lo_review_test(LoRuntimeLibrariesTest runtime_libraries_test.cpp)
 lo_review_test(LoExternalUpdateNoticeTest external_update_notice_test.cpp)
+lo_review_test(LoOcclusionQueriesTest occlusion_queries_test.cpp)
+# TAA/FSR/DLSS jitter map: every reviewed flicker fix has a case here.
+lo_review_test(LoTemporalJitterTest temporal_jitter_test.cpp)
+# One-file local shader store: keys, recovery, integrity, locking, compaction.
+lo_review_test(LoShaderStoreTest shader_store_test.cpp)
+lo_review_test(LoShadowResolutionTest shadow_resolution_test.cpp)
+# Startup shader-pack download: index, selection, asset URLs, decline record.
+lo_review_test(LoShaderPackIndexTest shader_pack_index_test.cpp "${LO_RUNTIME}/updater/shader_pack_index.cpp")
+# Offline capture, suspect-log and triage tools (standard-library Python).
+add_test(NAME LoJitterCaptureTools COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/jitter_capture_tools_test.py")
+set_tests_properties(LoJitterCaptureTools PROPERTIES TIMEOUT 60)
+add_test(NAME LoPsClipReads COMMAND "${Python3_EXECUTABLE}" -B -m unittest tools.tests.test_ps_clip_reads
+    WORKING_DIRECTORY "${LO_ROOT}")
+set_tests_properties(LoPsClipReads PROPERTIES TIMEOUT 60)
+# Asset inventory and FMV export tools on synthetic fixtures (standard-library Python).
+foreach(name asset_inventory_test fmv_export_test)
+    add_test(NAME ${name} COMMAND "${Python3_EXECUTABLE}" -B -m unittest tools.tests.${name}
+        WORKING_DIRECTORY "${LO_ROOT}")
+    set_tests_properties(${name} PROPERTIES TIMEOUT 120)
+endforeach()
 
 if(LO_REVIEW_SDL_TESTS)
     if(LO_REVIEW_SDL_LIBRARY)
@@ -85,3 +106,19 @@ if(UNIX)
     lo_review_python(guest_main_exit guest_main_exit_regression.py --out --cxx)
     lo_review_python(kernel_lifetime kernel_lifetime_regression.py --out --cxx ${sanitizer_flags})
 endif()
+
+# Builds the unmodified updater apply mode and checks AppImage backup cleanup,
+# a successful restart and the rollback after a failed exec. Linux only: the
+# apply mode reads /proc/self/cmdline.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_test(NAME updater_appimage_cleanup COMMAND "${Python3_EXECUTABLE}" -B
+        "${LO_TESTS}/updater_appimage_cleanup_test.py" --cxx "${CMAKE_CXX_COMPILER}")
+    set_tests_properties(updater_appimage_cleanup PROPERTIES TIMEOUT 150)
+endif()
+
+# AppImage and Flatpak packaging scripts, with linuxdeploy, flatpak and the
+# compiler, readelf and ldd checks replaced by stand-ins.
+foreach(name package_appimage package_flatpak)
+    add_test(NAME ${name} COMMAND "${Python3_EXECUTABLE}" -B "${LO_TESTS}/${name}_test.py")
+    set_tests_properties(${name} PROPERTIES TIMEOUT 60)
+endforeach()

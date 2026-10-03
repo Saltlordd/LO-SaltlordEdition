@@ -2,16 +2,16 @@
 
 [简体中文](INSTALLING.zh-CN.md)
 
-This guide covers the published v0.7.25 packages and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
+This guide covers the published v0.8.6 packages (including the experimental Android APK) and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
 
 ## Windows quick start
 
 Windows x64 and an AVX-capable CPU are required. Direct3D 12 is the default graphics backend. The release package already contains the importer, updater, DXC v1.8.2407 DLL pair and dependency licenses; Python and Visual Studio are not required to play.
 
-1. Download `LostOdysseyRecomp-windows-x64-v0.7.25.zip` from the [v0.7.25 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25).
+1. Download `LostOdysseyRecomp-windows-x64-v0.8.6.zip` from the [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6).
 2. Extract the complete ZIP to a writable folder outside `Program Files`.
 3. Run `LostOdysseyRecomp.exe`. If no usable game installation is found, the built-in importer opens.
-4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation.
+4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation. It may first offer to download precompiled shaders for the selected renderer; see [Shader preparation](#shader-preparation).
 
 The download does not include game files. Disc 1 is required to start.
 
@@ -56,21 +56,21 @@ Game data normally goes under `game/disc1` through `game/disc4`, with DLC under 
 
 ## Linux packages
 
-Linux runs through Vulkan. The [v0.7.25 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.25) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated.
+Linux runs through Vulkan. The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated. No Linux AArch64 package is published; an experimental source and cross-build path is described in [LINUX_ARM64.md](LINUX_ARM64.md).
 
 ### AppImage
 
-Download `LostOdysseyRecomp-linux-x64-v0.7.25.AppImage`, then run:
+Download `LostOdysseyRecomp-linux-x64-v0.8.6.AppImage`, then run:
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
-./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
 ```
 
 You can import game data from the graphical importer. For a direct launch, pass the game directory, `disc1`, or `default.xex`:
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.7.25.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage --game /path/to/game
 ```
 
 A normally mounted AppImage stores saves and settings in your Linux user directories; see [file locations](#file-locations). `--game` chooses the game data and does not switch to portable storage. Putting `game-path.txt` beside the outer `.AppImage` file does not configure this mode.
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 Then install and run the downloaded bundle:
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.7.25.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.6.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -103,6 +103,43 @@ See [BUILDING.md](BUILDING.md) for native build prerequisites and packaging comm
 
 Keep the ELF directory as the working directory when you want portable `save/`, `profile/`, `cache/` and `logs/` folders.
 
+<a id="macos"></a>
+
+## macOS (Apple Silicon, experimental)
+
+The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) provides `LostOdysseyRecomp-macos-arm64-v0.8.6.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.8.0 and v0.8.6 apps declare macOS 15.0 as their minimum. The v0.7.35 app still declared macOS 14.0, but the bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, and it stays that way: the maintainer decided on 2026-10-03 not to do Developer ID signing or notarization. macOS therefore blocks the first launch.
+
+1. Download the disk image and open it.
+2. Drag `LostOdysseyRecomp.app` onto the Applications link in the window, then eject the disk image.
+3. Open `LostOdysseyRecomp` from Applications. macOS blocks it the first time. Open **System Settings → Privacy & Security**, scroll to the Security section and choose **Open Anyway** next to the app. The button appears only after a blocked launch attempt. Choose **Open** when macOS asks again; it may ask for your password. Later launches need no approval.
+4. The built-in importer opens when no usable game installation is found. Import your game data as described in [Importing game data](#automatic-content-import).
+
+To approve the app from Terminal instead, run `xattr -dr com.apple.quarantine /Applications/LostOdysseyRecomp.app`, then open the app again.
+
+The app keeps game data, settings, saves, profiles and the shader cache in `~/Library/Application Support/LostOdysseyRecomp/`, and logs in `~/Library/Logs/LostOdysseyRecomp/logs/`; see [file locations](#file-locations). The first start may offer to download the Metal shaders; see [Shader preparation](#shader-preparation).
+
+The game's update check only offers to open the release page when a newer release has a disk image. To update, download the new image and replace the app in Applications; your saves and settings live outside the app and stay.
+
+Validation is limited to one Mac. On the maintainer's M1 Max (macOS 26.6.2) the opening new-game battle ran with Metal and used the downloaded Metal shader pack; HDR requested on an external display without EDR headroom stayed in SDR, and Metal HDR output itself had not been seen in that run. A source build with GTAO and 4× shadows also ran the opening battle on that Mac. Long play, broader scenes and other Macs have not been tested. To build the app yourself, see [BUILDING.md](BUILDING.md#building-on-macos); [MACOS_RELEASE.md](MACOS_RELEASE.md) describes how the disk image is made.
+
+<a id="android"></a>
+
+## Android (experimental)
+
+The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) carries `LostOdysseyRecomp-android-arm64-v0.8.6.apk`, built with the other packages. It needs a 64-bit (arm64) Android 8.0 or newer device with Vulkan and about 20 GB of free storage for the four discs, and renders with Vulkan. The app is labelled "Lost Odyssey (development)" and is signed with the project's debug key, which every release keeps (the maintainer decided not to use a release keystore), so updates install over each other; Android refuses to install it over an APK with another signature, such as your own build, so uninstall that one first. Validation is one tablet (Lenovo TB321FU, Adreno 750); see the limits at the end.
+
+1. Download the APK on the device, open it and allow installs from your browser or file manager when Android asks. Open the app once so it creates its folders, then close it.
+2. Prepare the game data on a PC. There is no importer on Android: use the desktop importer (any package) to produce `game/disc1`–`disc4` and, if you have it, `game/dlc/<content-id>` as described in [Importing game data](#automatic-content-import).
+3. Connect the device to the PC over USB in file-transfer (MTP) mode and copy that `game` folder into `Android/data/io.github.freefrank.lostodyssey/files/`, so that `…/files/game/disc1/default.xex` exists. Disc 1 is required; the other discs are found beside it. `adb push` to `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game` works too. On-device file managers usually cannot write into `Android/data`.
+4. Open the app. On Qualcomm devices the **GPU driver** page appears first: the device's own Vulkan driver leaves the text of the highlighted menu row invisible, so download a Mesa Turnip package (KIMCHI `Turnip_v26.0.0_R8.zip` was verified on an Adreno 750; the page shows which driver the Eden emulator recommends for your model) or keep **System GPU driver**, then press **Start game**. The page is reachable later from **CTRL → GPU driver**; changing the driver restarts the game. Other devices go straight to the game.
+5. The game offers the Vulkan shader pack download in the same window as the desktop; accept it with the on-screen **A** button (**B** skips and compiles on the device, which takes minutes). Later launches reuse the cache.
+
+Touch controls appear over the game. **CTRL** opens the controller settings (size, opacity, layout editor, and the GPU driver page); a USB or Bluetooth controller hides the touch controls automatically. Settings are changed on the in-game Settings page; there is no first-launch page.
+
+The app keeps settings in its private storage under `files/config/`, saves, profiles, the shader pack and cache under `files/`, logs under `files/state/logs/` and downloaded GPU driver packages under `files/gpu_driver/`. Private storage is not visible to file managers; uninstalling the app deletes it together with the game data in `Android/data`. To update, install the new APK over the old one; saves and settings stay.
+
+Validation so far: on the maintainer's tablet the development build plays the opening video, reaches the first battle and shows the menu correctly with the Turnip driver. Longer play, performance under Turnip, other GPUs, 16 KB-page devices and physical controllers have not been tested.
+
 ## First launch and settings
 
 On Windows, the first-launch page sets the interface language, game language and graphics options before game initialization. Existing settings skip that page; run `LostOdysseyRecomp.exe --setup` to open it again. Linux and macOS have no first-launch page yet: the first run saves default settings, which you change on the in-game Settings page. The in-game Settings page offers a controlled restart for options that need a new process.
@@ -111,6 +148,17 @@ The interface language and game language are separate. USA/Europe data provides 
 
 Press **F1** or **LB+RB** to open the Debug Menu; opening it pauses the game. It is separate from ordinary Settings. See the [README's Debug Menu guide](../README.md#debug-menu) for captures, teleport, fast-forward, memory edits and Save Anywhere restrictions.
 
+### Shader preparation
+
+Release packages carry no precompiled shaders. When none matching the selected renderer (Direct3D 12, Vulkan or Metal) is installed and one is published for your version, the game offers to download it at startup, after the update check and before it prepares shaders. The window, titled Shader bundle, shows the download size.
+
+- **Download (A)** fetches the pack from the `shader-packs` release on GitHub and shows progress; **Cancel (B)** stops it. The game uses the file only if its size and SHA-256 match the published list and it fits the game; otherwise it compiles the shaders on your PC. Accepting avoids several minutes of shader compilation.
+- **Skip (B)** compiles the shaders on your PC. The choice is remembered until the shaders change, in `declined-downloads.txt` in the `shaders/` folder (see the [README's file list](../README.md#files-and-folders)). Closing the window without choosing asks again at the next start.
+
+Since v0.8.0, Vulkan (Windows, Linux) and Metal (macOS) read one pack, `portable_vk.lospv`, and DirectX 12 keeps `portable_dx12.lospd`. The new shader contract needs the new packs, so the first start after updating offers the download.
+
+When you are offline, or no pack is published for your version, the game compiles the shaders on your PC without asking. Later launches reuse the compiled shaders. The [pack reference](PORTABLE_SHADER_PACK.md#startup-download) lists the files and the checks.
+
 ## File locations
 
 | Layout | Default locations |
@@ -118,7 +166,8 @@ Press **F1** or **LB+RB** to open the Debug Menu; opening it pauses the game. It
 | Windows portable package; writable native Linux ELF directory | `save/`, `profile/`, `cache/`, `logs/`, `settings.ini` and `game-path.txt` beside the executable when launched normally. Imported data defaults to `game/`. |
 | AppImage; native Linux ELF in a read-only directory | Saves, profiles, cache and game data: `~/.local/share/lost-odyssey-recomp/`. Settings and game path: `~/.config/lost-odyssey-recomp/`. Logs: `~/.local/state/lost-odyssey-recomp/logs/`. |
 | Flatpak | Under `~/.var/app/io.github.freefrank.LostOdysseyRecomp/`: saves, profiles, cache and game files use `data/`; settings and game path use `config/lost-odyssey-recomp/`; logs use `.local/state/lost-odyssey-recomp/logs/`. |
-| macOS `.app` (experimental, built from source) | Saves, profiles, cache, game data, settings and game path: `~/Library/Application Support/LostOdysseyRecomp/`. Logs: `~/Library/Logs/LostOdysseyRecomp/logs/`. |
+| macOS `.app` (experimental) | Saves, profiles, cache, game data, settings and game path: `~/Library/Application Support/LostOdysseyRecomp/`. Logs: `~/Library/Logs/LostOdysseyRecomp/logs/`. |
+| Android APK (experimental) | Game data: `Android/data/io.github.freefrank.lostodyssey/files/game/` (copied by hand). App-private storage `files/`: settings in `config/`, saves, profiles, shader pack and cache beside them, logs in `state/logs/`, GPU driver packages in `gpu_driver/`. |
 
 F1 render captures go to `captures/` and mods to `mods/`. In a portable layout both sit beside the executable. Otherwise captures use the settings folder and mods the data folder. The [README](../README.md#files-and-folders) lists every file and folder and the [command-line options](../README.md#command-line-options).
 
@@ -128,7 +177,7 @@ Linux uses portable storage when the actual ELF directory is writable. Otherwise
 
 ## Updating and keeping user data
 
-Formal release packages can check GitHub for a newer release at startup. Disable automatic checks if you prefer manual updates; an offline or failed check does not block launching. Standalone Flatpak bundles are installed manually because they do not use an OSTree remote.
+Formal release packages can check GitHub for a newer release at startup. Disable automatic checks if you prefer manual updates; an offline or failed check does not block launching. Standalone Flatpak bundles are installed manually because they do not use an OSTree remote. On macOS the check only offers to open the release page; replace the app in Applications with the copy from the new disk image.
 
 Keep these when updating:
 

@@ -2,6 +2,9 @@
 #include <stdafx.h>
 #include <hid/hid.h>
 #include <hid/controller_prompts.h>
+#if LO_PLATFORM_ANDROID
+#include <hid/android_touch.h>
+#endif
 #include <debug/menu_overlay.h>
 #include <SDL.h>
 #include <condition_variable>
@@ -105,6 +108,9 @@ int main()
         return state.Gamepad;
     };
     sample(); // consume added events
+#if LO_PLATFORM_ANDROID
+    Check(!hid::HasConnectedController(), "SDL virtual pads do not trigger physical-controller hiding");
+#endif
     Check(!hid::UsesPlayStationPrompts(), "virtual non-PS controller retains regular prompts");
     SDL_JoystickSetVirtualButton(a, SDL_CONTROLLER_BUTTON_A, 1);
     Check(sample().wButtons & XAMINPUT_GAMEPAD_A, "first controller A");
@@ -135,6 +141,48 @@ int main()
     Check(sample().bRightTrigger == 255, "keyboard trigger");
     hid::ClearKeyboardState();
     Check(sample().bRightTrigger == 0, "focus loss releases keyboard");
+
+#if LO_PLATFORM_ANDROID
+    SDL_JoystickSetVirtualButton(a, SDL_CONTROLLER_BUTTON_A, 1);
+    SDL_JoystickSetVirtualAxis(b, SDL_CONTROLLER_AXIS_LEFTX, 20000);
+    SDL_JoystickSetVirtualAxis(a, SDL_CONTROLLER_AXIS_RIGHTX, 16000);
+    SDL_JoystickSetVirtualAxis(b, SDL_CONTROLLER_AXIS_TRIGGERLEFT, 28000);
+    SDL_JoystickSetVirtualAxis(a, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, 14000);
+    hid::android_touch::Update(XAMINPUT_GAMEPAD_B, 160, 210, 1000, 0, 25000, 0);
+    state = sample();
+    auto controllerTrigger = [](SDL_Joystick* joystick, SDL_GameControllerAxis axis) {
+        auto* controller = SDL_GameControllerFromInstanceID(SDL_JoystickInstanceID(joystick));
+        Check(controller != nullptr, "find virtual game controller");
+        return uint8_t(std::max(0, int(SDL_GameControllerGetAxis(controller, axis))) >> 7);
+    };
+    const auto controllerLeftTrigger = controllerTrigger(b, SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+    const auto controllerRightTrigger = controllerTrigger(a, SDL_CONTROLLER_AXIS_TRIGGERRIGHT);
+    Check(controllerLeftTrigger > 160 && controllerRightTrigger < 210,
+          "controller and touch trigger strength setup");
+    Check((state.wButtons & (XAMINPUT_GAMEPAD_A | XAMINPUT_GAMEPAD_B)) ==
+          (XAMINPUT_GAMEPAD_A | XAMINPUT_GAMEPAD_B), "SDL and touch buttons merge");
+    Check(state.bLeftTrigger == controllerLeftTrigger && state.bRightTrigger == 210,
+          "each trigger keeps its stronger source");
+    Check(state.sThumbLX == 20000 && state.sThumbRX == 25000,
+          "quiet touch stick preserves SDL; active touch stick wins");
+    hid::android_touch::Update(XAMINPUT_GAMEPAD_B, 160, 210, 26000, 0, 1000, 0);
+    state = sample();
+    Check(state.sThumbLX == 26000 && state.sThumbRX == 16000,
+          "stick selection follows the active source independently");
+    hid::android_touch::Clear();
+    state = sample();
+    Check((state.wButtons & XAMINPUT_GAMEPAD_A) && !(state.wButtons & XAMINPUT_GAMEPAD_B),
+          "clearing touch leaves SDL button held");
+    Check(state.bLeftTrigger == controllerLeftTrigger && state.bRightTrigger == controllerRightTrigger &&
+          state.sThumbLX == 20000 && state.sThumbRX == 16000,
+          "clearing touch leaves SDL triggers and sticks held");
+    SDL_JoystickSetVirtualButton(a, SDL_CONTROLLER_BUTTON_A, 0);
+    SDL_JoystickSetVirtualAxis(b, SDL_CONTROLLER_AXIS_LEFTX, 0);
+    SDL_JoystickSetVirtualAxis(a, SDL_CONTROLLER_AXIS_RIGHTX, 0);
+    SDL_JoystickSetVirtualAxis(b, SDL_CONTROLLER_AXIS_TRIGGERLEFT, -32768);
+    SDL_JoystickSetVirtualAxis(a, SDL_CONTROLLER_AXIS_TRIGGERRIGHT, -32768);
+    sample();
+#endif
 
     g_overlayVisible = true;
     g_settingsFilterCalls = 0;

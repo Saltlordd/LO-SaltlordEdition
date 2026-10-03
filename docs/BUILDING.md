@@ -131,7 +131,9 @@ out/build/linux-clang/LostOdysseyRecomp/LostOdysseyRecomp
 
 ### DXC shared library on Linux
 
-CMake automatically copies the Linux DXC shared library from `tools/XenosRecomp/thirdparty/dxc-bin/lib/x64/libdxcompiler.so` into the output folder next to the `LostOdysseyRecomp` ELF during build. If you need a custom DXC location, set the `LO_DXC_PATH` environment variable before running.
+CMake selects the bundled Linux DXC shared library by target architecture: `lib/x64/libdxcompiler.so` for x86-64 and `lib/arm64/libdxcompiler.so` for AArch64. If you need a custom DXC location, set the `LO_DXC_PATH` environment variable before running.
+
+For the experimental Linux AArch64 cross-build path, including building an ARM64 `libdxcompiler.so` and combining live DXC fallback with the portable Vulkan shader pack, see [Linux AArch64 build notes](LINUX_ARM64.md).
 
 ### Packaging AppImage
 
@@ -215,11 +217,11 @@ Standalone bundles installed directly from `.flatpak` files do not configure an 
 
 ## Building on macOS
 
-Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). DLSS, FSR and frame generation are rejected at configure time on macOS. This branch has no published Mac package, and CI cannot link the complete runtime without private game data.
+Experimental, Apple Silicon only (arm64). The runtime renders through plume's Metal backend; shaders are compiled to SPIR-V by DXC as on Vulkan and translated to MSL at runtime with SPIRV-Cross (`thirdparty/SPIRV-Cross`). CMake rejects the DLSS, FSR and Streamline options (`LO_ENABLE_DLSS`, `LO_ENABLE_FSR`, `LO_ENABLE_STREAMLINE_FG`) and the Windows-only DLSS and FSR frame-generation adapters at configure time on macOS. MetalFX frame generation (fixed 2×) is built by default (`LO_ENABLE_METALFX_FG`): its MetalFX calls compile only with the macOS 26 SDK, it needs macOS 26 and a supported GPU at run time, and it is experimental and has not been run on Mac hardware ([technical note](notes/vulkan-fg-fsr4-metalfx.md#metalfx-fg-on-the-existing-macos-port)). v0.7.35 is the first release with a macOS package, followed by v0.8.0 and v0.8.5: an ad-hoc signed disk image that is not notarized and is built on a Mac ([macOS releases](MACOS_RELEASE.md)). CI cannot link the complete runtime without private game data.
 
 ### Prerequisites
 
-- macOS 14 or later on Apple Silicon
+- macOS 15 or later on Apple Silicon
 - Xcode (Apple Clang and the Metal toolchain; set `DEVELOPER_DIR` to select a specific Xcode)
 - CMake 3.28+ and Ninja (`brew install cmake ninja`)
 - Python 3.11+
@@ -250,7 +252,7 @@ cmake -S . -B out/build/macos-gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 cmake --build out/build/macos-gpu --target LostOdysseyRecomp
 ```
 
-The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 14.0; hardware validation is recorded separately in [development status](STATUS.md).
+The build copies the universal `libdxcompiler.dylib` from `tools/XenosRecomp/thirdparty/dxc-bin` beside the executable. By default, macOS builds compile pinned zstd sources with the same deployment target. To use an installed static zstd, set `LO_PACK_FETCH_ZSTD=OFF` and check that it supports the deployment target. The target is macOS 15.0, the version the bundled `libdxcompiler.dylib` is built for; configuring a build directory that cached an older target raises it to 15.0 ([details](MACOS_RELEASE.md#minimum-macos-version)). Hardware validation is recorded separately in [development status](STATUS.md).
 
 ### Run
 
@@ -264,10 +266,13 @@ A writable build folder uses the portable layout (settings, saves, cache and log
 ### Package
 
 ```bash
-python3 -B tools/package_macos.py   # out/releases/LostOdysseyRecomp-macos-arm64-<tag>.zip
+python3 -B tools/package_macos.py         # out/releases/LostOdysseyRecomp-macos-arm64-v<version>-<commit>-dev.zip
+python3 -B tools/package_macos.py --dmg   # the same name ending in .dmg
 ```
 
-The `.app` is ad-hoc signed and runs on the building Mac; distribution would need a Developer ID signature and notarization.
+`--dmg` writes a compressed disk image that holds `LostOdysseyRecomp.app` and a link to `/Applications`, instead of the ZIP. Without `--identity` the `.app` is ad-hoc signed and runs on the building Mac. macOS blocks the first launch of a downloaded app that is not notarized until the player approves it ([steps](INSTALLING.md#macos)); a Developer ID signature with notarization would remove that step ([signed release workflow](MACOS_RELEASE.md#signed-release-workflow)).
+
+v0.7.35, v0.8.0 and v0.8.5 ship an ad-hoc signed, not notarized disk image. It is built on a Mac and uploaded to the release by hand, because CI cannot link the runtime without game data; the release workflow's publish step accepts it as one optional asset next to the packages built by CI (Windows ZIP, AppImage, Flatpak and, from v0.8.5, the Android APK). [macOS releases](MACOS_RELEASE.md#disk-image-v085) has the release command, the asset name the in-game updater looks for and the validation boundary.
 
 ## Launch with a consistent working directory
 

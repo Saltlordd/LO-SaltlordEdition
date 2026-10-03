@@ -20,7 +20,11 @@ param(
     [switch]$Background,
     [switch]$CaptureScreenshots,
     [string]$ValidationLayerDirectory,
-    [string]$InputRequestPath
+    [string]$InputRequestPath,
+    # Extra settings.ini keys for the isolated copy, e.g. @{hdr=1; antialiasing=0}.
+    [hashtable]$SettingsOverrides = @{},
+    # Extra child environment, applied after the LO_* strip, e.g. @{LO_HDR_FG='1'}.
+    [hashtable]$ExtraEnvironment = @{}
 )
 # ACTIVE GAME DRIVER: isolated profile/save/config copies, optional hidden gameplay,
 # muted audio, bounded automated input, then closes only its own game process.
@@ -55,6 +59,7 @@ $overrides = @{}
 if ($Backend -ne 'Baseline') { $overrides['graphics_backend'] = $(if ($Backend -eq 'D3D12') { 0 } else { 1 }) }
 if ($Upscaler -ne 'Baseline') { $overrides['upscaler'] = @{Off=0; Dlss=1; Fsr=2}[$Upscaler] }
 if ($Quality -ge 0) { $overrides['dlss_quality'] = $Quality; $overrides['fsr_quality'] = $Quality }
+foreach ($key in $SettingsOverrides.Keys) { $overrides[$key] = $SettingsOverrides[$key] }
 foreach ($entry in $overrides.GetEnumerator()) {
     $pattern = '(?m)^' + [regex]::Escape($entry.Key) + '=.*$'
     $line = $entry.Key + '=' + $entry.Value
@@ -85,6 +90,7 @@ foreach ($name in @($start.Environment.Keys)) {
         $start.Environment.Remove($name) | Out-Null
     }
 }
+foreach ($key in $ExtraEnvironment.Keys) { $start.Environment[$key] = [string]$ExtraEnvironment[$key] }
 $start.ArgumentList.Add('--game'); $start.ArgumentList.Add($game); $start.ArgumentList.Add('--quiet-kernel')
 if ($FgProvider -ne 'Settings') { $start.Environment['LO_DLSS_FG'] = $(if ($DisableFg) { '0' } else { '1' }) }
 if ($FgProvider -notin @('Settings','Legacy')) {
@@ -97,6 +103,8 @@ if ($CaptureMode -eq 'Diagnostic') { $start.Environment['LO_MV_LOG'] = '1' }
 if ($DisableObjectMotion) { $start.Environment['LO_MV_REPLAY'] = '0' }
 if ($DisableHybridMotion) { $start.Environment['LO_SR_HYBRID_MV'] = '0' }
 $start.Environment['LO_AUDIO_MUTE'] = '1'
+# Foreground runs must not stop at the startup shader-pack offer.
+$start.Environment['LO_SHADER_PACK_DOWNLOAD'] = '0'
 if ($validationLayer) {
     $start.Environment['VK_LAYER_PATH'] = $validationLayer
     $start.Environment['VK_INSTANCE_LAYERS'] = 'VK_LAYER_KHRONOS_validation'

@@ -21,7 +21,7 @@
 #include <vector>
 extern char **environ;
 #endif
-#if defined(__linux__) && !defined(_WIN32)
+#if defined(__linux__) && !defined(_WIN32) && !LO_PLATFORM_ANDROID
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
@@ -67,6 +67,12 @@ inline std::atomic<State> state{State::Idle};
 inline bool Required(const Config &before, const Config &after)
 {
     return before.gameLanguage != after.gameLanguage || before.graphicsBackend != after.graphicsBackend ||
+           before.hdr != after.hdr ||
+           ((before.hdr || after.hdr) &&
+            (before.frameGenerationProvider != after.frameGenerationProvider ||
+             before.frameGenerationMode != after.frameGenerationMode ||
+             before.frameGenerationMultiplier != after.frameGenerationMultiplier ||
+             before.frameGenerationTargetFps != after.frameGenerationTargetFps)) ||
            (before.graphicsBackend == GraphicsBackend::D3D12 &&
             before.frameGenerationProvider == framegen::Provider::Dlss &&
             after.frameGenerationProvider == framegen::Provider::Fsr);
@@ -254,7 +260,7 @@ inline ChildHandshake WaitForParentIfRestartChild()
 }
 #endif
 
-#if defined(__linux__) && !defined(_WIN32)
+#if defined(__linux__) && !defined(_WIN32) && !LO_PLATFORM_ANDROID
 // The parent keeps the pidfd until it sees the child's pre-init acknowledgement.
 // The child inherits only two designated descriptors; no PID reuse or polling a
 // process name is involved in deciding when it is safe to initialize the game.
@@ -616,6 +622,15 @@ inline ChildHandshake WaitForParentIfRestartChild(int argc, char *const argv[])
         close(ParentFd);
         return exited ? ChildHandshake::Waited : ChildHandshake::Invalid;
     }
+}
+#endif
+#if LO_PLATFORM_ANDROID
+// Android owns the process lifecycle. Never spawn /system/bin/app_process as
+// if it were the game executable; keep the running app on launch failure.
+inline bool LaunchWaitingChild(uint32_t = 10000)
+{
+    ReportLaunchFailure();
+    return false;
 }
 #endif
 } // namespace settings::restart

@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+apply from: '../sdl-java.gradle'
+
+android {
+    namespace 'io.github.freefrank.lostodyssey.probe'
+    compileSdk 35
+    buildToolsVersion '35.0.0'
+    ndkVersion '28.2.13676358'
+
+    defaultConfig {
+        applicationId 'io.github.freefrank.lostodyssey.probe'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared'
+                targets 'main'
+            }
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path '../../../tools/android_probe/CMakeLists.txt'
+            version '3.22.1'
+        }
+    }
+    // Compile a generated copy of the pinned SDL Java shim with local Android fixes.
+    sourceSets.main.java.srcDir layout.buildDirectory.dir('generated/sdl-java')
+    lint { baseline = file('lint-baseline.xml') }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    packaging {
+        jniLibs { useLegacyPackaging = false }
+    }
+    buildTypes {
+        release { minifyEnabled false }
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
+}

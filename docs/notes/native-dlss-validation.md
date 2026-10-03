@@ -185,6 +185,14 @@ cmake --build out/build/native-dlss-standalone-linux --target LoNativeDlssProbe 
 ```
 *Note: Linux native verification was skipped in P0 because no native Linux GPU test environment was available.*
 
+*Package layout (#116, 2026-10-01):* AppImage and Flatpak packages ship the SR
+runtime as `bin/ngx/libnvidia-ngx-dlss.so.310.9.1`, byte-identical to the SDK
+file above, without aliases. Earlier packages kept it directly in `usr/bin`,
+where linuxdeploy rewrote its RPATH and so invalidated NVIDIA's signature, and
+the game passed its working directory to NGX instead of its own folder.
+`tools/package_appimage.py` now fails when the copy in the extracted final
+AppImage differs from the build's copy of the SDK file.
+
 ## 4. Verification Evidence and Test Results
 
 Evidence is preserved in `.cache/evidence/native-dlss-p0.json`.

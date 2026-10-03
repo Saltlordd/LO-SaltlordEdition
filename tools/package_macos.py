@@ -1,4 +1,4 @@
-"""Package the macOS runtime as a signed .app bundle in a ZIP.
+"""Package the macOS runtime as a signed .app bundle in a ZIP or a disk image.
 
 Without --identity the bundle is ad-hoc signed and runs on the building Mac.
 With a Developer ID identity it is signed with the hardened runtime, and
@@ -15,12 +15,12 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from portable_shader_pack_payload import stage_portable_shader_pack
+from portable_shader_pack_payload import stage_shader_pack_license
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = "io.github.freefrank.LostOdysseyRecomp"
 ICON = ROOT / "packaging/linux/io.github.freefrank.LostOdysseyRecomp.png"
-MINIMUM_MACOS = "14.0"
+MINIMUM_MACOS = "15.0"
 
 
 def git(*args):
@@ -38,7 +38,7 @@ def asset_tag(version, requested, release):
     if requested:
         return requested
     if release:
-        # The updater looks for LostOdysseyRecomp-macos-arm64-<release tag>.zip.
+        # The updater looks for LostOdysseyRecomp-macos-arm64-<release tag>.dmg.
         return f"v{version}"
     return f"v{version}-{git('rev-parse', 'HEAD')[:8]}-dev"
 
@@ -83,6 +83,7 @@ def stage_licenses(licenses):
     licenses.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "LICENSE", licenses / "LostOdysseyRecomp.txt")
     shutil.copy2(ROOT / "thirdparty/miniz-UNLICENSE.txt", licenses / "miniz-UNLICENSE.txt")
+    shutil.copy2(ROOT / "thirdparty/licenses/XeGTAO.txt", licenses / "XeGTAO.txt")
     shutil.copy2(ROOT / "thirdparty/nlohmann-json-LICENSE.txt", licenses / "nlohmann-json-LICENSE.txt")
     shutil.copy2(ROOT / "thirdparty/lzokay/LICENSE", licenses / "lzokay-LICENSE.txt")
     shutil.copy2(ROOT / "LostOdysseyRecomp/install/FONT-PROVENANCE.md", licenses / "FONT-PROVENANCE.md")
@@ -124,6 +125,8 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "out/releases")
     parser.add_argument("--version", default="")
     parser.add_argument("--dry-layout", action="store_true", help="Create and list the bundle without zipping")
+    parser.add_argument("--dmg", action="store_true",
+                        help="Write a disk image with the app and an Applications link instead of a ZIP")
     parser.add_argument("--release", action="store_true",
                         help="Name the asset v<version> (the updater's name) instead of a -dev build")
     parser.add_argument("--identity", default="",
@@ -160,7 +163,7 @@ def main():
         make_icns(ICON, resources / "LostOdysseyRecomp.icns", temporary)
         licenses = resources / "licenses"
         stage_licenses(licenses)
-        stage_portable_shader_pack(runtime.parent, executables, licenses)
+        stage_shader_pack_license(licenses)
         sign(bundle, args.identity)
         if args.notarize:
             notarize(bundle, args.notarize, temporary)
@@ -169,13 +172,24 @@ def main():
             for path in sorted(bundle.rglob("*")):
                 if path.is_file():
                     print(path.relative_to(bundle.parent).as_posix())
-            print(f"SelectAsset: {name}.zip")
+            print(f"SelectAsset: {name}.dmg")
             return
-        destination = output / f"{name}.zip"
+        destination = output / f"{name}{'.dmg' if args.dmg else '.zip'}"
         if destination.exists():
             raise SystemExit(f"Output already exists: {destination}")
-        # ditto keeps the bundle's signature, permissions and extended attributes.
-        subprocess.run(["ditto", "-c", "-k", "--keepParent", str(bundle), str(destination)], check=True)
+        if args.dmg:
+            # Drag-to-install layout: the app next to a link to /Applications.
+            image_root = Path(temporary) / "image"
+            image_root.mkdir()
+            shutil.move(str(bundle), image_root / bundle.name)
+            (image_root / "Applications").symlink_to("/Applications")
+            subprocess.run(["hdiutil", "create", "-volname", "Lost Odyssey Recomp", "-srcfolder", str(image_root),
+                            "-fs", "HFS+", "-format", "UDZO", "-ov", str(destination)], check=True)
+            if args.identity:
+                subprocess.run(["codesign", "--sign", args.identity, "--timestamp", str(destination)], check=True)
+        else:
+            # ditto keeps the bundle's signature, permissions and extended attributes.
+            subprocess.run(["ditto", "-c", "-k", "--keepParent", str(bundle), str(destination)], check=True)
         print(f"SelectAsset: {destination.name}")
 
 

@@ -63,6 +63,8 @@ int wmain(int argc, wchar_t** argv)
     Check(GetModuleFileNameW(nullptr, executable, DWORD(std::size(executable))) != 0, "own executable path");
     Check(!std::filesystem::exists("settings.ini"), "run in empty isolated directory");
     Check(!settings::GetConfig().saveAnywhere && !debug_menu::SaveAnywhereEnabled(), "missing file defaults off");
+    Check(settings::GetConfig().shadowResolution == 1 && settings::GetConfig().ambientOcclusion == 0,
+        "missing shadow and AO keys retain original rendering");
     CheckFreshProcess(executable, "0");
 
     Write("width=1600\n");
@@ -70,6 +72,23 @@ int wmain(int argc, wchar_t** argv)
     CheckFreshProcess(executable, "0");
     Write("save_anywhere=2\n");
     Check(!settings::Read().saveAnywhere, "invalid key defaults off");
+    Write("no_random_encounters=1\n");
+    Check(settings::Read().noRandomEncounters, "no random encounters read from INI");
+    Write("no_random_encounters=2\n");
+    Check(!settings::Read().noRandomEncounters, "invalid no random encounters value defaults off");
+
+    Write("shadow_resolution=2\nambient_occlusion=1\n");
+    Check(settings::Read().shadowResolution == 2 && settings::Read().ambientOcclusion == 1,
+        "shadow 2x and SSAO read from INI");
+    Write("shadow_resolution=4\nambient_occlusion=2\n");
+    Check(settings::Read().shadowResolution == 4 && settings::Read().ambientOcclusion == 2,
+        "shadow 4x and GTAO read from INI");
+    Write("shadow_resolution=3\nambient_occlusion=3\n");
+    Check(settings::Read().shadowResolution == 1 && settings::Read().ambientOcclusion == 0,
+        "unsupported shadow and AO values return to defaults");
+    Write("shadow_resolution=-1\nambient_occlusion=invalid\n");
+    Check(settings::Read().shadowResolution == 1 && settings::Read().ambientOcclusion == 0,
+        "malformed shadow and AO values return to defaults");
 
     debug_menu::SetSaveAnywhereEnabled(true);
     Check(debug_menu::SaveAnywhereEnabled() && settings::GetConfig().saveAnywhere,
@@ -90,10 +109,19 @@ int wmain(int argc, wchar_t** argv)
     CheckFreshProcess(executable, "0");
 
     debug_menu::SetSaveAnywhereEnabled(true);
+    Check(settings::SaveNoRandomEncounters(true) && settings::GetConfig().noRandomEncounters &&
+          Contents().find("no_random_encounters=1\n") != std::string::npos,
+        "no random encounters persists");
     settings::Config graphics = settings::GetConfig();
     graphics.width = 1800;
+    graphics.shadowResolution = 4;
+    graphics.ambientOcclusion = 2;
     Check(settings::SaveConfig(graphics), "save ordinary settings");
+    Check(settings::Read().shadowResolution == 4 && settings::Read().ambientOcclusion == 2 &&
+          Contents().find("shadow_resolution=4\nambient_occlusion=2\n") != std::string::npos,
+        "shadow and AO choices roundtrip through stable INI keys");
     Check(settings::Read().saveAnywhere, "ordinary save retains debug-only preference");
+    Check(settings::Read().noRandomEncounters, "ordinary save retains no random encounters");
     Check(settings::SaveDebugLanguage(1) && settings::Read().saveAnywhere,
         "debug language save retains save-anywhere preference");
     for (const auto fps : gpu::frame_rate::kNativeRates)
@@ -130,6 +158,35 @@ int wmain(int argc, wchar_t** argv)
           malformedFg.frameGenerationMode == framegen::Mode::Fixed &&
           malformedFg.frameGenerationMultiplier == 2 && malformedFg.frameGenerationTargetFps == 0,
         "malformed frame-generation settings use safe defaults");
+    Write("hdr=2\nhdr_paper_white_nits=-1\nhdr_peak_nits=garbage\n");
+    const auto malformedHdr = settings::Read();
+    Check(!malformedHdr.hdr && malformedHdr.hdrPaperWhiteNits == 203 && malformedHdr.hdrPeakNits == 1000 &&
+          malformedHdr.hdrPeakAutomatic,
+        "invalid HDR values retain safe defaults");
+    Write("hdr=1\nhdr_paper_white_nits=1\nhdr_peak_nits=4294967295\n");
+    const auto boundedHdr = settings::Read();
+    Check(boundedHdr.hdr && boundedHdr.hdrPaperWhiteNits == 80 && boundedHdr.hdrPeakNits == 10000 &&
+          !boundedHdr.hdrPeakAutomatic, "legacy HDR peak migrates as manual and is bounded on read");
+    settings::Config hdr = settings::GetConfig();
+    hdr.hdr = true;
+    hdr.hdrPaperWhiteNits = 225;
+    hdr.hdrPeakAutomatic = false;
+    hdr.hdrPeakNits = 1200;
+    Check(settings::SaveConfig(hdr), "save HDR preferences");
+    Check(settings::Read().hdr && settings::Read().hdrPaperWhiteNits == 225 &&
+          !settings::Read().hdrPeakAutomatic && settings::Read().hdrPeakNits == 1200 &&
+          Contents().find("hdr=1\nhdr_paper_white_nits=225\nhdr_peak_auto=0\nhdr_peak_nits=1200\n") != std::string::npos,
+        "HDR preferences roundtrip with stable keys");
+    hdr.hdrPeakAutomatic = true;
+    Check(settings::SaveConfig(hdr) && settings::Read().hdrPeakAutomatic && settings::Read().hdrPeakNits == 1200,
+        "automatic peak retains the manual value for later selection");
+    settings::Config previewHdr = hdr;
+    previewHdr.hdrPaperWhiteNits = 260;
+    settings::PreviewConfig(previewHdr);
+    Check(settings::GetConfig().hdrPaperWhiteNits == 260 && settings::Read().hdrPaperWhiteNits == 225,
+        "HDR preview does not commit to disk");
+    Check(settings::SaveDebugLanguage(0) && settings::Read().hdrPaperWhiteNits == 225,
+        "unrelated settings save preserves persisted HDR values over a preview");
     std::puts("PASS isolated save-anywhere toggle, INI roundtrip and fresh-process restore");
     return 0;
 }

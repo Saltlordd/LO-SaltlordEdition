@@ -7,7 +7,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-#elif LO_PLATFORM_POSIX
+#elif LO_PLATFORM_POSIX && !LO_PLATFORM_ANDROID
 #include <cerrno>
 #include <fcntl.h>
 #include <spawn.h>
@@ -132,6 +132,12 @@ namespace os
                 std::error_code ignored;
                 std::filesystem::remove(temporary, ignored);
             }
+#elif LO_PLATFORM_ANDROID
+            // Captures remain as ordinary files in app storage. Android apps
+            // cannot rely on a desktop tar executable or spawn a helper.
+            try { if (prepare) prepare(result.directory); }
+            catch (...) { result.error = std::make_error_code(std::errc::io_error); return result; }
+            result.error = std::make_error_code(std::errc::operation_not_supported);
 #elif LO_PLATFORM_POSIX
             auto temporary = result.archive;
             temporary += ".partial";

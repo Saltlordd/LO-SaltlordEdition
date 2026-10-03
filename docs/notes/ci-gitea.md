@@ -3,8 +3,8 @@
 Since 2026-09-30 the four short Windows/Linux pull request checks below run on
 Gitea Actions at `git.zkx.ca`; GitHub queues were too slow for these short
 jobs. Windows and Linux release packaging followed on 2026-10-01 (see
-[Releases](#releases)). The GitHub copies of those workflows keep only
-`workflow_dispatch`, so they can still be started manually. The macOS arm64
+[Releases](#releases)). These four checks exist only on Gitea; their GitHub
+copies were removed on 2026-10-02. The macOS arm64
 workflow is an explicit exception: on `macos-26`, pushes to `main` and pull
 requests targeting `main` build libraries and tests without game data; it does
 not link the complete game runtime. Full ARM64 runtime and gameplay evidence
@@ -16,13 +16,13 @@ and issue triage stay on GitHub.
 | `fg-cpu-contracts.yml` | GPU-free FG contracts | Linux and Windows |
 | `fg-game-integration.yml` | clang-cl compile of the production renderer/video units, FG bridge link and input contract | Windows |
 | `reusable-fg.yml` | Shared FG core; DLSS, FSR and combined native adapters | Linux and Windows |
-| `review-regressions.yml` (from the 2026-09-30 project review) | Sanitizer regression suite | Linux |
+| `review-regressions.yml` (from the 2026-09-30 project review) | Sanitizer regression suite; updater AppImage restart test; AppImage and Flatpak packaging script tests | Linux |
+| `android-apk.yml` (pushes to `packaging/android`, `tools/android`, `thirdparty/libadrenotools`, or dispatch) | arm64 debug APK through `tools/android/ci_build.sh` (PPC code generation, Android DXC, NDK build, Gradle assemble + lint, runtime JVM tests); artifact `LostOdysseyRecomp-android-arm64-debug`. SDK/NDK, DXC, Gradle home and ccache persist on `LO_CI_CACHE`; signed with the project's debug keystore from build-inputs | Linux (privileged) |
 
 ## Running the checks
 
-Push the branch to the Gitea remote. Each workflow keeps the path filter of
-its GitHub original and runs on branch pushes, Gitea pull requests or a manual
-start. A newer push to the same branch cancels the older run.
+Push the branch to the Gitea remote. Each workflow has a path filter and runs
+on branch pushes, Gitea pull requests or a manual start. A newer push to the same branch cancels the older run.
 
 ```powershell
 git push zkx <branch>
@@ -73,6 +73,7 @@ git push zkx refs/tags/vX.Y.Z
 | Create draft release (before the builds, so a missing CHANGELOG section or tag fails early) | `docker-runner` |
 | FSR shader inputs, Windows build and ZIP | `win-t640` |
 | Linux build, AppImage and Flatpak | `docker-lo-release-privileged` |
+| Android arm64 APK (`tools/android/ci_build.sh`, same host code generation as Linux; release build type signed with the project's debug keystore from build-inputs, no release keystore by decision) | `docker-lo-release-privileged` |
 | Publish: upload the Gitea artifacts to the draft, verify the set, make it public and latest | `docker-runner` |
 
 The build jobs only produce Gitea artifacts. The publish job runs after both
@@ -80,6 +81,29 @@ platforms have built, downloads the three package artifacts and uploads the
 ones the release does not have yet, so a failed platform leaves the draft
 without a partial package set. Unlike the GitHub workflow, the build jobs do
 not upload to the release themselves.
+
+Packages carry no shader pack: the game downloads the one for its renderer
+from the `shader-packs` prerelease (PR #144, first shipped in v0.7.35). Between
+PR #127 and PR #144 both build jobs fetched a pinned Vulkan pack from the private
+build-inputs repository, passed it as `LO_PORTABLE_SHADER_PACK` and ran
+`LoShaderPackTool verify-runtime` against the private disc 1 image during the
+runtime build (build-only run 485 printed `runtime_compatibility_verified: true`
+on both). That fetch is gone. Instead the Linux job builds `LoShaderPackTool` and
+its "Check published shader packs" step runs
+`tools/release/publish_shader_packs.py --check` against the same image: a tagged
+release stops unless the published index lists a pack for each of the runtime's
+contracts, and a branch build only warns
+([procedure](../PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
+That was three contracts (Vulkan, DirectX 12 and Metal) in v0.7.35; since PR #152
+(shipped in v0.8.0) Metal and Android read the Vulkan pack, so a runtime has two:
+Vulkan and DirectX 12.
+
+The publish job's set check requires the CI packages (the three desktop
+packages, plus the Android APK from v0.8.5) and accepts at most
+one more asset, `LostOdysseyRecomp-macos-arm64-<tag>.dmg`. CI cannot link the
+Mac runtime without game data, so that disk image is built on a Mac and
+uploaded to the release by hand (for v0.7.35, to the draft before the publish
+job ran; see [macOS releases](../MACOS_RELEASE.md)).
 
 The Gitea job token cannot reach GitHub, so every GitHub operation uses
 `LO_GITHUB_TOKEN` with `GH_REPO` pinned to `freefrank/LostOdysseyRecomp`:
@@ -109,6 +133,53 @@ the first real GitHub write (draft creation, upload, publication) through
 rehearsal (run 55). A separate check of the published Windows ZIP found its
 SHA-256 equal to GitHub's digest and a manifest with version `v0.7.25`; see
 [STATUS](../STATUS.md#v0725-published--2026-10-01). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
+Second release, 2026-10-02: v0.7.35 (tag commit `95f2c89`) was built and
+published by [run 135](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/135)
+(API id 525), and all five jobs succeeded: create draft 0.2 min, FSR inputs
+1.8 min, Windows build and ZIP 7.9 min (`win-t640`), Linux AppImage and Flatpak
+10.4 min (privileged docker runner) and publish 1.0 min, which uploaded the
+three CI packages to the draft, verified the set and published it with
+`--latest`. About 13.5 minutes passed from the tag push to publication at
+2026-10-02T09:13:35Z (v0.7.25: about 19). The Linux job's "Check published
+shader packs" step printed the d3d12, metal and vulkan contracts and "The
+shader-packs index lists packs for all renderers of this runtime."; v0.7.35 is
+the first version release held to that check. The macOS disk image was already
+on the draft, uploaded by hand (GitHub dates the asset 09:01:25Z), and the set
+check accepted it as the one optional asset. The `shader-packs` prerelease did
+not change, and no game run was made with the packages; see
+[STATUS](../STATUS.md#v0735-published--2026-10-02). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
+Third release, 2026-10-03: v0.8.0 (tag commit `eddbb7d`) was built and published
+by [run 184](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/184)
+(API id 574), and all five jobs succeeded (UTC, read through the Gitea API on
+2026-10-03 at about 18:55 UTC): create draft 06:21:21-06:21:31, FSR inputs
+06:19:51-06:31:06, Windows build and ZIP 06:31:09-06:38:06, Linux AppImage and Flatpak 06:31:11-06:40:50 (privileged
+docker runner) and publish 06:40:51-06:41:52, which published at
+2026-10-03T06:41:51Z. About 22 minutes passed from the run start to publication.
+The workflow had no Android job then. The macOS disk image was uploaded to the
+draft by hand (GitHub dates the asset 06:22:26Z). The Android APK was added to the
+published release by hand afterwards (GitHub dates the asset 08:03:03Z). This
+record does not include the output of the run's "Check published shader packs"
+step. See [STATUS](../STATUS.md#v080-published--2026-10-03).
+
+Fourth release, 2026-10-03: v0.8.5 (tag commit `30a76ac`) was built and published
+by [run 212](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/212)
+(API id 602) and is the first release with an Android job (PRs #170 and #177). All
+six jobs succeeded (UTC, same read): create draft 18:26:07-18:26:17, FSR inputs
+18:23:40-18:35:00, Android APK 18:26:19-18:32:42 (privileged docker runner),
+Windows build and ZIP 18:35:01-18:42:02, Linux AppImage and Flatpak 18:35:03-18:44:18
+and publish 18:44:21-18:45:18, which uploaded the four CI packages, verified the
+set (the check now requires the APK) and published at 2026-10-03T18:45:17Z. About
+22 minutes passed from the run start to publication. The macOS disk image was
+uploaded to the draft by hand (GitHub dates the asset 18:26:44Z), before the
+publish job ran. The published `shader-packs` index already covered this runtime's
+contracts: `publish_shader_packs.py --check` passed on the Mac before the tag, and
+the release's Linux job, which makes the same check mandatory for a tag, succeeded
+(its step output was not read here). No game run was made with the packages; see
+[STATUS](../STATUS.md#v085-published--2026-10-03). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
 Differences from the GitHub release workflow:

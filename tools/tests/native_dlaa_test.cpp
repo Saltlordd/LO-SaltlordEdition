@@ -159,9 +159,9 @@ int main() {
             "missing optimal dimensions cannot be replaced with native output");
     }
 
-    for (auto drawable : std::array<resolution::Size, 7>{{
+    for (auto drawable : std::array<resolution::Size, 9>{{
             {1280, 720}, {1920, 1080}, {2560, 1440}, {3840, 2160},
-            {3440, 1440}, {1280, 800}, {1366, 768}}}) {
+            {3440, 1440}, {1280, 800}, {1366, 768}, {1280, 960}, {1440, 960}}}) {
         const auto output = ResolveOutputRegion(drawable);
         auto sizing = Sizing(output);
         auto input = Input(sizing, output);
@@ -172,7 +172,12 @@ int main() {
         Check(plan.effectiveAA == 0 && plan.legacyAA == 3, "no double AA, preserve requested fallback AA");
         Check(plan.dlssQuality == DlssQuality::Dlaa && plan.requestedUpscaler == Upscaler::Dlss, "DLAA selection survives planning");
         Check(plan.requestSignature == InputRequestSignature(input), "incoming and final signatures agree");
-        Check(plan.legacyHeight == 720 && plan.sizingRevision == 11, "legacy size and sizing revision preserved");
+        // The 720 fallback keeps its 16:9 width; taller outputs make it taller.
+        const auto legacy = resolution::ResolveInternalSize(720, output.width, output.height);
+        Check(plan.legacyWidth == legacy.width && plan.legacyHeight == legacy.height && plan.sizingRevision == 11,
+            "legacy size and sizing revision preserved");
+        Check(legacy.height == 720 || (drawable.height * 16 > drawable.width * 9 && legacy.width == 1280),
+            "the fallback widens or keeps the 1280-column 16:9 area");
         RoundTrip(plan);
         const auto repeat = planner.Begin(input);
         Check(repeat.geometryEpoch == plan.geometryEpoch, "stable DLAA must not reset every frame");
@@ -180,7 +185,7 @@ int main() {
         const auto presentation = ResolvePresentationDecision(&plan, true, 3, 1);
         Check(presentation.requestedAA == 0 && presentation.bypassAA, "completed DLAA bypasses presentation AA");
         if (drawable.height == 800)
-            Check(plan.output.y == 40 && plan.height == 720, "16:10 letterbox is outside DLAA content");
+            Check(plan.output.y == 0 && plan.height == 800, "DLAA fills the taller scene output");
     }
 
     const auto output = ResolveOutputRegion({2560, 1440});

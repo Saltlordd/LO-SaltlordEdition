@@ -235,9 +235,11 @@ int main()
         "same-extent new request gets a fresh epoch outside the renderer failed set");
     input.readback=false; input.quality=gpu::upscaling::DlssQuality::Balanced; const auto qualityChanged=producer.Begin(input);
     Require(qualityChanged.geometryEpoch!=fallback.geometryEpoch,"quality change receives a fresh geometry epoch");
-    const auto letterbox = gpu::upscaling::ResolveOutputRegion({1280, 800});
-    Require(letterbox.x == 0 && letterbox.y == 40 && letterbox.width == 1280 && letterbox.height == 720 &&
-        gpu::upscaling::ResolveOutputRegion({2560, 1080}).width == 2560, "output region excludes bars while preserving wide output");
+    for (const gpu::resolution::Size drawable : {gpu::resolution::Size{1280, 800}, {1600, 1200}, {1800, 1200}, {2560, 1080}}) {
+        const auto output = gpu::upscaling::ResolveOutputRegion(drawable);
+        Require(output.x == 0 && output.y == 0 && output.width == drawable.width && output.height == drawable.height,
+            "scene output uses the full drawable at tall and wide aspects");
+    }
     gpu::upscaling::SizingCache cache;
     const gpu::upscaling::SizingKey key{3, 1280, 720};
     Require(cache.LookupOrRequestSizing(key).modes[0].state == gpu::upscaling::SizingState::Pending && cache.TakeSizingRequest() == key, "sizing miss requests exact output without waiting");

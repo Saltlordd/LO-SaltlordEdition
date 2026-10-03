@@ -1303,7 +1303,7 @@
         "Evidence": "Public latest v0.5.0 Release 385591785, non-draft/non-prerelease, published 2026-09-09T22:18:20Z from main/source 0.5.0/tag f78f64fea8707b1447ada044abec2e0da4e6e9bc. LostOdysseyRecomp-windows-x64-v0.5.0.zip: 44,137,866 bytes, SHA256 1767dd1ab6cf675e48f28e00c64c8ce48b2f6dabd9706a3ee699f8039d60387b; anonymous download matched. Publication does not establish real-scene verification of the formal binary, player acceptance, whole-game/cross-GPU coverage, unknown-shader coverage, or c230 enemy-death repair."
       },
       "title": "Prepare v0.5.0 backend packages and documentation",
-      "body_sha256": "fa280da894321f4db778bb3059c1bef149f5db1d2285df5db5e78a2d1904dde2"
+      "body_sha256": "0e500f62c2c5fde164ae47b15f2141f56683ef3cd67905d33c0dd05d0b19420c"
     },
     "council-reporter-validation": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56ecA",
@@ -1640,7 +1640,7 @@
         "Status": "Paused",
         "Delivery": "Deferred",
         "Source key": "frame-generation-research",
-        "Release": "v0.8.0",
+        "Release": "v0.9.0",
         "Evidence": "Historical broad frame-generation research is deferred. Active delivered work is tracked by the D3D12 FSR/DLSS FG records; active Vulkan work remains in P0/P3/P4. This item stays as deferred backlog rather than an active Todo."
       },
       "title": "Evaluate frame generation integration",
@@ -1651,37 +1651,42 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Paused",
-        "Delivery": "Deferred",
+        "Status": "In Progress",
+        "Delivery": "Released",
         "Source key": "hdr-output-tonemapping",
-        "Evidence": "Open Issue #90 requests HDR and save states. The maintainer said HDR is for a future release, without a version, implementation or validation evidence. HDR remains deferred backlog; save states are separately unplanned."
+        "Evidence": "Experimental option in v0.7.35 (PR #145; Windows D3D12 and Vulkan, Linux Vulkan, macOS Metal). v0.8.0 (published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted) adds PRs #159 and #162: HDR with FXAA/SMAA/TAA, DLSS/FSR/MetalFX and Vulkan DLSS frame generation (D3D12 and Metal frame generation keep an SDR swap chain). RTX 5080, Vulkan, 1440p: AA modes ran 70 s without errors; presented-frame readback rose from 204-205 to 841.8 (DLAA), 886.4 (DLSS Quality) and 885.0 (FSR Quality) nits; Metal and Android only from logs and readbacks. On #90 (closed 2026-10-03T06:50Z, save states postponed) the maintainer wrote that HDR passed on their Mac, Windows and Android hardware with D3D12 and Vulkan, without recording display or settings. A reporter's question there about AA, upscaling and frame generation has no recorded answer; #179 (white levels) is open and unreviewed. Open: scene/exposure contract, UI and movies, panel measurements, AO with AA or upscaling.",
+        "Release": "v0.7.35"
       },
       "title": "Add HDR output and tone mapping",
-      "body_sha256": "4b3e92b7a29ef6a8843dfcb7fcaa89c607759debea448999875de4e31605919c"
+      "body_sha256": "c689c0d96adba7b80dfb5927ca5df15967d61721b20aadcd1c316703f2b7158c"
     },
     "higher-resolution-shadows": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56e7o",
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Source key": "higher-resolution-shadows"
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Source key": "higher-resolution-shadows",
+        "Release": "v0.8.0",
+        "Evidence": "Shadow resolution setting (1x, 2x, 4x; default 1x) shipped in v0.8.0 (PR #155, merged 2026-10-02T21:44Z; published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). PR checks: LoShadowResolutionTest (3,337 checks) and LoMenuFlowTest passed; at default settings on the Uhra save at 4K, D3D12 and Vulkan differed from main in about 1% of pixels, as main does against itself; 4x shadows rendered the #118 save correctly on both; the M1 Max new-game-battle scenario passed at default and at 4x; the TB321FU rendered the opening battle at 4x. Frame rates were not benchmarked (another process was compiling) and the VRAM cost is not recorded. The maintainer closed #112 with 'Done!' on 2026-10-03; no reporter confirmation."
       },
       "title": "Add higher-resolution shadow rendering",
-      "body_sha256": "476285f36e564ea1ebd87da93f198048877ac3845783ee31249a266a0e26f3bf"
+      "body_sha256": "1dbd8090560c9d8f724f84f3eebd04a9adb5ff658adeabf97482099f291c7177"
     },
     "ssao-and-reshade-depth": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56e8s",
       "fields": {
         "Kind": "Research",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Source key": "ssao-and-reshade-depth"
+        "Status": "In Progress",
+        "Delivery": "Released",
+        "Source key": "ssao-and-reshade-depth",
+        "Release": "v0.8.0",
+        "Evidence": "Experimental ambient occlusion (Off, SSAO, GTAO; default Off) shipped in v0.8.0 (PR #155, merged 2026-10-02T21:44Z; published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). It uses the current frame's resolved depth and colour, rebuilds normals from depth and skips a scene whose inputs look unreliable. No ReShade depth-exposure work is recorded: that half stays open. Checks: LoAmbientOcclusionGpuTest (D3D12, synthetic) and LoDepthClearGpuTest passed; GTAO rendered the #118 save on D3D12 and Vulkan, the M1 Max scenario and the TB321FU opening battle. AO with anti-aliasing or upscaling, frame rates and scene-by-scene tuning (the 40-unit radius is uncalibrated) are not covered. The maintainer closed #112 with 'Done!' on 2026-10-03; no reporter confirmation."
       },
       "title": "Evaluate SSAO and clean depth access",
-      "body_sha256": "94ed6d68e571db358e95c5431c58e583912961d1dd2b75fdd33bf48932f6a1b3"
+      "body_sha256": "e228719eccd7eaafa343e0a7de1179a868781f1e01b4c247b296aa81c24069f3"
     },
     "linux-steamdeck-platform": {
       "id": "PVTI_lAHOAAsUY84Biy1azg56e-A",
@@ -2293,14 +2298,14 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Paused",
-        "Delivery": "Deferred",
+        "Status": "In Progress",
+        "Delivery": "Released",
         "Source key": "native-macos-platform",
-        "Release": "v0.8.0",
-        "Evidence": "Open Issue #96 discusses an external Apple Silicon/Metal fork and focused upstream PRs. Maintainer plans review after renderer work and may merge selected PRs, but the main repository has no accepted macOS platform implementation, package, validation or release. Keep the platform target deferred."
+        "Release": "v0.7.35",
+        "Evidence": "First macOS package shipped in v0.7.35, ahead of the v0.8.0 plan; v0.8.0 and v0.8.5 shipped newer disk images (v0.8.5: 60,437,493 bytes, SHA-256 a6bbe600...; experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand, not by CI; not accepted). The minimum is macOS 15 since PR #147 (v0.8.0). Validated only on one M1 Max (macOS 26.6.2): the opening new-game battle with Metal and the downloaded Metal shader pack; the v0.8.5 image passed hdiutil verify and an ad-hoc codesign check but was not installed from a download. Long play, broader scenes, other Macs, performance and Metal HDR or MetalFX on Mac displays are open. Maintainer decision 2026-10-03: packages stay ad-hoc signed, no Developer ID signing or notarization. Issue #96 closed 2026-10-01."
       },
       "title": "Establish a native macOS (AArch64 / Apple Silicon) port",
-      "body_sha256": "26353e7e690216c54a84701bd3b77318537dcd7aa8de26b9a5401389204da1d8"
+      "body_sha256": "c72a5c8f14d5268350e392e0f97d3cb07512cfd08640b36cd1238ea382263c3e"
     },
     "intermittent-fullscreen-underscan": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6Ku0U",
@@ -2344,7 +2349,7 @@
         "Target date": "2026-09-15"
       },
       "title": "Diagnose observed 4K runtime performance",
-      "body_sha256": "d99cf368fac9071d92e215567eab8ab3d9fcf7393024af2a250d397ac8c2b1b6"
+      "body_sha256": "b75a9438b6a529f8b48c869c95fedc16081b06430849961b31ee7e31fd57814b"
     },
     "4k-taa-ground-shadow-diagnosis": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6K5Kg",
@@ -2688,7 +2693,7 @@
         "Area": "Temporal rendering",
         "Status": "In Progress",
         "Delivery": "Validated",
-        "Release": "v0.8.0",
+        "Release": "v0.9.0",
         "Start date": "2026-09-22",
         "Evidence": "P0 Gate 1 PASSED by maintainer acceptance on 2026-09-27. The known Streamline Vulkan PRESENT-AFTER-WRITE exception is separately deferred under streamline-vulkan-present-after-write. The foreground run recorded 1,980 generated intervals, zero SDK errors and normal cleanup. Physical-display classification, failure injection and settings-restart coverage remain separate follow-up validation.",
         "Source key": "temporal-phased-p0-common-contracts-probe"
@@ -2730,28 +2735,27 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Temporal rendering",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Release": "v0.8.0",
-        "Evidence": "Provider-neutral present/input lifetime tracking and the final composited-backbuffer FG path are merged at 81fe304 (PR #72). The authorized 70-second Uhra run recorded generated-frame evidence; P3 remains In Progress for synchronization resolution and resize, mode-switch and exit-lifecycle validation. HUDless/UI separation is deferred to the separate v1.0.0 item.",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Foundation merged at 81fe304 (PR #72) and used by the shipped D3D12 (v0.7.9) and Vulkan DLSS (v0.7.35) frame generation. Moved out of v0.8.0 by the maintainer on 2026-10-03: the Streamline synchronization hazard stays under streamline-vulkan-present-after-write pending an SDK fix, and resize, mode-switch and exit validation moved to P4.",
         "Source key": "temporal-phased-p3-fg-infrastructure"
       },
       "title": "P3: Implement frame generation presentation infrastructure and leases",
-      "body_sha256": "df7a03493870f4ee7300949e7f171f4b7fdc220b1946fd0757e87b37fbc8befa"
+      "body_sha256": "5fa1db975db261a33391b1bccaa4c48943f64c242a09f1588f7d33aeb483ee61"
     },
     "temporal-phased-p4-dlss-fg-2x": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8QYr4",
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "In Progress",
-        "Delivery": "In progress",
+        "Status": "Done",
+        "Delivery": "Released",
         "Release": "v0.8.0",
-        "Evidence": "Windows Vulkan fixed 2× DLSS Frame Generation is integrated at 81fe304 (PR #72). The authorized 70-second Uhra run recorded 48 enabled periods, 2,830 generated intervals and zero SDK errors. P4 remains In Progress for provider combinations, lifecycle recovery, pacing, visual quality and external-display validation; the known SDK exception is separately deferred.",
+        "Evidence": "Maintainer accepted all P4 validation as passed on 2026-10-03, including the resize, mode-switch and exit validation moved from P3. Vulkan DLSS frame generation (fixed 2× to 6×) shipped in v0.7.35 through PR #119 on the foundation of PR #72. The Streamline PRESENT-AFTER-WRITE exception stays deferred under streamline-vulkan-present-after-write. v0.8.0 (published 2026-10-03T06:41:51Z; not accepted) is the milestone release; it adds HDR with Vulkan DLSS frame generation (PR #162).",
         "Source key": "temporal-phased-p4-dlss-fg-2x"
       },
       "title": "P4: Deliver fixed 2× DLSS Frame Generation on Windows Vulkan",
-      "body_sha256": "af17ba0354d7d19ed9f581edb94279ca30bf39ed4d01da996f286a46e99123a2"
+      "body_sha256": "9c101799e2c4419e8665eabc71423379d33484768bdcc8e4a15de8b8aaa2e743"
     },
     "d3d12-bundled-shader-pack": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8n2NU",
@@ -2965,42 +2969,41 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Planned v0.8.0 platform target. Bounded experimental AArch64 build path under investigation in PR #60 (live DXC fallback and CMake cross-compilation). Implementation, native runner hardware validation, and packaging not started.",
+        "Status": "In Progress",
+        "Delivery": "In progress",
+        "Release": "v0.9.0",
+        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. The v0.8.0 lane is kept as the plan milestone and is open for the maintainer to move.",
         "Source key": "linux-aarch64-platform"
       },
       "title": "Establish native Linux AArch64 platform support",
-      "body_sha256": "fbda6d032cd8f621524f20bdc4554b3986c6de092878ccaf6170b51ccea26f59"
+      "body_sha256": "49a47c17c85a6c9b567fd5d471ebb2632ac1417932a0b1dddd3edea13e695d2a"
     },
     "experimental-android-platform": {
       "id": "PVTI_lAHOAAsUY84Biy1azg814CI",
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Planned v0.8.0 experimental platform target. Feasibility exploration for Android NDK, Vulkan surface, and touch/gamepad input. No implementation or build pipeline established.",
-        "Source key": "experimental-android-platform"
+        "Status": "In Progress",
+        "Delivery": "Released",
+        "Evidence": "Experimental Android arm64 APK published: attached by hand to v0.8.0 at 08:03Z on 2026-10-03, after publication (built locally in WSL), and built by CI as part of v0.8.5 (published 18:45:17Z; PRs #170, #177; not accepted). Release is v0.8.5 because the maintainer had deferred Android out of v0.8.0. PRs #168 and #169 add a GPU driver page that loads a Mesa Turnip Vulkan driver on Qualcomm devices, where the device driver leaves the highlighted menu row's text invisible, and a launcher icon. APKs are signed with the project's debug keystore; there is no release keystore (maintainer decision). Checked on one Adreno 750 tablet (4 KB pages): the v0.8.0 APK reached the title screen; the v0.8.5 APK was not installed. 16 KB pages, other devices and GPUs, audio and controller hot-plug are unverified.",
+        "Source key": "experimental-android-platform",
+        "Release": "v0.8.5"
       },
       "title": "Experimental Android platform support",
-      "body_sha256": "970e9404c678b3c48e563cb420546bcefcfe5be97c356c52600e27d12ab719fe"
+      "body_sha256": "e66156862f117bae7afe9566d8b4c39dbfa14051039d589ca04fe927e08cd9d7"
     },
     "remove-pm4-translator": {
       "id": "PVTI_lAHOAAsUY84Biy1azg816wM",
       "fields": {
         "Kind": "Infrastructure",
         "Area": "GPU architecture",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
-        "Evidence": "Planned v0.8.0 delivery target (execution step 8); replacement architecture investigation starts early in parallel. Does not predetermine alternative presentation architectures, direct execution, or runtime implementations.",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Moved out of v0.8.0 by the maintainer on 2026-10-03. The native front end (fix/native-frontend-rework, PR #89 closed unmerged) sends about 70% of Uhra plaza draws through the native path but did not lower CmdProc CPU (4K120 ABBA 7.24 vs 7.06 ms/frame). Shader preparation, special draws, recorded commands, events, swap and presentation still need PM4; no PM4-free mode exists.",
         "Source key": "remove-pm4-translator"
       },
       "title": "Remove the PM4 translator",
-      "body_sha256": "870827978fa798f90ffc49bd863fc956cb3ce32024f8c8413516ec82dedd88df"
+      "body_sha256": "f423d43fd8427cad2b14535367b225a7f3308bf9f466f83b30cdd96b953daa99"
     },
     "fsr-frame-generation": {
       "id": "PVTI_lAHOAAsUY84Biy1azg83gNM",
@@ -3119,11 +3122,13 @@
       "fields": {
         "Kind": "Research",
         "Area": "Native migration",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Evidence": "Architecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "Architecture map, XEX consumer inventory and first-draw candidate delivered in draft PR #83 (closed 2026-09-30, not merged). The map fed the PM4-bypass prototype (PR #84) and the native front end (PR #89); neither was merged. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
         "Source key": "native-migration-architecture-boundaries"
-      }
+      },
+      "title": "Map progressive native migration boundaries",
+      "body_sha256": "7cfba2e503d52e617b125afaff04a5276f9143fae39b98272690e7ed2385f8f1"
     },
     "native-renderer-pm4-bypass-prototype": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6R6gU",
@@ -3134,7 +3139,9 @@
         "Delivery": "Implemented",
         "Evidence": "The bounded PM4-bypass prototype is implemented at ce45afe (draft PR #84). Same-EXE D3D12 title comparison exited 0 on both paths, but CmdProc CPU/logged-frame rose 1.172737 to 1.450276 ms (+23.7%). The performance go gate failed; default PM4 remains active and expansion is not accepted.",
         "Source key": "native-renderer-pm4-bypass-prototype"
-      }
+      },
+      "title": "Prototype one bounded PM4-bypass draw path",
+      "body_sha256": "67278c6d8e90823864215a75ea2c4dd35f96785f4c6a1a5af67e28bcbd2c7389"
     },
     "native-renderer-conditional-coverage-expansion": {
       "id": "PVTI_lAHOAAsUY84Biy1azg6R6gs",
@@ -3143,7 +3150,7 @@
         "Area": "Native migration / renderer",
         "Status": "Paused",
         "Delivery": "Deferred",
-        "Evidence": "Conditional work is paused because the bounded PM4-bypass prototype did not demonstrate a benefit; its performance go gate failed. Preserve the PM4 fallback and do not expand coverage.",
+        "Evidence": "Conditional work is paused because neither the bounded PM4-bypass prototype (PR #84) nor the later native front end (PR #89, about 70% of Uhra plaza draws native) lowered CmdProc CPU; both performance go gates failed. Preserve the PM4 fallback and do not expand coverage.",
         "Source key": "native-renderer-conditional-coverage-expansion"
       }
     },
@@ -3236,7 +3243,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Save & Storage",
-        "Status": "In Progress",
+        "Status": "Done",
         "Delivery": "Implemented",
         "Evidence": "Maintainer reproduced the Astral Square (244) failure with the supplied save. Commit 2e1c547 adds an F1 Save Anywhere warning after v0.7.20; it does not repair affected saves or automatically block split-party saves. Maintainer requested a pre-split save to locate the live switch-permission state.",
         "Source key": "issue-74-save-anywhere-party-switch"
@@ -3258,7 +3265,7 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Save & Storage",
-        "Status": "Paused",
+        "Status": "Done",
         "Delivery": "Deferred",
         "Evidence": "Reporter supplied an RGH Xbox save and requested bidirectional PC/Xbox use. The maintainer stated an intent to address it before v0.8.0, but no implementation, compatibility contract, validation or release evidence is recorded; retain as deferred open backlog.",
         "Source key": "issue-88-xbox360-save-conversion"
@@ -3271,11 +3278,264 @@
         "Area": "Save & Storage",
         "Status": "Paused",
         "Delivery": "Deferred",
-        "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog.",
+        "Evidence": "Issue #90 asked for HDR and save states. The maintainer said save states are not planned (2026-09-29), kept the issue open for them (2026-10-01, 2026-10-02) and closed it as completed on 2026-10-03T06:50Z because save states are postponed to much later. Retained as deferred backlog without implementation. The HDR half shipped in v0.7.35 and v0.8.0 (see hdr-output-tonemapping).",
         "Source key": "save-state-support"
       },
       "title": "Evaluate save-state support",
-      "body_sha256": "a51bd9b31f8d901e75308a1b698705916e436179be609d0657f29e27c26713d2"
+      "body_sha256": "d4f52f7a03e80352b344452928bbbe02f77269796ae8ffbfd0c3e3bfebea91ba"
+    },
+    "character-shadow-flow-2026-10-01": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-DuhY",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shadows",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": "v0.9.0",
+        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; not investigated; deferred to v0.9.0 on 2026-10-02.",
+        "Source key": "character-shadow-flow-2026-10-01"
+      },
+      "title": "Character shadows move unnaturally and look translucent",
+      "body_sha256": "f7595cb8ea487445ff1bd396b92c13e36f9f4e29ec847e581fe26a9843014554"
+    },
+    "issue-114-container-enemy-softlock": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D79o",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Field interaction",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result.",
+        "Source key": "issue-114-container-enemy-softlock"
+      }
+    },
+    "issue-116-linux-nvidia-dlss": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D7-o",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Linux",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #120 makes the game look for DLSS in its own folder and ships NVIDIA's unmodified NGX snippet in the AppImage and Flatpak; packaging fails if the AppImage copy differs. Awaiting reporter confirmation of the packaged build; the maintainer posted the v0.7.35 notice on 2026-10-02. The reporter's 2026-10-02 06:30 UTC log (v0.7.25 with LO_DLSS_RUNTIME_PATH) shows DLAA active on an RTX 4070 SUPER under Linux; that is the workaround, not the packaged v0.7.35 path, which has not run on an NVIDIA GPU under Linux.",
+        "Source key": "issue-116-linux-nvidia-dlss",
+        "Release": "v0.7.35"
+      }
+    },
+    "issue-117-battle-camera-flicker": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D7_w",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Evidence": "Closed as completed by the PR #132 merge (2026-10-02T04:20Z). Shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): the battle camera's rotation smoother updates once per 12.5 ms above 80 FPS. In-game A/B in the opening battle at about 100 FPS: 33 bursts of random angles with the fix off, none with it on. Reporters have not confirmed; closure and release are not reporter acceptance.",
+        "Source key": "issue-117-battle-camera-flicker",
+        "Release": "v0.7.35"
+      }
+    },
+    "issue-118-sun-occlusion-lens-flare": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8BE",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T08:12Z. v0.7.35 shipped PR #122 (host GPU occlusion queries); the reporter then wrote that the sun still flickered on the RX 6600. PR #149 (merged 2026-10-02T18:50Z) keeps each query count with the object that issued it and shipped in v0.8.0 (published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). Sailing the #118 save for 23 s: v0.7.35 logic flashed 3 times on an AMD Radeon 8060S (D3D12 through Proton) and once on an RTX 5080 (D3D12); the fix gave none on both. The reporter (RX 6600) wrote at 08:40Z that v0.8.0 works perfectly: the one reporter confirmation recorded for a v0.8.0 or v0.8.5 change. A spot where the sun is legitimately visible after the fix was not checked.",
+        "Source key": "issue-118-sun-occlusion-lens-flare",
+        "Release": "v0.8.0"
+      }
+    },
+    "issue-121-old-sorceress-mansion-sky-flicker": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8Cg",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PR #128 adds the exact sky pair to SkyMaterialPairs, checked with the shader banks from the reporter's two runtime logs. Not rechecked in the game (there is no save at the mansion). The same PR also jitters the f6814 cutscene passes (recorded under taa-jitter-fixes-20261001). Awaiting reporter confirmation; the maintainer posted the v0.7.35 notice on 2026-10-02.",
+        "Source key": "issue-121-old-sorceress-mansion-sky-flicker",
+        "Release": "v0.7.35"
+      }
+    },
+    "taa-jitter-fixes-20261001": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8Ds",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Evidence": "Released in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): PRs #128 (f6814 cutscene passes), #130, #133, #134 and #136 map the passes that missed TAA/FSR/DLSS jitter. Captured-constant LoTemporalJitterTest cases cover the mapped shaders. Only the PR #136 battle mapping was checked in the game: the motion-vector replay was aborted in 62 of 63 summaries before and in none after. The other places, including the f6814 cutscene (its capture was taken paused), were not rechecked in the game. No reporter or player confirmation.",
+        "Source key": "taa-jitter-fixes-20261001",
+        "Release": "v0.7.35"
+      },
+      "title": "TAA/FSR/DLSS jitter fixes from F1 captures and map tours",
+      "body_sha256": "49139b99da087818b74a24a088f7441c859230dc6b231ac65f6b5f5c96807c76"
+    },
+    "flicker-triage-tooling-20261001": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-D8Ec",
+      "fields": {
+        "Kind": "Infrastructure",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "Merged in PRs #131, #133 and #136 (2026-10-02) and included in the v0.7.35 source (tag commit 95f2c89). Both jitter tests are in the Gitea review-regressions suite and test_ps_clip_reads.py is in CI. Developer tooling and regression coverage; no in-game acceptance applies.",
+        "Source key": "flicker-triage-tooling-20261001"
+      },
+      "title": "Flicker triage tooling and review-regressions coverage",
+      "body_sha256": "9e45b0eb349c5bd6745684d6fa98f3baa8aeadf48ed2b1d941d6e131b884c954"
+    },
+    "shader-delivery-v080": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-Exrs",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Shader cache",
+        "Status": "Todo",
+        "Delivery": "In progress",
+        "Start date": "2026-10-02",
+        "Evidence": "PR #141 (one-file shader store), PR #142 (startup pack download) and PR #144 (release packages without packs, plus a published-index check) are merged (2026-10-02) and shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). Its release run (Gitea run 135) passed the pack-contract check, and the packages carry no shader pack (Windows ZIP 77.1 MB, AppImage 76.3 MB, Flatpak 54.1 MB). The three packs are in the shader-packs prerelease; downloads worked on Windows and an M1 Max Mac; the Linux download path was not run. Local cache cleanup is not started; the maintainer deferred it out of v0.8.0 on 2026-10-03. No player confirmation.",
+        "Source key": "shader-delivery-v080",
+        "Release": "v0.9.0"
+      },
+      "title": "Shader delivery: one-file store, startup pack download and cache cleanup (v0.8.0)",
+      "body_sha256": "f49177677dd5be66656734105c2c5615d853ec5dbc768391c24b5c89708e5e73"
+    },
+    "release-v0-7-35": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-GUuc",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.7.35",
+        "Start date": "2026-10-02",
+        "Target date": "2026-10-02",
+        "Evidence": "Published v0.7.35 at 2026-10-02T09:13:35Z: public latest release, tag at commit 95f2c89 (main), built and published by Gitea Actions run 135 (five jobs succeeded; its Linux job's shader-pack contract check passed). Assets: Windows ZIP 77,109,842 B (SHA-256 927f19ee…), Linux AppImage 76,270,072 B (9fa0622a…), Flatpak 54,113,384 B (cc4e5c12…) and the first macOS package, a DMG of 60,429,795 B (SHA-256 4c8998fe…6d94; experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand). Packages no longer bundle shader packs. Published, not accepted: reporter confirmations for #116, #118 and #121 and the #114 softlock check are pending.",
+        "Source key": "release-v0-7-35"
+      },
+      "title": "Publish the first macOS package, HDR and tall-screen layouts in v0.7.35",
+      "body_sha256": "6e8f467ad3084fb34f3079c9593d72f766322a82b77a5be10215c42c16f4fe19"
+    },
+    "tall-ultrawide-layout-20261002": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-GUyE",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics presentation",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.7.35",
+        "Evidence": "Released in v0.7.35 (PR #146; published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). The 3D scene fills screens taller than 16:9 with a taller field of view, menus and movies keep 16:9 with bars, and ultrawide menus get side bars. Checked on Windows Vulkan in Uhra at 4:3, 3:2, 16:10 and 21:9 (scene, menu, Status) with AA, upscaling and frame generation off; CPU layout checks passed. Battles, movies, the title screen, Direct3D 12, Metal and frame generation on these screens were not checked. No player confirmation.",
+        "Source key": "tall-ultrawide-layout-20261002"
+      },
+      "title": "Fill tall and ultrawide screens with the 3D scene and bar the menus",
+      "body_sha256": "a202012b1cf8a1f149487fc1e65248d66d4533e71507c2c583d9ad5a6d77dea2"
+    },
+    "portable-shader-pack-contract-20261002": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-GU1M",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shaders",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.7.35",
+        "Evidence": "Released in v0.7.35 (PR #127, with the packs-not-bundled change of PR #144; published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). The v0.7.25 Vulkan pack did not match the shader translator, which had moved from version 24 to 26, so the game rejected it and compiled all 28,549 shaders at first launch (180 s). The runtime contract now uses the image before import binding, verify-runtime accepts the new pack and rejects the v0.7.25 pack, and run 135's Linux job passed the published-index check. The DX12 pack was regenerated. No player confirmation of a first launch on the packaged v0.7.35.",
+        "Source key": "portable-shader-pack-contract-20261002"
+      },
+      "title": "Fix the shader pack contract mismatch behind the full first-launch compile",
+      "body_sha256": "4fbba8ccfcd21a58244ffe659adde0156ecfcb14a38ff05f60cd4296d73eb14a"
+    },
+    "issue-112-native-gtao-and-shadow-resolution": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-Pwxc",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics quality",
+        "Delivery": "Released",
+        "Release": "v0.8.0",
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T06:54Z, 12 minutes after v0.8.0 was published (the maintainer had answered 'Done!' at 02:25Z). Shadow resolution (1x, 2x, 4x) and experimental SSAO/GTAO (Off by default) shipped in v0.8.0 (PR #155, merged 2026-10-02T21:44Z; published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). Frame rates were not benchmarked and AO with anti-aliasing or upscaling is not covered. No reporter confirmation. The validation limits are on higher-resolution-shadows and ssao-and-reshade-depth.",
+        "Source key": "issue-112-native-gtao-and-shadow-resolution",
+        "Status": "Done"
+      }
+    },
+    "release-v0-8-0": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-WaGg",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.0",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.0 at 2026-10-03T06:41:51Z: public release (latest until v0.8.5), annotated tag at commit eddbb7d on main, built and published by Gitea Actions run 184 (five jobs succeeded; no Android job). Assets at publication: Windows ZIP 77,134,904 B (SHA-256 ae3aad9f...), Linux AppImage 76,311,032 B (57dce433...), Flatpak 54,113,296 B (88b3a6da...) and macOS DMG 60,432,438 B (e9e3575a...; built on the maintainer's M1 Max, uploaded by hand). An experimental Android APK (46,326,870 B, a5516c68...) was attached by hand at 08:03Z, built locally in WSL. The battle dialogue fix (#148, #173) is not in v0.8.0. Published, not accepted; the #118 reporter's report that it works is the only reporter confirmation recorded.",
+        "Source key": "release-v0-8-0"
+      },
+      "title": "Publish HDR with every AA and upscaler, shadow and AO settings and the shared shader pack in v0.8.0",
+      "body_sha256": "dc3f314ff151dc1db9ab214e9a544ccc12f6ee498cf5ce8aeb3d2bcf1ccc35c6"
+    },
+    "release-v0-8-5": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-WaHA",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.5 at 2026-10-03T18:45:17Z: latest release, annotated tag at commit 30a76ac on main, built and published by Gitea Actions run 212 (six jobs succeeded, the first with an Android job; the result is cited from docs/STATUS.md, not re-read). Assets: Windows ZIP 77,142,293 B (SHA-256 8a114710...), Linux AppImage 76,306,936 B (7bd107ee...), Flatpak 54,129,440 B (0dea69ef...), Android APK 45,160,198 B (5b6027a3...; CI-built, debug-keystore signed) and macOS DMG 60,437,493 B (a6bbe600...; built on the maintainer's M1 Max, uploaded by hand). Published, not accepted: no reporter has confirmed the fix for #148, #173 or #175 on a named v0.8.5 build.",
+        "Source key": "release-v0-8-5"
+      },
+      "title": "Publish the battle dialogue fix, save recovery and CI-built Android APK in v0.8.5",
+      "body_sha256": "5318089c233ad6209c52d7ed2df709354175a25810487efdd9fc2b659f968d88"
+    },
+    "issue-148-battle-dialogue-pauses": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-WaIE",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T02:45Z ('solved in 9f52d78'), before the fix was merged (4022256, 16:22Z) and before any release. It shipped only in v0.8.5 (published 18:45:17Z, tag commit 30a76ac; not accepted), not in v0.8.0. The original script code converts each update's elapsed time to a 60 Hz step and drops the fraction above 60 updates per second, so battle script waits never finish; the hook carries the fraction (LO_BATTLE_SCRIPT_TIMER=0 turns it off). A generated guest fixture passes at 30, 60, 90 and 120 Hz and its negative control stays stuck; no live comparison in the reported scenes is recorded. The reporter's 06:14Z comment says the pauses seem tied to frame rates above 60 FPS: a statement about the cause, not a test of the fix. No reporter confirmation.",
+        "Source key": "issue-148-battle-dialogue-pauses"
+      }
+    },
+    "issue-173-first-forest-battle-hang": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-WaJc",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T19:03Z (who wrote that it should be fixed in 0.8.5 and asked for a report if not), 18 minutes after v0.8.5 was published. The maintainer identified it from the reporter's video as the #148 bug (waits in battle scripts never finish at 90 or 120 FPS) and suggested 60 or 30 FPS until the release. The fix (9f52d78, merged as 4022256 at 16:22Z) shipped in v0.8.5, not v0.8.0; see issue-148-battle-dialogue-pauses for the cause and checks. The reporter attached no log and gave no frame rate, version or platform, and has not replied, so neither the cause nor the fix is confirmed for this report. Not accepted.",
+        "Source key": "issue-173-first-forest-battle-hang"
+      }
+    },
+    "issue-175-save-not-found-after-power-loss": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-WaKA",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Save & Storage",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T18:23Z, 22 minutes before v0.8.5 was published (18:45:17Z; not accepted). A power blink after saving left .lo-content as 308 zero bytes while save.bin survived, so Continue hid the slot. PR #178 listed renamed folders (not the cause); PR #181 lists a save whenever save.bin has data and syncs saves to disk. Checked locally on a Windows build with the reporter's own save.bin and a zeroed .lo-content (lists and loads The White Boa - Brig) plus LoStorageTest modes. Not covered: CREATE_ALWAYS still clears the old container before the game rewrites it. The reporter wrote 'Its all working now' at 18:48Z without naming a build; the maintainer's 18:50Z request to confirm Continue on v0.8.5 has no recorded answer.",
+        "Source key": "issue-175-save-not-found-after-power-loss"
+      }
+    },
+    "debug-no-random-encounters-20261003": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-WaK4",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Debug menu",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Evidence": "Released in v0.8.5 (PR #180, merged 2026-10-03T17:59:46Z; published 18:45:17Z, tag commit 30a76ac; not accepted). F1 Debug Menu switch below Save Anywhere (settings.ini no_random_encounters): a successful walking-encounter draw becomes no battle, distance counters still run, scripted battles are unaffected. Requested while investigating #171. LoDebugMenuInteractionTest, LoDebugOverlayTest and LoSaveAnywhereConfigTest passed locally; at 120 FPS in disc 4, Great Ancient Ruins, the PR author walked the Hanging Corridor and Lunar Palace without random battles and RB party switching and the pillar mechanisms worked. Other areas, story battles with the switch on and long play were not checked. No player confirmation.",
+        "Source key": "debug-no-random-encounters-20261003"
+      },
+      "title": "Add a No Random Encounters switch to the F1 Debug Menu",
+      "body_sha256": "ea5fbe789b26118d5b1ad96bf5a3295db279bb167aba9674da40a1f2bfde765e"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"

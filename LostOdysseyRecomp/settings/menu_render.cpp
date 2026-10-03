@@ -426,6 +426,94 @@ bool settings::RasterizeMenu(const MenuSnapshot &current, uint32_t width, uint32
         else text(x, y, 24, 24, std::wstring(1, letter), 15, ink, true, 1, outline, 12);
     };
 
+    if (current.calibration.open)
+    {
+        // The presentation pass paints the real HDR comparison inside the
+        // transparent center rectangle. Everything else is a normal SDR UI.
+        pixels.assign(size_t(width) * height, 0u);
+        const auto &cal = current.calibration;
+        const bool scene = cal.scenePreview && cal.sceneAvailable && cal.hdrActive;
+        fill(0, 0, 1280, 150, MakeColor(255, 27, 31, 35));
+        fill(0, 470, 1280, 250, MakeColor(255, 27, 31, 35));
+        fill(0, 150, 160, 320, MakeColor(255, 27, 31, 35));
+        fill(1120, 150, 160, 320, MakeColor(255, 27, 31, 35));
+        text(160, 30, 610, 48,
+             Translate(current.language, L"HDR peak brightness", L"HDR 最高亮度"),
+             31, ink, false, 1, outline, 19);
+        cell(800, 34, 140, 44, cal.scenePreview && cal.sceneAvailable);
+        cell(940, 34, 180, 44, !cal.scenePreview || !cal.sceneAvailable);
+        text(806, 34, 128, 44, Translate(current.language, L"Scene", L"場景"),
+             18, cal.sceneAvailable ? ink : muted, false, 1, outline, 13);
+        text(946, 34, 168, 44, Translate(current.language, L"Test pattern", L"測試圖案"),
+             18, ink, false, 1, outline, 13);
+        text(160, 97, 440, 36,
+             (scene ? Translate(current.language, L"SDR preview", L"SDR 預覽") :
+                 Translate(current.language, L"Reference white", L"參考白位")) +
+                 std::wstring(L" · ") + std::to_wstring(cal.paperWhiteNits) + L" nits",
+             20, ink, false, 0, outline, 14);
+        text(700, 97, 420, 36,
+             (scene ? Translate(current.language, L"HDR preview", L"HDR 預覽") :
+                 Translate(current.language, L"Peak brightness", L"最高亮度")) +
+                 std::wstring(L" · ") + std::to_wstring(cal.effectiveNits) + L" nits",
+             20, ink, false, 0, outline, 14);
+        if (!cal.hdrActive)
+        {
+            fill(160, 150, 960, 320, MakeColor(255, 15, 18, 22));
+            text(235, 272, 810, 55,
+                 Translate(current.language, L"HDR output is inactive. Enable HDR and restart to view the comparison.",
+                     L"HDR 輸出尚未啟用；開啟 HDR 並重新啟動後可檢視對比圖。"),
+                 19, ink, false, 1, outline, 14);
+        }
+        const std::wstring report = cal.automatic
+            ? cal.detectedValid
+                ? cal.relative
+                    ? Translate(current.language, L"Auto · EDR headroom estimate", L"自動 · EDR 亮度餘裕估計值")
+                    : Translate(current.language, L"Auto · display reported peak", L"自動 · 顯示器回報最高亮度")
+                : Translate(current.language, L"Auto · no peak report, using 1000 nits", L"自動 · 未取得最高亮度，使用 1000 nits")
+            : Translate(current.language, L"Manual peak", L"手動最高亮度");
+        text(160, 485, 960, 31, report, 18, ink, false, 1, outline, 14);
+        text(160, 516, 960, 29,
+             scene
+                 ? Translate(current.language, L"Compare highlight detail and brightness. The SDR preview clips at reference white.",
+                     L"比較高光細節與亮度；SDR 預覽以參考白位為亮度上限。")
+                 : !cal.sceneAvailable
+                     ? Translate(current.language, L"Enter the game for a scene preview. Adjust until the right symbol is barely visible.",
+                         L"進入遊戲後可預覽場景；調整至右側圖案剛好隱約可見。")
+                     : Translate(current.language, L"Adjust until the symbol on the right is barely visible.",
+                         L"調整至右側圖案剛好隱約可見。"),
+             18, ink, false, 1, outline, 14);
+        const double minimum = double(std::clamp(cal.paperWhiteNits, 80u, 400u));
+        const int marker = int(std::lround(260.0 + 760.0 *
+            std::log(std::clamp(cal.effectiveNits, cal.paperWhiteNits, 10000u) / minimum) /
+            std::log(10000.0 / minimum)));
+        cell(260, 556, 760, 20, cal.focus == 0);
+        fill(264, 562, std::max(0, marker - 264), 8, MakeColor(255, 167, 200, 214));
+        fill(marker - 4, 550, 8, 32, MakeColor(255, 234, 238, 234));
+        text(260, 582, 180, 23, std::to_wstring(cal.paperWhiteNits) + L" nits",
+             15, muted, false, 0, outline, 12);
+        text(840, 582, 180, 23, L"10000 nits", 15, muted, false, 2, outline, 12);
+        const struct { int x, w; const wchar_t *label; } buttons[] = {
+            {160, 240, Translate(current.language, L"Automatic", L"自動")},
+            {420, 300, Translate(current.language, L"Enter nits", L"輸入 nit 數值")},
+            {740, 190, Translate(current.language, L"Done", L"完成")},
+            {950, 170, Translate(current.language, L"Cancel", L"取消")},
+        };
+        for (int i = 0; i < 4; ++i)
+        {
+            cell(buttons[i].x, 610, buttons[i].w, 40, cal.focus == i + 1);
+            std::wstring label = buttons[i].label;
+            if (i == 1 && cal.numericEditing)
+                label = cal.numericText.empty() ? L"_" : cal.numericText + L"_";
+            text(buttons[i].x + 8, 610, buttons[i].w - 16, 40, label,
+                 19, ink, false, 1, outline, 14);
+        }
+        text(160, 666, 960, 32,
+             Translate(current.language, L"D-pad: adjust · A: choose · B: back · X: scene / pattern · type digits for exact value",
+                 L"方向鍵：調整 · A：確認 · B：返回 · X：場景／圖案 · 鍵盤輸入精確數值"),
+             16, ink, false, 1, outline, 13);
+        return true;
+    }
+
     // Repainting the textured backdrop at 4K dominated every selection change.
     // Keep one backdrop per presentation thread, keyed by both dimensions and
     // the owning immutable asset set. Values, focus and dialogs are never cached.
@@ -511,6 +599,7 @@ bool settings::RasterizeMenu(const MenuSnapshot &current, uint32_t width, uint32
         if (y + rowHeight > 640) break;
         const bool focused = int(index) == current.row;
         if (current.tab == 2 && (index == size_t(GraphicsRow::FrameGeneration) ||
+                                 index == size_t(GraphicsRow::Hdr) ||
                                  index == size_t(GraphicsRow::Brightness)))
             line(labelLeft, y - 3, choiceLeft + choiceWidth, y - 3, MakeColor(255, 173, 176, 177));
 

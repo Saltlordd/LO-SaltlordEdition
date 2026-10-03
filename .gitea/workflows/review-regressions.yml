@@ -1,7 +1,6 @@
 name: Runtime review regressions
 
-# Gitea copy of .github/workflows/review-regressions.yml. Pull request checks
-# run on git.zkx.ca; the GitHub workflow is manual-only.
+# Pull request checks run on git.zkx.ca; this workflow has no GitHub copy.
 on:
   workflow_dispatch:
   push:
@@ -12,14 +11,27 @@ on:
       - 'LostOdysseyRecomp/gpu/command_processor.*'
       - 'LostOdysseyRecomp/gpu/indirect_buffer_guard.h'
       - 'LostOdysseyRecomp/gpu/renderer.cpp'
+      - 'LostOdysseyRecomp/gpu/shader/binary_cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/shader_store.h'
+      - 'LostOdysseyRecomp/gpu/temporal_*.h'
       - 'LostOdysseyRecomp/gpu/texture*.h'
       - 'LostOdysseyRecomp/kernel/imports.cpp'
       - 'LostOdysseyRecomp/kernel/memory.*'
       - 'LostOdysseyRecomp/kernel/io/file_system.cpp'
       - 'LostOdysseyRecomp/main.cpp'
+      - 'LostOdysseyRecomp/os/platform.h'
       - 'LostOdysseyRecomp/os/user_paths.h'
       - 'LostOdysseyRecomp/settings/config.cpp'
       - 'LostOdysseyRecomp/updater/**'
+      - 'packaging/linux/**'
+      - 'tools/appimage_compat.py'
+      - 'tools/capture_analysis/**'
+      - 'tools/package_appimage.py'
+      - 'tools/package_flatpak.py'
+      - 'tools/portable_shader_pack_payload.py'
+      - 'tools/release/version.py'
+      - 'tools/shader_analysis/**'
       - 'tools/tests/**'
   pull_request:
     paths:
@@ -28,14 +40,27 @@ on:
       - 'LostOdysseyRecomp/gpu/command_processor.*'
       - 'LostOdysseyRecomp/gpu/indirect_buffer_guard.h'
       - 'LostOdysseyRecomp/gpu/renderer.cpp'
+      - 'LostOdysseyRecomp/gpu/shader/binary_cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/cache.h'
+      - 'LostOdysseyRecomp/gpu/shader/shader_store.h'
+      - 'LostOdysseyRecomp/gpu/temporal_*.h'
       - 'LostOdysseyRecomp/gpu/texture*.h'
       - 'LostOdysseyRecomp/kernel/imports.cpp'
       - 'LostOdysseyRecomp/kernel/memory.*'
       - 'LostOdysseyRecomp/kernel/io/file_system.cpp'
       - 'LostOdysseyRecomp/main.cpp'
+      - 'LostOdysseyRecomp/os/platform.h'
       - 'LostOdysseyRecomp/os/user_paths.h'
       - 'LostOdysseyRecomp/settings/config.cpp'
       - 'LostOdysseyRecomp/updater/**'
+      - 'packaging/linux/**'
+      - 'tools/appimage_compat.py'
+      - 'tools/capture_analysis/**'
+      - 'tools/package_appimage.py'
+      - 'tools/package_flatpak.py'
+      - 'tools/portable_shader_pack_payload.py'
+      - 'tools/release/version.py'
+      - 'tools/shader_analysis/**'
       - 'tools/tests/**'
 
 permissions:

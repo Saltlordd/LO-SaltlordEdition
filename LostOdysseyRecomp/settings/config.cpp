@@ -24,6 +24,9 @@ Config Validate(Config value)
 #endif
     if (value.anisotropicFiltering != 0 && value.anisotropicFiltering != 2 && value.anisotropicFiltering != 4 &&
         value.anisotropicFiltering != 8 && value.anisotropicFiltering != 16) value.anisotropicFiltering = 0;
+    value.hdrPaperWhiteNits = std::clamp(value.hdrPaperWhiteNits, 80u, 400u);
+    value.hdrPeakNits = std::clamp(value.hdrPeakNits, 80u, 10000u);
+    value.hdrPeakNits = std::max(value.hdrPeakNits, value.hdrPaperWhiteNits);
     if (!gpu::upscaling::KnownUpscaler(value.upscaler)) value.upscaler = gpu::upscaling::Upscaler::Off;
     value.dlssQuality = gpu::upscaling::NormalizeDlssQuality(value.dlssQuality);
     value.fsrQuality = gpu::upscaling::NormalizeFsrQuality(value.fsrQuality);
@@ -45,6 +48,9 @@ Config Validate(Config value)
         value.frameGenerationTargetFps = 0;
     }
     if (value.antialiasing > 3) value.antialiasing = 0;
+    if (value.shadowResolution != 1 && value.shadowResolution != 2 && value.shadowResolution != 4)
+        value.shadowResolution = 1;
+    if (value.ambientOcclusion > 2) value.ambientOcclusion = 0;
     value.fxaa = value.antialiasing == 1;
     value.frameRate = gpu::frame_rate::Normalize(value.frameRate);
     if (value.debugLanguage > 1) value.debugLanguage = 0;
@@ -77,6 +83,7 @@ Config Read()
 {
     Config value;
     bool hasAntialiasing = false;
+    bool hasHdrPeakAuto = false, hasHdrPeakNits = false;
     const auto path = os::user_paths::SettingsPath();
     std::ifstream input(path);
     std::string key;
@@ -114,6 +121,10 @@ Config Read()
             value.graphicsBackend = GraphicsBackend(number);
         else if (key == "antialiasing")
             value.antialiasing = number;
+        else if (key == "shadow_resolution")
+            value.shadowResolution = number;
+        else if (key == "ambient_occlusion")
+            value.ambientOcclusion = number;
         else if (key == "scaling_quality")
             value.scalingQuality = number;
         else if (key == "expand_rgb_range" && number <= 1)
@@ -142,12 +153,28 @@ Config Read()
             value.variableRefreshRate = number == 1;
         else if (key == "frame_rate")
             value.frameRate = number;
+        else if (key == "hdr" && number <= 1)
+            value.hdr = number == 1;
+        else if (key == "hdr_paper_white_nits")
+            value.hdrPaperWhiteNits = number;
+        else if (key == "hdr_peak_nits")
+        {
+            value.hdrPeakNits = number;
+            hasHdrPeakNits = true;
+        }
+        else if (key == "hdr_peak_auto" && number <= 1)
+        {
+            value.hdrPeakAutomatic = number == 1;
+            hasHdrPeakAuto = true;
+        }
         else if (key == "fxaa")
             value.fxaa = number == 1;
         else if (key == "skip_shader_prebuild")
             value.skipShaderPrebuild = number == 1;
         else if (key == "save_anywhere" && number <= 1)
             value.saveAnywhere = number == 1;
+        else if (key == "no_random_encounters" && number <= 1)
+            value.noRandomEncounters = number == 1;
         else if (key == "automatic_updates")
         {
             // Unknown values keep the safe package default (enabled).
@@ -155,6 +182,9 @@ Config Read()
         }
     }
     if (!hasAntialiasing) value.antialiasing = value.fxaa ? 1u : 0u;
+    // Profiles written before automatic peak detection use their stored peak
+    // as an explicit choice. A fresh profile follows the current display.
+    if (hasHdrPeakNits && !hasHdrPeakAuto) value.hdrPeakAutomatic = false;
     return Validate(value);
 }
 Config &Current()
@@ -207,6 +237,7 @@ void PreviewConfig(const Config &value)
     auto merged = Validate(value);
     merged.debugLanguage = Current().debugLanguage;
     merged.saveAnywhere = Current().saveAnywhere;
+    merged.noRandomEncounters = Current().noRandomEncounters;
     Current() = merged;
 }
 uint32_t GameLanguage()
@@ -226,6 +257,8 @@ static bool WriteConfig(const Config &value)
            << "\ngraphics_backend=" << uint32_t(value.graphicsBackend)
            << "\ndebug_language=" << value.debugLanguage
            << "\nantialiasing=" << value.antialiasing << "\nframe_rate=" << value.frameRate
+           << "\nshadow_resolution=" << value.shadowResolution
+           << "\nambient_occlusion=" << value.ambientOcclusion
            << "\nscaling_quality=" << value.scalingQuality
            << "\nexpand_rgb_range=" << (value.expandRgbRange ? 1 : 0)
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
@@ -233,6 +266,10 @@ static bool WriteConfig(const Config &value)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)
            << "\nfsr_sharpness=" << value.fsrSharpnessPercent
            << "\nvariable_refresh_rate=" << (value.variableRefreshRate ? 1 : 0)
+           << "\nhdr=" << (value.hdr ? 1 : 0)
+           << "\nhdr_paper_white_nits=" << value.hdrPaperWhiteNits
+           << "\nhdr_peak_auto=" << (value.hdrPeakAutomatic ? 1 : 0)
+           << "\nhdr_peak_nits=" << value.hdrPeakNits
            << "\nframe_generation_provider=" << uint32_t(value.frameGenerationProvider)
            << "\nframe_generation_mode=" << uint32_t(value.frameGenerationMode)
            << "\nframe_generation_multiplier=" << value.frameGenerationMultiplier
@@ -240,7 +277,8 @@ static bool WriteConfig(const Config &value)
            << "\ninternal_resolution=" << value.internalResolution
            << "\nfxaa=" << value.fxaa << "\nautomatic_updates=" << value.automaticUpdates
            << "\nskip_shader_prebuild=" << (value.skipShaderPrebuild ? 1 : 0)
-           << "\nsave_anywhere=" << (value.saveAnywhere ? 1 : 0) << '\n';
+           << "\nsave_anywhere=" << (value.saveAnywhere ? 1 : 0)
+           << "\nno_random_encounters=" << (value.noRandomEncounters ? 1 : 0) << '\n';
     output.flush();
     if (!output)
         return false;
@@ -265,6 +303,7 @@ bool SaveConfig(const Config &requested)
     auto value = Validate(requested);
     value.debugLanguage = Current().debugLanguage;
     value.saveAnywhere = Current().saveAnywhere;
+    value.noRandomEncounters = Current().noRandomEncounters;
     if (!WriteConfig(value)) return false;
     Current() = value;
     return true;
@@ -287,6 +326,15 @@ bool SaveSaveAnywhere(bool enabled)
     persisted.saveAnywhere = enabled;
     if (!WriteConfig(persisted)) return false;
     Current().saveAnywhere = enabled;
+    return true;
+}
+bool SaveNoRandomEncounters(bool enabled)
+{
+    std::lock_guard lock(mutex);
+    auto persisted = Read();
+    persisted.noRandomEncounters = enabled;
+    if (!WriteConfig(persisted)) return false;
+    Current().noRandomEncounters = enabled;
     return true;
 }
 } // namespace settings

@@ -20,4 +20,12 @@
 #error "Unsupported host platform"
 #endif
 
+#if defined(__ANDROID__)
+#define LO_PLATFORM_ANDROID 1
+#else
+#define LO_PLATFORM_ANDROID 0
+#endif
+
+// Android also uses the Linux/POSIX memory and scheduling implementations.
+// Desktop-only process, updater and storage paths test Android separately.
 #define LO_PLATFORM_POSIX (LO_PLATFORM_LINUX || LO_PLATFORM_MACOS)

@@ -35,6 +35,17 @@ std::atomic<bool> releaseToParent{false};
 std::atomic<int> mouseTab{-1}, mouseRow{-1};
 std::atomic<int> mouseDialog{-1};
 std::atomic<uint16_t> mouseAction{0};
+std::atomic<uint64_t> hdrDisplayInfo{0};
+std::atomic<bool> calibrationOpen{false};
+std::atomic<bool> calibrationSceneAvailable{false}, calibrationScenePreview{true};
+std::atomic<int> calibrationClick{-1}, calibrationDragNits{-1};
+std::mutex calibrationKeyMutex;
+std::vector<uint32_t> calibrationKeys;
+bool calibrationNumberEditing = false;
+std::wstring calibrationNumber;
+int calibrationFocus = 0;
+bool calibrationStartAutomatic = true;
+uint32_t calibrationStartPeakNits = 1000;
 std::mutex snapshotMutex;
 using Row = MenuRow;
 using Snapshot = MenuSnapshot;
@@ -60,6 +71,42 @@ bool bypass = false, sawModal = false;
 bool closing = false;
 uint32_t lastMenu = 0;
 std::wstring status;
+HdrDisplayInfo CurrentHdrDisplayInfo()
+{
+    const uint64_t bits = hdrDisplayInfo.load(std::memory_order_relaxed);
+    return {bool(bits & (1ull << 32)), uint32_t(bits), bool(bits & (1ull << 33))};
+}
+HdrCalibration MakeHdrCalibration(const Config &config, bool open)
+{
+    const auto display = CurrentHdrDisplayInfo();
+    HdrCalibration result;
+    result.open = open;
+    result.automatic = config.hdrPeakAutomatic;
+    result.manualNits = config.hdrPeakNits;
+    result.paperWhiteNits = config.hdrPaperWhiteNits;
+    result.detectedValid = display.peakNits > 0;
+    result.detectedNits = display.peakNits;
+    result.relative = display.relative;
+    result.hdrActive = display.active;
+    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
+    result.scenePreview = calibrationScenePreview.load(std::memory_order_relaxed);
+    result.effectiveNits = std::clamp(result.automatic && result.detectedValid
+        ? result.detectedNits : result.automatic ? 1000u : result.manualNits,
+        result.paperWhiteNits, 10000u);
+    result.numericEditing = open && calibrationNumberEditing;
+    if (open) result.focus = calibrationFocus;
+    if (result.numericEditing) result.numericText = calibrationNumber;
+    return result;
+}
+uint32_t CalibrationSliderValue(float x, uint32_t paperWhiteNits)
+{
+    const float fraction = std::clamp((x - 260.0f) / 760.0f, 0.0f, 1.0f);
+    const float minimum = float(std::clamp(paperWhiteNits, 80u, 400u));
+    // Logarithmic travel leaves useful precision around common HDR peaks while
+    // still permitting manual values up to 10,000 nits.
+    return uint32_t(std::clamp(int(std::lround(minimum * std::exp(std::log(10000.0f / minimum) * fraction))),
+        int(paperWhiteNits), 10000));
+}
 constexpr uint32_t resolutions16_9[][2] = {
     {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
 constexpr uint32_t resolutions21_9[][2] = {
@@ -359,6 +406,17 @@ std::wstring DlssNotice()
 }
 bool GraphicsRowHidden(int r)
 {
+#if LO_PLATFORM_ANDROID
+    // Android owns the native surface; the renderer derives aspect from its drawable.
+    // NGX and frame generation have no Android providers in this build.
+    if (r == int(GraphicsRow::Backend) || r == int(GraphicsRow::DisplayMode) ||
+        r == int(GraphicsRow::Widescreen) || r == int(GraphicsRow::OutputResolution) ||
+        r == int(GraphicsRow::VariableRefreshRate) || r == int(GraphicsRow::FrameGeneration) ||
+        r == int(GraphicsRow::FrameGenerationMultiplier))
+        return true;
+    if (r == int(GraphicsRow::DlssQuality) || r == int(GraphicsRow::FsrSharpness))
+        return !graphics_menu::AndroidFsrAvailable || edit.upscaler != gpu::upscaling::Upscaler::Fsr;
+#endif
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -403,10 +461,17 @@ std::wstring FgNotice()
 static_assert(int(GraphicsRow::Save) + 1 == int(GraphicsRow::Count));
 void Publish(uint8_t *base, uint32_t config)
 {
+#if LO_PLATFORM_ANDROID
+    // The first four graphics ids are hidden; enter the tab on a visible row.
+    if (tab == 2)
+        for (int i = 0; i < int(GraphicsRow::Count) && GraphicsRowHidden(row); ++i)
+            row = (row + 1) % int(GraphicsRow::Count);
+#endif
     Snapshot next;
     next.tab = tab;
     next.row = row;
     next.language = edit.uiLanguage;
+    next.calibration = MakeHdrCalibration(edit, calibrationOpen.load());
     const uint32_t flags = PPC_LOAD_U32(config + 4);
     auto makeChoices = [&](const wchar_t *en, const wchar_t *zh, std::vector<std::wstring> choices,
                            uint32_t selected, bool enabled = true) {
@@ -470,6 +535,7 @@ void Publish(uint8_t *base, uint32_t config)
     {
         next.rows.resize(int(GraphicsRow::Count));
         auto placeGraphics = [&](GraphicsRow id, Row value) {
+            value.hidden = GraphicsRowHidden(int(id));
             next.rows[int(id)] = std::move(value);
         };
 #ifdef _WIN32
@@ -514,14 +580,21 @@ void Publish(uint8_t *base, uint32_t config)
                 std::to_wstring(height) + L"p");
         placeGraphics(GraphicsRow::RenderResolution, makeChoices(L"Render resolution", L"渲染解析度",
                    std::move(renderChoices), graphics_menu::RenderResolutionChoice(edit)));
+        placeGraphics(GraphicsRow::ShadowResolution, makeChoices(L"Shadow resolution", L"陰影解析度",
+                   {L"1×", L"2×", L"4×"}, graphics_menu::ShadowResolutionChoice(edit)));
 #if LO_PLATFORM_MACOS
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"MetalFX Temporal"};
+#elif LO_PLATFORM_ANDROID
+        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）")};
+        if (graphics_menu::AndroidFsrAvailable) aaChoices.emplace_back(L"FSR 3.1");
 #else
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1"};
 #endif
         aaChoices.resize(graphics_menu::AaChoiceCount);
         placeGraphics(GraphicsRow::AntiAliasing, makeChoices(L"Anti-aliasing / Upscaling", L"抗鋸齒 / 超解析度",
                    std::move(aaChoices), std::min(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount - 1)));
+        placeGraphics(GraphicsRow::AmbientOcclusion, makeChoices(L"Ambient occlusion", L"環境光遮蔽",
+                   {Tr(L"Off", L"關"), L"SSAO", L"GTAO"}, std::min(edit.ambientOcclusion, 2u)));
         // FSR and MetalFX share the FSR quality ratios and IDs.
         const bool savedFsr = gpu::upscaling::UsesFsrQuality(edit.upscaler);
         const bool savedMetalFx = edit.upscaler == gpu::upscaling::Upscaler::MetalFx;
@@ -590,6 +663,20 @@ void Publish(uint8_t *base, uint32_t config)
             std::clamp(edit.frameGenerationMultiplier, 2u, framegen::kMaxMultiplier) - 2);
         fgMultiplier.hidden = GraphicsRowHidden(int(GraphicsRow::FrameGenerationMultiplier));
         placeGraphics(GraphicsRow::FrameGenerationMultiplier, std::move(fgMultiplier));
+        const bool hdrAvailable = graphics_menu::HdrAvailable(edit.graphicsBackend);
+        placeGraphics(GraphicsRow::Hdr, makeChoices(L"HDR output", L"HDR 輸出", onOff(), edit.hdr ? 0 : 1, hdrAvailable));
+        auto hdrLevel = [&](const wchar_t *en, const wchar_t *zh, uint32_t nits) {
+            const auto value = std::to_wstring(nits) + L" nits";
+            return Row{Tr(en, zh), value, hdrAvailable, {L"◀", value, L"▶"}, 1};
+        };
+        placeGraphics(GraphicsRow::HdrPaperWhite, hdrLevel(L"HDR paper white", L"HDR 參考白位", edit.hdrPaperWhiteNits));
+        const auto peak = next.calibration;
+        const std::wstring peakValue = peak.automatic
+            ? Tr(L"Auto", L"自動") + std::wstring(L" (") + std::to_wstring(peak.effectiveNits) + L" nits)"
+            : std::to_wstring(peak.manualNits) + L" nits";
+        placeGraphics(GraphicsRow::HdrPeak,
+            Row{Tr(L"HDR peak brightness", L"HDR 最高亮度"), peakValue, hdrAvailable,
+                {L"◀", peakValue, L"▶"}, 1});
         placeGraphics(GraphicsRow::Brightness, makeChoices(L"Brightness calibration", L"亮度校準", {Tr(L"Open", L"開啟")}, 0));
         placeGraphics(GraphicsRow::Save, makeChoices(L"Save graphics settings", L"儲存圖形設定", {Tr(L"Save", L"儲存")}, 0));
     }
@@ -665,7 +752,19 @@ void Publish(uint8_t *base, uint32_t config)
                            L"縮放至輸出前的場景解析度。跟隨輸出與輸出尺寸相同。");
 #endif
             break;
+        case GraphicsRow::ShadowResolution:
+            next.help = Tr(L"Shadow-map resolution multiplier. Higher values need more GPU memory and rendering time. Applies after saving.",
+                           L"陰影貼圖解析度倍數。較高倍數需要更多 GPU 記憶體與渲染時間。儲存後套用。");
+            break;
         case GraphicsRow::AntiAliasing:
+#if LO_PLATFORM_ANDROID
+            if (graphics_menu::AndroidFsrAvailable && edit.upscaler == gpu::upscaling::Upscaler::Fsr)
+                next.help = Tr(L"FSR 3.1 needs D3D12 or Vulkan and an FSR-enabled build. Unsupported scenes use normal rendering.",
+                              L"FSR 3.1 需要 D3D12 或 Vulkan 與包含 FSR 的版本。不支援的場景使用常規渲染。");
+            else if (graphics_menu::AaChoice(edit) == 3)
+                next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
+                              L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
+#else
             if (edit.upscaler == gpu::upscaling::Upscaler::MetalFx)
                 next.help = Tr(L"Apple's temporal upscaler: renders the scene below the output size and reconstructs detail. Menus and transitions use normal rendering.",
                               L"Apple 的時間性縮放：以低於輸出的解析度渲染場景並重建細節。選單和過場使用常規渲染。");
@@ -678,6 +777,11 @@ void Publish(uint8_t *base, uint32_t config)
             else if (edit.antialiasing == 3)
                 next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
                               L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
+#endif
+            break;
+        case GraphicsRow::AmbientOcclusion:
+            next.help = Tr(L"Screen-space ambient occlusion adds contact shading. Applies after saving.",
+                           L"螢幕空間環境光遮蔽可加強接觸處的陰影。儲存後套用。");
             break;
         case GraphicsRow::DlssQuality:
             next.help = gpu::upscaling::UsesFsrQuality(edit.upscaler) ?
@@ -756,6 +860,26 @@ void Publish(uint8_t *base, uint32_t config)
                                L"影格生成可獨立於超解析度使用。FSR 固定為 2×。");
             break;
         }
+        case GraphicsRow::Hdr:
+            next.help = graphics_menu::HdrAvailable(edit.graphicsBackend)
+                ? Tr(L"Requires an HDR display and restart. Works with every AA mode, upscaler and scaling filter; frame generation stays SDR except DLSS on Vulkan.",
+                     L"需要 HDR 螢幕並重新啟動。可搭配任一抗鋸齒、超解析度與縮放濾鏡；影格生成僅 Vulkan 的 DLSS 可與 HDR 同時開啟。")
+                : Tr(L"HDR output is unavailable for this graphics backend.",
+                     L"目前圖形後端無法使用 HDR 輸出。");
+            break;
+        case GraphicsRow::HdrPaperWhite:
+#if LO_PLATFORM_MACOS
+            next.help = Tr(L"Reference white uses system SDR white on Metal. Changes apply after saving.",
+                           L"Metal 以系統 SDR 白位作為參考白位；儲存後套用。");
+#else
+            next.help = Tr(L"Reference white controls normal scene brightness. Changes apply after saving.",
+                           L"參考白位控制一般場景亮度；儲存後套用。");
+#endif
+            break;
+        case GraphicsRow::HdrPeak:
+            next.help = Tr(L"Press A to calibrate peak brightness against an HDR comparison pattern. Auto follows the active display report.",
+                           L"按 A 以 HDR 對比圖校準最高亮度；自動模式跟隨目前顯示器的回報值。");
+            break;
         case GraphicsRow::DisplayMode:
         case GraphicsRow::Brightness:
         case GraphicsRow::Save:
@@ -815,10 +939,29 @@ void Publish(uint8_t *base, uint32_t config)
         next.dialogChoices = {Tr(L"Open importer", L"開啟匯入器"), Tr(L"Cancel", L"取消")};
         next.dialogSelection = importChoice;
     }
-    next.notice = tab == 2 ? (row == int(GraphicsRow::FrameGeneration) ||
+#if LO_PLATFORM_ANDROID
+    next.notice = tab == 2 && graphics_menu::AndroidFsrAvailable &&
+        edit.upscaler == gpu::upscaling::Upscaler::Fsr ? DlssNotice() : std::wstring{};
+#else
+    // Vulkan DLSS-G presents through the HDR10 swap chain; other frame
+    // generation paths keep an SDR swap chain (see video.cpp).
+    const bool fgKeepsSdr = edit.frameGenerationProvider != framegen::Provider::Off &&
+        !(edit.graphicsBackend == GraphicsBackend::Vulkan && edit.frameGenerationProvider == framegen::Provider::Dlss);
+    const bool hdrConflict = edit.hdr && fgKeepsSdr;
+    next.notice = tab == 2 && edit.hdr && !graphics_menu::HdrAvailable(edit.graphicsBackend)
+        ? Tr(L"The saved HDR preference is inactive on this graphics backend.",
+             L"已儲存的 HDR 偏好在目前圖形後端不會啟用。")
+        : tab == 2 && hdrConflict
+        ? Tr(L"HDR is paused while this frame generation provider is selected (only DLSS on Vulkan keeps HDR).",
+             L"選取這個影格生成提供者時 HDR 會暫停（只有 Vulkan 的 DLSS 可保持 HDR）。")
+        : tab == 2 ? (row == int(GraphicsRow::FrameGeneration) ||
         row == int(GraphicsRow::FrameGenerationMultiplier) ? FgNotice() : DlssNotice()) : std::wstring{};
+#endif
     std::lock_guard lock(snapshotMutex);
+    // Presentation may have published availability while this snapshot was built.
+    next.calibration.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
     if (next.tab == snapshot.tab && next.row == snapshot.row && next.scroll == snapshot.scroll && next.language == snapshot.language &&
+        next.calibration == snapshot.calibration &&
         next.rows == snapshot.rows && next.help == snapshot.help && next.notice == snapshot.notice && next.dialogTitle == snapshot.dialogTitle &&
         next.dialogMessage == snapshot.dialogMessage && next.dialogChoices == snapshot.dialogChoices &&
         next.dialogSelection == snapshot.dialogSelection)
@@ -827,6 +970,61 @@ void Publish(uint8_t *base, uint32_t config)
     snapshot = std::move(next);
 }
 } // namespace
+void SetHdrDisplayInfo(HdrDisplayInfo info)
+{
+    hdrDisplayInfo.store(uint64_t(info.peakNits) | (uint64_t(info.active) << 32) |
+        (uint64_t(info.relative) << 33), std::memory_order_relaxed);
+}
+void SetHdrCalibrationSceneAvailable(bool available)
+{
+    calibrationSceneAvailable.store(available, std::memory_order_relaxed);
+    // The guest can be paused while the presentation thread captures the scene.
+    // Publish the change immediately so DrawMenu invalidates its raster cache.
+    std::lock_guard lock(snapshotMutex);
+    if (snapshot.calibration.sceneAvailable != available)
+    {
+        snapshot.calibration.sceneAvailable = available;
+        ++snapshot.revision;
+    }
+}
+HdrCalibration GetHdrCalibration()
+{
+    HdrCalibration result;
+    {
+        std::lock_guard lock(snapshotMutex);
+        result = snapshot.calibration;
+    }
+    if (!active.load() || !result.open)
+        return MakeHdrCalibration(GetConfig(), false);
+    const auto display = CurrentHdrDisplayInfo();
+    result.detectedValid = display.peakNits > 0;
+    result.detectedNits = display.peakNits;
+    result.relative = display.relative;
+    result.hdrActive = display.active;
+    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
+    result.effectiveNits = std::clamp(result.automatic && result.detectedValid
+        ? result.detectedNits : result.automatic ? 1000u : result.manualNits,
+        result.paperWhiteNits, 10000u);
+    return result;
+}
+bool CalibrationKey(uint32_t key)
+{
+    if (!calibrationOpen.load() || !(key == 8 || key == 13 || key == 27 || (key >= '0' && key <= '9')))
+        return false;
+    std::lock_guard lock(calibrationKeyMutex);
+    calibrationKeys.push_back(key);
+    return true;
+}
+void PointerDrag(float x, float y, bool held)
+{
+    if (!held || !calibrationOpen.load() || y < 540 || y >= 595) return;
+    uint32_t paperWhite = 203;
+    {
+        std::lock_guard lock(snapshotMutex);
+        paperWhite = snapshot.calibration.paperWhiteNits;
+    }
+    calibrationDragNits.store(int(CalibrationSliderValue(x, paperWhite)));
+}
 bool FilterInput(uint16_t &buttons, int16_t x, int16_t y)
 {
     // A held Back must not become a fresh press in the parent menu. Consume
@@ -884,6 +1082,17 @@ void PointerClick(float x, float y, bool reverse)
     if (!active.load())
         return;
     std::lock_guard lock(snapshotMutex);
+    if (snapshot.calibration.open)
+    {
+        if (y >= 34 && y < 78 && x >= 800 && x < 1120)
+            calibrationClick = x < 940 ? 5 : 6;
+        else if (y >= 540 && y < 595 && x >= 245 && x < 1035)
+            calibrationDragNits = int(CalibrationSliderValue(x, snapshot.calibration.paperWhiteNits));
+        else if (y >= 605 && y < 655)
+            calibrationClick = x >= 160 && x < 400 ? 1 : x >= 420 && x < 720 ? 2 :
+                               x >= 740 && x < 930 ? 3 : x >= 950 && x < 1120 ? 4 : -1;
+        return;
+    }
     if (!snapshot.dialogChoices.empty())
     {
         const int selected = int(y - 360) / 43;
@@ -923,10 +1132,14 @@ void PointerClick(float x, float y, bool reverse)
         return;
     mouseRow = int(hit);
     if (x >= 386 && snapshot.rows[hit].enabled) {
+        const bool hdrLevel = snapshot.tab == 2 &&
+            (hit == size_t(GraphicsRow::HdrPaperWhite) || hit == size_t(GraphicsRow::HdrPeak));
         // Pointer adjustment is explicit left/right, not a synthetic A press.
         // Keep confirmation reserved for action rows and modal dialogs.
-        mouseAction = graphics_menu::IsAction(snapshot.tab, int(hit))
-            ? (reverse ? 0 : 0x1000) : (reverse || (snapshot.rows[hit].choices.size() > 5 && x < 458) ? 4 : 8);
+        mouseAction = snapshot.tab == 2 && hit == size_t(GraphicsRow::HdrPeak) &&
+                      x >= 600 && x < 820 ? 0x1000 : graphics_menu::IsAction(snapshot.tab, int(hit))
+            ? (reverse ? 0 : 0x1000) : (reverse || (hdrLevel && x < 600) ||
+               (snapshot.rows[hit].choices.size() > 5 && x < 458) ? 4 : 8);
     }
 }
 } // namespace settings
@@ -1031,6 +1244,11 @@ PPC_FUNC(sub_822F19B0)
     if (!active.exchange(true))
     {
         edit = GetConfig();
+        calibrationOpen = false;
+        calibrationNumberEditing = false;
+        calibrationNumber.clear();
+        calibrationClick = -1;
+        calibrationDragNits = -1;
         collectionPrompt = gpu::taa_collection::Consent() < 0;
         collectionChoice = 1;
         pending = 0;
@@ -1073,6 +1291,7 @@ PPC_FUNC(sub_822F19B0)
         sawModal = false;
         releaseToParent = true;
         active = false;
+        calibrationOpen = false;
         cancelPolls = 0;
         pending = 0;
         PPCContext apply = ctx;
@@ -1209,6 +1428,136 @@ PPC_FUNC(sub_822F19B0)
                 importLaunchPending = true;
                 status = Tr(L"Closing game and opening importer…", L"正在關閉遊戲並開啟匯入器……");
             }
+        }
+        Publish(base, config);
+        return;
+    }
+    if (calibrationOpen.load())
+    {
+        if (const int dragged = calibrationDragNits.exchange(-1); dragged >= 0)
+        {
+            edit.hdrPeakAutomatic = false;
+            edit.hdrPeakNits = uint32_t(std::clamp(dragged, int(edit.hdrPaperWhiteNits), 10000));
+            calibrationFocus = 0;
+        }
+        std::vector<uint32_t> keys;
+        {
+            std::lock_guard lock(calibrationKeyMutex);
+            keys.swap(calibrationKeys);
+        }
+        auto commitNumber = [&] {
+            if (!calibrationNumber.empty())
+            {
+                uint32_t number = 0;
+                for (wchar_t digit : calibrationNumber) number = number * 10 + uint32_t(digit - L'0');
+                edit.hdrPeakNits = std::clamp(number, edit.hdrPaperWhiteNits, 10000u);
+                edit.hdrPeakAutomatic = false;
+            }
+            calibrationNumberEditing = false;
+            calibrationNumber.clear();
+        };
+        bool cancelCalibration = false;
+        for (const uint32_t key : keys)
+        {
+            if (key >= '0' && key <= '9')
+            {
+                if (!calibrationNumberEditing)
+                {
+                    calibrationNumberEditing = true;
+                    calibrationNumber.clear();
+                    calibrationFocus = 2;
+                }
+                if (calibrationNumber.size() < 5) calibrationNumber.push_back(wchar_t(key));
+            }
+            else if (key == 8 && calibrationNumberEditing && !calibrationNumber.empty())
+                calibrationNumber.pop_back();
+            else if (key == 13)
+            {
+                if (calibrationNumberEditing)
+                    commitNumber();
+                else input |= 0x1000;
+            }
+            else if (key == 27)
+            {
+                if (calibrationNumberEditing)
+                {
+                    calibrationNumberEditing = false;
+                    calibrationNumber.clear();
+                }
+                else cancelCalibration = true;
+            }
+        }
+        if (cancelCalibration)
+        {
+            edit.hdrPeakAutomatic = calibrationStartAutomatic;
+            edit.hdrPeakNits = calibrationStartPeakNits;
+            calibrationOpen = false;
+        }
+        else
+        {
+            if (const int clicked = calibrationClick.exchange(-1); clicked >= 1)
+            {
+                if (clicked >= 5)
+                {
+                    calibrationFocus = 5;
+                    calibrationScenePreview = clicked == 5;
+                }
+                else
+                {
+                    calibrationFocus = clicked;
+                    input |= 0x1000;
+                }
+            }
+            if (calibrationNumberEditing && (input & 0x2000))
+            {
+                calibrationNumberEditing = false;
+                calibrationNumber.clear();
+                input &= ~0x2000;
+            }
+            if (input & 0x2000) calibrationOpen = false;
+            if (calibrationOpen.load())
+            {
+                if (input & 0x4000) calibrationScenePreview = !calibrationScenePreview.load();
+                if (input & 1) calibrationFocus = (calibrationFocus + 5) % 6;
+                if (input & 2) calibrationFocus = (calibrationFocus + 1) % 6;
+                const int delta = (input & 4) ? -1 : (input & 8) ? 1 : 0;
+                if (delta && calibrationFocus == 0 && !calibrationNumberEditing)
+                {
+                    const auto display = MakeHdrCalibration(edit, true);
+                    const uint32_t start = edit.hdrPeakAutomatic ? display.effectiveNits : edit.hdrPeakNits;
+                    const int step = start < 1000 ? 10 : 100;
+                    edit.hdrPeakAutomatic = false;
+                    edit.hdrPeakNits = uint32_t(std::clamp(int(start) + delta * step,
+                        int(edit.hdrPaperWhiteNits), 10000));
+                }
+                if (input & 0x1000)
+                {
+                    if (calibrationNumberEditing) commitNumber();
+                    else if (calibrationFocus == 1) edit.hdrPeakAutomatic = true;
+                    else if (calibrationFocus == 2)
+                    {
+                        calibrationNumberEditing = true;
+                        calibrationNumber = std::to_wstring(edit.hdrPeakAutomatic
+                            ? MakeHdrCalibration(edit, true).effectiveNits : edit.hdrPeakNits);
+                    }
+                    else if (calibrationFocus == 3) calibrationOpen = false;
+                    else if (calibrationFocus == 4)
+                    {
+                        edit.hdrPeakAutomatic = calibrationStartAutomatic;
+                        edit.hdrPeakNits = calibrationStartPeakNits;
+                        calibrationOpen = false;
+                    }
+                    else if (calibrationFocus == 5)
+                        calibrationScenePreview = !calibrationScenePreview.load();
+                }
+            }
+        }
+        if (!calibrationOpen.load())
+        {
+            calibrationNumberEditing = false;
+            calibrationNumber.clear();
+            calibrationClick = -1;
+            calibrationDragNits = -1;
         }
         Publish(base, config);
         return;
@@ -1381,8 +1730,15 @@ PPC_FUNC(sub_822F19B0)
                 edit.internalResolution = graphics_menu::RenderResolutions[
                     cycle(graphics_menu::RenderResolutionChoice(edit), uint32_t(std::size(graphics_menu::RenderResolutions)))];
                 break;
+            case GraphicsRow::ShadowResolution:
+                edit.shadowResolution = graphics_menu::ShadowResolutions[
+                    cycle(graphics_menu::ShadowResolutionChoice(edit), uint32_t(std::size(graphics_menu::ShadowResolutions)))];
+                break;
             case GraphicsRow::AntiAliasing:
                 graphics_menu::SelectAa(edit, cycle(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount));
+                break;
+            case GraphicsRow::AmbientOcclusion:
+                edit.ambientOcclusion = cycle(std::min(edit.ambientOcclusion, 2u), 3);
                 break;
             case GraphicsRow::DlssQuality:
                 if (gpu::upscaling::UsesFsrQuality(edit.upscaler))
@@ -1439,6 +1795,23 @@ PPC_FUNC(sub_822F19B0)
                     edit.frameGenerationTargetFps = 0;
                 }
                 break;
+            case GraphicsRow::Hdr:
+                if (graphics_menu::HdrAvailable(edit.graphicsBackend)) edit.hdr = !edit.hdr;
+                break;
+            case GraphicsRow::HdrPaperWhite:
+                if (graphics_menu::HdrAvailable(edit.graphicsBackend))
+                    edit.hdrPaperWhiteNits = uint32_t(std::clamp(int(edit.hdrPaperWhiteNits) + delta * 10, 80, 400));
+                break;
+            case GraphicsRow::HdrPeak:
+                if (graphics_menu::HdrAvailable(edit.graphicsBackend))
+                {
+                    const uint32_t start = edit.hdrPeakAutomatic
+                        ? MakeHdrCalibration(edit, false).effectiveNits : edit.hdrPeakNits;
+                    edit.hdrPeakAutomatic = false;
+                    edit.hdrPeakNits = uint32_t(std::clamp(int(start) + delta * 100,
+                        int(edit.hdrPaperWhiteNits), 10000));
+                }
+                break;
             case GraphicsRow::Brightness:
             case GraphicsRow::Save:
             case GraphicsRow::Count:
@@ -1486,6 +1859,19 @@ PPC_FUNC(sub_822F19B0)
         importPrompt = true;
         importChoice = 1;
         status.clear();
+    }
+    if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::HdrPeak) &&
+        graphics_menu::HdrAvailable(edit.graphicsBackend))
+    {
+        calibrationStartAutomatic = edit.hdrPeakAutomatic;
+        calibrationStartPeakNits = edit.hdrPeakNits;
+        calibrationNumberEditing = false;
+        calibrationNumber.clear();
+        calibrationFocus = 0;
+        calibrationScenePreview = true;
+        calibrationOpen = true;
+        Publish(base, config);
+        return;
     }
     if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::Save))
     {

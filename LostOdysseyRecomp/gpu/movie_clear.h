@@ -21,6 +21,8 @@ enum Register : uint32_t
     OriginalHeight,
     SafeLeft,
     SafeRight,
+    SafeTop,
+    SafeBottom,
     Commit,
 };
 constexpr uint32_t WordCount = Commit - RegisterBase + 1;

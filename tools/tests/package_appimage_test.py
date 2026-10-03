@@ -1,6 +1,11 @@
 """AppImage packager collects linuxdeploy output before the temp dir is deleted."""
+import contextlib
+import filecmp
 import importlib.util
+import io
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +14,10 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[2]
+# package_appimage.py imports its sibling modules from tools/.
+sys.path.insert(0, str(ROOT / 'tools'))
+# What compiler_libraries() reports. linuxdeploy is mocked, so they need not exist.
+COMPILER_RUNTIMES = [Path('/toolchain/libstdc++.so.6'), Path('/toolchain/libgcc_s.so.1')]
 
 
 def create_mock_apprun(cmd):
@@ -16,6 +25,36 @@ def create_mock_apprun(cmd):
     entry = appdir / 'AppRun'
     entry.write_bytes(b'mock executable')
     entry.chmod(0o755)
+
+
+@contextlib.contextmanager
+def offline_checks(module):
+    """Replace the steps that need a real compiler, readelf, ldd and ELF files.
+
+    test_appimage_compat.py covers their parsing and version policy.
+    """
+    with patch.object(module, 'compiler_libraries', return_value=COMPILER_RUNTIMES), \
+            patch.object(module, 'validate_abi') as abi, \
+            patch.object(module, 'validate_loader') as loader:
+        yield abi, loader
+
+
+def with_image(linuxdeploy):
+    """Route linuxdeploy calls to `linuxdeploy` and also stand in for the image.
+
+    `<image> --appimage-extract` unpacks what the --output pass packed, the
+    AppDir, as squashfs-root in its working directory.
+    """
+    packed = []
+
+    def run(cmd, **kwargs):
+        if [str(argument) for argument in cmd[1:]] == ['--appimage-extract']:
+            shutil.copytree(packed[-1], Path(kwargs['cwd']) / 'squashfs-root', symlinks=True)
+            return subprocess.CompletedProcess(cmd, 0)
+        if '--output' in cmd:
+            packed.append(cmd[cmd.index('--appdir') + 1])
+        return linuxdeploy(cmd, **kwargs)
+    return run
 
 
 def load_packager():
@@ -55,13 +94,16 @@ class PackageAppImageTests(unittest.TestCase):
                     '--version', 'v0.7.3']
             with patch.object(sys, 'argv', argv), \
                     patch.object(module.shutil, 'which', return_value='linuxdeploy'), \
-                    patch.object(module.subprocess, 'run', side_effect=fake_linuxdeploy):
+                    patch.object(module.subprocess, 'run', side_effect=with_image(fake_linuxdeploy)), \
+                    offline_checks(module):
                 module.main()
 
             self.assertEqual(len(calls), 2)
             self.assertEqual((destination / 'usr/bin/LostOdysseyRecomp').read_bytes(), b'mock-runtime')
             self.assertEqual((destination / 'usr/lib/libcurl.so.4').read_bytes(), b'linuxdeploy dependency')
             self.assertTrue((destination / 'usr/share/metainfo/io.github.freefrank.LostOdysseyRecomp.metainfo.xml').is_file())
+            self.assertEqual((destination / 'usr/share/licenses/lost-odyssey-recomp/XeGTAO.txt').read_bytes(),
+                             (ROOT / 'thirdparty/licenses/XeGTAO.txt').read_bytes())
             self.assertTrue((destination / 'AppRun').is_file())
             if os.name != 'nt':
                 link = destination / 'usr/lib/libcurl.so'
@@ -101,6 +143,9 @@ class PackageAppImageTests(unittest.TestCase):
                 self.assertIn('--desktop-file', cmd)
                 self.assertIn('--icon-file', cmd)
                 self.assertEqual(cmd[cmd.index('--exclude-library') + 1], 'libwayland*')
+                self.assertEqual([cmd[index + 1] for index, argument in enumerate(cmd)
+                                  if argument == '--library'],
+                                 [str(library) for library in COMPILER_RUNTIMES])
                 if '--output' not in cmd:
                     create_mock_apprun(cmd)
                     return
@@ -123,7 +168,8 @@ class PackageAppImageTests(unittest.TestCase):
             ]
             with patch.object(sys, 'argv', argv), \
                     patch.object(module.shutil, 'which', return_value='linuxdeploy'), \
-                    patch.object(module.subprocess, 'run', side_effect=fake_linuxdeploy):
+                    patch.object(module.subprocess, 'run', side_effect=with_image(fake_linuxdeploy)), \
+                    offline_checks(module):
                 module.main()
 
             destination = output / 'LostOdysseyRecomp-linux-x64-v0.5.13.AppImage'
@@ -176,7 +222,8 @@ class PackageAppImageTests(unittest.TestCase):
                 self.assertEqual(module.shutil.which(relative), relative.replace('\\', os.sep)
                                  if os.name == 'nt' else relative)
                 with patch.object(sys, 'argv', argv), \
-                        patch.object(module.subprocess, 'run', side_effect=fake_linuxdeploy):
+                        patch.object(module.subprocess, 'run', side_effect=with_image(fake_linuxdeploy)), \
+                        offline_checks(module):
                     module.main()
             finally:
                 os.chdir(previous)
@@ -197,21 +244,26 @@ class PackageAppImageTests(unittest.TestCase):
             (binaries / 'libdxcompiler.so').write_bytes(b'mock-dxc')
             tool_dir = base / 'out' / 'tools' / 'linuxdeploy'
             tool_dir.mkdir(parents=True)
+            # --library arguments shift the position of --output, so scan for it.
             if os.name == 'nt':
                 tool = tool_dir / 'linuxdeploy.cmd'
                 tool.write_text(
                     '@echo off\r\n'
                     'echo mock executable>"%~2\\AppRun"\r\n'
-                    'if not "%~9"=="--output" exit /b 0\r\n'
-                    'echo successful mock package>LostOdysseyRecomp-x86_64.AppImage\r\n',
+                    ':scan\r\n'
+                    'if "%~1"=="" exit /b 0\r\n'
+                    'if "%~1"=="--output" echo successful mock package>LostOdysseyRecomp-x86_64.AppImage\r\n'
+                    'shift\r\n'
+                    'goto scan\r\n',
                     encoding='ascii')
                 relative = r'out\tools\linuxdeploy\linuxdeploy.cmd'
             else:
                 tool = tool_dir / 'linuxdeploy'
                 tool.write_text("#!/bin/sh\nprintf '%s' 'mock executable' > \"$2/AppRun\"\n"
                                 "chmod +x \"$2/AppRun\"\n"
-                                '[ "$9" = "--output" ] || exit 0\n'
-                                "printf '%s' 'successful mock package' > LostOdysseyRecomp-x86_64.AppImage\n")
+                                "case \" $* \" in *' --output '*)\n"
+                                "  printf '%s' 'successful mock package' > LostOdysseyRecomp-x86_64.AppImage ;;\n"
+                                "esac\n")
                 tool.chmod(0o755)
                 relative = 'out/tools/linuxdeploy/linuxdeploy'
 
@@ -222,10 +274,14 @@ class PackageAppImageTests(unittest.TestCase):
                 '--version', 'v0.5.13',
                 '--linuxdeploy', relative,
             ]
+            # linuxdeploy really runs; only the extraction of the image is simulated.
+            run = with_image(subprocess.run)
             previous = Path.cwd()
             try:
                 os.chdir(base)
-                with patch.object(sys, 'argv', argv):
+                with patch.object(sys, 'argv', argv), \
+                        patch.object(module.subprocess, 'run', side_effect=run), \
+                        offline_checks(module):
                     module.main()
             finally:
                 os.chdir(previous)
@@ -249,12 +305,58 @@ class PackageAppImageTests(unittest.TestCase):
                     '--output', str(output), '--version', 'v0.5.14']
             with patch.object(sys, 'argv', argv), \
                     patch.object(module.shutil, 'which', return_value='linuxdeploy'), \
-                    patch.object(module.subprocess, 'run') as run:
+                    patch.object(module.subprocess, 'run') as run, \
+                    offline_checks(module):
                 with self.assertRaisesRegex(SystemExit, 'Invalid AppRun entry'):
                     module.main()
             self.assertEqual(run.call_count, 1)
             self.assertNotIn('--output', run.call_args.args[0])
             self.assertEqual(list(output.glob('*.AppImage*')), [])
+
+    def test_staging_tree_and_extracted_image_are_checked_before_publication(self):
+        module = load_packager()
+        with tempfile.TemporaryDirectory(prefix='lo-final-image-') as tmp:
+            base = Path(tmp)
+            binaries = base / 'build/LostOdysseyRecomp'
+            binaries.mkdir(parents=True)
+            (binaries / 'LostOdysseyRecomp').write_bytes(b'mock-runtime')
+            (binaries / 'libdxcompiler.so').write_bytes(b'mock-dxc')
+            output = base / 'output'
+            events = []
+
+            def fake_linuxdeploy(cmd, **kwargs):
+                appdir = Path(cmd[cmd.index('--appdir') + 1])
+                if '--output' in cmd:
+                    events.append(('output plugin', appdir.name))
+                    (Path(kwargs['cwd']) / 'LostOdysseyRecomp-x86_64.AppImage').write_bytes(b'package')
+                else:
+                    events.append(('deploy', appdir.name))
+                    create_mock_apprun(cmd)
+
+            argv = ['package_appimage.py', '--build', str(base / 'build'),
+                    '--output', str(output), '--version', 'v0.7.30']
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(module.shutil, 'which', return_value='linuxdeploy'), \
+                    patch.object(module.subprocess, 'run', side_effect=with_image(fake_linuxdeploy)), \
+                    offline_checks(module) as (abi, loader):
+                abi.side_effect = lambda appdir: events.append(('abi', appdir.name))
+                # An image whose libraries do not resolve once extracted is not published.
+                loader.side_effect = module.CompatibilityError('libmissing.so.1 => not found')
+                with self.assertRaises(module.CompatibilityError):
+                    module.main()
+                self.assertEqual(list(output.glob('*.AppImage*')), [])
+                events.clear()
+                loader.side_effect = lambda appdir: events.append(('loader', appdir.name))
+                module.main()
+
+            # The ABI gate sees the staging tree before the output plugin seals it,
+            # then both gates see what the image actually extracts to.
+            self.assertEqual(events, [('deploy', 'LostOdysseyRecomp.AppDir'),
+                                      ('abi', 'LostOdysseyRecomp.AppDir'),
+                                      ('output plugin', 'LostOdysseyRecomp.AppDir'),
+                                      ('abi', 'squashfs-root'),
+                                      ('loader', 'squashfs-root')])
+            self.assertTrue((output / 'LostOdysseyRecomp-linux-x64-v0.7.30.AppImage').is_file())
 
     @unittest.skipIf(os.name == 'nt', 'POSIX symlink and executable permissions')
     def test_entry_validation_rejects_broken_escaping_and_nonexecutable_targets(self):
@@ -285,7 +387,28 @@ class PackageAppImageTests(unittest.TestCase):
             module.validate_apprun(appdir)
 
 
-    def test_dlss_runtime_bundled_with_license_and_symlinks(self):
+    def test_ngx_snippet_must_match_nvidia_bytes(self):
+        module = load_packager()
+        with tempfile.TemporaryDirectory(prefix='lo-ngx-snippet-') as tmp:
+            base = Path(tmp)
+            source = base / module.NGX_SNIPPET
+            source.write_bytes(b'signed snippet')
+            appdir = base / 'AppDir'
+            with self.assertRaisesRegex(SystemExit, 'snippet missing'):
+                module.validate_ngx_snippet(source, appdir)
+            packaged = appdir / module.NGX_DIRECTORY / module.NGX_SNIPPET
+            packaged.parent.mkdir(parents=True)
+            # An RPATH rewrite can keep the size; only the bytes tell.
+            packaged.write_bytes(b'signed snippeT')
+            with self.assertRaisesRegex(SystemExit, 'modified the signed NGX snippet'):
+                module.validate_ngx_snippet(source, appdir)
+            packaged.write_bytes(b'signed snippet')
+            # filecmp caches outcomes by size and mtime, and on Linux this
+            # same-size rewrite can land within the same timestamp tick.
+            filecmp.clear_cache()
+            module.validate_ngx_snippet(source, appdir)
+
+    def test_dlss_runtime_bundled_with_license_in_ngx_folder(self):
         module = load_packager()
         with tempfile.TemporaryDirectory(prefix='lo-dlss-appimage-') as tmp:
             base = Path(tmp)
@@ -315,11 +438,22 @@ class PackageAppImageTests(unittest.TestCase):
             sdk_dir = fake_root / 'out/deps/nvidia-dlss'
             sdk_dir.mkdir(parents=True, exist_ok=True)
             (sdk_dir / 'LICENSE.txt').write_text('mock license', encoding='utf-8')
+            gtao_license = fake_root / 'thirdparty/licenses/XeGTAO.txt'
+            gtao_license.parent.mkdir(parents=True, exist_ok=True)
+            gtao_license.write_text('mock XeGTAO license', encoding='utf-8')
 
+            listing = io.StringIO()
             with patch.object(module, 'ROOT', fake_root):
-                with patch.object(sys, 'argv', argv):
+                with patch.object(sys, 'argv', argv), contextlib.redirect_stdout(listing):
                     # Dry layout creates layout and prints paths without linuxdeploy
                     module.main()
+            files = set(listing.getvalue().splitlines())
+            self.assertIn('usr/bin/ngx/libnvidia-ngx-dlss.so.310.9.1', files)
+            self.assertIn('usr/share/licenses/lost-odyssey-recomp/NVIDIA-DLSS/LICENSE.txt', files)
+            self.assertIn('usr/share/licenses/lost-odyssey-recomp/XeGTAO.txt', files)
+            # Nothing linuxdeploy rewrites may hold or alias the snippet.
+            self.assertEqual([name for name in files
+                              if 'ngx-dlss' in name and not name.startswith('usr/bin/ngx/')], [])
 
 
 if __name__ == '__main__':

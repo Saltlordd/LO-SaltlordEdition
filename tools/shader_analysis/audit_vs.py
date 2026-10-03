@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 
 
-ASSIGN = re.compile(r"^(?:(?:float[1-4]?|uint|int|bool)\s+)?(r\d+|xePV|ps|oPos|a0|aL)(?:\.([xyzw]+))?\s*(=|\+=|\*=|-=|/=)\s*(.*);$")
+ASSIGN = re.compile(r"^(?:(?:float[1-4]?|uint|int|bool)\s+)?(r\d+|xePV|ps|oPos|o\d+|a0|aL)(?:\.([xyzw]+))?\s*(=|\+=|\*=|-=|/=)\s*(.*);$")
 REF = re.compile(r"\b(r\d+|xePV|ps|oPos|a0|aL)(?:\.([xyzw]+))?\b")
 CONST = re.compile(r"\bc\[(\d+)([^\]]*)\](?:\.([xyzw]+))?")
 ROW = re.compile(r"(?:\*\s*c\[(\d+)\]\.[xyzw]{4}|c\[(\d+)\]\.[xyzw]{4}\s*\*|dot\([^;]*?c\[(\d+)\]\.[xyzw]{4})")
@@ -109,7 +109,17 @@ def analyze(text):
         classification = "constant_or_vertex_id_position"
     else:
         classification = "other_position_expression"
-    return dict(classification=classification, slots=slots, constants=constants,
+    # Other outputs that carry the final position matrix, such as a clip copy
+    # for the PS; review which of their components the paired PS reads.
+    vp_rows = {slot + i for slot in slots for i in range(4)}
+    vp_outputs = []
+    for name in sorted({lhs for lhs, _ in state if re.fullmatch(r"o\d+", lhs)}, key=lambda n: int(n[1:])):
+        components = "".join(c for c in "xyzw" if any(
+            value in vp_rows for n in closure(state.get((name, c), set())) for value, relative in nodes[n]["constants"]
+            if not relative))
+        if components:
+            vp_outputs.append(dict(output=name, components=components))
+    return dict(classification=classification, slots=slots, constants=constants, vp_outputs=vp_outputs,
                 w_constants=wconstants, relative_position_constants=relative, control_lines=control,
                 unparsed_position_writes=unknown, matrix_blocks=blocks,
                 position_write_lines=sorted({nodes[n]["line"] for n in writes}),

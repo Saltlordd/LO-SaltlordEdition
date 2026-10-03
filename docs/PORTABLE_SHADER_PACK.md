@@ -1,15 +1,107 @@
 # Portable shader packs
 
-This is the distribution and tool reference for Vulkan `.lospv` and D3D12
-`.lospd` packs. Vulkan packs are bundled in application packages. The DX12 pack
-is an optional standalone asset; a release need not include a newly uploaded
-copy. Installation uses `shaders/portable_vk.lospv` or
-`shaders/portable_dx12.lospd` beside the executable. See [installation](INSTALLING.md)
-and [current release status](STATUS.md) for the player-facing path.
+This is the distribution and tool reference for the SPIR-V `.lospv` pack, read
+by Vulkan on Windows, Linux and Android and by Metal on macOS, and the D3D12
+`.lospd` pack. Release packages no longer carry a pack: the game downloads the
+pack for its renderer at startup from the `shader-packs` prerelease
+([startup download](#startup-download)). Both are built with one script on
+Windows or Linux ([building packs](#building-packs)). A pack placed by hand
+still works when its contract matches: `shaders/portable_vk.lospv` or
+`shaders/portable_dx12.lospd` in the install folder or beside the executable. See [installation](INSTALLING.md) and
+[current release status](STATUS.md) for the player-facing path.
 
 Release measurements below are dated evidence. The initial implementation was
 based on `menu@257f3866e9f9f5d3e65550c86dce453290cf7ee4`; its delivery archive and
 unverified boundaries are retained in the final historical sections.
+
+## Startup download
+
+The runtime can fetch the pack for its renderer itself. The check runs after the update check and before shader preparation (`updater/shader_pack_download.cpp`, called from `main.cpp` after `XexLoader::Load`):
+
+1. It computes the contract of the configured renderer from the loaded executable: Vulkan or DirectX 12 on Windows, Vulkan on Linux and Android, and on macOS the Vulkan contract, because Metal translates the same SPIR-V. The contract ignores the local DXC identity, so it is known before the renderer starts; `LoPortableShaderContractTest` checks that it equals the renderer's own.
+2. It looks for a matching pack: `LO_SHADER_PACK_PATH` alone when set, otherwise the install folder, then `shaders/` beside the executable. The install folder is `shaders/` beside the executable in a portable layout (Windows) and `shaders/` in the user data folder otherwise (macOS app, AppImage, Flatpak). A pack for another contract counts as missing; the renderer also moves on to the next location instead of stopping at a rejected file.
+3. Without a match it reads `index.json` from the `shader-packs` release. Only a listed contract is offered. A window shows the renderer and the size; Download (A) shows progress and can be cancelled with B. Skip (B) writes the contract to `shaders/declined-downloads.txt` in the install folder, and the offer comes back only for a new contract. Closing the window asks again at the next start.
+4. The file is downloaded beside its target as `<name>.download-<pid>`; a transfer longer than the listed size is stopped. Its size and SHA-256 must match the index, and the pack must pass the contract check and `Reader::VerifyAll` before it replaces the old file. On any failure the old state stays and the game compiles locally; the window shows the reason.
+
+Background (`LO_BACKGROUND`) and headless runs show no window. Developer shader settings (`LO_SHADER_PACK_PATH`, `LO_NO_PORTABLE_SHADER_PACK`, `LO_SHADER_EXPORT_PACK`, `LO_SHADER_FULL_SCAN`, `LO_SHADER_HLSL_DIR`, `LO_SHADER_RETRY_FAILURES`) skip the check, as they skip packs in the renderer. `LO_SHADER_PACK_DOWNLOAD=0` turns it off; `LO_SHADER_PACK_DOWNLOAD=1` downloads without asking, also in background runs. `LO_SHADER_PACK_INDEX_URL` replaces the index URL for tests; packs are always fetched beside the index, never from a URL in its text. The log line `shader pack: …` records the outcome.
+
+### Index
+
+Packs are assets of the `shader-packs` GitHub prerelease, named `<file stem>-<first 16 contract digits><extension>`. A prerelease is never the repository's latest release, which the updater reads. `index.json` on the same release lists them:
+
+```json
+{
+  "schema": 1,
+  "packs": [
+    {
+      "renderer": "vulkan",
+      "contract": "4e123a08e148937e41b1b7dc636608377bd15a0043fb506a43a75cb6930ea6ae",
+      "file": "portable_vk-4e123a08e148937e.lospv",
+      "size": 180527457,
+      "sha256": "5c412fd71c5cdae0e4e5fcfe67de536cc5c0a10f10ed71b1b0f6cdd5858600fb"
+    }
+  ]
+}
+```
+
+`renderer` is `vulkan` or `d3d12`. The `metal` entry stays for v0.7.35 and older macOS builds, which read a separate `-O1` pack; newer runtimes skip it. A runtime ignores renderers it does not know. A malformed entry, a duplicate renderer and contract or another schema makes the runtime reject the whole index.
+
+### Publishing
+
+`LoShaderPackTool contract <xexdump image>` prints the contract of each renderer (`vulkan`, `d3d12`). `tools/release/publish_shader_packs.py --tool <LoShaderPackTool> --image <image> <packs>` maps each pack to its renderer by contract, runs `verify-runtime`, stages the renamed packs and the merged index in `out/shader-packs`, and uploads them with `--publish`: packs first, then the index. Entries for other contracts stay, so older runtimes keep finding their packs. After uploading it checks that the latest release is still a version. `--check` only reports whether the published index covers both contracts of the image.
+
+### Building packs
+
+`tools/shader_pack/build_packs.py` builds every pack the game downloads, on Windows or Linux:
+
+```
+python tools/shader_pack/build_packs.py --game <disc1> [--renderer vulkan d3d12] [--runtime <build folder>] [--sources <folder>...] [--stage]
+```
+
+For each renderer it runs the runtime from a copy in `out/shader-pack-build/work-<renderer>` with `--prepare-shaders-only`, `LO_GRAPHICS_API=<renderer>` and `LO_SHADER_EXPORT_PACK`, keeping that folder's shader cache so a rerun from the same source needs no DXC, then runs `LoShaderPackTool verify-runtime` against `LostOdysseyRecompLib/private/image_disc1.bin`. The default runtime is `out/build/windows-clang/LostOdysseyRecomp` (Windows) or `out/build/linux-clang/LostOdysseyRecomp` (Linux), with `LoShaderPackTool` beside it. `d3d12` needs Windows; `vulkan` serves Vulkan on every platform, Metal and Android. It refuses to run with developer shader settings in the environment (`LO_SHADER_PACK_PATH`, `LO_SHADER_FULL_SCAN` and the like). `--stage` passes the packs to `publish_shader_packs.py` without `--publish`; uploading stays a separate, deliberate step. `--sources` adds shader sources learned during play (`ps_*.bin`/`vs_*.bin` from the `source` folder of a shader cache); the game files alone give 28,484 shaders, and the collection of 950 learned sources used for the 2026-10-02 packs (`shaders/learned_sources` in the private build-inputs repository; 289 of them are new to the game files) brings both packs to 28,687 records, the coverage of the published packs. The script deletes the work folder's startup bundle before each run, because a bundle hit skips source discovery and would leave added sources out.
+
+## One SPIR-V pack for Vulkan, Metal and Android (2026-10-02)
+
+Android needed its own SPIR-V: many Android GPUs cap a storage-buffer descriptor at 128 MiB, below the 1 GiB vertex arena, so its shaders fetch vertices through the arena's device address and read the push-constant addresses as 32-bit word pairs. Desktop Vulkan and Metal now use the same shader prelude, and Metal no longer compiles at `-O1` (that only shortened local compiles, which the pack replaces). Vulkan on Windows, Linux and Android and Metal on macOS therefore share one contract and `portable_vk.lospv`. The HLSL text equals the former Android variant, so the Android pack made on Linux earlier has the same contract as one made on Windows now (`eecb4425…`). The common prelude is part of the D3D12 contract too, so the DX12 pack also changes (`239f8775…`) although its DXIL does not.
+
+Validation:
+
+- `build_packs.py` on Windows (RTX 5080): Vulkan 335 s and D3D12 103 s from an empty cache; with the learned sources 28,687 records each, `verify-runtime` passed. Vulkan pack 241,820,275 bytes (the shared SPIR-V is larger than the former 180 MB desktop pack), DX12 80,491,442 bytes.
+- Performance, Vulkan, 4K, uncapped, frozen Uhra save, ABBA×2 with each build reading its own pack: main 218.0/221.0/204.1/216.7 FPS (mean 215.0), unified 201.5/210.4/220.5/213.8 (mean 211.6), within run-to-run variation. This scene is CPU-bound on that GPU (about 4.1 ms of CPU per frame), so it does not isolate the GPU cost of the vertex fetch.
+- AMD Radeon 8060S (Strix Halo), Windows build through Proton on RADV: pack hit and a correct #118 world-map frame on Vulkan.
+- M1 Max, Metal, `new-game-battle`: main with the published `-O1` Metal pack and the unified build with the shared pack both passed at the scenario's 30 FPS cap, with 0 on-demand shader compiles for the 28,687-record pack. A foreground run with HDR on an external EDR display (headroom 10.15) switched to HDR once the window was frontmost (`scene_enabled=true`, about 1,030 nits estimated); a window started over SSH stays behind other apps and gets no EDR headroom.
+- Lenovo TB321FU (Adreno 750): the pack check runs at startup, finds the Linux-made Android pack with the shared contract (`vulkan pack present`), and the renderer hits it. With the pack moved away, the index was read over HTTPS through `HttpURLConnection` (`none published for contract eecb4425…`).
+- Both packs were published to the `shader-packs` prerelease on 2026-10-02 (`portable_vk-eecb4425e7f53d44.lospv`, 241,820,275 bytes, SHA-256 `b9a2cd10…`; `portable_dx12-239f877563b6dc7a.lospd`, 80,491,442 bytes, SHA-256 `f5ab2e40…`; GitHub's digests match). A Windows build of the branch with `LO_SHADER_PACK_DOWNLOAD=1` and an empty folder downloaded and used both.
+- On the tablet with the pack removed, the window offered the 230.6 MiB pack; the on-screen controller's A started the download (the overlay covers the window, so its A, B and D-pad left/right are read from the touch input), and the pack was installed after 57 s, hit by the renderer with 0 startup DXC calls.
+- Not checked: Linux native Vulkan with the new build, GPU-bound frame time differences.
+
+### Validation (2026-10-02)
+
+- `LoShaderPackIndexTest` (35 checks: parsing, selection, asset names, URLs, decline record) passed with GCC 16 and clang 22 under ASan and UBSan; it runs in review-regressions.
+- `LoShaderPackTool contract` printed the contracts of the three 2026-10-02 packs, and the publish script staged them with an index without uploading.
+- A Windows build was run with `--prepare-shaders-only` against a local HTTP server serving that index. Installed and used: Vulkan and DX12 packs, and a Vulkan pack replacing one with another contract. Reported and left alone: an unpublished contract, a wrong SHA-256 (no file left behind), a transfer longer than the listed size (stopped, no file left), an unreachable index, a background run and a remembered decline. `LoPortableShaderPackIntegrationTest`, which compiles the renderer's pack code against fake services, passes with GCC and clang on Linux. In the window, Download, Skip, Cancel and the failure page were driven by keyboard messages, in English and Chinese.
+- The three packs were published to the `shader-packs` prerelease on 2026-10-02 at 07:24 UTC; GitHub's SHA-256 digests match the exported files. The same Windows build, without an index override, then downloaded and used the Vulkan pack (180 MB, installed 9 s after start) and the DX12 pack (80 MB, 5 s) from it.
+- On an M1 Max with macOS 26.6.2, a Metal build of main `2cd3fe6` computed the same three contracts, downloaded the Metal pack from the release (SHA-256 as published, installed 9 s after start) and loaded it; a second start found it in 0.24 s. The `new-game-battle` scenario then passed with an empty shader cache (2,047 draws, 30 FPS): no guest shader was compiled, so every one came from the pack, and the opening movie and the battle menu rendered correctly. The 17 compiles in that run were the renderer's own built-in shaders.
+- v0.7.35 (published 2026-10-02T09:13:35Z) is the first version release built without a pack. The Linux release job's "Check published shader packs" step ran `publish_shader_packs.py --check` ([Gitea run 135](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/135)) and found the d3d12, metal and vulkan contracts in the index. The packages are 77,109,842 bytes (Windows ZIP), 76,270,072 (AppImage) and 54,113,384 (Flatpak), against 254,531,925, 253,770,232 and 231,397,328 for v0.7.25, which bundled the Vulkan pack. The release did not change the `shader-packs` prerelease, and no game run was made with the v0.7.35 packages ([release record](STATUS.md#v0735-published--2026-10-02)).
+- Not yet checked: Linux runs (the new sources only compiled there) and mouse input in the window.
+- Update, 2026-10-03: v0.8.0 (published 2026-10-03T06:41:51Z) and v0.8.5 (2026-10-03T18:45:17Z) also carry no pack. Their Windows ZIPs are 77,134,904 and 77,142,293 bytes, their AppImages 76,311,032 and 76,306,936 and their Flatpaks 54,113,296 and 54,129,440. The v0.8.5 runtime's contracts were already in the published index (DirectX 12 `239f8775...`, Vulkan `eecb4425...`; the `portable_dx12-239f877563b6dc7a.lospd` and `portable_vk-eecb4425e7f53d44.lospv` packs above): `publish_shader_packs.py --check` passed on a Mac before the tag and no pack was published for the release. The release run's mandatory Linux-job check succeeded; its output was not read here, and no game run was made with the packages ([v0.8.0 record](STATUS.md#v080-published--2026-10-03), [v0.8.5 record](STATUS.md#v085-published--2026-10-03)).
+
+## Runtime contract and release check (after v0.7.25)
+
+v0.7.25 shipped the Vulkan pack pinned for v0.7.10, although its runtime had moved from shader translator version 24 to 26 (the macOS merge changed predicate-push translation). The game rejected the pack (`portable shader pack rejected; local cache fallback: portable shader contract mismatch`) and compiled all 28,549 shaders on first launch: 180 s with 15 workers on a 16-thread CPU. Nothing in the release compared the pack with the runtime, and `verify-runtime` could not do it in general. The runtime hashed its guest image after `XexLoader` had written host-assigned import addresses into it, so the tool relied on one audited contract pair, which the next translator change made useless.
+
+The contract now hashes the first `0x185C60` bytes of the image as parsed, before import binding (`XexLoader::UnboundIdentityPrefix()`). That prefix equals the start of `tools/xexdump` output, so `RuntimeContract`, shared by the renderer, its export and `LoShaderPackTool`, gives the same value offline. `verify-runtime` now checks SPIR-V and DXIL packs exactly, and the audited exception is gone from it and from `merge`. Packs made with the old definition are rejected. The local startup bundle still keys on the bound image, so local caches stay valid.
+
+Until the startup download, release CI fetched a pinned pack from the private build-inputs repository, and the runtime build staged it only after `verify-runtime` accepted it. Packages now carry no pack. Instead the Linux release job builds `LoShaderPackTool` and runs `tools/release/publish_shader_packs.py --check`: a version release stops unless the `shader-packs` index lists all three contracts of its runtime. Branch builds only warn.
+
+To refresh the packs after a translator, option or discovery change:
+
+1. Build the runtime and `LoShaderPackTool` from the release source and run `tools/shader_pack/build_packs.py --game <disc1> --stage` ([building packs](#building-packs)). A complete local startup bundle or shader store made by that source is used without DXC; without one, the run compiles every shader.
+2. Publish them with `python tools/release/publish_shader_packs.py --tool <LoShaderPackTool> --image LostOdysseyRecompLib/private/image_disc1.bin <packs> --publish` ([publishing](#publishing)). It runs `verify-runtime` on each pack first.
+
+The pack refreshed on 2026-10-01 was exported in 18 s from the startup bundle that v0.7.25 had just built (no guest shader DXC calls). It has 28,549 records and 27,793 unique binaries, is 180,052,919 bytes, SHA-256 `f5eadb4fcc27a40bf4d76bae6bf83224bfb730fab8f49581ba3254c2d2f17c25`, contract `4e123a08e148937e41b1b7dc636608377bd15a0043fb506a43a75cb6930ea6ae`, and is pinned as build-inputs commit `5fae27a5a3c05262e7b64631f141ebcd19d5f656`. `verify-runtime` passed. A `--prepare-shaders-only` run with an empty cache reported a pack hit for all 28,549 records. The release build check failed with the v0.7.25 pack and passed with this one. The optional DX12 pack has not been regenerated for the new contract.
+
+Update, 2026-10-02: the DX12 pack was regenerated for the new contract and published to the `shader-packs` prerelease together with a Vulkan and a Metal pack. A read-only GitHub API read at about 09:13 UTC listed `index.json`, `portable_dx12-5805497255fa73b4.lospd` (80,462,294 bytes), `portable_metal-6fe8486e1f59ca31.lospv` and `portable_vk-4e123a08e148937e.lospv`, all uploaded, and the index lists the d3d12, metal and vulkan contracts. The Vulkan pack published there is the 28,687-record, 180,527,457-byte file of 2026-10-02, not the 2026-10-01 file described above. See [Validation (2026-10-02)](#validation-2026-10-02) and the [shader store note](notes/shader-store-2026-10-02.md#packs-exported-on-2026-10-02).
 
 ## v0.7.10 shader-pack release
 
@@ -45,7 +137,7 @@ with SHA-256
 It is byte-identical to the v0.6.0 pack and contains 28,482 records under the v0.6.1
 asset name; this is release provenance rather than a claim of new shader coverage.
 
-The source-side verifier now permits the audited exception for the raw image
+At v0.6.1 the source-side verifier permitted the audited exception for the raw image
 contract `d5a2fab10441a46444b6b41ffcb4f1ba562bea75668a7b445fd43688aec67507`
 mapping to runtime contract
 `f6fd1179b50f6ff9b63d6be84c662d1337af6b7dfa78865a9a6c025509c9b77f`; other
@@ -54,7 +146,9 @@ patches import thunks before runtime shader preparation. The current local
 verification covered a real 28,482-record pack with all payloads and runtime
 compatibility, and `portable_shader_release_test.py` passed. Previous runtime
 logs also recorded pack hits in two runs, but they came from a 0.5.14 dirty
-source and are retained as supporting evidence only.
+source and are retained as supporting evidence only. The exception was removed
+after v0.7.25, when the contract moved to the image before import binding (see
+the runtime contract section above).
 
 The uploaded pack matches the audited contract through the release verifier and
 the published asset's sidecar and GitHub digest match. Native Linux GPU, Steam
@@ -87,13 +181,15 @@ Deck, AppImage update transactions and full-game shader coverage remain unverifi
   decompression boundaries. It loads records on demand and does not scan every
   SPIR-V payload at startup. A malformed record disables the pack and leaves
   the local fallback retryable, without inserting an invalid shader entry.
-- Windows ZIP and Linux AppImage staging copy only `shaders/portable_vk.lospv`,
-  check that it is a nonempty file, and retain the Zstandard license. The current
-  Python staging helper does not run the native verifier. They do not
-  scoop up `cache/shaders`, debug output, HLSL, both backends, or old cache versions.
-  The DX12 `.lospd` asset is packaged and published separately, with the dimensions
-  and bounded runtime-hit evidence recorded above; it is not copied into these
-  application payloads.
+- Packages carry no pack (PR #144, first shipped in v0.7.35). The Windows ZIP,
+  AppImage and macOS packaging helpers stage only the Zstandard license
+  (`tools/portable_shader_pack_payload.py`), and the Flatpak payload check requires
+  that license and rejects a stray `shaders/portable_vk.lospv`. The game downloads
+  the pack for its renderer at startup. Before v0.7.35 the Windows ZIP and Linux
+  AppImage staging copied `shaders/portable_vk.lospv`; the DX12 `.lospd` asset was
+  published separately and never copied into the application payloads. Packaging
+  does not scoop up `cache/shaders`, debug output, HLSL, both backends, or old
+  cache versions.
 
 ## Building from the repository
 
@@ -156,11 +252,16 @@ An export log ends with `portable shader pack published` and exact byte counts.
 The file is deliberately not called `startup_vk12_v1.bundle`; old clients cannot
 read it. Ship it only with this patched client.
 
+### Metal pack
+
+macOS reads SPIR-V too, but compiled at `-O1` (`cache::MetalOptions()`), which is a separate contract. A Vulkan run with `LO_SHADER_EXPORT_METAL=1` next to `LO_SHADER_EXPORT_PACK=<path>.lospv` exports that contract from Windows or Linux. Check it with `LoShaderPackTool verify-runtime <pack> <image> --metal`. A Mac reads it as `shaders/portable_metal.lospv`, where the startup download installs it ([startup download](#startup-download)). The packs exported on 2026-10-02 are listed in [the shader store note](notes/shader-store-2026-10-02.md#packs-exported-on-2026-10-02).
+
 ## Measure, verify and stage
 
 ```sh
 LoShaderPackTool inspect shaders/portable_vk.lospv
 LoShaderPackTool verify shaders/portable_vk.lospv
+LoShaderPackTool verify-runtime shaders/portable_vk.lospv LostOdysseyRecompLib/private/image_disc1.bin
 ```
 
 `inspect` reads structure/index. `verify` also visits all payload blocks and checks
@@ -168,9 +269,10 @@ SPIR-V framing. JSON reports raw bytes, deduplicated bytes, compressed bytes,
 index bytes, omitted source/diagnostic bytes and final file size. Omitted HLSL
 is the sum of reconstructed input strings; the old bundle shares its prelude,
 so this is NOT a measurement of bytes saved from that old file. Use `file_bytes`
-for the actual distribution size. The tool explicitly
-reports `runtime_compatibility_verified: false`: real executable/XEX matching is
-checked by the runtime, not inferred from an artifact's own header.
+for the actual distribution size. `inspect` and `verify` report
+`runtime_compatibility_verified: false`: they never trust an artifact's own header.
+`verify-runtime` computes the runtime contract for the pack's format from a
+`tools/xexdump` image and reports `true` only when the pack matches it.
 
 To stage automatically during normal builds, add this CMake cache option to the
 existing build configuration:
@@ -182,8 +284,11 @@ existing build configuration:
 This opt-in CMake path builds `LoShaderPackTool`, runs `verify-runtime` against
 the configured private image, and copies the file to
 `<executable-directory>/shaders/portable_vk.lospv`. Linux install uses `bin/shaders`.
-The separate Python ZIP/AppImage staging helper checks presence and size and
-copies the optional file; it does not require a native verification pass.
+This path is for development builds. Release CI no longer uses it (PR #144, first
+shipped in v0.7.35) and the packaging helpers do not copy the file; instead a
+version release stops unless the published `shader-packs` index lists all
+contracts of its runtime (three in v0.7.35; two since v0.8.0, when Metal and
+Android began to read the Vulkan pack) ([release check](#runtime-contract-and-release-check-after-v0725)).
 Use the explicit tool commands above when changed pack inputs require inspection.
 
 For a standalone downloaded pack, put it under `shaders` beside the final game

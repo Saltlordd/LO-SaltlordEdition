@@ -7,6 +7,7 @@
 #include "scene_copy_promotion_shaders.h"
 #include "bloom_prefilter.h"
 #include <stdafx.h>
+#include <os/atomic_ref.h>
 #include "renderer.h"
 #include <os/user_paths.h>
 #include "render_resolution.h"
@@ -26,6 +27,7 @@
 #include "depth_clear_layout.h"
 #include "draw_attachment_policy.h"
 #include "vulkan_object_trace.h"
+#include "occlusion_queries.h"
 #include "polygon_offset.h"
 #include "pipeline_cache.h"
 #include "texture_layout.h"
@@ -55,18 +57,22 @@
 #include "shader/dxc_compiler.h"
 #include "shader/cache.h"
 #include "shader/binary_cache.h"
+#include "shader/shader_store.h"
 #include "shader/preparation_queue.h"
 #include "shader/retry_state.h"
 #include "shader/rect_list_hlsl.h"
 #include "shader/startup_cache.h"
 #include "shader/portable_shader_pack.h"
 #include "shader/portable_shader_contract.h"
+#include "shader/portable_shader_pack_location.h"
 #include "shader/resource_scan.h"
 #include "shader/source_store.h"
 #include "shader/resource_xex.h"
 #include "shader/resource_variants.h"
+#include "hdr_scene_shader.h"
 #include <kernel/io/file_system.h>
 #include <kernel/memory.h>
+#include <kernel/xex_loader.h>
 #include <os/logger.h>
 #include <os/shader_log.h>
 #include "color_qualification.h"
@@ -121,11 +127,13 @@ namespace plume {
 #include <mutex>
 #include <string_view>
 #include "gpu/frame_plan.h"
+#include "gpu/ambient_occlusion.h"
 
 namespace gpu::renderer
 {
     namespace binding = gpu::taa_collection::binding;
     namespace {
+        std::atomic<bool> hdrSceneEnabled{false};
         std::mutex framePlanMutex;
         frame_plan::FramePlan committedPlan{};
         std::mutex catalogMutex;
@@ -140,6 +148,7 @@ namespace gpu::renderer
             const auto found = catalogRoles.find((uint64_t(base) << 32) | pitch);
             if (found == catalogRoles.end()) return resolution::TargetRole::Unknown;
             return found->second == frame_plan::SurfaceRole::Scene ? resolution::TargetRole::Scene
+                : found->second == frame_plan::SurfaceRole::Shadow ? resolution::TargetRole::Shadow
                 : found->second == frame_plan::SurfaceRole::Fixed ? resolution::TargetRole::Fixed
                 : resolution::TargetRole::Unknown;
         }
@@ -198,6 +207,15 @@ namespace gpu::renderer
 
     namespace
     {
+        // A guest waits in GetData (NoteOcclusionWait); only Mode::Strict
+        // leaves END records for the command processor to complete.
+        std::atomic<bool> g_occlusionWait{false};
+        std::atomic<bool> g_occlusionStrict{false};
+        // Owner of each guest query record slot, as the pool allocation hook
+        // last reported it (NoteOcclusionQueryOwner).
+        std::mutex g_occlusionOwnerMutex;
+        std::unordered_map<uint32_t, uint64_t> g_occlusionOwners;
+
         // ---- register indices ---------------------------------------------
         constexpr uint32_t REG_RB_SURFACE_INFO = 0x2000;
         constexpr uint32_t REG_RB_COLOR_INFO = 0x2001;
@@ -348,6 +366,7 @@ namespace gpu::renderer
             uint32_t width = 0, height = 0;
             uint32_t guestWidth = 0, guestHeight = 0;
             resolution::Size resolutionSize{};
+            bool shadowMap = false;
             uint32_t ScaleX(uint32_t value) const { return resolution::ScaleX(value, resolutionSize.width); }
             uint32_t ScaleY(uint32_t value) const { return resolution::Scale(value, resolutionSize.height); }
             uint32_t depthMsaa = 0;
@@ -372,6 +391,10 @@ namespace gpu::renderer
             uint64_t sdrProducerFrame = ~0ull;
             uint32_t qualifiedSdrWidth = 0;
             uint32_t qualifiedSdrHeight = 0;
+            std::unique_ptr<HostTexture> hdrSidecar;
+            uint64_t hdrFrame = ~0ull;
+            bool hdrValid = false;
+            uint32_t hdrValidWidth = 0, hdrValidHeight = 0;
         };
 
         struct RenderTargetKey
@@ -390,6 +413,8 @@ namespace gpu::renderer
             std::unique_ptr<RenderShader> shader;
             xenos::TranslatedShader info;
             bool valid = false;
+            std::unique_ptr<RenderShader> hdrShader;
+            bool hdrShaderAttempted = false;
             position_evidence::Summary position;
             bool positionReady = false;
             xenos::retry::State retry;
@@ -466,6 +491,11 @@ namespace gpu::renderer
                 std::unique_ptr<RenderCommandList> srContinuation;
                 std::unique_ptr<RenderCommandFence> fence;
                 std::unique_ptr<RenderQueryPool> timingQueries;
+                // Host queries around guest draws inside guest occlusion
+                // queries, reset when the slot's list opens.
+                std::unique_ptr<RenderQueryPool> occlusionQueries;
+                uint32_t occlusionUsed = 0;
+                uint64_t occlusionBatch = 0;
                 draw_timing::Probe drawProbe;
                 std::unique_ptr<RenderBuffer> uploadRing;
                 uint8_t* uploadMapped = nullptr;
@@ -482,7 +512,8 @@ namespace gpu::renderer
                 // a distinct output while commands in the slot remain in flight.
                 std::vector<std::unique_ptr<HostTexture>> bloomPrefilterTextures;
                 size_t bloomPrefilterUsed = 0;
-                uint64_t temporalSerial = 0, hdrTemporalSerial = 0, motionSerial = 0;
+                uint64_t temporalSerial = 0, hdrTemporalSerial = 0, sceneTaaHdrSerial = 0, motionSerial = 0, aoSerial = 0;
+                std::vector<std::shared_ptr<void>> aoUses;
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
                 uint64_t srUseId = 0;
 #else
@@ -540,6 +571,15 @@ namespace gpu::renderer
             bool timingInitialized = false;
             bool listOpen = false;
 
+            // Guest occlusion queries counted by host queries (see
+            // occlusion_queries.h). Off when LO_ZPD_MODE selects a fake mode or
+            // the backend has no occlusion queries; the command processor then
+            // writes its fake counts instead.
+            static constexpr uint32_t kOcclusionQueriesPerSlot = 1024;
+            gpu::occlusion::Tracker occlusion;
+            uint64_t nextOcclusionBatch = 1;
+            bool hostOcclusion = false;
+
             // Vertex buffers live in a persistent arena keyed by (address, size,
             // endian). A fetch constant may describe a multi-megabyte buffer for a
             // draw that touches a few hundred vertices, so copying per draw is
@@ -591,6 +631,7 @@ namespace gpu::renderer
 
             std::unordered_map<uint64_t, Shader> shaders[2];
             std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> pipelines;
+            std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> hdrPipelines;
             // Full state recipes are portable; driver blobs and object pointers
             // are never persisted. Render maps stay on the command thread.
             static constexpr uint32_t kPipelineRecipeVersion = 1;
@@ -614,6 +655,12 @@ namespace gpu::renderer
                 uint64_t writeOrdinal = 0;
                 uint32_t writeX = 0, writeY = 0, writeWidth = 0, writeHeight = 0;
                 uint64_t sdrWriteOrdinal = 0;
+                std::unique_ptr<HostTexture> hdrTex;
+                uint64_t hdrWriteOrdinal = 0;
+                uint64_t hdrFrame = ~0ull;
+                // hdrTex holds the pre-upscale scene (smaller than tex) for the
+                // presentation highlight gain instead of a same-size resolve.
+                bool hdrGain = false;
                 frame_plan::FramePlan sourcePlan{};
                 bool sourcePlanValid = false;
                 uint64_t fgOwner = 0, fgEpoch = 0, fgSourceAllocation = 0, fgSourceGeneration = 0;
@@ -628,6 +675,10 @@ namespace gpu::renderer
             // first, so the composite's fetch of the FP16 surface missed and fell
             // back to guest memory.
             std::unordered_map<uint32_t, std::vector<ResolvedSurface>> resolved;
+            // SDR views that have an HDR companion in this frame. An arbitrary
+            // overlay sampling one would collapse highlights on replay.
+            std::unordered_set<RenderTexture*> hdrSdrSources;
+            uint64_t hdrSdrSourcesFrame = ~0ull;
             uint64_t resolveWriteOrdinal = 0;
             uint64_t nextTargetAllocation = 0;
             resolve_copy::ConsecutiveCopies consecutiveResolveCopies;
@@ -902,6 +953,9 @@ namespace gpu::renderer
                 }
             }
             std::unique_ptr<temporal::HistoryOwner> temporalHistory;
+            std::unique_ptr<ao::AmbientOcclusion> ambientOcclusion;
+            uint32_t aoMode = 0;
+            bool aoActive = false, aoInitFailed = false;
 #if defined(LO_GPU_PLUME)
             dlss::Controller* dlssController = nullptr;
             TemporalUpscaler* temporalUpscaler = nullptr;
@@ -912,6 +966,15 @@ namespace gpu::renderer
             RenderTexture* hdrTemporalOutput = nullptr;
             temporal::SceneResolve hdrTemporalSource{};
             bool hdrTonemapApplied = false, hdrTemporalInitFailed = false;
+            // FP16 twin of the scene TAA for the HDR scene (extended gamma, raw
+            // domain): same depth, jitter and motion, its own history/display.
+            // The sidecar copy follows the SDR TAA binding when the twin exists.
+            std::unique_ptr<temporal::HistoryOwner> sceneTaaHdrHistory;
+            RenderTexture* sceneTaaHdrOutput = nullptr;
+            RenderTexture* sceneTaaHdrSource = nullptr;
+            RenderTexture* sceneTaaSdrOutput = nullptr;
+            uint64_t sceneTaaHdrFrame = ~0ull;
+            bool sceneTaaHdrInitFailed = false;
             uint32_t hdrTemporalLogs = 0;
             bool temporalExperiment=false,temporalAllowHistory=false,temporalJitter=false,temporalStableGrid=false;
             bool temporalForced=false,temporalForcedHistory=false,temporalForcedJitter=false,temporalForcedStable=false;
@@ -927,6 +990,8 @@ namespace gpu::renderer
             bool actualRasterJitterCaptured=false;
             uint64_t appliedPlanEpoch=~0ull;
             resolution::Size internalSize{}, requestedInternalSize{};
+            resolution::ShadowResolutionState shadowState;
+            uint32_t shadowResolution = 1;
             frame_plan::FramePlan activePlan{};
             // Allocation failures are recorded by the GPU and can be observed
             // after later plan markers have already been committed.
@@ -953,6 +1018,11 @@ namespace gpu::renderer
                 RenderDescriptorSet* rgbSet = nullptr;
                 uint64_t fallbackConstants = UINT64_MAX, rgbConstants = UINT64_MAX;
                 bool prepared = false, activeMapping = false, srApplied = false;
+                // This frame's extended-gamma resolve of the input scene, borrowed
+                // for the promoted target's resolve (presentation highlight gain).
+                RenderTexture* hdrSource = nullptr;
+                uint32_t hdrSourceWidth = 0, hdrSourceHeight = 0;
+                uint64_t hdrSourceFrame = ~0ull;
             } sceneCopyPromotion;
             SrDispatchOptions frameSrOptions{};
             uint64_t sceneCopyPromotionFrame = ~0ull;
@@ -960,6 +1030,13 @@ namespace gpu::renderer
             std::unique_ptr<RenderShader> sceneCopyPromotionPs, sceneCopyPromotionRgbPs;
             std::map<uint32_t, std::unique_ptr<RenderPipeline>> sceneCopyPromotionPipelines, sceneCopyPromotionRgbPipelines;
             std::unique_ptr<RenderTexture> sceneAAOutput;
+            // FP16 twin of sceneAAOutput for the HDR scene (see sceneAo.hdrColor):
+            // the sidecar copy follows the AA binding when this frame's twin
+            // came from the same source texture.
+            std::unique_ptr<RenderTexture> sceneAAHdrOutput;
+            RenderTexture* sceneAAHdrSource=nullptr;
+            uint64_t sceneAAHdrFrame=~0ull;
+            uint32_t sceneAAHdrWidth=0,sceneAAHdrHeight=0;
             uint32_t sceneAAWidth=0,sceneAAHeight=0,sceneAAMode=0;
             bool sceneAAEnabled=false,sceneAABusy=false,activeSpatialAA=false;
             uint64_t sceneAAConfigFrame=~0ull,sceneAAAppliedFrame=~0ull,sceneAAAllocation=0;
@@ -1007,7 +1084,14 @@ namespace gpu::renderer
                 if (it == resolved.end())
                     return;
                 for (auto rs = it->second.begin(); rs != it->second.end(); ++rs)
-                    if (rs->destFormat == destFormat) { it->second.erase(rs); break; }
+                    if (rs->destFormat == destFormat) {
+                        if (rs->tex) Gpu().retiredTextures.push_back(std::move(rs->tex));
+                        if (rs->hdrTex) Gpu().retiredTextures.push_back(std::move(rs->hdrTex));
+                        for (auto& [key, view] : rs->fetchViews)
+                            if (view) Gpu().retiredTextures.push_back(std::move(view));
+                        it->second.erase(rs);
+                        break;
+                    }
                 if (it->second.empty())
                     resolved.erase(it);
             }
@@ -1305,6 +1389,7 @@ namespace gpu::renderer
                         taaDiagnosticBloom = next.bloom; taaDiagnosticHDR = next.hdr; taaDiagnosticMaterials = next.materials;
                         if (temporalHistory) temporalHistory->Reset();
                         if (hdrTemporalHistory) hdrTemporalHistory->Reset();
+                if (sceneTaaHdrHistory) sceneTaaHdrHistory->Reset();
                         temporalSupportedFrame = ~0ull; ++temporalEpoch;
                         taaLiveResolvedFrame = 0; taaLiveHistoryReused = false;
                         taaLiveSourceFormat = taaLiveHistoryFormat = taaLiveOutputFormat = RenderFormat::UNKNOWN;
@@ -1371,6 +1456,7 @@ namespace gpu::renderer
                 taaDiagnosticMaterials = materials;
                 if (temporalHistory) temporalHistory->Reset();
                 if (hdrTemporalHistory) hdrTemporalHistory->Reset();
+                if (sceneTaaHdrHistory) sceneTaaHdrHistory->Reset();
                 temporalSupportedFrame = ~0ull; ++temporalEpoch;
                 LOG_INFO("renderer: TAA diagnostic serial={} frame={} aa={} jitter={} history={} bloom={} hdr={} materials={}",
                     serial, frame, aa, jitter, history, bloom, hdr, materials);
@@ -1620,7 +1706,10 @@ namespace gpu::renderer
                 uint32_t samplerIndex[32];
                 uint32_t textureInfo[32];
                 uint32_t textureSize[32]; // packed guest width/height; physical resolves may be larger.
+                uint64_t vertexArenaAddress; // SPIR-V vertex fetch (common_hlsl.h)
             };
+            static_assert(offsetof(SharedConstants,vertexArenaAddress)==xenos::VertexArenaAddressOffset);
+            static_assert(gpu::render_arena::kVertexArenaSize == 1073741824ull);
 
             static_assert(offsetof(SharedConstants,ndcScale)==160);
             static_assert(offsetof(SharedConstants,transfer)==240);
@@ -1708,6 +1797,77 @@ namespace gpu::renderer
 
             // ---- lifecycle -----------------------------------------------------
             xenos::cache::Identity cacheIdentity;
+            // One-file local cache of compiled shaders (shader/shader_store.h), keyed
+            // by the compile input rather than the translator version. Opened on first
+            // use, after the backend and compiler identity are known.
+            xenos::cache::ShaderStore shaderStore;
+            std::once_flag shaderStoreOnce;
+            bool shaderStoreReady = false;
+            xenos::cache::ShaderStore* LocalShaderStore()
+            {
+                std::call_once(shaderStoreOnce, [this] {
+                    if (shaderCacheDir.empty() || !xenos::cache::ValidIdentity(cacheIdentity)) return;
+                    std::string error;
+                    const auto path = xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format);
+                    shaderStoreReady = shaderStore.Open(path, cacheIdentity.format, &error);
+                    if (!shaderStoreReady) {
+                        LOG_WARNING("renderer: shader store unavailable ({}); using per-shader cache files", error);
+                        return;
+                    }
+                    const auto stats = shaderStore.GetStats();
+                    LOG_INFO("renderer: shader store {}: {} records, {} bytes{}{}", path.string(), stats.records, stats.fileBytes,
+                        stats.writable ? "" : ", read-only (another instance holds it)",
+                        stats.recovered ? fmt::format(", dropped a torn {}-byte tail", stats.recovered) : std::string{});
+                });
+                return shaderStoreReady ? &shaderStore : nullptr;
+            }
+            // The compiled binary for this compile input: the store first, then a
+            // per-shader file from before the store, which is moved into the store.
+            struct StoredBinary { std::vector<uint8_t> binary; bool storeHit = false, legacyHit = false, legacyPresent = false; };
+            StoredBinary FindCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
+                const std::string& legacyPath)
+            {
+                StoredBinary result;
+                auto* store = LocalShaderStore();
+                if (store) {
+                    result.binary = store->Find(pixel, hash, digest);
+                    if (!result.binary.empty()) { result.storeHit = true; return result; }
+                }
+                if (legacyPath.empty()) return result;
+                result.binary = xenos::cache::ReadBinary(legacyPath, pixel, hash, cacheIdentity, &result.legacyPresent);
+                if (!result.binary.empty()) {
+                    result.legacyHit = true;
+                    if (store) store->Add(pixel, hash, digest, result.binary);
+                }
+                return result;
+            }
+            bool StoreCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
+                const std::string& legacyPath, std::span<const uint8_t> binary, std::string* error)
+            {
+                if (auto* store = LocalShaderStore()) return store->Add(pixel, hash, digest, binary, error);
+                return !legacyPath.empty() && xenos::cache::WriteBinary(legacyPath, pixel, hash, cacheIdentity, binary, error);
+            }
+            // Per-shader files the store has replaced: this format's files once a
+            // complete preparation has moved them into the store, and files of any
+            // format whose translator version can never be read again.
+            size_t RemoveLegacyShaderCacheFiles(bool includeCurrentFormat)
+            {
+                size_t removed = 0;
+                std::error_code ec;
+                std::vector<std::filesystem::path> doomed;
+                for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
+                    const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
+                    if (!legacy) continue;
+                    const bool currentFormat = legacy->extension == xenos::cache::Extension(cacheIdentity.format);
+                    if (legacy->version != cacheIdentity.translatorVersion || (includeCurrentFormat && currentFormat))
+                        doomed.push_back(file.path());
+                }
+                for (const auto& path : doomed) {
+                    std::error_code removeError;
+                    removed += std::filesystem::remove(path, removeError) ? 1 : 0;
+                }
+                return removed;
+            }
             bool initializationModuleFailure = false;
             bool InitFailure(const char* stage, uint64_t bytes = 0, int slot = -1) noexcept
             {
@@ -1745,11 +1905,7 @@ namespace gpu::renderer
                 if (!device || !queue)
                     return InitFailure("device_or_queue");
                 cacheIdentity = xenos::cache::MakeIdentity(vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12, xenos::DxcIdentity());
-                if (vulkan && !nativeVulkan) {
-                    // Metal re-optimizes translated MSL; see SetSpirvOptimizationLevel.
-                    xenos::SetSpirvOptimizationLevel(1);
-                    cacheIdentity.options = xenos::cache::MetalOptions();
-                }
+                // Metal translates the same SPIR-V as Vulkan, so both read one pack.
 
                 // Optional collection resources are prepared before the game loop.
                 // Enabling collection later never compiles or maps on a draw; an
@@ -1780,8 +1936,16 @@ namespace gpu::renderer
                     LOG_WARNING("renderer: optional position evidence collection unavailable: {}",error.what());
                 }
 
+                const auto occlusionMode = gpu::occlusion::HostMode(getenv("LO_ZPD_MODE"));
+                hostOcclusion = occlusionMode && device->getCapabilities().occlusionQueries;
+                if (occlusionMode) occlusion.SetMode(*occlusionMode);
                 for (uint32_t i = 0; i < kGpuSlots; ++i) {
                     auto& g = gpuSlots[i];
+                    // Optional: without these pools the command processor keeps its fake counts.
+                    if (hostOcclusion) {
+                        g.occlusionQueries = device->createOcclusionQueryPool(kOcclusionQueriesPerSlot);
+                        hostOcclusion = g.occlusionQueries && g.occlusionQueries->getCount() == kOcclusionQueriesPerSlot;
+                    }
                     g.list = queue->createCommandList();
                     if (!g.list) return InitFailure("command_list.create", 0, i);
                     if (dlssController || temporalUpscaler) {
@@ -1797,9 +1961,19 @@ namespace gpu::renderer
                     g.uploadMapped = static_cast<uint8_t*>(g.uploadRing->map());
                     if (!g.uploadMapped) return InitFailure("upload_ring.map", kUploadRingSize, i);
                 }
+                if (!hostOcclusion)
+                    for (auto& g : gpuSlots) g.occlusionQueries.reset();
+                g_occlusionStrict.store(hostOcclusion && occlusionMode == gpu::occlusion::Mode::Strict, std::memory_order_relaxed);
+                LOG_INFO("renderer: occlusion queries {} (precise={} LO_ZPD_MODE={})",
+                    !hostOcclusion ? "fake" : occlusionMode == gpu::occlusion::Mode::Strict ? "host-strict" : "host-fast",
+                    device->getCapabilities().occlusionQueryPrecise, getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "unset");
                 BindGpuSlot();
-                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, RenderBufferFlag::STORAGE));
+                const auto vertexFlags = RenderBufferFlag::STORAGE |
+                    (vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE : RenderBufferFlag::NONE);
+                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, vertexFlags));
                 if (!vertexArena) return InitFailure("vertex_arena.create", gpu::render_arena::kVertexArenaSize);
+                if (vulkan && !vertexArena->getDeviceAddress())
+                    return InitFailure("vertex_arena.device_address");
                 arenaMapped = static_cast<uint8_t*>(vertexArena->map());
                 if (!arenaMapped) return InitFailure("vertex_arena.map", gpu::render_arena::kVertexArenaSize);
                 readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(kReadbackSize));
@@ -1866,7 +2040,8 @@ namespace gpu::renderer
                 staticSet0 = setBuilders[0].create(device);
                 if (!staticSet0) return InitFailure("vertex_fetch_set.create");
                 for (uint32_t i = 0; i < (vulkan?1:kVertexFetchSlots); i++)
-                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), gpu::render_arena::kVertexArenaSize);
+                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(),
+                        vulkan ? 16 : gpu::render_arena::kVertexArenaSize);
                 defaultSampler = device->createSampler(sampling::Describe(sampling::DefaultKey));
                 if (!defaultSampler) return InitFailure("default_sampler.create");
                 for (uint32_t i = 0; i < kSamplerPalette; i++)
@@ -2062,6 +2237,7 @@ namespace gpu::renderer
             {
                 FlushMotionReplayQueue();
                 dst.sdrProducerFrame = ~0ull;
+                dst.hdrValid = false;
                 consecutiveResolveCopies.Invalidate();
                 // Only the 32-bit classes share a word layout; wider ones are left alone.
                 if (srcClass > kClass7e3 || dstClass > kClass7e3)
@@ -2254,6 +2430,25 @@ namespace gpu::renderer
                 // parkedLow is installed by Activate after the map identity check.
                 sceneCopyPromotion.preparedPromoted = std::move(promoted);
                 sceneCopyPromotion.prepared = true;
+                if (hdrSceneEnabled.load(std::memory_order_relaxed)) {
+                    // The consumer's color input is its own copy; identify the
+                    // scene resolve through the observed color resolve instead.
+                    const auto& observed = temporalScene.Color();
+                    auto* rs = temporalScene.Ready() ? FindResolved(observed.address, observed.format) : nullptr;
+                    const bool found = rs && rs->tex && rs->writeOrdinal == observed.ordinal && rs->hdrTex && rs->hdrTex->texture &&
+                        rs->hdrFrame == frame && rs->hdrWriteOrdinal == rs->writeOrdinal && !rs->hdrGain;
+                    if (found) {
+                        sceneCopyPromotion.hdrSource = rs->hdrTex->texture.get();
+                        sceneCopyPromotion.hdrSourceWidth = rs->hdrTex->width;
+                        sceneCopyPromotion.hdrSourceHeight = rs->hdrTex->height;
+                        sceneCopyPromotion.hdrSourceFrame = frame;
+                    }
+                    static uint32_t promotionHdrLogs = 0;
+                    if (promotionHdrLogs++ < 8)
+                        LOG_INFO("renderer HDR: promotion source frame={} found={} resolve={} ordinal_match={} hdr_frame={} hdr_ordinal={}",
+                            frame, found, rs != nullptr, rs && rs->writeOrdinal == observed.ordinal,
+                            rs ? rs->hdrFrame : 0, rs ? rs->hdrWriteOrdinal : 0);
+                }
                 return true;
             }
 
@@ -3471,6 +3666,109 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 fgHandoffPool.Collect();
             }
+
+            // Writes guest query records. The guest's GetData treats a record as
+            // ready once either ZPass half leaves its sentinel, so both halves are
+            // stored together, after every other count.
+            void WriteOcclusionRecords(const std::vector<gpu::occlusion::Write>& writes)
+            {
+                for (const auto& write : writes) {
+                    if (!write.apply) continue;
+                    auto* words = reinterpret_cast<uint32_t*>(Phys(write.address));
+                    const auto& r = write.record;
+                    words[0] = r.totalA; words[1] = r.totalB;
+                    words[2] = r.zfailA; words[3] = r.zfailB;
+                    words[6] = r.stencilFailA; words[7] = r.stencilFailB;
+                    os::AtomicRef<uint64_t>(*reinterpret_cast<uint64_t*>(words + 4)).store(
+                        uint64_t(r.zpassA) | (uint64_t(r.zpassB) << 32), std::memory_order_release);
+                }
+            }
+
+            // A guest PM4 EVENT_WRITE_ZPD for the record at `address`.
+            bool OcclusionQueryEvent(uint32_t address)
+            {
+                if (!hostOcclusion || (address & 0x1F)) return false;
+                if (gpu::occlusion::IsBeginRecord(address)) {
+                    uint64_t owner = 0;
+                    {
+                        std::lock_guard lock(g_occlusionOwnerMutex);
+                        const auto known = g_occlusionOwners.find(gpu::occlusion::SlotOf(address));
+                        if (known != g_occlusionOwners.end()) owner = known->second;
+                    }
+                    WriteOcclusionRecords({occlusion.Begin(address, owner)});
+                }
+                else if (auto end = occlusion.End(address)) WriteOcclusionRecords({*end});
+                return true;
+            }
+
+            // The host query for a draw inside a guest occlusion query, or ~0u.
+            uint32_t OcclusionQueryForDraw()
+            {
+                if (!hostOcclusion || !occlusion.Active() || Gpu().occlusionUsed >= kOcclusionQueriesPerSlot) return ~0u;
+                return Gpu().occlusionUsed++;
+            }
+
+            // The slot's fence has completed, so its host queries are final.
+            void CompleteOcclusionQueries(GpuSlot& s)
+            {
+                if (!s.occlusionUsed) return;
+                s.occlusionQueries->queryResults();
+                const auto writes = occlusion.Complete(s.occlusionBatch,
+                    std::span<const uint64_t>(s.occlusionQueries->getResults(), s.occlusionUsed));
+                WriteOcclusionRecords(writes);
+                s.occlusionUsed = 0;
+                for (const auto& write : writes) {
+                    ++occlusionStats.resolved;
+                    occlusionStats.zero += write.measured && !write.samples;
+                    occlusionStats.fallback += !write.measured;
+                    if (occlusionStats.resolved <= 16 || occlusionStats.resolved % 4096 == 0)
+                        LOG_INFO("renderer: occlusion result f{} record={:#x} samples={} measured={} fast={} resolved={} zero={} fallback={} guest_waits={} wait_flushes={} wait_ms={:.1f}",
+                            frame, write.address, write.samples, write.measured, !write.apply, occlusionStats.resolved,
+                            occlusionStats.zero, occlusionStats.fallback, occlusionStats.waits,
+                            occlusionStats.flushes, occlusionStats.waitUs / 1000.0);
+                }
+            }
+
+            struct {
+                uint64_t resolved = 0, zero = 0, fallback = 0, waits = 0, flushes = 0, waitUs = 0;
+            } occlusionStats;
+
+            void LogOcclusionDraw(uint32_t index, bool pixelShader, const HostTexture* target)
+            {
+                static uint32_t logged = 0;
+                if (logged >= 16) return;
+                ++logged;
+                LOG_INFO("renderer: occlusion draw f{} batch={} query={} ps={} host={}x{} guest={}x{}", frame,
+                    Gpu().occlusionBatch, index, pixelShader, target->width, target->height, target->guestWidth, target->guestHeight);
+            }
+
+            // Nothing will complete the measured queries: release every guest
+            // waiting on them with a visible count.
+            void ReleaseOcclusionWaiters()
+            {
+                for (auto& s : gpuSlots) s.occlusionUsed = 0;
+                WriteOcclusionRecords(occlusion.AbandonAll());
+            }
+
+            // A guest waits in GetData. Submit the open batch when a waiting
+            // query is in it, then wait for the submitted batches; RecycleSlot
+            // writes their results.
+            void ResolveOcclusionQueries()
+            {
+                if (!occlusion.HasAwaited()) return;
+                ++occlusionStats.waits;
+                const auto start = std::chrono::steady_clock::now();
+                if (video::GpuWorkStopped()) { ReleaseOcclusionWaiters(); return; }
+                if (listOpen && occlusion.Waiting(Gpu().occlusionBatch)) {
+                    ++occlusionStats.flushes;
+                    if (!Flush()) { ReleaseOcclusionWaiters(); return; }
+                }
+                for (uint32_t i = 0; i < kGpuSlots; ++i)
+                    if ((!listOpen || i != gpuSlot) && !RecycleSlot(i)) { ReleaseOcclusionWaiters(); return; }
+                occlusionStats.waitUs += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - start).count());
+            }
+
             bool RecycleSlot(uint32_t i)
             {
                 auto& s = gpuSlots[i];
@@ -3479,6 +3777,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     ScopedTimer timer{ tFlush, cpuTimingEnabled };
                     if (!video::WaitForGpuFence(s.fence.get())) {
+                        ReleaseOcclusionWaiters();
                         if (s.fgInputSnapshot) s.fgInputSnapshot->producerWaitFailed = true;
                         for (auto& p : s.fgCompositeResolves) p->resolveWaitFailed = true;
                         for (auto& p : s.fgResolvePackets) p->resolveWaitFailed = true;
@@ -3490,6 +3789,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                 }
                 s.submitted = false;
+                CompleteOcclusionQueries(s);
 #if defined(LO_GPU_PLUME)
                 for (auto& p : s.fgCompositeResolves) {
                     p->resolveCompleted = true;
@@ -3562,9 +3862,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 s.retiredTextures.clear();
                 s.samplerVersions.clear();
                 s.bloomPrefilterUsed = 0;
+                s.aoUses.clear();
+                if (ambientOcclusion) ambientOcclusion->ReleaseCompletedThrough(s.aoSerial);
                 if(temporalHistory)temporalHistory->ReleaseCompletedThrough(s.temporalSerial);
                 else if(sparseCollector)sparseCollector->ReleaseCompleted();
                 if(hdrTemporalHistory)hdrTemporalHistory->ReleaseCompletedThrough(s.hdrTemporalSerial);
+                if(sceneTaaHdrHistory)sceneTaaHdrHistory->ReleaseCompletedThrough(s.sceneTaaHdrSerial);
 #if defined(LO_GPU_PLUME)
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
                 if (dlssController && s.srSubmissionSerial)
@@ -3632,6 +3935,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         commandList->resetQueryPool(timingQueries, 0, 2);
                         commandList->writeTimestamp(timingQueries, 0);
                     }
+                    if (hostOcclusion) {
+                        // Outside any render pass, before this batch's first query.
+                        commandList->resetQueryPool(Gpu().occlusionQueries.get(), 0, kOcclusionQueriesPerSlot);
+                        Gpu().occlusionUsed = 0;
+                        Gpu().occlusionBatch = nextOcclusionBatch++;
+                    }
                     listOpen = true;
                 }
                 return true;
@@ -3677,6 +3986,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 #endif
                     if (!Gpu().submitted) Gpu().srUseId = {};
                     ClearDlssSubmit(Gpu(), true);
+                    ReleaseOcclusionWaiters();
                     listOpen = false;
                     return false;
                 }
@@ -3708,6 +4018,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 #endif
                     Gpu().srUseId = {};
                     ClearDlssSubmit(Gpu(), true);
+                    ReleaseOcclusionWaiters();
                     listOpen = false;
                     return false;
                 }
@@ -3718,8 +4029,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (Gpu().srIsolatedAccepted) lists[listCount++] = Gpu().srIsolated.get();
                     if (Gpu().srContinuationOpen) lists[listCount++] = Gpu().srContinuation.get();
                 }
+                Gpu().aoSerial = ambientOcclusion ? ambientOcclusion->RecordedSerial() : 0;
                 Gpu().temporalSerial = temporalHistory ? temporalHistory->RecordedSerial() : 0;
                 Gpu().hdrTemporalSerial = hdrTemporalHistory ? hdrTemporalHistory->RecordedSerial() : 0;
+                Gpu().sceneTaaHdrSerial = sceneTaaHdrHistory ? sceneTaaHdrHistory->RecordedSerial() : 0;
                 Gpu().motionSerial = motionReplay ? motionReplay->RecordedSerial() : 0;
                 bool submitted = true;
 #if defined(LO_GPU_PLUME)
@@ -3733,6 +4046,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Signal does not prove these lists were discarded. Keep all
                     // slot resources alive until shutdown establishes a drain.
                     video::StopGpuWork(rawVkResult);
+                    ReleaseOcclusionWaiters();
                     return false;
                 }
 #else
@@ -3766,6 +4080,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     LOG_ERROR("renderer: GPU batch submit failed native_result={}; no fallback submission issued", rawVkResult);
 #endif
                     ClearDlssSubmit(Gpu(), true);
+                    ReleaseOcclusionWaiters();
                     return false;
                 }
 #if defined(LO_GPU_PLUME)
@@ -4168,9 +4483,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             {
                 video::ResetShaderPreparationSkip();
                 try {
-                const auto xex = std::span<const uint8_t>(static_cast<const uint8_t*>(g_memory.Translate(xenos::portable_pack::RuntimeXexAddress)), xenos::portable_pack::RuntimeXexBytes);
-                // A distribution pack is independent of the writable local cache and local DXC identity.
-                if (TryOpenPortableShaderPack(xex)) { ResetTimers(); return; }
+                // The local startup bundle keys on this prefix as bound in guest memory.
+                const auto xex = std::span<const uint8_t>(static_cast<const uint8_t*>(g_memory.Translate(XexLoader::s_imageBase)), xenos::portable_pack::RuntimeXexBytes);
+                // A distribution pack is independent of the writable local cache, the local
+                // DXC identity and the host addresses that import binding wrote into the image.
+                const auto unboundXex = XexLoader::UnboundIdentityPrefix();
+                if (TryOpenPortableShaderPack(unboundXex)) {
+                    // Per-shader files of older translator versions can never be read again.
+                    if (!shaderCacheDir.empty())
+                        if (const auto removed = RemoveLegacyShaderCacheFiles(false))
+                            LOG_INFO("renderer: removed {} per-shader cache files of older translator versions", removed);
+                    ResetTimers();
+                    return;
+                }
                 if (shaderCacheDir.empty() || getenv("LO_NO_SHADER_PREPARE") || settings::GetConfig().skipShaderPrebuild) {
                     LOG_INFO("renderer: shader preparation skipped by configuration or environment");
                     return;
@@ -4191,8 +4516,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     !getenv("LO_SHADER_HLSL_DIR") && !retryFailures;
                 LOG_INFO("renderer: shader startup cache: {}, compiler identity {}", bundlePath.string(),
                     compilerIdentity.empty() ? "unavailable (persistent reuse disabled)" : compilerIdentity);
-                BeginPortableShaderExport(xex);
-                if (reuseBundle) {
+                // The first start with the one-file store runs one preparation pass
+                // even on a bundle hit: it moves this format's per-shader files into
+                // the store (no DXC for valid files) and then deletes them.
+                bool moveLegacyFiles = false;
+                if (reuseBundle && !std::filesystem::exists(xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format))) {
+                    std::error_code ec;
+                    for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
+                        const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
+                        if (legacy && legacy->extension == xenos::cache::Extension(cacheIdentity.format)) { moveLegacyFiles = true; break; }
+                    }
+                    if (moveLegacyFiles)
+                        LOG_INFO("renderer: moving per-shader cache files into the shader store (one-time preparation pass)");
+                }
+                BeginPortableShaderExport(unboundXex);
+                if (reuseBundle && !moveLegacyFiles) {
                     uint32_t modules = 0, cachedFailures = 0;
                     double moduleMs = 0;
                     // Metal module creation (SPIR-V to MSL plus the Metal compiler)
@@ -4302,8 +4640,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
                         LOG_INFO("renderer: startup bundle fallback: {}", e.what());
                     }
-                } else LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
-                BeginPortableShaderExport(xex); // Discard any partial export after transactional bundle rejection.
+                } else if (!moveLegacyFiles)
+                    LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
+                BeginPortableShaderExport(unboundXex); // Discard any partial export after transactional bundle rejection.
                 video::SetShaderPreparationProgress(0, 1, video::PreparationStage::CacheValidation, video::PreparationUnit::Files);
                 video::PumpEvents();
                 xenos::resources::SourceStore sourceStore;
@@ -4415,6 +4754,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bool compiled = false;
                     bool deterministicFailure = false;
                     bool cachedFailure = false;
+                    bool storeHit = false;
+                    bool migrated = false;
                     // Device module built on the worker (Metal only, see below).
                     std::unique_ptr<RenderShader> module;
                     uint64_t moduleUs = 0;
@@ -4447,15 +4788,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         item.sourceUs = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now() - sourceStarted).count();
 
-                        const auto cacheStarted = std::chrono::steady_clock::now();
-                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
-                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
-                        item.cacheChecked = true;
-                        item.bytecode = xenos::cache::ReadBinary(item.cachePath, item.pixel, item.hash, cacheIdentity, &item.cachePresent);
-                        item.cacheValid = !item.bytecode.empty();
-                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now() - cacheStarted).count();
-
                         std::vector<uint32_t> swapped(words.size());
                         std::transform(words.begin(), words.end(), swapped.begin(), [](uint32_t word) { return ByteSwap(word); });
                         const auto translateStarted = std::chrono::steady_clock::now();
@@ -4465,6 +4797,22 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (const char* hlslDir = getenv("LO_SHADER_HLSL_DIR"))
                             std::ofstream(fmt::format("{}/{}_{:016x}.hlsl", hlslDir,
                                 item.pixel ? "ps" : "vs", item.hash)) << item.info.hlsl;
+
+                        // The store is keyed by the generated HLSL, so a translator change
+                        // that leaves this shader's HLSL alone keeps its binary.
+                        const auto cacheStarted = std::chrono::steady_clock::now();
+                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
+                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
+                        item.cacheChecked = true;
+                        const auto inputDigest = xenos::cache::CompileInputDigest(item.info.hlsl, item.pixel, cacheIdentity);
+                        auto stored = FindCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath);
+                        item.bytecode = std::move(stored.binary);
+                        item.cachePresent = stored.storeHit || stored.legacyPresent;
+                        item.cacheValid = !item.bytecode.empty();
+                        item.storeHit = stored.storeHit;
+                        item.migrated = stored.legacyHit;
+                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - cacheStarted).count();
 
                         if (!item.cacheValid) {
                             const auto failurePath = item.cachePath + ".failed";
@@ -4494,7 +4842,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             } else {
                                 item.bytecode = std::move(compiled.bytecode);
                                 item.compiled = true;
-                                xenos::cache::WriteBinary(item.cachePath, item.pixel, item.hash, cacheIdentity,
+                                StoreCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath,
                                     item.bytecode, &item.cacheWriteError);
                             }
                         }
@@ -4519,6 +4867,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 uint32_t done = 0, failed = 0, modulesReady = 0, modulesFailed = 0;
                 size_t cacheHits = 0, cacheMissing = 0, cacheInvalid = 0, compileAttempts = 0, compiledCount = 0, cachedFailureCount = 0;
+                size_t storeHits = 0, migratedCount = 0, cacheWriteFailures = 0;
                 uint64_t sourceUs = 0, cacheUs = 0, translateUs = 0, compileUs = 0, moduleUs = 0;
                 auto install = [&](PreparedSource item) {
                     sourceUs += item.sourceUs;
@@ -4526,6 +4875,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     translateUs += item.translateUs;
                     compileUs += item.compileUs;
                     cacheHits += item.cacheValid;
+                    storeHits += item.storeHit;
+                    migratedCount += item.migrated;
+                    cacheWriteFailures += !item.cacheWriteError.empty();
                     cacheMissing += item.cacheChecked && !item.cachePresent;
                     cacheInvalid += item.cacheChecked && item.cachePresent && !item.cacheValid;
                     compileAttempts += item.compileAttempted;
@@ -4620,6 +4972,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_INFO("renderer: startup bundle published: {} records, {} bytes", done, std::filesystem::file_size(bundlePath));
                     } catch (const std::exception& e) { LOG_WARNING("renderer: startup bundle not published: {}", e.what()); }
                 }
+                if (auto* store = LocalShaderStore(); store && done == jobs.size() && !queueStats.cancelled &&
+                    !video::ShaderPreparationSkipped() && !initializationModuleFailure) {
+                    // Every prepared shader is in the store now, so this format's
+                    // per-shader files are redundant; records no shader used drop out.
+                    const auto stats = store->GetStats();
+                    const bool complete = stats.writable && !cacheWriteFailures;
+                    const auto removed = RemoveLegacyShaderCacheFiles(complete);
+                    std::string compactError;
+                    const auto dropped = complete ? store->CompactUnused(64ull << 20, &compactError) : 0;
+                    LOG_INFO("renderer: shader store: {} hits, {} moved from per-shader files, {} compiled; {} old per-shader files removed, {} unused records dropped{}",
+                        storeHits, migratedCount, compiledCount, removed, dropped,
+                        compactError.empty() ? std::string{} : "; compaction failed: " + compactError);
+                }
                 if (done) {
                     LOG_INFO("renderer: shader cache: {} valid, {} missing, {} invalid; {} DXC attempts, {} compiled",
                         cacheHits, cacheMissing, cacheInvalid, compileAttempts, compiledCount);
@@ -4700,14 +5065,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 std::vector<uint8_t> dxil;
                 std::string cachePath;
+                xenos::cache::InputDigest inputDigest{};
                 if (!shaderCacheDir.empty())
                 {
-                    // The cache name carries a translator version so changes to the
-                    // generated HLSL don't resurrect stale DXIL.
+                    // The store keys on the generated HLSL, so a changed translation never
+                    // resurrects a stale binary; cachePath names the pre-store file and
+                    // the failure diagnostic.
                     cachePath = (std::filesystem::path(shaderCacheDir) / xenos::cache::FileName(pixel, hash, cacheIdentity)).string();
-                    bool present = false;
-                    dxil = xenos::cache::ReadBinary(cachePath, pixel, hash, cacheIdentity, &present);
-                    if (present && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
+                    inputDigest = xenos::cache::CompileInputDigest(entry.info.hlsl, pixel, cacheIdentity);
+                    auto stored = FindCompiledShader(pixel, hash, inputDigest, cachePath);
+                    dxil = std::move(stored.binary);
+                    if (stored.legacyPresent && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
                 }
                 if (dxil.empty())
                 {
@@ -4737,7 +5105,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     dxil = std::move(compiled.bytecode);
                     if (!cachePath.empty()) {
                         std::string error;
-                        if (!xenos::cache::WriteBinary(cachePath, pixel, hash, cacheIdentity, dxil, &error))
+                        if (!StoreCompiledShader(pixel, hash, inputDigest, cachePath, dxil, &error))
                             SHADER_LOG_WARNING("cache-write-failed", None, "renderer: shader cache write failed: {}", error);
                     }
                 }
@@ -4758,6 +5126,31 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     SHADER_LOG_WARNING("translation-notes", RendererByteFnv, "renderer: {} shader {:016x} notes: {}", pixel ? "pixel" : "vertex", hash, entry.info.errors);
                 if(!pixel)PreparePositionEvidence(entry,words,count,hash);
                 return entry.valid ? &entry : nullptr;
+            }
+
+            RenderShader* HdrToneShader(Shader& entry, const uint32_t* words, uint32_t count)
+            {
+                if (entry.hdrShaderAttempted) return entry.hdrShader.get();
+                entry.hdrShaderAttempted = true;
+                std::vector<uint32_t> swapped(count);
+                for (uint32_t i = 0; i < count; ++i) swapped[i] = ByteSwap(words[i]);
+                auto translated = xenos::TranslateShader(swapped.data(), count, true);
+                if (!translated.errors.empty() || !hdr_scene::RewriteTonemap(translated.hlsl)) {
+                    LOG_WARNING("renderer HDR: tone-map translation changed; SDR fallback");
+                    return nullptr;
+                }
+                const auto compiled = xenos::CompileCachedHlsl(translated.hlsl, "main", "ps_6_0", binaryFormat);
+                if (!compiled.ok) {
+                    LOG_WARNING("renderer HDR: tone-map variant compile failed: {}", compiled.errors);
+                    return nullptr;
+                }
+                try {
+                    entry.hdrShader = device->createShader(compiled.bytecode.data(), compiled.bytecode.size(),
+                        "main", renderFormat);
+                } catch (const std::exception& error) {
+                    LOG_WARNING("renderer HDR: tone-map module creation failed: {}", error.what());
+                }
+                return entry.hdrShader.get();
             }
 
             bool PrepareRectListShader(Shader& vs, const uint32_t* words, uint32_t count, uint64_t hash)
@@ -4934,6 +5327,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const resolution::Size requested{selected.width, selected.height};
                 const bool first = appliedPlanEpoch == ~0ull;
                 const bool requestChanged = requested != requestedInternalSize;
+                // Snapshot once per renderer frame, before borrowing draw attachments.
+                const auto desiredShadow = shadowState.BeginFrame(frame, settings::GetConfig().shadowResolution);
+                const bool shadowChanged = desiredShadow != shadowResolution;
                 const bool epochChanged = selected.geometryEpoch != appliedPlanEpoch;
                 const bool recreateFeature =
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -4945,13 +5341,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     ((srReconfigureFrame != ~0ull && srReconfigureFrame != frame) ||
                       (epochChanged && temporalUpscaler->HasFeatureState()));
 #endif
-                if (!epochChanged && !requestChanged && !first && !recreateFeature) return true;
+                if (!epochChanged && !requestChanged && !first && !recreateFeature && !shadowChanged) return true;
                 requestedInternalSize = requested;
                 const auto effective = requested;
                 // No guest draw attachments, upload offsets or descriptors have
                 // been borrowed yet. Reconfigure here, never in a scene-copy draw.
                 // Keep the NGX session/parameters, releasing only the old feature.
-                if (effective != internalSize || recreateFeature) {
+                if (effective != internalSize || recreateFeature || shadowChanged) {
                     if (!Flush() || !WaitForGpu() || !video::WaitForPresentGpu()) return false;
                     if (recreateFeature) {
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -4968,7 +5364,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         srReconfigureFrame = ~0ull;
                     }
                 }
-                if (effective != internalSize) {
+                if (effective != internalSize || shadowChanged) {
                     // active points into renderTargets; parked/scratch may also
                     // be referenced by completed NGX lists. Clear only after the
                     // drain, before destroying the map it points into.
@@ -4991,6 +5387,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     sceneAAConfigFrame = ~0ull;
                     ++temporalEpoch;
                 }
+                if (shadowChanged) LOG_INFO("renderer: shadow resolution requested={}x effective={}x allocation_fallback={}",
+                    shadowState.Requested(), desiredShadow, shadowState.Failed());
+                shadowResolution = desiredShadow;
                 internalSize = effective;
                 appliedPlanEpoch = selected.geometryEpoch;
                 LOG_INFO("renderer: internal resolution f{} plan={} epoch={} requested={}x{} effective={}x{} cpu_readback={} allocation_fallback={}",
@@ -5040,13 +5439,26 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return committedPlan.geometryEpoch != 0 && failedPlanEpochs.contains(committedPlan.geometryEpoch);
             }
 
+            void FailSurfaceAllocation(bool shadow)
+            {
+                if (shadow && shadowResolution > 1) {
+                    // Retry at 1x next renderer frame without poisoning the CPU
+                    // scene plan (which may already be at its minimum size).
+                    shadowState.AllocationFailed();
+                    return;
+                }
+                FailCurrentPlan();
+            }
+
             HostTexture* GetRenderTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool depth)
             {
                 // EDRAM targets have no intrinsic height and ours is only guessed
                 // from the scissor, so draws and resolves may disagree on it: key
                 // by tile base, format and pitch only and grow the texture when a
                 // taller extent shows up.
-                height = std::clamp<uint32_t>((height + 31) & ~31u, 32, 2048);
+                const auto role = ResolveCatalogRole(base, pitch);
+                if (role == resolution::TargetRole::Shadow && shadowState.Failed() && shadowResolution > 1) return nullptr;
+                height = resolution::TargetGuestHeight(role, height);
                 // Depth formats (D24S8 / D24FS8) alias the same tiles and share our
                 // host format, so they are one target.
                 // One host texture per (base, pitch, storage class).
@@ -5057,9 +5469,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 uint32_t effectiveHeight = height;
                 if (it != renderTargets.end())
                     effectiveHeight = std::max(effectiveHeight, it->second->guestHeight);
-                const auto role = ResolveCatalogRole(base, pitch);
                 const resolution::Size legacySize{activePlan.legacyWidth,activePlan.legacyHeight};
-                resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize);
+                resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize, shadowResolution);
                 if (sceneCopyPromotion.activeMapping && key == sceneCopyPromotion.key && sceneCopyPromotion.frame == frame &&
                     sceneCopyPromotion.epoch == activePlan.geometryEpoch)
                     desiredSize = {activePlan.output.width, activePlan.output.height};
@@ -5069,8 +5480,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // A catalog publication can arrive after a target's first
                     // use. Test its effective mapping before returning a cache
                     // hit so the old native/square allocation is never reused.
-                    if (it->second->guestHeight >= height && it->second->resolutionSize == desiredSize)
+                    if (it->second->guestHeight >= height && it->second->resolutionSize == desiredSize) {
+                        it->second->shadowMap = role == resolution::TargetRole::Shadow;
                         return it->second.get();
+                    }
                     oldTarget = std::move(it->second);
                     renderTargets.erase(it);
                 }
@@ -5082,13 +5495,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 tex->guestWidth = pitch;
                 tex->guestHeight = effectiveHeight;
                 tex->resolutionSize = desiredSize;
+                tex->shadowMap = role == resolution::TargetRole::Shadow;
                 tex->width = std::max(1u, tex->ScaleX(pitch));
                 tex->height = std::max(1u, tex->ScaleY(effectiveHeight));
                 RenderTextureDesc desc = RenderTextureDesc::Texture2D(tex->width, tex->height, 1, tex->format, depth ? RenderTextureFlag::DEPTH_TARGET : RenderTextureFlag::RENDER_TARGET);
                 tex->texture = device->createTexture(desc);
                 tex->layout = RenderTextureLayout::UNKNOWN;
                 if (!tex->texture) {
-                    FailCurrentPlan();
+                    FailSurfaceAllocation(tex->shadowMap);
                     LOG_ERROR("renderer: render target allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", pitch, effectiveHeight, tex->width, tex->height);
                     if (oldTarget) Gpu().retiredTextures.push_back(std::move(oldTarget));
                     return nullptr;
@@ -5118,7 +5532,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                 }
                 if (oldTarget) Gpu().retiredTextures.push_back(std::move(oldTarget));
-                LOG_INFO("renderer: new {} target base={:#x} fmt={} guest={}x{} physical={}x{} scale={}x{}", depth ? "depth" : "color", base, format, pitch, effectiveHeight, tex->width, tex->height, tex->resolutionSize.width, tex->resolutionSize.height);
+                LOG_INFO("renderer: new {} target base={:#x} fmt={} guest={}x{} physical={}x{} scale={}x{} shadow={}", depth ? "depth" : "color", base, format, pitch, effectiveHeight, tex->width, tex->height, tex->resolutionSize.width, tex->resolutionSize.height, tex->shadowMap);
                 HostTexture* result = tex.get();
                 renderTargets.emplace(key, std::move(tex));
                 return result;
@@ -5390,15 +5804,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             view->guestWidth = width;
                             view->guestHeight = height;
                             view->resolutionSize = rs->tex->resolutionSize;
+                            view->shadowMap = rs->tex->shadowMap;
                             view->width = physicalWidth;
                             view->height = physicalHeight;
                             view->texture = device->createTexture(RenderTextureDesc::Texture2D(physicalWidth, physicalHeight, 1, view->format));
                         }
                         if (!view->texture) {
-                            FailCurrentPlan();
+                            FailSurfaceAllocation(rs->tex->shadowMap);
                             LOG_ERROR("renderer: fetch view allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", width, height, physicalWidth, physicalHeight);
                             return nullptr;
                         }
+                        view->shadowMap = rs->tex->shadowMap;
                         Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
                         Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
                         RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
@@ -5933,6 +6349,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                 } fgUiDrawExit{*this};
                 const uint32_t modeControl = Reg(REG_RB_MODECONTROL) & 7;
+                // Every color or depth draw inside a guest occlusion query counts;
+                // one that returns before its host query makes the query visible.
+                if (modeControl == 4 || modeControl == 5) occlusion.DrawSeen();
                 // All draw-side writes, including uploads, AA, alias transfers and
                 // optimized clears, are outside the consecutive-resolve window.
                 if (modeControl != 6) consecutiveResolveCopies.Invalidate();
@@ -6094,6 +6513,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         color->clearedFrame = frame;
                         commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                         commandList->clearColor(0, loud ? RenderColor(1.0f, 0.0f, 1.0f, 1.0f) : RenderColor(0.0f, 0.0f, 0.0f, 0.0f));
+                        color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                         HandleFsrAlphaRgbWriter(*color, "debug_clear_rt");
 #endif
@@ -6236,6 +6656,24 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 render_batch::CpuTimer<> taaInit(cpuTimingEnabled);
                 if(sceneAAConfigFrame!=frame) {
                     sceneAAConfigFrame=frame;
+                    const uint32_t requestedAo = settings::GetConfig().ambientOcclusion;
+                    const uint32_t selectedAo = requestedAo <= 2 ? requestedAo : 0;
+                    if (aoMode != selectedAo) {
+                        aoMode = selectedAo;
+                        LOG_INFO("renderer: ambient occlusion mode={}", aoMode);
+                        if (temporalHistory) temporalHistory->Reset();
+                        if (hdrTemporalHistory) hdrTemporalHistory->Reset();
+                if (sceneTaaHdrHistory) sceneTaaHdrHistory->Reset();
+                        ++temporalEpoch;
+                    }
+                    aoActive = aoMode != 0 && !resolveReadback && !aoInitFailed;
+                    if (aoActive && !ambientOcclusion) {
+                        ambientOcclusion = std::make_unique<ao::AmbientOcclusion>();
+                        if (!ambientOcclusion->Init(device)) {
+                            LOG_ERROR("renderer: AO initialization failed: {}", ambientOcclusion->LastError());
+                            ambientOcclusion.reset(); aoInitFailed = true; aoActive = false;
+                        }
+                    }
                     frameSrOptions = {};
                     if (activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) {
                         const uint32_t percent = std::min(settings::GetConfig().fsrSharpnessPercent, 100u);
@@ -6290,10 +6728,22 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             LOG_ERROR("renderer: HDR temporal candidate initialization failed");
                         }
                     }
+                    if (temporalExperiment && hdrSceneEnabled.load(std::memory_order_relaxed) && !sceneTaaHdrHistory && !sceneTaaHdrInitFailed) {
+                        sceneTaaHdrHistory = std::make_unique<temporal::HistoryOwner>();
+                        if (!sceneTaaHdrHistory->Init(device, {}, true)) {
+                            sceneTaaHdrHistory.reset(); sceneTaaHdrInitFailed = true;
+                            LOG_ERROR("renderer: HDR scene TAA twin initialization failed; HDR pauses under TAA");
+                        }
+                    }
                 }
                 const bool temporalActive = temporal::TemporalConsumerActive(temporalExperiment, temporalInputProbe, dlssSrRequested, nativeFgInputs);
-                const bool trackTemporalScene = !debugCaptureDir.empty() || temporalActive || activeSpatialAA;
+                const bool trackTemporalScene = !debugCaptureDir.empty() || temporalActive || activeSpatialAA || aoActive;
                 if (trackTemporalScene && temporalScene.Frame() != frame) {
+                    static const bool traceAo = std::getenv("LO_AO_TRACE") != nullptr;
+                    static uint32_t aoTraceFrames = 0;
+                    if (aoActive && traceAo && frame % 120 == 0 && aoTraceFrames++ < 32)
+                        LOG_INFO("renderer: AO scene frame={} draws={} depth={} color={} copies={} reason={}", temporalScene.Frame(),
+                            temporalScene.Draws(), temporalScene.Depth().ordinal, temporalScene.Color().ordinal, temporalScene.Copies(), uint32_t(temporalScene.Reason()));
                     const auto now = std::chrono::steady_clock::now();
                     srFrameDeltaMilliseconds = srTimedFrame == ~0ull ? 0.0f :
                         std::chrono::duration<float, std::milli>(now - srFrameTime).count();
@@ -6343,9 +6793,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalHistory->BeginFrame(frame,temporalEpoch,
                         taa_collection::DiagnosticsActive() || (diagnosticStart&&frame>=diagnosticFrame&&temporalFramesLogged<256) || (withTrace&&resolveTraceRemaining));
                     if (hdrTemporalHistory) hdrTemporalHistory->BeginFrame(frame, temporalEpoch, resolveTraceRemaining != 0);
+                    if (sceneTaaHdrHistory) sceneTaaHdrHistory->BeginFrame(frame, temporalEpoch, false);
                     const bool gpuTiming = motionOptions.timing || (taaLiveApplied && taaLiveOptions.gpu_timing);
                     temporalHistory->EnableGpuTiming(gpuTiming);
                     if (hdrTemporalHistory) hdrTemporalHistory->EnableGpuTiming(gpuTiming);
+                    if (sceneTaaHdrHistory) sceneTaaHdrHistory->EnableGpuTiming(gpuTiming);
                     if (motionOptions.enabled) {
                         render_batch::CpuTimer<> mvTimer(motionOptions.timing);
                         drawTemporalTracker.BeginFrame(frame, temporalEpoch);
@@ -6371,9 +6823,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 std::optional<temporal::TemporalFrameInputs> nativeFgSceneCopyInputs;
                 std::shared_ptr<fsr_alpha::MaskLease> selectedFsrMaskLease;
                 bool sceneAARecorded=false,temporalAARecorded=false,hdrTonemapRecorded=false;
+                ao::Output sceneAo{};
+                RenderTexture* sceneAoSource = nullptr;
+                // Upload/descriptor reservations can Flush while this draw is being
+                // prepared. Keep the final consumer slot, not only the producer.
+                struct RetainAoConsumer {
+                    Renderer* owner; ao::Output& output;
+                    ~RetainAoConsumer() { if (output.lifetime) owner->Gpu().aoUses.push_back(output.lifetime); }
+                } retainAo{this,sceneAo};
                 std::optional<temporal::SceneAnchor> temporalDrawAnchor;
 
                 SharedConstants shared{};
+                if (vulkan) shared.vertexArenaAddress = vertexArena->getDeviceAddress();
                 for (uint32_t i = 0; i < 8; i++) shared.bools[i] = Reg(REG_BOOL_CONSTANTS + i);
                 for (uint32_t i = 0; i < 32; i++) shared.loops[i] = Reg(REG_LOOP_CONSTANTS + i);
                 shared.transfer[0] = Reg(REG_PA_SU_POINT_SIZE);
@@ -6426,6 +6887,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 RenderViewport rasterViewport = viewport;
                 rasterViewport.x *= rasterScaleX; rasterViewport.y *= rasterScaleY;
                 rasterViewport.width *= rasterScaleX; rasterViewport.height *= rasterScaleY;
+                if (depth && depth->shadowMap) {
+                    static uint32_t shadowRasterLogs = 0;
+                    if (shadowRasterLogs++ < 4) LOG_INFO("renderer: shadow raster mask={} depth_only={} viewport=({},{} {}x{}) scale={}x{}",
+                        key.colorMask, depthOnlyRaster, rasterViewport.x, rasterViewport.y, rasterViewport.width, rasterViewport.height, rasterScaleX, rasterScaleY);
+                }
                 render_batch::CpuTimer<> taaJitter(cpuTimingEnabled);
                 const bool constantScreenSample = key.vs == 0xe810cfacc107fd3cull &&
                     key.ps == 0xfe31f3d6588fde95ull && ps &&
@@ -6440,7 +6906,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // bda also appears with a different camera. Reviewed sky pairs
                 // require a scene camera observed before the draw instead of
                 // self-anchoring it.
-                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
+                if((temporalActive||activeSpatialAA||aoActive)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
                     temporalViewport&&depth&&(depthControl&4)) {
                     temporal::SceneAnchor anchor;
                     std::copy_n(vsConstants+temporalSlot*4,16,anchor.vpBits.begin());
@@ -6931,6 +7397,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     source->writeX == 0 && source->writeY == 0 &&
                                     source->writeWidth == tex->width && source->writeHeight == tex->height &&
                                     source->tex->width == tex->width && source->tex->height == tex->height};
+                            static const bool traceAoCopy = std::getenv("LO_AO_TRACE") != nullptr;
+                            static uint32_t aoTraceCopies = 0;
+                            if (aoActive && traceAoCopy && frame % 120 == 0 && aoTraceCopies++ < 32) {
+                                const auto* source = FindResolved(address, format);
+                                LOG_INFO("renderer: AO copy frame={} full={} format={} found={} sdr={} ordinal={} extent={}x{} viewport={}x{} anchor={}x{} rb_identity={}",
+                                    frame, fullSceneCopy, format, bool(source), source ? source->sdrWriteOrdinal : 0, source ? source->writeOrdinal : 0,
+                                    tex->width, tex->height, rasterViewport.width, rasterViewport.height, temporalScene.Anchor().viewport.width, temporalScene.Anchor().viewport.height,
+                                    color_qualification::CheckNetIdentityRBSwap(fetch[0], fetch[3], source ? source->swapRedBlue : false));
+                            }
                         }
                         HostTexture* bloomFiltered = nullptr;
                         RenderTexture* bloomPrefilterInput = nullptr;
@@ -7023,11 +7498,78 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         RenderTexture* temporalDisplay=nullptr;
                         RenderFormat temporalDisplayFormat=tex->format;
                         bool temporalDisplayFromHistory = false;
+                        RenderTexture* aoColor = nullptr;
+                        RenderTexture* sceneInput = tex->texture.get();
                         if(temporalSceneCopy && fullSceneCopy && s==ps && slot==0 &&
                            rasterViewport.width==tex->width && rasterViewport.height==tex->height &&
                            rasterViewport.width==temporalScene.Anchor().viewport.width && rasterViewport.height==temporalScene.Anchor().viewport.height) {
                             render_batch::CpuTimer<> taaResolve(cpuTimingEnabled);
                             temporalScene.ObserveColor(*temporalSceneCopy);
+                            if (aoActive && ambientOcclusion && temporalScene.Ready() && tex->format == RenderFormat::R8G8B8A8_UNORM) {
+                                const auto& observedDepth = temporalScene.Depth();
+                                // SceneObservation stores a resolve format, including
+                                // kDepthResolveTag; FindResolved expects a guest fetch
+                                // format (22/23 for depth) and cannot use this identity.
+                                ResolvedSurface* sourceDepth = nullptr;
+                                if (auto found = resolved.find(observedDepth.address); found != resolved.end())
+                                    for (auto& candidate : found->second)
+                                        if (candidate.destFormat == observedDepth.format) { sourceDepth = &candidate; break; }
+                                auto* sourceColor = FindResolved(temporalSceneCopy->address, temporalSceneCopy->format);
+                                static const bool traceAoInputs = std::getenv("LO_AO_TRACE") != nullptr;
+                                static uint32_t aoTraceInputs = 0;
+                                if (traceAoInputs && frame % 120 == 0 && aoTraceInputs++ < 32)
+                                    LOG_INFO("renderer: AO inputs frame={} depth_found={} depth_frame={} depth_ord={}/{} full={} depth_format={} depth_size={}x{} color_match={}",
+                                        frame, bool(sourceDepth && sourceDepth->tex), sourceDepth ? sourceDepth->frame : 0,
+                                        sourceDepth ? sourceDepth->writeOrdinal : 0, observedDepth.ordinal, observedDepth.fullExtent,
+                                        sourceDepth && sourceDepth->tex ? uint32_t(sourceDepth->tex->format) : 0,
+                                        sourceDepth && sourceDepth->tex ? sourceDepth->tex->width : 0, sourceDepth && sourceDepth->tex ? sourceDepth->tex->height : 0,
+                                        sourceColor && sourceColor->tex.get() == tex);
+                                if (sourceDepth && sourceDepth->tex && sourceDepth->frame == frame &&
+                                    sourceDepth->writeOrdinal == observedDepth.ordinal && observedDepth.fullExtent &&
+                                    sourceDepth->tex->format == RenderFormat::R32_FLOAT &&
+                                    sourceDepth->tex->width == tex->width && sourceDepth->tex->height == tex->height &&
+                                    sourceColor && sourceColor->tex.get() == tex && sourceColor->frame == frame &&
+                                    sourceColor->writeOrdinal == temporalSceneCopy->ordinal &&
+                                    sourceColor->sdrWriteOrdinal != 0 && sourceColor->sdrWriteOrdinal == sourceColor->writeOrdinal &&
+                                    color_qualification::CheckNetIdentityRBSwap(fetch[0], fetch[3], sourceColor->swapRedBlue)) {
+                                    temporal::Matrix vp{};
+                                    for (uint32_t i=0;i<16;++i) vp[i]=std::bit_cast<float>(temporalScene.Anchor().vpBits[i]);
+                                    auto camera = temporal::Camera::Create(vp,temporalScene.Anchor().viewport);
+                                    if (camera) {
+                                        Transition(*tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                        Transition(*sourceDepth->tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                        ao::Inputs inputs;
+                                        inputs.color=tex->texture.get();inputs.depth=sourceDepth->tex->texture.get();
+                                        inputs.camera=&*camera;inputs.width=tex->width;inputs.height=tex->height;
+                                        inputs.mode=static_cast<ao::Mode>(aoMode);
+                                        if (actualRasterJitterCaptured) {inputs.jitterX=actualRasterJitter.pixelX;inputs.jitterY=actualRasterJitter.pixelY;}
+                                        static const char* aoDebug=std::getenv("LO_AO_DEBUG");
+                                        if (aoDebug) {
+                                            if (std::string_view(aoDebug)=="ao") inputs.debug=ao::Debug::Visibility;
+                                            else if (std::string_view(aoDebug)=="normals") inputs.debug=ao::Debug::Normals;
+                                            else if (std::string_view(aoDebug)=="depth") inputs.debug=ao::Debug::Depth;
+                                        }
+                                        if (sourceColor->hdrTex && sourceColor->hdrTex->texture && sourceColor->hdrFrame == frame &&
+                                            sourceColor->hdrWriteOrdinal == sourceColor->writeOrdinal &&
+                                            sourceColor->hdrTex->width == tex->width && sourceColor->hdrTex->height == tex->height) {
+                                            Transition(*sourceColor->hdrTex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                            inputs.hdrColor=sourceColor->hdrTex->texture.get();
+                                        }
+                                        sceneAo=ambientOcclusion->Record(commandList,inputs);
+                                        if (sceneAo.color) {
+                                            sceneAoSource=tex->texture.get();sceneInput=aoColor=sceneAo.color;
+                                            Gpu().aoUses.push_back(sceneAo.lifetime);
+                                            static uint32_t aoLogs = 0;
+                                            if (aoLogs++ < 4) LOG_INFO("renderer: AO applied mode={} frame={} size={}x{} color_ordinal={} depth_ordinal={} hdr={}",
+                                                aoMode, frame, tex->width, tex->height, sourceColor->writeOrdinal, observedDepth.ordinal, bool(sceneAo.hdrColor));
+                                            if (resolveTraceRemaining) QueueResolveTrace(aoColor,tex->format,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0040u);
+                                        } else {
+                                            static uint32_t failures=0;
+                                            if (failures++<8) LOG_WARNING("renderer: AO bypass: {}",ambientOcclusion->LastError());
+                                        }
+                                    }
+                                }
+                            }
                             if ((temporalInputProbe || dlssSrRequested || nativeFgInputs) && temporalHistory && temporalScene.Ready() &&
                                 tex->format==RenderFormat::R8G8B8A8_UNORM) {
                                 Transition(*tex,RenderTextureLayout::COPY_SOURCE,RenderBarrierStage::COPY);
@@ -7115,7 +7657,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                             drawTemporalTracker.Failed() ? 1 : 0, motionInitFailed ? 1 : 0, mvError);
                                     }
                                 };
-                                if (!temporalHistory->CaptureColorInputs(commandList, tex->texture.get(), temporalScene, activePlan, sample,
+                                if (aoColor) commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(aoColor,RenderTextureLayout::COPY_SOURCE));
+                                if (!temporalHistory->CaptureColorInputs(commandList, sceneInput, temporalScene, activePlan, sample,
                                         qualifiedEncoding, motionOptions.consume ? &motionView : nullptr,
                                         srTimeReset ? temporal::TemporalResetReason::FrameDiscontinuity : temporal::TemporalResetReason::None,
                                         // Camera/depth reconstruction is independent of optional
@@ -7225,7 +7768,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 const double jx = temporalJitter ? sample.pixelX : 0, jy = temporalJitter ? sample.pixelY : 0;
                                 FinishMotion(temporalHistory.get());
                                 const bool consumeMotion = motionOptions.consume && (!taaLiveApplied || taaLiveOptions.mv_consume);
-                                temporalDisplay=temporalHistory->ResolveColor(commandList,tex->texture.get(),temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
+                                if (aoColor) commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(aoColor,RenderTextureLayout::COPY_SOURCE));
+                                temporalDisplay=temporalHistory->ResolveColor(commandList,sceneInput,temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
                                     consumeMotion ? &motionView : nullptr, motionOptions.debug, &ActiveTaaOptions());
                                 if (taaLiveDirectory) {
                                     taaLiveResolvedFrame=frame;taaLiveWidth=tex->width;taaLiveHeight=tex->height;
@@ -7236,6 +7780,34 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     taaLiveOutputFormat=temporalDisplay?temporalHistory->OutputFormat():RenderFormat::UNKNOWN;
                                 }
                                 if (motionOptions.consume && motionView.ready && motionReplay) motionReplay->RecordConsumerUse();
+                                // HDR twin: the same TAA on the extended-gamma resolve (AO's
+                                // FP16 output when AO ran), raw domain, own history.
+                                if (temporalDisplay && sceneTaaHdrHistory && hdrSceneEnabled.load(std::memory_order_relaxed)) {
+                                    RenderTexture* hdrInput=nullptr; HostTexture* hdrHost=nullptr;
+                                    if (aoColor) hdrInput=sceneAo.hdrColor;
+                                    else if (auto* sourceColor=FindResolved(temporalSceneCopy->address,temporalSceneCopy->format);
+                                             sourceColor && sourceColor->tex.get()==tex && sourceColor->hdrTex && sourceColor->hdrTex->texture &&
+                                             sourceColor->hdrFrame==frame && sourceColor->hdrWriteOrdinal==sourceColor->writeOrdinal &&
+                                             sourceColor->hdrTex->width==tex->width && sourceColor->hdrTex->height==tex->height) {
+                                        hdrHost=sourceColor->hdrTex.get(); hdrInput=hdrHost->texture.get();
+                                    }
+                                    if (hdrInput) {
+                                        if (hdrHost) Transition(*hdrHost,RenderTextureLayout::COPY_SOURCE,RenderBarrierStage::COPY);
+                                        else commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(hdrInput,RenderTextureLayout::COPY_SOURCE));
+                                        sceneTaaHdrOutput=sceneTaaHdrHistory->ResolveColor(commandList,hdrInput,temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
+                                            consumeMotion ? &motionView : nullptr, motionOptions.debug, &ActiveTaaOptions());
+                                        if (hdrHost) Transition(*hdrHost,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                        else commandList->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(hdrInput,RenderTextureLayout::SHADER_READ));
+                                        if (sceneTaaHdrOutput) { sceneTaaHdrFrame=frame; sceneTaaHdrSource=tex->texture.get(); sceneTaaSdrOutput=temporalDisplay; }
+                                    }
+                                    static uint32_t hdrTaaLogs=0;
+                                    if (hdrTaaLogs<8 && (sceneTaaHdrFrame==frame || hdrTaaLogs==0)) {
+                                        ++hdrTaaLogs;
+                                        LOG_INFO("renderer HDR: scene TAA twin frame={} input={} recorded={} reused={}",
+                                            frame,hdrInput?(aoColor?"ao":"resolve"):"none",sceneTaaHdrFrame==frame,
+                                            sceneTaaHdrFrame==frame && sceneTaaHdrHistory->Reused());
+                                    }
+                                }
                                 Transition(*tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
                                 if(temporalDisplay) {
                                     temporalDisplayFormat=temporalHistory->OutputFormat();
@@ -7254,6 +7826,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         QueueResolveTrace(temporalHistory->CurrentReactiveMask(),RenderFormat::R8_UNORM,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0006u);
                                 }
                             }
+                            if (aoColor) commandList->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(aoColor,RenderTextureLayout::SHADER_READ));
                             if(!temporalDisplay && activeSpatialAA && sceneProcessor && !sceneAABusy &&
                                sceneAAAppliedFrame!=frame && temporalScene.Ready() &&
                                (sceneAAMode==1||sceneAAMode==2||sceneAAMode==3) && tex->format==RenderFormat::R8G8B8A8_UNORM) {
@@ -7262,18 +7835,49 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         RenderFormat::R8G8B8A8_UNORM,RenderTextureFlag::RENDER_TARGET));
                                     sceneAAWidth=tex->width;sceneAAHeight=tex->height;
                                 }
-                                if(sceneAAOutput && sceneProcessor->ProcessSceneColor(commandList,tex->texture.get(),sceneAAOutput.get(),
+                                if(sceneAAOutput && sceneProcessor->ProcessSceneColor(commandList,sceneInput,sceneAAOutput.get(),
                                     tex->width,tex->height,static_cast<gpu::Antialiasing>(sceneAAMode==3?2:sceneAAMode))) {
                                     tex->layout=RenderTextureLayout::SHADER_READ;
                                     temporalDisplay=sceneAAOutput.get();sceneAABusy=true;sceneAARecorded=true;
                                     QueueResolveTrace(*tex,0xffff0011u);
                                     QueueResolveTrace(temporalDisplay,RenderFormat::R8G8B8A8_UNORM,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0012u);
+                                    // The HDR scene gets the same AA on its extended-gamma
+                                    // resolve (AO's FP16 output when AO ran). Without a
+                                    // twin this frame falls back to SDR at the sidecar copy.
+                                    if (hdrSceneEnabled.load(std::memory_order_relaxed)) {
+                                        RenderTexture* hdrInput=nullptr;
+                                        if (aoColor) hdrInput=sceneAo.hdrColor;
+                                        else if (auto* sourceColor=FindResolved(temporalSceneCopy->address,temporalSceneCopy->format);
+                                                 sourceColor && sourceColor->tex.get()==tex && sourceColor->hdrTex && sourceColor->hdrTex->texture &&
+                                                 sourceColor->hdrFrame==frame && sourceColor->hdrWriteOrdinal==sourceColor->writeOrdinal &&
+                                                 sourceColor->hdrTex->width==tex->width && sourceColor->hdrTex->height==tex->height) {
+                                            Transition(*sourceColor->hdrTex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
+                                            hdrInput=sourceColor->hdrTex->texture.get();
+                                        }
+                                        if (hdrInput) {
+                                            if(!sceneAAHdrOutput||sceneAAHdrWidth!=tex->width||sceneAAHdrHeight!=tex->height) {
+                                                sceneAAHdrOutput=device->createTexture(RenderTextureDesc::Texture2D(tex->width,tex->height,1,
+                                                    RenderFormat::R16G16B16A16_FLOAT,RenderTextureFlag::RENDER_TARGET));
+                                                sceneAAHdrWidth=tex->width;sceneAAHdrHeight=tex->height;
+                                            }
+                                            if(sceneAAHdrOutput && sceneProcessor->ProcessSceneColor(commandList,hdrInput,sceneAAHdrOutput.get(),
+                                                tex->width,tex->height,static_cast<gpu::Antialiasing>(sceneAAMode==3?2:sceneAAMode),true)) {
+                                                sceneAAHdrFrame=frame;sceneAAHdrSource=tex->texture.get();
+                                            }
+                                        }
+                                        static uint32_t hdrAaLogs=0;
+                                        if (hdrAaLogs<8 && (sceneAAHdrFrame==frame || hdrAaLogs==0)) {
+                                            ++hdrAaLogs;
+                                            LOG_INFO("renderer HDR: scene AA twin frame={} mode={} input={} recorded={}",
+                                                frame,sceneAAMode,hdrInput?(aoColor?"ao":"resolve"):"none",sceneAAHdrFrame==frame);
+                                        }
+                                    }
                                 }
                             }
                             taaResolve.AddTo(tTaa);
                         }
                         if (diagnosticFullSceneCopy)
-                            QueueResolveTrace(temporalDisplay ? temporalDisplay : tex->texture.get(), temporalDisplay ? temporalDisplayFormat : tex->format,
+                            QueueResolveTrace(temporalDisplay ? temporalDisplay : sceneInput, temporalDisplay ? temporalDisplayFormat : tex->format,
                                 tex->width, tex->height, RenderTextureLayout::SHADER_READ, 0xffff0021u);
                         uint32_t d3 = fetch[3];
                         shared.textureInfo[slot] = ((fetch[0] >> 2) & 0xFF) | (((d3 >> 1) & 0xFFF) << 8);
@@ -7292,12 +7896,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         const bool afEligible = sampling::Eligible(samplerKey, tex->guestBytes != 0,
                             dimension, s == ps && depth && (depthControl & 2) && !(shared.vtxFmt & 1) &&
                                 !((vs->info.textureSlotMask >> slot) & 1),
-                            temporalDisplay || bloomFiltered || hdrBinding);
+                            temporalDisplay || aoColor || bloomFiltered || hdrBinding);
                         const auto samplerIndex = GetSamplerIndex(samplerKey, afEligible);
                         if (!samplerIndex) { failedPlan = true; return; }
                         shared.samplerIndex[slot] = *samplerIndex;
                         samplerKey = ActualSamplerKey(*samplerIndex);
-                        textureBindings[bank][slot] = temporalDisplay ? temporalDisplay :
+                        textureBindings[bank][slot] = temporalDisplay ? temporalDisplay : aoColor ? aoColor :
                             bloomFiltered ? bloomFiltered->texture.get() : hdrBinding ? hdrBinding : tex->texture.get();
                         // Candidate only: a later VS binding or a failed draw
                         // can still replace/cancel it. Confirm after recording.
@@ -7310,12 +7914,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 s == ps ? "ps" : "vs"});
 #if defined(LO_GPU_PLUME)
                         if (s == ps && key.ps == 0xb4b4d54a7a2d6b96ull && slot == 1 && bank == 0 &&
-                            !temporalDisplay && !bloomFiltered && !hdrBinding)
+                            !temporalDisplay && !aoColor && !bloomFiltered && !hdrBinding)
                             alphaPostDepth = AlphaPostDepthInput{tex->texture.get(), tex->format,
                                 tex->width, tex->height, samplerKey};
                         if (s == ps && !alphaBridgeFetches.empty() &&
                             alphaBridgeFetches.back().slot == slot && alphaBridgeFetches.back().bank == bank) {
-                            alphaBridgeFetches.back().substitution = temporalDisplay ? "temporal_display" :
+                            alphaBridgeFetches.back().substitution = temporalDisplay ? "temporal_display" : aoColor ? "ambient_occlusion" :
                                 bloomFiltered ? "bloom_prefilter" : hdrBinding ? "hdr_temporal" : "none";
                             alphaBridgeFetches.back().samplerKey = samplerKey;
                             alphaBridgeFetches.back().prefilterOutput =
@@ -7327,7 +7931,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 #endif
                         if (selectedBinding) {
                             selectedBinding->bank = bank;
-                            if (temporalDisplay || bloomFiltered || hdrBinding) {
+                            if (temporalDisplay || aoColor || bloomFiltered || hdrBinding) {
                                 // No bloom-filtered TextureKind exists. Unknown
                                 // avoids reporting a filtered texture as a direct resolve.
                                 selectedBinding->kind = temporalDisplay ?
@@ -7913,6 +8517,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         scissor.left, scissor.top, scissor.right, scissor.bottom, shared.ndcScale[0], shared.ndcScale[1], shared.ndcOffset[0], shared.ndcOffset[1], modeControl,
                         RegF(REG_ALU_CONSTANTS + 255 * 4), RegF(REG_ALU_CONSTANTS + 255 * 4 + 1), RegF(REG_ALU_CONSTANTS + 255 * 4 + 2), RegF(REG_ALU_CONSTANTS + 255 * 4 + 3));
                 }
+                // Inside a guest occlusion query, count exactly this draw's samples.
+                const uint32_t occlusionIndex = OcclusionQueryForDraw();
+                if (occlusionIndex != ~0u)
+                    commandList->beginOcclusionQuery(Gpu().occlusionQueries.get(), occlusionIndex);
                 if (useIndices)
                 {
                     RenderIndexBufferView view(RenderBufferReference(uploadRing, preparedIndexOffset), uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
@@ -7922,6 +8530,237 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 else
                 {
                     commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
+                }
+                if (occlusionIndex != ~0u) {
+                    commandList->endOcclusionQuery(Gpu().occlusionQueries.get(), occlusionIndex);
+                    const HostTexture* measured = depth ? depth : color;
+                    occlusion.DrawMeasured({Gpu().occlusionBatch, occlusionIndex, gpu::occlusion::SampleScale(
+                        measured->guestWidth, measured->guestHeight, measured->width, measured->height, (surfaceInfo >> 16) & 3)});
+                    LogOcclusionDraw(occlusionIndex, ps != nullptr, measured);
+                }
+                // Keep the guest SDR target untouched. The verified tone-map draw
+                // starts an extended-gamma FP16 copy; later UI/fade draws reproduce
+                // their original blend against it. Any unknown writer invalidates
+                // this frame's HDR resolve instead of presenting mixed content.
+                if (color && color->hdrFrame == frame && color->hdrValid &&
+                    (key.colorMask & 7u) &&
+                    (!hdrSceneEnabled.load(std::memory_order_relaxed) ||
+                     (color->format != RenderFormat::R8G8B8A8_UNORM &&
+                      color->format != RenderFormat::R16G16B16A16_FLOAT)))
+                    color->hdrValid = false;
+                // Frame generation and AA policy is video's, through hdrSceneEnabled;
+                // spatial AA forwards its FP16 twin below. An upscaled (promoted)
+                // target keeps the input resolve for presentation's gain pass instead.
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) && color &&
+                    (color->format == RenderFormat::R8G8B8A8_UNORM ||
+                     color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u)) {
+                    bool forwarded = false;
+                    if (activePlan.requestedUpscaler == upscaling::Upscaler::Off &&
+                        fullSceneCopy && !depth && sceneCopyBank == 0 &&
+                        rasterViewport.x == 0 && rasterViewport.y == 0 &&
+                        std::floor(rasterViewport.width) == rasterViewport.width &&
+                        std::floor(rasterViewport.height) == rasterViewport.height &&
+                        rasterViewport.width <= color->width && rasterViewport.height <= color->height &&
+                        scissor.left == 0 && scissor.top == 0 &&
+                        scissor.right >= int32_t(rasterViewport.width) &&
+                        scissor.bottom >= int32_t(rasterViewport.height)) {
+                        const auto copyWidth = uint32_t(rasterViewport.width);
+                        const auto copyHeight = uint32_t(rasterViewport.height);
+                        const uint32_t fetch = Reg(REG_FETCH_CONSTANTS + 1);
+                        const auto* source = FindResolved((fetch >> 12) << 12, fetch & 0x3F);
+                        if (source && source->tex && source->hdrTex && source->hdrTex->texture &&
+                            source->hdrWriteOrdinal == source->writeOrdinal && source->hdrFrame == frame &&
+                            source->hdrTex->width >= copyWidth && source->hdrTex->height >= copyHeight &&
+                            (textureBindings[0][0] == source->tex->texture.get() ||
+                             (sceneAo.color && sceneAo.hdrColor && sceneAoSource == source->tex->texture.get() &&
+                              textureBindings[0][0] == sceneAo.color) ||
+                             (sceneAAOutput && sceneAAHdrOutput && sceneAAHdrFrame == frame &&
+                              sceneAAHdrSource == source->tex->texture.get() &&
+                              textureBindings[0][0] == sceneAAOutput.get()) ||
+                             (sceneTaaHdrOutput && sceneTaaSdrOutput && sceneTaaHdrFrame == frame &&
+                              sceneTaaHdrSource == source->tex->texture.get() &&
+                              textureBindings[0][0] == sceneTaaSdrOutput))) {
+                            if (!color->hdrSidecar || !color->hdrSidecar->texture ||
+                                color->hdrSidecar->width != color->width ||
+                                color->hdrSidecar->height != color->height) {
+                                if (color->hdrSidecar)
+                                    Gpu().retiredTextures.push_back(std::move(color->hdrSidecar));
+                                color->hdrSidecar = std::make_unique<HostTexture>();
+                                auto& sidecar = *color->hdrSidecar;
+                                sidecar.width = color->width; sidecar.height = color->height;
+                                sidecar.format = RenderFormat::R16G16B16A16_FLOAT;
+                                sidecar.texture = device->createTexture(RenderTextureDesc::Texture2D(
+                                    sidecar.width, sidecar.height, 1, sidecar.format,
+                                    RenderTextureFlag::RENDER_TARGET));
+                            }
+                            if (color->hdrSidecar && color->hdrSidecar->texture) {
+                                Transition(*color->hdrSidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
+                                commandList->setFramebuffer(GetFramebuffer(color->hdrSidecar.get(), nullptr));
+                                commandList->clearColor(0, RenderColor(0, 0, 0, 1));
+                                auto* hdrCopySource=sceneAAOutput && textureBindings[0][0]==sceneAAOutput.get() && sceneAAHdrFrame==frame ? sceneAAHdrOutput.get() :
+                                    sceneTaaSdrOutput && textureBindings[0][0]==sceneTaaSdrOutput && sceneTaaHdrFrame==frame ? sceneTaaHdrOutput :
+                                    sceneAo.hdrColor && sceneAoSource==source->tex->texture.get() ? sceneAo.hdrColor : source->hdrTex->texture.get();
+                                if (hdrCopySource==source->hdrTex->texture.get())
+                                    Transition(*source->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                                else commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(hdrCopySource,RenderTextureLayout::COPY_SOURCE));
+                                Transition(*color->hdrSidecar, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                                RenderBox box{0, 0, int32_t(copyWidth), int32_t(copyHeight), 0, 1};
+                                commandList->copyTextureRegion(
+                                    RenderTextureCopyLocation::Subresource(color->hdrSidecar->texture.get()),
+                                    RenderTextureCopyLocation::Subresource(hdrCopySource),
+                                    0, 0, 0, &box);
+                                color->hdrFrame = frame;
+                                color->hdrValid = true;
+                                color->hdrValidWidth = copyWidth;
+                                color->hdrValidHeight = copyHeight;
+                                forwarded = true;
+                                commandList->setFramebuffer(framebuffer);
+                                commandList->setViewports(&rasterViewport, 1);
+                                commandList->setScissors(&scissor, 1);
+                                commandList->setPipeline(pipeline);
+                                static uint32_t forwardedLogs = 0;
+                                if (forwardedLogs++ < 8)
+                                    LOG_INFO("renderer HDR: full scene copy forwarded frame={} valid={}x{} allocation={}x{} source={}",
+                                        frame, copyWidth, copyHeight, color->width, color->height,
+                                        hdrCopySource == sceneAAHdrOutput.get() ? "scene_aa" : hdrCopySource == sceneTaaHdrOutput ? "scene_taa" :
+                                        hdrCopySource == sceneAo.hdrColor ? "ao" : "resolve");
+                                // Periodic tally: which producer the sidecar followed.
+                                static uint32_t forwardedResolve = 0, forwardedAo = 0, forwardedAa = 0, forwardedTaa = 0;
+                                if (hdrCopySource == sceneAAHdrOutput.get()) ++forwardedAa;
+                                else if (hdrCopySource == sceneTaaHdrOutput) ++forwardedTaa;
+                                else if (hdrCopySource == sceneAo.hdrColor) ++forwardedAo;
+                                else ++forwardedResolve;
+                                if ((forwardedResolve + forwardedAo + forwardedAa + forwardedTaa) % 600 == 0)
+                                    LOG_INFO("renderer HDR: forwarded copies resolve={} ao={} scene_aa={} scene_taa={}", forwardedResolve, forwardedAo, forwardedAa, forwardedTaa);
+                            }
+                        }
+                    }
+                    const bool tone = key.vs == 0x9b81c55ca39bb529ull &&
+                        key.ps == 0xb4b4d54a7a2d6b96ull;
+                    const bool continuing = color->hdrFrame == frame && color->hdrValid;
+                    if (!forwarded && (tone || continuing)) {
+                        if (tone) {
+                            color->hdrFrame = frame;
+                            color->hdrValid = false;
+                            color->hdrValidWidth = color->hdrValidHeight = 0;
+                        }
+                        const auto desc = DescribePipeline(key, vs, ps, false);
+                        const auto& blend = desc.renderTargetBlend[0];
+                        const bool copyBlend = !blend.blendEnabled ||
+                            (blend.srcBlend == RenderBlend::ONE && blend.dstBlend == RenderBlend::ZERO &&
+                             blend.blendOp == RenderBlendOperation::ADD);
+                        const bool alphaBlend = blend.blendEnabled &&
+                            blend.srcBlend == RenderBlend::SRC_ALPHA &&
+                            blend.dstBlend == RenderBlend::INV_SRC_ALPHA &&
+                            blend.blendOp == RenderBlendOperation::ADD;
+                        bool aliasesTarget = false;
+                        bool samplesSdrHdrSource = false;
+                        for (const auto& bank : textureBindings)
+                            for (auto* texture : bank) {
+                                aliasesTarget |= texture == color->texture.get() ||
+                                    (color->hdrSidecar && texture == color->hdrSidecar->texture.get());
+                                samplesSdrHdrSource |= hdrSdrSourcesFrame == frame &&
+                                    hdrSdrSources.contains(texture);
+                            }
+                        const char* reject = nullptr;
+                        const bool depthMayPass = tone ?
+                            (!desc.depthEnabled || desc.depthFunction == RenderComparisonFunction::ALWAYS) :
+                            (!desc.depthEnabled && !desc.depthWriteEnabled);
+                        if (!ps || !vs->info.errors.empty() || !ps->info.errors.empty() ||
+                            ps->info.writesDepth || ps->info.colorTargetsWritten != 1u ||
+                            !depthMayPass || desc.stencilEnabled ||
+                            desc.geometryShader || (key.colorMask & 7u) != 7u ||
+                            aliasesTarget || (!tone && samplesSdrHdrSource))
+                            reject = "writer_state";
+                        else if (tone && color_qualification::CheckProducerPipeline({
+                            .vs = key.vs, .ps = key.ps,
+                            .c10xBits = psConstants[10 * 4],
+                            .colorMask = key.colorMask, .blend = key.blend,
+                            .depthControl = key.depthControl, .modeCull = key.modeCull,
+                            .colorControl = Reg(REG_RB_COLORCONTROL),
+                            .guestTargetFormat = (colorInfo >> 16) & 0xF,
+                            .targetExpBias = (colorInfo >> 20) & 0x3F,
+                            .vtxFmt = shared.vtxFmt, .sharedFlags = shared.flags,
+                            .debugOverrides = getenv("LO_DEBUG_NODEPTH") != nullptr
+                        }) != color_qualification::ProducerRejectReason::None)
+                            reject = "tone_pipeline";
+                        else if (tone && (color->format != RenderFormat::R16G16B16A16_FLOAT ||
+                            rasterViewport.x != 0 || rasterViewport.y != 0 ||
+                            rasterViewport.width <= 0 || rasterViewport.height <= 0 ||
+                            std::floor(rasterViewport.width) != rasterViewport.width ||
+                            std::floor(rasterViewport.height) != rasterViewport.height ||
+                            rasterViewport.width > color->width || rasterViewport.height > color->height ||
+                            scissor.left > 0 || scissor.top > 0 ||
+                            scissor.right < int32_t(rasterViewport.width) ||
+                            scissor.bottom < int32_t(rasterViewport.height)))
+                            reject = "tone_coverage";
+                        else if (tone ? !copyBlend : !alphaBlend)
+                            reject = "blend_state";
+                        else if (tone && (!psWords || !psCount ||
+                            !HdrToneShader(*ps, psWords, psCount)))
+                            reject = "tone_shader";
+                        if (!reject && (!color->hdrSidecar || !color->hdrSidecar->texture ||
+                            color->hdrSidecar->width != color->width ||
+                            color->hdrSidecar->height != color->height)) {
+                            if (color->hdrSidecar)
+                                Gpu().retiredTextures.push_back(std::move(color->hdrSidecar));
+                            color->hdrSidecar = std::make_unique<HostTexture>();
+                            auto& sidecar = *color->hdrSidecar;
+                            sidecar.width = color->width; sidecar.height = color->height;
+                            sidecar.format = RenderFormat::R16G16B16A16_FLOAT;
+                            sidecar.texture = device->createTexture(RenderTextureDesc::Texture2D(
+                                sidecar.width, sidecar.height, 1, sidecar.format,
+                                RenderTextureFlag::RENDER_TARGET));
+                            if (!sidecar.texture) { color->hdrSidecar.reset(); reject = "target_allocation"; }
+                        }
+                        if (!reject) {
+                            auto hdrDesc = desc;
+                            hdrDesc.pixelShader = tone ? ps->hdrShader.get() : ps->shader.get();
+                            hdrDesc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
+                            hdrDesc.depthEnabled = hdrDesc.depthWriteEnabled = hdrDesc.stencilEnabled = false;
+                            hdrDesc.depthTargetFormat = RenderFormat::UNKNOWN;
+                            auto& hdrPipeline = hdrPipelines[key];
+                            if (!hdrPipeline) hdrPipeline = device->createGraphicsPipeline(hdrDesc);
+                            if (!hdrPipeline) reject = "pipeline_creation";
+                            else {
+                                auto& sidecar = *color->hdrSidecar;
+                                Transition(sidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
+                                commandList->setFramebuffer(GetFramebuffer(&sidecar, nullptr));
+                                if (tone) commandList->clearColor(0, RenderColor(0, 0, 0, 1));
+                                commandList->setViewports(&rasterViewport, 1);
+                                commandList->setScissors(&scissor, 1);
+                                commandList->setPipeline(hdrPipeline.get());
+                                if (useIndices) {
+                                    RenderIndexBufferView view(RenderBufferReference(uploadRing, preparedIndexOffset),
+                                        uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
+                                    commandList->setIndexBuffer(&view);
+                                    commandList->drawIndexedInstanced(indexCount, 1, 0, baseVertex, 0);
+                                } else commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
+                                color->hdrValid = true;
+                                if (tone) {
+                                    color->hdrValidWidth = uint32_t(rasterViewport.width);
+                                    color->hdrValidHeight = uint32_t(rasterViewport.height);
+                                }
+                                // Later renderer paths expect the guest's target and pipeline.
+                                commandList->setFramebuffer(framebuffer);
+                                commandList->setViewports(&rasterViewport, 1);
+                                commandList->setScissors(&scissor, 1);
+                                commandList->setPipeline(pipeline);
+                                static uint32_t toneLogs = 0;
+                                if (tone && toneLogs++ < 8)
+                                    LOG_INFO("renderer HDR: tone-map sidecar recorded frame={} valid={}x{} allocation={}x{}",
+                                        frame, color->hdrValidWidth, color->hdrValidHeight,
+                                        color->width, color->height);
+                            }
+                        }
+                        if (reject) {
+                            color->hdrValid = false;
+                            static uint32_t rejected = 0;
+                            if (rejected++ < 24)
+                                LOG_INFO("renderer HDR: SDR fallback frame={} ps={:016x} reason={}",
+                                    frame, key.ps, reject);
+                        }
+                    }
                 }
                 if (fgUiBindingExpected && fgUiCapture) {
                     auto capture = fgUiCapture;
@@ -9030,6 +9869,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 color->sdrProducerFrame, color->qualifiedSdrWidth, color->qualifiedSdrHeight,
                                 frame, uint32_t(rasterViewport.width), uint32_t(rasterViewport.height));
                         } else {
+                            if (color->hdrFrame == frame) color->hdrValid = false;
                             color_qualification::InvalidateHostTextureProducer(
                                 color->sdrProducerFrame, color->qualifiedSdrWidth, color->qualifiedSdrHeight);
                             static color_qualification::ProducerRejectReason lastLoggedProducerReject = color_qualification::ProducerRejectReason::None;
@@ -9163,6 +10003,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             Transition(*tex, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                             commandList->setFramebuffer(GetFramebuffer(tex.get(), nullptr));
                             commandList->clearColor(0, value);
+                            tex->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                             HandleFsrAlphaRgbWriter(*tex, "depth_color_tile_clear");
                             if (fsrAlphaBridge && activePlan.requestedUpscaler == upscaling::Upscaler::Fsr)
@@ -9259,7 +10100,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (key.colorMask & 7) HandleFsrAlphaRgbWriter(*target,
                             "color_clear_rect", drawsThisFrame, key.vs, key.ps, key.blend, key.colorMask);
 #endif
-                        if ((key.colorMask & 7) != 0) target->sdrProducerFrame = ~0ull;
+                        if ((key.colorMask & 7) != 0) {
+                            target->sdrProducerFrame = ~0ull;
+                            target->hdrValid = false;
+                        }
                         if (trackBinding) {
                             // Replayed clear geometry uses a stretched viewport, so do not reuse the original transform.
                             if (key.colorMask) target->bindingProducer.Mixed(bindingEpoch, frame);
@@ -9695,7 +10539,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t guestH = std::clamp<uint32_t>(std::max(destHeight, y0 + h), 1, 8192);
                 const uint32_t texW = std::max(1u, depth.ScaleX(guestW)), texH = std::max(1u, depth.ScaleY(guestH));
                 if (texW > 16384 || texH > 16384) {
-                    FailCurrentPlan();
+                    FailSurfaceAllocation(depth.shadowMap);
                     LOG_ERROR("renderer: depth resolve exceeds texture limit physical={}x{}; native resolution fallback next frame", texW, texH);
                     return false;
                 }
@@ -9715,12 +10559,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rs.tex->height = texH;
                     rs.tex->guestWidth = guestW; rs.tex->guestHeight = guestH;
                     rs.tex->resolutionSize = depth.resolutionSize;
+                    rs.tex->shadowMap = depth.shadowMap;
                     rs.tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1, RenderFormat::R32_FLOAT,
                         vulkan ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE));
                     rs.tex->layout = RenderTextureLayout::UNKNOWN;
                     if (!rs.tex->texture)
                     {
-                        FailCurrentPlan();
+                        FailSurfaceAllocation(depth.shadowMap);
                         LOG_ERROR("renderer: depth resolve allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", guestW, guestH, texW, texH);
                         DropResolved(destBase, destFormat);
                         return false;
@@ -9729,6 +10574,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (created++ < 8)
                         LOG_INFO("renderer: resolved depth surface {:#x} guest={}x{} physical={}x{} dest fmt={}", destBase, guestW, guestH, texW, texH, destFormat & 0xFFF);
                 }
+                rs.tex->shadowMap = depth.shadowMap;
                 rs.destFormat = destFormat;
                 rs.destPitch = destPitch;
                 rs.swapRedBlue = false;
@@ -9760,7 +10606,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (taa_collection::Enabled())
                     rs.tex->bindingProducer.Copy(depth.bindingProducer, taa_collection::ConsentEpoch(), frame,
                         x0 == 0 && y0 == 0 && w == texW && h == texH);
-                if (!debugCaptureDir.empty() || temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs || activeSpatialAA) {
+                if (!debugCaptureDir.empty() || temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs || activeSpatialAA || aoActive) {
                     temporalScene.ObserveDepth(depth.allocationSerial, {frame, rs.writeOrdinal, destBase, destFormat,
                         texW, texH, x0 == 0 && y0 == 0 && w == texW && h == texH});
                     if((temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs) && temporalHistory && temporalScene.Depth().ordinal==rs.writeOrdinal) {
@@ -9768,6 +10614,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         temporalHistory->CaptureDepth(commandList,rs.tex->texture.get(),temporalScene);
                         if (taaDiagnosticHDR == 1 && hdrTemporalHistory)
                             hdrTemporalHistory->CaptureDepth(commandList,rs.tex->texture.get(),temporalScene);
+                        if (sceneTaaHdrHistory && hdrSceneEnabled.load(std::memory_order_relaxed))
+                            sceneTaaHdrHistory->CaptureDepth(commandList,rs.tex->texture.get(),temporalScene);
                         Transition(*rs.tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
                     }
                 }
@@ -9786,7 +10634,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t guestH = std::clamp<uint32_t>(std::max(destHeight, y0 + h), 1, 8192);
                 const uint32_t texW = std::max(1u, color.ScaleX(guestW)), texH = std::max(1u, color.ScaleY(guestH));
                 if (texW > 16384 || texH > 16384) {
-                    FailCurrentPlan();
+                    FailSurfaceAllocation(color.shadowMap);
                     LOG_ERROR("renderer: color resolve exceeds texture limit physical={}x{}; native resolution fallback next frame", texW, texH);
                     return false;
                 }
@@ -9811,11 +10659,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rs.tex->height = texH;
                     rs.tex->guestWidth = guestW; rs.tex->guestHeight = guestH;
                     rs.tex->resolutionSize = color.resolutionSize;
+                    rs.tex->shadowMap = color.shadowMap;
                     rs.tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1, destHost, RenderTextureFlag::RENDER_TARGET));
                     rs.tex->layout = RenderTextureLayout::UNKNOWN;
                     if (!rs.tex->texture)
                     {
-                        FailCurrentPlan();
+                        FailSurfaceAllocation(color.shadowMap);
                         LOG_ERROR("renderer: color resolve allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", guestW, guestH, texW, texH);
                         DropResolved(destBase, destFormat);
                         return false;
@@ -9838,6 +10687,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.destFormat = destFormat;
                 rs.destPitch = destPitch;
                 rs.swapRedBlue = ((Reg(REG_RB_COPY_DEST_INFO) >> 24) & 1) != 0;
+                rs.tex->shadowMap = color.shadowMap;
                 if (x0 >= texW || y0 >= texH) return true;
                 w = std::min(w, texW - x0);
                 h = std::min(h, texH - y0);
@@ -9878,6 +10728,83 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 } else {
                     color_qualification::InvalidateSurfaceResolved(rs.sdrWriteOrdinal);
                 }
+                rs.hdrWriteOrdinal = 0;
+                rs.hdrGain = false;
+                // A promoted (upscaled) target has no sidecar of its own; keep the
+                // input scene's extended resolve for the presentation gain pass.
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) && destFormat == 6 && fullResolved &&
+                    !color.hdrValid && activePlan.requestedUpscaler != upscaling::Upscaler::Off) {
+                    static uint32_t gainProbeLogs = 0;
+                    if (gainProbeLogs++ < 8)
+                        LOG_INFO("renderer HDR: promoted resolve frame={} address={:#x} active_match={} promotion_frame={} source={} source_frame={} size={}x{}",
+                            frame, destBase, sceneCopyPromotion.active == &color, sceneCopyPromotion.frame,
+                            sceneCopyPromotion.hdrSource != nullptr, sceneCopyPromotion.hdrSourceFrame, texW, texH);
+                }
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) && destFormat == 6 && fullResolved &&
+                    !color.hdrValid && sceneCopyPromotion.active == &color && sceneCopyPromotion.frame == frame &&
+                    sceneCopyPromotion.hdrSource && sceneCopyPromotion.hdrSourceFrame == frame) {
+                    const uint32_t gainW = sceneCopyPromotion.hdrSourceWidth, gainH = sceneCopyPromotion.hdrSourceHeight;
+                    if (!rs.hdrTex || rs.hdrTex->width != gainW || rs.hdrTex->height != gainH) {
+                        if (rs.hdrTex) Gpu().retiredTextures.push_back(std::move(rs.hdrTex));
+                        auto target = std::make_unique<HostTexture>();
+                        target->width = gainW; target->height = gainH;
+                        target->format = RenderFormat::R16G16B16A16_FLOAT;
+                        target->texture = device->createTexture(RenderTextureDesc::Texture2D(gainW, gainH, 1,
+                            target->format, RenderTextureFlag::RENDER_TARGET));
+                        if (target->texture) rs.hdrTex = std::move(target);
+                    }
+                    if (rs.hdrTex && rs.hdrTex->texture) {
+                        commandList->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(sceneCopyPromotion.hdrSource, RenderTextureLayout::COPY_SOURCE));
+                        Transition(*rs.hdrTex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                        RenderBox box{0, 0, int32_t(gainW), int32_t(gainH), 0, 1};
+                        commandList->copyTextureRegion(
+                            RenderTextureCopyLocation::Subresource(rs.hdrTex->texture.get()),
+                            RenderTextureCopyLocation::Subresource(sceneCopyPromotion.hdrSource),
+                            0, 0, 0, &box);
+                        rs.hdrFrame = frame;
+                        rs.hdrWriteOrdinal = rs.writeOrdinal;
+                        rs.hdrGain = true;
+                        static uint32_t gainLogs = 0;
+                        if (gainLogs++ < 8)
+                            LOG_INFO("renderer HDR: gain source kept frame={} address={:#x} scene={}x{} output={}x{} ordinal={}",
+                                frame, destBase, gainW, gainH, texW, texH, rs.hdrWriteOrdinal);
+                    }
+                }
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) &&
+                    destFormat == 6 && fullResolved && color.hdrValid && color.hdrFrame == frame &&
+                    color.hdrValidWidth >= texW && color.hdrValidHeight >= texH &&
+                    color.hdrSidecar && color.hdrSidecar->texture &&
+                    color.hdrSidecar->width >= texW && color.hdrSidecar->height >= texH) {
+                    if (!rs.hdrTex || rs.hdrTex->width != texW || rs.hdrTex->height != texH) {
+                        if (rs.hdrTex) Gpu().retiredTextures.push_back(std::move(rs.hdrTex));
+                        auto target = std::make_unique<HostTexture>();
+                        target->width = texW; target->height = texH;
+                        target->format = RenderFormat::R16G16B16A16_FLOAT;
+                        target->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1,
+                            target->format, RenderTextureFlag::RENDER_TARGET));
+                        if (target->texture) rs.hdrTex = std::move(target);
+                    }
+                    if (rs.hdrTex && rs.hdrTex->texture) {
+                        Transition(*color.hdrSidecar, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                        Transition(*rs.hdrTex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                        RenderBox box{0, 0, int32_t(texW), int32_t(texH), 0, 1};
+                        commandList->copyTextureRegion(
+                            RenderTextureCopyLocation::Subresource(rs.hdrTex->texture.get()),
+                            RenderTextureCopyLocation::Subresource(color.hdrSidecar->texture.get()),
+                            0, 0, 0, &box);
+                        rs.hdrFrame = frame;
+                        rs.hdrWriteOrdinal = rs.writeOrdinal;
+                        if (hdrSdrSourcesFrame != frame) {
+                            hdrSdrSources.clear();
+                            hdrSdrSourcesFrame = frame;
+                        }
+                        hdrSdrSources.insert(rs.tex->texture.get());
+                        static uint32_t resolveLogs = 0;
+                        if (resolveLogs++ < 8)
+                            LOG_INFO("renderer HDR: extended resolve frame={} address={:#x} size={}x{} ordinal={}",
+                                frame, destBase, texW, texH, rs.hdrWriteOrdinal);
+                    }
+                }
                 WriteP2ResolveEvent("color", color, destBase, rs, resolveOperation);
 #if defined(LO_GPU_PLUME)
                 RecordFsrAlphaBridgeResolve(color, destBase, rs, resolveOperation);
@@ -9903,6 +10830,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
             void Resolve()
             {
+                // A new renderer frame may start with a resolve/clear, before
+                // any draw. Apply the same frame snapshot before borrowing RTs.
+                if (!ApplyInternalResolution()) return;
                 FlushMotionReplayQueue();
                 ScopedTimer timer{ tResolve, cpuTimingEnabled };
                 nResolve++;
@@ -10099,6 +11029,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                     RenderRect rect{ int32_t(color->ScaleX(x0)), int32_t(color->ScaleY(y0)), int32_t(color->ScaleX(x1)), int32_t(color->ScaleY(y1)) };
                     commandList->clearColor(0, c, &rect, 1);
+                    color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                     HandleFsrAlphaRgbWriter(*color, "resolve_color_clear");
 #endif
@@ -10127,10 +11058,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                                float x, float y, float width, float height, float safeLeft, float safeRight)
+                                float x, float y, float width, float height, float safeLeft, float safeRight,
+                                float safeTop, float safeBottom)
             {
                 if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height) ||
-                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || width <= 0.0f || height <= 0.0f)
+                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || !std::isfinite(safeTop) ||
+                    !std::isfinite(safeBottom) || width <= 0.0f || height <= 0.0f)
                     return;
 
                 const uint32_t pitch = surfaceInfo & 0x3FFF;
@@ -10153,19 +11086,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const int32_t targetBottom = std::clamp(scaleY(y + height), targetTop, int32_t(color->height));
                 const int32_t leftBarEnd = std::clamp(scaleX(safeLeft), targetLeft, targetRight);
                 const int32_t rightBarStart = std::clamp(scaleX(safeRight), targetLeft, targetRight);
-                if (targetBottom <= targetTop || (leftBarEnd <= targetLeft && rightBarStart >= targetRight))
+                const int32_t topBarEnd = std::clamp(scaleY(safeTop), targetTop, targetBottom);
+                const int32_t bottomBarStart = std::clamp(scaleY(safeBottom), topBarEnd, targetBottom);
+                if (targetBottom <= targetTop || targetRight <= targetLeft)
                     return;
 
-                std::array<RenderRect, 2> bars{};
+                std::array<RenderRect, 4> bars{};
                 uint32_t count = 0;
-                auto addBar = [&](int32_t left, int32_t right)
+                auto addBar = [&](int32_t left, int32_t top, int32_t right, int32_t bottom)
                 {
-                    if (right <= left)
+                    if (right <= left || bottom <= top)
                         return;
-                    bars[count++] = { left, targetTop, right, targetBottom };
+                    bars[count++] = { left, top, right, bottom };
                 };
-                addBar(targetLeft, leftBarEnd);
-                addBar(rightBarStart, targetRight);
+                addBar(targetLeft, targetTop, targetRight, topBarEnd);
+                addBar(targetLeft, bottomBarStart, targetRight, targetBottom);
+                addBar(targetLeft, topBarEnd, leftBarEnd, bottomBarStart);
+                addBar(rightBarStart, topBarEnd, targetRight, bottomBarStart);
                 if (!count)
                     return;
 
@@ -10173,6 +11110,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 Transition(*color, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                 commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                 commandList->clearColor(0, RenderColor(0.0f, 0.0f, 0.0f, 1.0f), bars.data(), count);
+                color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                 HandleFsrAlphaRgbWriter(*color, "movie_bars_clear");
 #endif
@@ -10210,6 +11148,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             g_renderer->CancelFgSnapshots(frame_generation::HandoffCancel::Shutdown);
             g_renderer->Flush();
             g_renderer->WaitForGpu();
+            // Completed queries were written above; release any guest still waiting.
+            g_renderer->ReleaseOcclusionWaiters();
             if (!g_renderer->fsrCapturePages.empty()) g_renderer->FinishFsrCapture();
             video::WaitForPresentGpu();
             video::DrainGpuForShutdown();
@@ -10232,6 +11172,30 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     {
         if (g_renderer)
             g_renderer->Draw(info);
+    }
+
+    bool OcclusionQueryEvent(uint32_t physicalAddress)
+    {
+        return g_renderer && g_renderer->OcclusionQueryEvent(physicalAddress);
+    }
+
+    void NoteOcclusionQueryOwner(uint32_t physicalSlot, uint64_t owner)
+    {
+        std::lock_guard lock(g_occlusionOwnerMutex);
+        g_occlusionOwners[gpu::occlusion::SlotOf(physicalSlot)] = owner;
+    }
+
+    void NoteOcclusionWait()
+    {
+        if (g_occlusionStrict.load(std::memory_order_relaxed) &&
+            !g_occlusionWait.exchange(true, std::memory_order_acq_rel))
+            g_commandProcessor.Wake();
+    }
+
+    void ServiceOcclusionQueries()
+    {
+        if (g_renderer && g_occlusionWait.exchange(false, std::memory_order_acq_rel))
+            g_renderer->ResolveOcclusionQueries();
     }
 
     void FinalizeDebugCapture(bool ok);
@@ -10539,6 +11503,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             return;
         if (!g_renderer->Begin()) return;
         g_renderer->Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+        if (hdrSceneEnabled.load(std::memory_order_relaxed) && rs->hdrTex &&
+            rs->hdrWriteOrdinal && rs->hdrWriteOrdinal == rs->writeOrdinal)
+            g_renderer->Transition(*rs->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
     }
 
     bool SuppressPresent()
@@ -10797,6 +11764,36 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (handoff) *handoff = {};
         return g_renderer ? g_renderer->AcquireResolvedForPresent(physicalAddress, width, height, format,
             sourcePlan, handoff) : nullptr;
+    }
+    void SetHdrSceneEnabled(bool enabled)
+    {
+        hdrSceneEnabled.store(enabled, std::memory_order_relaxed);
+    }
+    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
+    {
+        if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
+            g_renderer->PlanSuppressed()) return nullptr;
+        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
+        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture || rs->hdrGain ||
+            rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
+            !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
+            !rs->sourcePlanValid || rs->hdrTex->width != rs->tex->width ||
+            rs->hdrTex->height != rs->tex->height) return nullptr;
+        width = rs->hdrTex->width; height = rs->hdrTex->height;
+        return rs->hdrTex->texture.get();
+    }
+    plume::RenderTexture* AcquireHdrGainSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
+    {
+        if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
+            g_renderer->PlanSuppressed()) return nullptr;
+        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
+        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture || !rs->hdrGain ||
+            rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
+            !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
+            !rs->sourcePlanValid || rs->hdrTex->width > rs->tex->width ||
+            rs->hdrTex->height > rs->tex->height) return nullptr;
+        width = rs->hdrTex->width; height = rs->hdrTex->height;
+        return rs->hdrTex->texture.get();
     }
     bool AcquireFgCompositeInputs(uint32_t physicalAddress, frame_generation::CompositeHandoff& handoff)
     {
@@ -11071,6 +12068,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     void Shutdown() {}
     void ScaleResolvedSize(uint32_t, uint32_t&, uint32_t&) {}
     void Draw(const DrawInfo&) {}
+    bool OcclusionQueryEvent(uint32_t) { return false; }
+    void NoteOcclusionWait() {}
+    void NoteOcclusionQueryOwner(uint32_t, uint64_t) {}
+    void ServiceOcclusionQueries() {}
     bool DrainForFrameGenerationReconfigure() { return true; }
     void Flush() {}
     void PreparePresent(uint32_t) {}
@@ -11079,6 +12080,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     bool SceneAAApplied(uint32_t) { return false; }
     plume::RenderTexture* AcquireResolvedSurface(uint32_t, uint32_t&, uint32_t&, uint32_t&,
         frame_plan::FramePlan*, frame_generation::ResolvedHandoff*) { return nullptr; }
+    void SetHdrSceneEnabled(bool) {}
+    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
+    plume::RenderTexture* AcquireHdrGainSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
     bool AcquireFgCompositeInputs(uint32_t, frame_generation::CompositeHandoff&) { return false; }
     void CancelFgHandoffs() {}
     void SetFrameGenerationInputCaptureEnabled(bool) {}
@@ -11095,7 +12099,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     float ActiveOutputAspect()
     {
         const auto plan = frame_plan::CurrentProducerPlan();
-        if (!plan) return 16.0f / 9.0f;
+        // The resolve-readback path renders the native 16:9 raster on any output.
+        if (!plan || plan->requiresReadback) return 16.0f / 9.0f;
         const auto& output = plan->output;
         if (output.width && output.height) return float(output.width) / output.height;
         if (output.drawable.width && output.drawable.height) return float(output.drawable.width) / output.drawable.height;
@@ -11126,14 +12131,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     }
 
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                        float x, float y, float width, float height, float safeLeft, float safeRight)
+                        float x, float y, float width, float height, float safeLeft, float safeRight,
+                        float safeTop, float safeBottom)
     {
 #ifdef LO_GPU_PLUME
         if (g_renderer)
-            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight);
+            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight, safeTop, safeBottom);
 #else
         (void)surfaceInfo; (void)colorInfo; (void)x; (void)y;
-        (void)width; (void)height; (void)safeLeft; (void)safeRight;
+        (void)width; (void)height; (void)safeLeft; (void)safeRight; (void)safeTop; (void)safeBottom;
 #endif
     }
 #endif // !LO_RENDERER_P2_EMBEDDED_TEST

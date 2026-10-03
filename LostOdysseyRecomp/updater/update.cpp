@@ -7,7 +7,7 @@
 #include <fstream>
 #include <set>
 
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 
 namespace updater
 {
@@ -309,7 +309,8 @@ std::optional<ReleaseAsset> SelectAsset(const Release &release, std::string_view
 {
     std::string extension;
     if (platform == "windows") extension = ".zip";
-    else if (platform == "macos") extension = ".zip";
+    // macOS releases ship a disk image; the updater only opens the release page.
+    else if (platform == "macos") extension = ".dmg";
     else if (platform == "linux") extension = ".AppImage";
     else { error = "unsupported update platform"; return std::nullopt; }
     const std::string expected = "LostOdysseyRecomp-" + std::string(platform) + "-" +

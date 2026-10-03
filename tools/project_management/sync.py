@@ -21,7 +21,7 @@ def read_json(path):
 def save_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     # Sync clients and antivirus scanners may briefly hold a Windows file.
     # Keep the complete temporary file; retry only the atomic local replacement.
     for attempt in range(11):

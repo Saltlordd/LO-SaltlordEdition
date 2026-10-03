@@ -6,6 +6,7 @@
 #include <kernel/io/file_system_test.h>
 #include <kernel/io/io_diagnostics.h>
 #include <condition_variable>
+#include <map>
 #ifndef _WIN32
 #include <sys/mman.h>
 #include <unistd.h>
@@ -1052,6 +1053,57 @@ static void CheckDlc(const std::filesystem::path& imported, bool restart)
         restart ? "fresh-process restart" : "shared-root/async/open/read/reopen/negative cases", packages.size(), payloadFiles, payloadBytes);
 }
 
+// #175: the save data decides what is listed. A folder renamed or copied after
+// saving, or one whose .lo-content was zero-filled by a crash, still lists and
+// opens under its folder name; a folder without data, or with zeroed data, does not.
+static void CheckSlotRecovery()
+{
+    const auto save = FileSystem::GetSaveRoot();
+    const auto writeMetadata = [&](const char* folder, const XCONTENT_DATA& data)
+    {
+        std::filesystem::create_directories(save / folder);
+        std::ofstream(save / folder / ".lo-content", std::ios::binary).write(reinterpret_cast<const char*>(&data), sizeof(data));
+    };
+    auto renamed = XamMakeContent(1, "user00");
+    renamed.szDisplayName[0] = 'R';
+    writeMetadata("user01", renamed);
+    std::ofstream(save / "user01" / "save.bin") << "slot";
+    writeMetadata("user02", XCONTENT_DATA{});
+    std::ofstream(save / "user02" / "save.bin") << "slot";
+    writeMetadata("user03", XamMakeContent(1, "user03"));
+    std::ofstream(save / "user03" / "save.bin", std::ios::binary) << std::string(206000, '\0');
+    std::filesystem::create_directories(save / "notes");
+
+    be<uint32_t> size{}, handle{}, count{};
+    Check(XamContentCreateEnumerator(0, 1, 1, 0x1000, 30, &size, &handle) == 0, "enumerate save slots");
+    XCONTENT_DATA listed[30]{};
+    Check(XamEnumerate(handle, 0, listed, sizeof(listed), &count, nullptr) == 0 && count == 2,
+        "slots with save data listed; zeroed and empty folders skipped");
+    DestroyKernelObject(handle);
+    std::map<std::string, XCONTENT_DATA> slots;
+    for (uint32_t i = 0; i < count; i++) slots.emplace(listed[i].szFileName, listed[i]);
+    Check(slots.contains("user01") && slots.contains("user02"), "slots use their folder names");
+    Check(slots["user01"].szDisplayName[0] == 'R', "renamed slot keeps its display name");
+    Check(slots["user02"].dwContentType == 1 && slots["user02"].DeviceID == 1, "zeroed metadata replaced by a save data entry");
+
+    auto* content = g_userHeap.Alloc<XCONTENT_DATA>();
+    *content = slots["user02"];
+    auto* root = static_cast<char*>(g_userHeap.Alloc(16));
+    strcpy(root, "save");
+    auto* disposition = g_userHeap.Alloc<be<uint32_t>>();
+    Check(Call(__imp__XamContentCreateEx, {0, Addr(root), Addr(content), 3, Addr(disposition), 0, 0, 0, 0}) == 0 &&
+        *disposition == 2, "open slot with zeroed metadata");
+    Check(FileSystem::ResolvePath("save:\\save.bin") == save / "user02" / "save.bin", "slot mounts its own folder");
+    Check(Call(__imp__XamContentClose, {Addr(root), 0}) == 0, "close syncs the slot");
+
+    auto* created = g_userHeap.Alloc<XCONTENT_DATA>();
+    *created = XamMakeContent(1, "user04");
+    Check(Call(__imp__XamContentCreateEx, {0, Addr(root), Addr(created), 1, Addr(disposition), 0, 0, 0, 0}) == 0, "create slot");
+    Check(std::filesystem::file_size(save / "user04" / ".lo-content") == sizeof(XCONTENT_DATA) &&
+        !std::filesystem::exists(save / "user04" / ".lo-content.tmp"), "metadata replaced atomically");
+    std::puts("PASS: save slots listed from their save data under their folder names");
+}
+
 int main(int argc, char** argv)
 {
     try
@@ -1079,6 +1131,7 @@ int main(int argc, char** argv)
         FileSystem::Init(std::filesystem::absolute("game"));
         XamInit();
         const std::string_view mode(argv[1]);
+        if (mode == "slot-recovery") { CheckSlotRecovery(); return 0; }
         Check(mode == "write" || mode == "overwrite" || mode == "read" || mode == "read-overwritten", "invalid test mode");
         const bool overwrite = mode == "overwrite" || mode == "read-overwritten";
         const bool writing = mode == "write" || mode == "overwrite";

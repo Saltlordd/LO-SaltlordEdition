@@ -1,4 +1,5 @@
 #include "gpu/shader/portable_shader_contract.h"
+#include "gpu/shader/portable_shader_pack_location.h"
 #include "merge.h"
 #include <fstream>
 #include <iomanip>
@@ -6,39 +7,53 @@
 #include <stdexcept>
 #include <string_view>
 
+// The runtime contract hashes the image as parsed, before import binding,
+// which is what xexdump writes, so this is the value the game computes.
+static std::vector<uint8_t> ReadRuntimeImage(const char* argument) {
+    std::ifstream in(std::filesystem::path(reinterpret_cast<const char8_t*>(argument)), std::ios::binary);
+    std::vector<uint8_t> image(xenos::portable_pack::RuntimeXexBytes);
+    if (!in.read(reinterpret_cast<char*>(image.data()), std::streamsize(image.size())))
+        throw std::runtime_error("missing/short decrypted runtime image (use xexdump output)");
+    return image;
+}
+
 int main(int argc,char** argv) try {
     const auto command = argc > 1 ? std::string_view(argv[1]) : std::string_view{};
     if (command == "merge") return Merge(argc, argv);
+    if (command == "contract" && argc == 3) {
+        // The contract each renderer's startup download looks up in index.json.
+        // "vulkan" also covers Android and Metal on macOS.
+        namespace pack = xenos::portable_pack;
+        const auto image = ReadRuntimeImage(argv[2]);
+        const char* separator = "{\n";
+        for (const auto flavor : {pack::Flavor::Vulkan, pack::Flavor::D3D12}) {
+            std::cout << separator << "  \"" << pack::FlavorName(flavor) << "\": \""
+                      << xenos::resources::Sha256Hex(pack::FlavorContract(image, flavor)) << "\"";
+            separator = ",\n";
+        }
+        std::cout << "\n}\n";
+        return 0;
+    }
     const bool runtime = command == "verify-runtime";
     if ((runtime ? argc != 4 : argc != 3) ||
         (command != "inspect" && command != "verify" && !runtime)) {
         std::cerr << "Usage: LoShaderPackTool <inspect|verify> pack.lospv|pack.lospd\n"
-                     "       LoShaderPackTool verify-runtime pack.lospv decrypted-image.bin\n"
-                     "       LoShaderPackTool merge baseline.lospv decrypted-image.bin manifest.tsv output-dir\n";
+                     "       LoShaderPackTool verify-runtime pack.lospv|pack.lospd xexdump-image.bin\n"
+                     "       LoShaderPackTool contract xexdump-image.bin\n"
+                     "       LoShaderPackTool merge baseline.lospv xexdump-image.bin manifest.tsv output-dir\n";
         return 2;
     }
     const bool verified = command != "inspect";
     const auto path = std::filesystem::path(reinterpret_cast<const char8_t*>(argv[2]));
     xenos::portable_pack::Report r;
     if (runtime) {
-        const auto stored = xenos::portable_pack::Reader::Inspect(path);
-        if (stored.format != xenos::portable_pack::PackFormat::Spirv)
-            throw std::runtime_error("DXIL verify-runtime requires the loaded XEX image; use verify and a runtime pack hit");
-        std::ifstream in(std::filesystem::path(reinterpret_cast<const char8_t*>(argv[3])), std::ios::binary);
-        std::vector<uint8_t> image(xenos::portable_pack::RuntimeXexBytes);
-        if (!in.read(reinterpret_cast<char*>(image.data()), std::streamsize(image.size())))
-            throw std::runtime_error("missing/short decrypted runtime image (use xexdump output)");
-        auto expected = xenos::portable_pack::RuntimeContract(image);
-        // xexdump's image precedes XexLoader's import-thunk writes. The
-        // supported Disc 1 image and the pack captured from the loaded guest
-        // have this audited contract pair; other images use the direct value.
-        if (xenos::resources::Sha256Hex(expected) ==
-            "d5a2fab10441a46444b6b41ffcb4f1ba562bea75668a7b445fd43688aec67507") {
-            if (xenos::resources::Sha256Hex(stored.contract) ==
-                "f6fd1179b50f6ff9b63d6be84c662d1337af6b7dfa78865a9a6c025509c9b77f")
-                expected = stored.contract;
-        }
-        xenos::portable_pack::Reader reader(path, expected);
+        const auto format = xenos::portable_pack::Reader::Inspect(path).format;
+        const auto image = ReadRuntimeImage(argv[3]);
+        const auto backend = format == xenos::portable_pack::PackFormat::Dxil ?
+            xenos::cache::Backend::D3D12 : xenos::cache::Backend::Vulkan;
+        const auto identity = xenos::cache::MakeIdentity(backend, "");
+        const auto expected = xenos::portable_pack::RuntimeContract(image, identity, format);
+        xenos::portable_pack::Reader reader(path, expected, format);
         reader.VerifyAll();
         r = reader.Info();
     } else r = xenos::portable_pack::Reader::Inspect(path, verified);

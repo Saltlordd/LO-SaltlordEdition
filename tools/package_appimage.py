@@ -1,15 +1,22 @@
 """Package the Linux runtime as an AppImage using linuxdeploy."""
 import argparse
+import filecmp
 import os
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from portable_shader_pack_payload import stage_portable_shader_pack
+from portable_shader_pack_payload import stage_shader_pack_license
 from appimage_compat import CompatibilityError, compiler_libraries, validate_abi, validate_loader
 
 ROOT = Path(__file__).resolve().parents[1]
 LINUX_PACKAGING = ROOT / "packaging/linux"
+# The runtime loads the DLSS snippet from usr/bin/ngx (os/runtime_libraries.h).
+# linuxdeploy rewrites the RPATH of every ELF file directly in usr/bin and
+# anywhere under usr/lib, and NGX does not load a snippet whose NVIDIA
+# signature no longer matches, so it stays in a subfolder linuxdeploy skips.
+NGX_SNIPPET = "libnvidia-ngx-dlss.so.310.9.1"
+NGX_DIRECTORY = "usr/bin/ngx"
 
 
 def git(*args):
@@ -47,6 +54,15 @@ def validate_appdir_links(appdir):
                 raise SystemExit(f"AppDir symlink leaves the AppDir: {entry}")
 
 
+def validate_ngx_snippet(source, appdir):
+    """The packaged snippet must be NVIDIA's file byte for byte."""
+    packaged = appdir / NGX_DIRECTORY / NGX_SNIPPET
+    if packaged.is_symlink() or not packaged.is_file():
+        raise SystemExit(f"Signed NGX snippet missing: {packaged}")
+    if not filecmp.cmp(source, packaged, shallow=False):
+        raise SystemExit(f"Packaging modified the signed NGX snippet: {packaged}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", type=Path, default=ROOT / "out/build/linux")
@@ -82,28 +98,12 @@ def main():
         shutil.copy2(runtime, appdir / "usr/bin/LostOdysseyRecomp")
         shutil.copy2(dxc, appdir / "usr/lib/libdxcompiler.so")
 
-        # Include DLSS Linux runtime if present
-        dlss_runtime = runtime.parent / "libnvidia-ngx-dlss.so.310.9.1"
+        # Include the DLSS Linux runtime if present. NGX finds the versioned
+        # file by itself: nothing links against it, so no aliases are needed.
+        dlss_runtime = runtime.parent / NGX_SNIPPET
         if dlss_runtime.is_file():
-            # NGX loader searches next to the executable (usr/bin) and in system/app library paths (usr/lib)
-            canonical_so = appdir / "usr/bin/libnvidia-ngx-dlss.so.310.9.1"
-            shutil.copy2(dlss_runtime, canonical_so)
-
-            def make_link_or_copy(source_rel, target_path, source_abs):
-                if not target_path.exists():
-                    try:
-                        target_path.symlink_to(source_rel)
-                    except OSError:
-                        shutil.copy2(source_abs, target_path)
-
-            # In usr/bin: provide unversioned and .so.1 links to canonical
-            make_link_or_copy("libnvidia-ngx-dlss.so.310.9.1", appdir / "usr/bin/libnvidia-ngx-dlss.so", canonical_so)
-            make_link_or_copy("libnvidia-ngx-dlss.so.310.9.1", appdir / "usr/bin/libnvidia-ngx-dlss.so.1", canonical_so)
-
-            # In usr/lib: provide relative symlink to ../bin/libnvidia-ngx-dlss.so.310.9.1, with fallback to copy
-            make_link_or_copy("../bin/libnvidia-ngx-dlss.so.310.9.1", appdir / "usr/lib/libnvidia-ngx-dlss.so.310.9.1", canonical_so)
-            make_link_or_copy("libnvidia-ngx-dlss.so.310.9.1", appdir / "usr/lib/libnvidia-ngx-dlss.so", canonical_so)
-            make_link_or_copy("libnvidia-ngx-dlss.so.310.9.1", appdir / "usr/lib/libnvidia-ngx-dlss.so.1", canonical_so)
+            (appdir / NGX_DIRECTORY).mkdir()
+            shutil.copy2(dlss_runtime, appdir / NGX_DIRECTORY / NGX_SNIPPET)
 
             # Stage DLSS License & Notice (mandatory when bundling runtime)
             dlss_sdk_root = None
@@ -115,7 +115,7 @@ def main():
                     dlss_sdk_root = candidate
                     break
             if not dlss_sdk_root:
-                raise SystemExit("libnvidia-ngx-dlss.so.310.9.1 is packaged but DLSS SDK license is missing.")
+                raise SystemExit(f"{NGX_SNIPPET} is packaged but DLSS SDK license is missing.")
 
             dlss_lic_dest = appdir / "usr/share/licenses/lost-odyssey-recomp/NVIDIA-DLSS"
             dlss_lic_dest.mkdir(parents=True, exist_ok=True)
@@ -130,8 +130,9 @@ def main():
             fsr_licenses = appdir / "usr/share/licenses/lost-odyssey-recomp"
             fsr_licenses.mkdir(parents=True, exist_ok=True)
             shutil.copy2(fsr_license, fsr_licenses / fsr_license.name)
-        stage_portable_shader_pack(runtime.parent, appdir / "usr/bin",
-                                   appdir / "usr/share/licenses/lost-odyssey-recomp")
+        stage_shader_pack_license(appdir / "usr/share/licenses/lost-odyssey-recomp")
+        shutil.copy2(ROOT / "thirdparty/licenses/XeGTAO.txt",
+                     appdir / "usr/share/licenses/lost-odyssey-recomp/XeGTAO.txt")
         desktop = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.desktop"
         icon = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.png"
         metainfo = LINUX_PACKAGING / "io.github.freefrank.LostOdysseyRecomp.metainfo.xml"
@@ -190,6 +191,8 @@ def main():
         validate_appdir_links(final_appdir)
         validate_abi(final_appdir)
         validate_loader(final_appdir)
+        if dlss_runtime.is_file():
+            validate_ngx_snippet(dlss_runtime, final_appdir)
         destination = output / f"{name}.AppImage"
         shutil.move(str(produced), destination)
         if appdir_destination:

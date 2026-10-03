@@ -55,8 +55,14 @@ struct Config
     GraphicsBackend graphicsBackend = GraphicsBackend::Vulkan; // Applied on the next process start.
 #endif
     uint32_t antialiasing = 0; // 0 Off, 1 FXAA, 2 SMAA, 3 experimental camera-based TAA.
+    uint32_t shadowResolution = 1; // Shadow map width and height multiplier: 1/2/4.
+    uint32_t ambientOcclusion = 0; // 0 Off, 1 SSAO, 2 GTAO.
     uint32_t frameRate = 30;
     bool variableRefreshRate = false; // Opt-in VRR-friendly presentation; does not enable monitor/driver VRR.
+    bool hdr = false; // HDR output preference; applied on the next process start.
+    uint32_t hdrPaperWhiteNits = 203; // Content reference white; Metal maps this to the system SDR white.
+    bool hdrPeakAutomatic = true; // Follow the active display's reported peak when available.
+    uint32_t hdrPeakNits = 1000; // Manual peak retained independently of automatic mode.
     uint32_t scalingQuality = 1; // 0 bilinear, 1 bicubic spatial resampling, ScalingMetalFx (macOS).
     bool expandRgbRange = false; // Expand game image RGB 16-235 to 0-255 at presentation.
     uint32_t anisotropicFiltering = 0; // 0 Off, otherwise 2/4/8/16x. Applied live by the renderer.
@@ -72,6 +78,7 @@ struct Config
     bool automaticUpdates = true;
     bool skipShaderPrebuild = false;
     bool saveAnywhere = false; // Debug-only preference; defaults off for existing profiles.
+    bool noRandomEncounters = false; // Debug-only preference, persisted like saveAnywhere.
     bool operator==(const Config &) const = default;
 };
 Config GetConfig();
@@ -80,5 +87,6 @@ void PreviewConfig(const Config &config);
 bool SaveConfig(const Config &config);
 bool SaveDebugLanguage(uint32_t language);
 bool SaveSaveAnywhere(bool enabled);
+bool SaveNoRandomEncounters(bool enabled);
 uint32_t GameLanguage();
 } // namespace settings

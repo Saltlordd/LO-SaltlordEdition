@@ -31,6 +31,7 @@ struct MockServices
     bool captureRequested = false;
     bool saveAnywhere = false;
     int partySwitchRequests = 0;
+    bool noEncounters = false;
     bool allowVictory = true;
     bool victoryRequested = false;
     bool victoryCancelled = false;
@@ -83,6 +84,8 @@ MapInfo GetMapInfo()
 bool SaveAnywhereEnabled() { return g_mock.saveAnywhere; }
 void SetSaveAnywhereEnabled(bool enabled) { g_mock.saveAnywhere = enabled; }
 void RequestPartySwitch() { ++g_mock.partySwitchRequests; }
+bool NoEncountersEnabled() { return g_mock.noEncounters; }
+void SetNoEncountersEnabled(bool enabled) { g_mock.noEncounters = enabled; }
 
 bool RequestVictory()
 {
@@ -177,7 +180,14 @@ int main()
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.partySwitchRequests == 1, "Party switch was not requested");
 
-    // Row 4: Win Battle (Success and Rejection)
+    // Row 4: No Random Encounters toggles both ways
+    debug_menu::HandleInput(debug_menu::InputAction::Down);
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm);
+    Require(g_mock.noEncounters, "No random encounters was not enabled");
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm);
+    Require(!g_mock.noEncounters, "No random encounters was not disabled");
+
+    // Row 5: Win Battle (Success and Rejection)
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.victoryRequested, "Victory request not registered");
@@ -185,10 +195,14 @@ int main()
     g_mock.allowVictory = false;
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
 
-    // Row 5: Cancel Victory
+    // Row 6: Cancel Victory, the last Overview row
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.victoryCancelled, "Cancel victory was not called");
+    g_mock.victoryCancelled = false;
+    debug_menu::HandleInput(debug_menu::InputAction::Down);
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm);
+    Require(g_mock.victoryCancelled, "Down moved past the last Overview row");
 
     // 3. Tab Switching: NextTab -> Teleport Tab
     debug_menu::HandleInput(debug_menu::InputAction::NextTab);

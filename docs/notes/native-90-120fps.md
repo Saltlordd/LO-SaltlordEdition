@@ -54,3 +54,13 @@ g++ -std=c++20 -Wall -Wextra -Werror -ILostOdysseyRecomp \
 启动时设置`LO_FRAME_TIMING=1`可读取既有一秒窗口，新增`source=guest_swap`、`engine_rate`与`game_time_ratio`。`rate`是该窗口的游戏swap处理频率，`engine_rate`为engine tick频率，`game_time_ratio=delta_sum/window`在稳定、未暂停的普通游戏中应接近1；切换、加载、暂停的短窗口不能单独用于判断倍速。`LO_RENDER_TIMING`启用时会保留原有逐帧记录并抑制此汇总。
 
 日志可帮助分辨原生处理频率与FG总显示帧率，但swap/tick计数本身不能证明每个图像都独特，也不能替代玩法比较。若出现原生rate仍约60、游戏加速/减速、Ring窗口异常或同步错误，应保留该场景日志继续定位，而非调慢全局时钟补偿。
+
+## 已知的游戏逻辑高帧率问题
+
+游戏按30 FPS编写，个别逻辑以帧为单位或假定帧时间下限，原生90/120下需要单独修复：
+
+- Hungry Man差事计时按帧计数：`patches/hungry_man_timer.cpp`按30 FPS等效更新计数。
+- 战斗相机旋转平滑器按12.5 ms步长重采样历史，要求每帧至少12.5 ms：`patches/battle_camera_smoother.cpp`只在累计满一步时更新它（#117，[详情](battle-camera-120fps-2026-10-01.md)）。
+- 战斗台词等待曾把每次实际脚本更新的 60 Hz 步长截断并丢弃小数，导致原生90/120 FPS下等待可能没有进展：`patches/battle_script_timer.cpp`在更新之间保留 fractional tick，再在等待 consumer 前提供累计整数步长。原始 PPC fixture 与关闭修正的负对照均通过；完整运行时构建、真实场景运行和玩家验收仍待完成（#148，[详情](issue-148-battle-dialogue-timing.md)）。
+
+排查同类问题时，先按帧记录相关对象的状态，再用硬件写断点找到写入者，并在该函数中查找固定步长或帧计数的假设。

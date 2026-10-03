@@ -12,6 +12,7 @@ This directory contains version-controlled developer utilities, build helpers, o
 
 | Task | Start here | Main effects |
 |---|---|---|
+| Build a read-only resource catalog for Mod development | [`asset_inventory/README.md`](asset_inventory/README.md), [`docs/wiki/Asset-Inventory.md`](../docs/wiki/Asset-Inventory.md) | Reads four-disc FPI/FPD data and writes metadata-only SQLite/CSV reports; does not launch the game and does not require WSL or Docker. |
 | Inspect an F1 capture, compare frames, or review temporal-jitter candidates | [`capture_analysis/README.md`](capture_analysis/README.md) | Read capture files; write explicit reports, previews, or reviewed fixtures. No game launch. |
 | Translate or audit shaders and portable shader packs | [`shader_analysis/README.md`](shader_analysis/README.md), [`PORTABLE_SHADER_PACK.md`](../docs/PORTABLE_SHADER_PACK.md) | Read inputs and write explicit reports/build outputs; shader-pack merge compiles and writes a new pack. |
 | Archive private opt-in feedback and review cases | [`feedback_archive/README.md`](feedback_archive/README.md) | Offline ledger writes selected private archive paths; archive refresh performs read-only D1 queries. No public data or Git publication. |
@@ -77,14 +78,15 @@ The catalog below lists maintained groups and representative root utilities. `th
 | Tool / Path | Purpose | Type & side effects | Reference |
 |---|---|---|---|
 | `tools/release/extract_release_notes.py` | Extracts version-specific ATX-heading body from `CHANGELOG.md` for GitHub Release publication. | Input read-only; writes extracted Markdown to explicit `--output`. | Source: `tools/release/` |
-| `tools/release/fetch_shader_pack.py` | Downloads portable shader pack release asset from GitHub Release tags. | Network I/O: Fetches asset from GitHub; writes local file. | Source: `tools/release/` |
+| `tools/release/publish_shader_packs.py` | Checks shader packs against the runtime contracts, stages them with the merged `index.json`, uploads them to the `shader-packs` prerelease (`--publish`) or checks that the published index covers a runtime (`--check`). | Runs `LoShaderPackTool`; reads the published index over HTTPS; with `--publish`, **uploads release assets** with `gh`. | [`docs/PORTABLE_SHADER_PACK.md`](../docs/PORTABLE_SHADER_PACK.md#publishing) |
 | `tools/release/fetch_dlss_sdk.py` | Downloads NVIDIA DLSS SDK assets for build packaging. | Network I/O: Fetches external dependency; writes local directory. | Source: `tools/release/` |
 | `tools/release/prepare_streamline_sdk.py` | Extracts the pinned official Streamline SDK headers, FG runtime libraries and redistribution licenses. | Reads the downloaded SDK archive; writes only to the explicit SDK output directory. | Source: `tools/release/` |
 | `tools/release/fetch_build_input.py` | Downloads external release build dependencies. | Network I/O: Fetches external assets; writes local file. | Source: `tools/release/` |
-| `tools/release/sync_shader_pack.py` | Synchronizes portable shader pack release payloads. | **Remote git push**: Chunks `portable_vk.lospv` and commits + pushes directly to the private build-inputs repository (`freefrank/LostOdysseyRecomp-build-inputs:main`); pass `--dry-run` to chunk locally without pushing. | Source: `tools/release/` |
-| `tools/package_release.py` | Builds Windows release ZIP packaging binaries, licenses, and shader pack. | Packaging: Creates release ZIP archive in output directory. | Source: `tools/package_release.py` |
+| `tools/package_release.py` | Builds Windows release ZIP packaging binaries and licenses (no shader pack). | Packaging: Creates release ZIP archive in output directory. | Source: `tools/package_release.py` |
 | `tools/package_appimage.py` | Packages Linux x86_64 AppImage using `linuxdeploy`. | Packaging: Assembles AppImage bundle. | Source: `tools/package_appimage.py` |
-| `tools/package_flatpak.py` | Builds offline Linux x86_64 Flatpak bundle using `flatpak-builder` and Freedesktop 26.08 SDK/runtime. | Packaging: Stages tracked source, generated PPC code, private disc inputs, pinned dependencies, licenses, and shader pack; exports OSTree repo and builds standalone `.flatpak` bundle. | [`docs/BUILDING.md`](../docs/BUILDING.md#packaging-flatpak) |
+| `tools/package_flatpak.py` | Builds offline Linux x86_64 Flatpak bundle using `flatpak-builder` and Freedesktop 26.08 SDK/runtime. | Packaging: Stages tracked source, generated PPC code, private disc inputs, pinned dependencies and licenses (no shader pack); exports OSTree repo and builds standalone `.flatpak` bundle. | [`docs/BUILDING.md`](../docs/BUILDING.md#packaging-flatpak) |
+| `tools/package_macos.py` | Packages the macOS runtime as an ad-hoc signed `.app` in a ZIP, or with `--dmg` in a disk image that also holds an Applications link; `--identity` signs with a Developer ID and `--notarize` submits to Apple (no shader pack). | Packaging: Needs a finished Mac build (`source-version.txt`, runtime and `libdxcompiler.dylib`); runs macOS system tools (`codesign`, `hdiutil`, `ditto`), and with `--notarize` contacts Apple's notary service; writes the archive under `out/releases/` by default. The v0.7.35, v0.8.0 and v0.8.5 disk images were made with `--version <tag> --dmg`. | [`docs/MACOS_RELEASE.md`](../docs/MACOS_RELEASE.md#disk-image-v085) |
+| `tools/release_macos.sh` | Builds, Developer ID signs, notarizes and packages a macOS release. | Packaging and network I/O: Needs a clean tracked tree, a keychain signing identity and a notary profile; builds the runtime and calls `package_macos.py` without `--dmg`, so it writes a ZIP. Not used for v0.7.35. | [`docs/MACOS_RELEASE.md`](../docs/MACOS_RELEASE.md#signed-release-workflow) |
 
 ### 6. Build entrypoints
 
@@ -116,6 +118,8 @@ The catalog below lists maintained groups and representative root utilities. `th
 |---|---|---|
 | `tools/modding/lo_mod.py` | Builds v1 image mod ZIPs with `LOTEX1` payloads and validated relative asset keys. | Local write: Creates a mod archive at an explicit output path; does not modify imported game files. |
 | `tools/modding/publish_wiki.py` | Stages the maintained Modding API and workflow pages into an existing cloned Wiki repository. | Local write: Updates only managed Wiki pages and navigation; requires an explicit cloned destination. |
+| [`tools/asset_inventory/inventory.py`](asset_inventory/README.md) | Scans a complete four-disc game root, hashes complete resource payloads, decodes package metadata, classifies exports, and supports `scan`, `reparse`, `report`, and `query`. | Read-only game input; writes metadata-only SQLite, reports, and CSV/CSV.GZ files to an explicit external output directory. Does not extract original payloads, launch the game, or require WSL/Docker. |
+| [`tools/asset_inventory/export_fmv.py`](asset_inventory/README.md) | Explicitly exports indexed ASF/WMV and CPX FMV payloads to a new `movies/` directory and JSON/CSV manifests, preserving raw streams and de-duplicating decoded output by SHA-256. | Opt-in local write: reads the catalog and game data, copies/decodes video to an explicit output directory, and validates streams with the required `ffprobe`; does not transcode, repair damaged input, or add a runtime Movie provider. |
 
 ### 9. Project management and issue triage
 

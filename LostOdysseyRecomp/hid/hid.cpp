@@ -12,6 +12,7 @@ extern std::atomic<uint32_t> g_presentedSwaps;
 #include <debug/frame_timing.h>
 #include "test_input_pulse.h"
 #include "controller_prompts.h"
+#include "android_touch.h"
 
 // SDL game controller -> XInput state. Player 1 only for now; the keyboard
 // mirrors the pad so the game can be driven without a controller.
@@ -19,6 +20,8 @@ extern std::atomic<uint32_t> g_presentedSwaps;
 namespace
 {
     std::vector<SDL_GameController*> g_controllers;
+    std::vector<SDL_JoystickID> g_physicalControllerIds;
+    std::atomic<uint32_t> g_physicalControllerCount{0};
     hid::prompts::ActiveController g_promptController;
     std::atomic<bool> g_playStationPrompts{false};
     void PublishPromptStyle() { g_playStationPrompts.store(g_promptController.PlayStation(), std::memory_order_relaxed); }
@@ -53,9 +56,15 @@ namespace
                 return SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) == id;
             });
             if (opened || !SDL_IsGameController(i)) continue;
+            const bool physical = SDL_JoystickIsVirtual(i) == SDL_FALSE;
             if (auto* pad = SDL_GameControllerOpen(i))
             {
                 g_controllers.push_back(pad);
+                if (physical)
+                {
+                    g_physicalControllerIds.push_back(id);
+                    g_physicalControllerCount.store(uint32_t(g_physicalControllerIds.size()), std::memory_order_relaxed);
+                }
                 g_promptController.Connected(id, SDL_GameControllerGetType(pad));
                 PublishPromptStyle();
                 LOG_INFO("controller added: {} instance={} ({} connected)", SDL_GameControllerName(pad), id, g_controllers.size());
@@ -111,6 +120,8 @@ void hid::HandleControllerEvent(uint32_t eventType, int32_t which)
         std::erase_if(g_controllers, [&](auto* pad) {
             if (SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(pad)) != which) return false;
             LOG_INFO("controller removed: instance={}", which);
+            std::erase(g_physicalControllerIds, which);
+            g_physicalControllerCount.store(uint32_t(g_physicalControllerIds.size()), std::memory_order_relaxed);
             g_promptController.Disconnected(which);
             PublishPromptStyle();
             SDL_GameControllerClose(pad);
@@ -130,6 +141,7 @@ void hid::HandleKeyboardEvent(int32_t scancode, bool pressed)
 }
 
 bool hid::UsesPlayStationPrompts() { return g_playStationPrompts.load(std::memory_order_relaxed); }
+bool hid::HasConnectedController() { return g_physicalControllerCount.load(std::memory_order_relaxed) != 0; }
 
 void hid::ClearKeyboardState()
 {
@@ -228,6 +240,12 @@ void hid::PumpHostInput()
         if (g_externalPump) SDL_GameControllerUpdate();
         buttons = ReadRawButtonsLocked(lt, rt);
     }
+#if LO_PLATFORM_ANDROID
+    const auto touch = hid::android_touch::Snapshot();
+    buttons |= touch.buttons;
+    lt = std::max(lt, touch.leftTrigger);
+    rt = std::max(rt, touch.rightTrigger);
+#endif
     ProcessHostInput(buttons, lt, rt);
 }
 
@@ -298,6 +316,17 @@ uint32_t hid::GetState(uint32_t dwUserIndex, XAMINPUT_STATE* pState)
         PublishPromptStyle();
         keys = g_keys;
     }
+
+#if LO_PLATFORM_ANDROID
+    // A quiet touch source leaves the physical controller untouched. Active
+    // sticks follow the same larger-magnitude policy as multiple SDL pads.
+    const auto touch = android_touch::Snapshot();
+    gp.wButtons |= touch.buttons;
+    gp.bLeftTrigger = std::max(gp.bLeftTrigger, touch.leftTrigger);
+    gp.bRightTrigger = std::max(gp.bRightTrigger, touch.rightTrigger);
+    MergeStick(gp.sThumbLX, gp.sThumbLY, touch.leftX, touch.leftY, 7849);
+    MergeStick(gp.sThumbRX, gp.sThumbRY, touch.rightX, touch.rightY, 8689);
+#endif
 
     {
         static const bool trace = getenv("LO_TRACE_INPUT") != nullptr;
