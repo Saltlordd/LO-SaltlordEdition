@@ -5990,20 +5990,24 @@
     {
       "key": "remove-pm4-translator",
       "title": "Remove the PM4 translator",
-      "body": "<!-- lo-project:remove-pm4-translator -->\n\nRemove the legacy PM4 packet translation layer in milestone v0.8.0 (currently in planning status).\n\n## Scope and completion criteria\n\n- [ ] Audit PM4 packet decoders and translation paths in the command processor (`gpu/command_processor.cpp`).\n- [ ] Identify dependencies on PM4 synchronization, register state tracking, and draw dispatch.\n- [ ] Execute the migration plan to eliminate the legacy PM4 translation layer without predetermining an alternative architecture or implementation.\n\n## Boundaries\n\nMilestone delivery target is removing the PM4 translator, currently in planning status. Does not predetermine or restrict alternative presentation architectures, direct execution, or runtime implementations.\n",
+      "body": "<!-- lo-project:remove-pm4-translator -->\n\nRemove the legacy PM4 packet translation layer. This was a v0.8.0 target until 2026-10-03, when the maintainer moved it out of v0.8.0: the native front end that replaces part of it works but brought no CPU benefit, and the remaining dependencies are the hardest part. It is not a v0.8.0 release condition.\n\n## Scope and completion criteria\n\n- [x] Audit PM4 packet decoders and translation paths in the command processor (`gpu/command_processor.cpp`).\n- [x] Identify dependencies on PM4 synchronization, register state tracking, and draw dispatch.\n- [ ] Execute the migration plan to eliminate the legacy PM4 translation layer without predetermining an alternative architecture or implementation.\n\n## Work so far (none of it on main)\n\n- Architecture map and first-draw candidate: `native-migration-architecture-boundaries`, draft PR #83 (closed 2026-09-30).\n- Bounded bypass prototype: `native-renderer-pm4-bypass-prototype` (`fab15ff`, `ce45afe`), draft PR #84 (closed 2026-09-30). CmdProc CPU per logged frame rose 23.7%.\n- Native front end on the branch `fix/native-frontend-rework` (pushed to git.zkx.ca only; based on `2ce27e3`): explicit DrawState and legacy adapter contracts (`3776e86`), ordinary indexed/non-indexed mesh taken over before the SDK flush (`6c37a5d`), mesh stream waits replaced by shared native coherency (`2c85a3a`), and the prepared-tail handoff after the original SDK shader preparation (`e6c9eff`, fix `05a677e`). Opt-in with `LO_NATIVE_FRONTEND=mesh` and `LO_NATIVE_FRONTEND_PREPARED=1`. The Windows production build and the 128-case original-SDK CPU oracle passed.\n- Result: PR #89 was closed unmerged on 2026-09-30. About 70% of the draws in the saved Uhra plaza took the native path (about 1,335 prepared draws per swap), but CmdProc CPU was not lower. At 4K120 (D3D12, 3840x2160) one same-build ABBA measured 7.24 vs 7.06 ms per frame (native vs off) and process CPU 15.63 vs 15.04 ms per frame; 720p showed the same.\n- The default-path command-processor overhead fixes found on that branch shipped separately through PR #98 (`1831791`).\n\n## Remaining before PM4 can be removed\n\nFrom `docs/notes/native-renderer-front-end.md` on the branch: shader and derived-state preparation (`sub_823C6E18` and its helpers), UP and unusual draw producers, recorded and nested command creation with the ring/IB scheduler, general events, interrupts, XE_SWAP and presentation, and allocation-generation resource identity. There is no PM4-free runtime mode: with legacy scheduling disabled the game does not run.\n\n## Boundaries\n\nDoes not predetermine or restrict alternative presentation architectures, direct execution, or runtime implementations. Resuming needs a measured benefit or another reason the maintainer accepts.\n",
       "issue_url": null,
       "fields": {
         "Kind": "Infrastructure",
         "Area": "GPU architecture",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": "v0.8.0",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "Planned v0.8.0 delivery target (execution step 8); replacement architecture investigation starts early in parallel. Does not predetermine alternative presentation architectures, direct execution, or runtime implementations."
+        "Evidence": "Moved out of v0.8.0 by the maintainer on 2026-10-03. The native front end (fix/native-frontend-rework, PR #89 closed unmerged) sends about 70% of Uhra plaza draws through the native path but did not lower CmdProc CPU (4K120 ABBA 7.24 vs 7.06 ms/frame). Shader preparation, special draws, recorded commands, events, swap and presentation still need PM4; no PM4-free mode exists."
       },
       "source_refs": [
-        "gpu/command_processor.cpp"
+        "gpu/command_processor.cpp",
+        "PR #83",
+        "PR #84",
+        "PR #89",
+        "PR #98"
       ],
       "source_lines": [],
       "record_type": "backlog"
@@ -6094,20 +6098,20 @@
     {
       "key": "native-migration-architecture-boundaries",
       "title": "Map progressive native migration boundaries",
-      "body": "<!-- lo-project:native-migration-architecture-boundaries -->\n\nMap the current native CPU translation separately from guest ABI and memory layout, XEX data/import handling, PM4/Xenos command processing, and Xenia-derived components. Identify candidate draw boundaries with their resource, synchronization, lifetime, attribution, and fallback obligations.\n\n## Scope and completion criteria\n\n- [x] Record the dependency map and distinguish the seven concerns above.\n- [x] Identify one bounded draw-path candidate and its old-path fallback.\n- [x] State the XEX and runtime consumers that prevent a container-only change from removing guest layout.\n\n## Boundary\n\nPlanning only. This neither implements a takeover nor establishes performance, compatibility, validation, player acceptance, or release. It gates PM4-bypass and XEX-extraction implementation research.\n\n## Sources\n\n- [Architecture boundary map](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-boundaries.md)\n- `CMakeLists.txt`, `LostOdysseyRecomp/main.cpp`, `LostOdysseyRecomp/kernel/xex_loader.h`, `LostOdysseyRecomp/gpu/command_processor.cpp`\n\n\n<!-- lo-native-boundary-checkpoint:3a95001 -->\n## First-delivery checkpoint - 2026-09-28\nArchitecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete.\n\n[Draft PR #83](https://github.com/freefrank/LostOdysseyRecomp/pull/83) | [Research manifest](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-first-draw.json)\n",
+      "body": "<!-- lo-project:native-migration-architecture-boundaries -->\n\nMap the current native CPU translation separately from guest ABI and memory layout, XEX data/import handling, PM4/Xenos command processing, and Xenia-derived components. Identify candidate draw boundaries with their resource, synchronization, lifetime, attribution, and fallback obligations.\n\n## Scope and completion criteria\n\n- [x] Record the dependency map and distinguish the seven concerns above.\n- [x] Identify one bounded draw-path candidate and its old-path fallback.\n- [x] State the XEX and runtime consumers that prevent a container-only change from removing guest layout.\n\n## Boundary\n\nPlanning only. This neither implements a takeover nor establishes performance, compatibility, validation, player acceptance, or release. It gates PM4-bypass and XEX-extraction implementation research.\n\n## Sources\n\n- [Architecture boundary map](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-boundaries.md)\n- `CMakeLists.txt`, `LostOdysseyRecomp/main.cpp`, `LostOdysseyRecomp/kernel/xex_loader.h`, `LostOdysseyRecomp/gpu/command_processor.cpp`\n\n\n<!-- lo-native-boundary-checkpoint:3a95001 -->\n## First-delivery checkpoint - 2026-09-28\nArchitecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete.\n\n[Draft PR #83](https://github.com/freefrank/LostOdysseyRecomp/pull/83) | [Research manifest](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-first-draw.json)\n\n\n## Closed - 2026-10-03\nAll three criteria were met by the 2026-09-28 checkpoint. Draft PR #83 was closed on 2026-09-30 without merging; the map was used by the prototype (PR #84) and the native front end (PR #89). The research is complete; neither follow-up was merged.\n",
       "fields": {
         "Kind": "Research",
         "Area": "Native migration",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Evidence": "Architecture map, XEX consumer inventory, historical renderer-side candidate, and ordered fallback/measurement contracts are submitted in draft PR #83. Maintainer review is pending. Current producer-to-ring/IB attribution and runtime qualification belong to the next gated step and are not complete. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "Architecture map, XEX consumer inventory and first-draw candidate delivered in draft PR #83 (closed 2026-09-30, not merged). The map fed the PM4-bypass prototype (PR #84) and the native front end (PR #89); neither was merged. https://github.com/freefrank/LostOdysseyRecomp/pull/83",
         "Source key": "native-migration-architecture-boundaries"
       }
     },
     {
       "key": "native-renderer-pm4-bypass-prototype",
       "title": "Prototype one bounded PM4-bypass draw path",
-      "body": "<!-- lo-project:native-renderer-pm4-bypass-prototype -->\n\nAfter the architecture map identifies a reproducible candidate, prototype one isolated host-side draw path while retaining the current PM4 path as fallback.\n\n## Scope and completion criteria\n\n- [ ] Select one map/draw/pass boundary from the completed architecture map.\n- [ ] Compare old and candidate paths in the same real scene.\n- [ ] Record CPU frame time separately from frame pacing and GPU work.\n- [ ] Verify synchronization and resource lifetime, and retain a reversible fallback.\n\n## Stop/go\n\nA mismatch, lifecycle failure, or no material benefit ends the prototype or returns the candidate to PM4. A passing prototype is evidence only for its selected path and gates, but does not authorize, renderer expansion.\n\n## Sources\n\n- [Architecture boundary map](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-boundaries.md)\n- native-migration-architecture-boundaries\n\n\n<!-- lo-native-boundary-checkpoint:3a95001 -->\n## First-delivery checkpoint - 2026-09-28\nThe architecture research selects title-cloud-layer-v1 (historical frame 619, draw step 28; VS 81217dc973d5dc31 / PS cd6adb98ab83bf90). qualified_for_bypass=false. Producer attribution and current input/resource snapshots are still required before takeover. No bypass implementation or same-scene image, CPU/GPU timing, synchronization or lifetime comparison has run; this prototype remains not started.\n\n[Draft PR #83](https://github.com/freefrank/LostOdysseyRecomp/pull/83) | [Research manifest](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-first-draw.json)\n\n\n<!-- native-runtime-checkpoint:ce45afe -->\n## Runtime implementation and negative performance result\nImplemented on feature/native-pm4-bypass at ce45afe; draft PR #84. Native SDK state, indexed-quad and four-vertex title-fan commands are consumed in original ring/IB order. Title VS81217dc973d5dc31/PScd6adb98ab83bf90 matched 1486 times by swap1560. Final same-EXE D3D12 title pair exited0 on both paths, but CmdProc CPU/logged-frame rose 1.172737->1.450276ms (+23.7%). Performance go gate failed; default PM4 remains active and no expansion or full removal is accepted. https://github.com/freefrank/LostOdysseyRecomp/pull/84\n",
+      "body": "<!-- lo-project:native-renderer-pm4-bypass-prototype -->\n\nAfter the architecture map identifies a reproducible candidate, prototype one isolated host-side draw path while retaining the current PM4 path as fallback.\n\n## Scope and completion criteria\n\n- [x] Select one map/draw/pass boundary from the completed architecture map.\n- [x] Compare old and candidate paths in the same real scene.\n- [x] Record CPU frame time separately from frame pacing and GPU work.\n- [x] Verify synchronization and resource lifetime, and retain a reversible fallback.\n\n## Stop/go\n\nA mismatch, lifecycle failure, or no material benefit ends the prototype or returns the candidate to PM4. A passing prototype is evidence only for its selected path and gates, but does not authorize, renderer expansion.\n\n## Sources\n\n- [Architecture boundary map](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-boundaries.md)\n- native-migration-architecture-boundaries\n\n\n<!-- lo-native-boundary-checkpoint:3a95001 -->\n## First-delivery checkpoint - 2026-09-28\nThe architecture research selects title-cloud-layer-v1 (historical frame 619, draw step 28; VS 81217dc973d5dc31 / PS cd6adb98ab83bf90). qualified_for_bypass=false. Producer attribution and current input/resource snapshots are still required before takeover. No bypass implementation or same-scene image, CPU/GPU timing, synchronization or lifetime comparison has run; this prototype remains not started.\n\n[Draft PR #83](https://github.com/freefrank/LostOdysseyRecomp/pull/83) | [Research manifest](https://github.com/freefrank/LostOdysseyRecomp/blob/3a950012665bac77c25af36418ebd7916fa1dba4/docs/notes/native-migration-first-draw.json)\n\n\n<!-- native-runtime-checkpoint:ce45afe -->\n## Runtime implementation and negative performance result\nImplemented on feature/native-pm4-bypass at ce45afe; draft PR #84. Native SDK state, indexed-quad and four-vertex title-fan commands are consumed in original ring/IB order. Title VS81217dc973d5dc31/PScd6adb98ab83bf90 matched 1486 times by swap1560. Final same-EXE D3D12 title pair exited0 on both paths, but CmdProc CPU/logged-frame rose 1.172737->1.450276ms (+23.7%). Performance go gate failed; default PM4 remains active and no expansion or full removal is accepted. https://github.com/freefrank/LostOdysseyRecomp/pull/84\n",
       "fields": {
         "Kind": "Research",
         "Area": "Native migration / renderer",
@@ -6126,7 +6130,7 @@
         "Area": "Native migration / renderer",
         "Status": "Paused",
         "Delivery": "Deferred",
-        "Evidence": "Conditional work is paused because the bounded PM4-bypass prototype did not demonstrate a benefit; its performance go gate failed. Preserve the PM4 fallback and do not expand coverage.",
+        "Evidence": "Conditional work is paused because neither the bounded PM4-bypass prototype (PR #84) nor the later native front end (PR #89, about 70% of Uhra plaza draws native) lowered CmdProc CPU; both performance go gates failed. Preserve the PM4 fallback and do not expand coverage.",
         "Source key": "native-renderer-conditional-coverage-expansion"
       }
     },
@@ -6356,7 +6360,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Release": "v0.7.35",
         "Start date": null,
@@ -6371,7 +6375,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Linux",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Release": "v0.7.35",
         "Start date": null,
@@ -6416,7 +6420,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Temporal rendering",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Release": "v0.7.35",
         "Start date": null,

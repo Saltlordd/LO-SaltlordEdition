@@ -1,6 +1,6 @@
 # Project synchronization records
 
-The [Lost Odyssey Recomp Roadmap](https://github.com/users/freefrank/projects/3) is a public maintainer Project. The [2026-10-02 reconciliation](reconciliation-2026-10-02.md) for v0.7.35 is the current record: the 12 updated and 3 created items, the judgment calls, the readback and the dry-run result. The [2026-09-30 reconciliation](reconciliation-2026-09-30.md) remains the baseline for the full normalization and the retained external duplicate. The initial 145-item import and the later 218-record local checkpoint are historical counts. `items.json` and `sync-state.json` reflect the 248 reviewed managed items; the Project has one more, the retained keyless Issue #17 link. Matching item counts alone never prove field agreement. The English and Chinese roadmaps are maintained together. Follow this document and applicable workspace/session `AGENTS.md` instructions for on-demand maintenance.
+The [Lost Odyssey Recomp Roadmap](https://github.com/users/freefrank/projects/3) is a public maintainer Project. The [2026-10-03 reconciliation](reconciliation-2026-10-03.md) is the latest record: PM4 removal moved out of v0.8.0, the native migration records corrected and three Issue closures copied into the manifest. The [2026-10-02 reconciliation](reconciliation-2026-10-02.md) for v0.7.35 records the 12 updated and 3 created items, the judgment calls, the readback and the dry-run result. The [2026-09-30 reconciliation](reconciliation-2026-09-30.md) remains the baseline for the full normalization and the retained external duplicate. The initial 145-item import and the later 218-record local checkpoint are historical counts. `items.json` and `sync-state.json` reflect the 248 reviewed managed items; the Project has one more, the retained keyless Issue #17 link. Matching item counts alone never prove field agreement. The English and Chinese roadmaps are maintained together. Follow this document and applicable workspace/session `AGENTS.md` instructions for on-demand maintenance.
 
 ## Files
 
@@ -11,7 +11,8 @@ The [Lost Odyssey Recomp Roadmap](https://github.com/users/freefrank/projects/3)
 | [sync-state.json](sync-state.json) | Remote item IDs and last synchronized values used to detect conflicting edits |
 | [import-audit.md](import-audit.md) | Initial import scope, coverage and actual readback result |
 | [reconciliation-2026-09-30.md](reconciliation-2026-09-30.md) | Baseline normalization receipt of 2026-09-30: applied transitions and evidence boundaries |
-| [reconciliation-2026-10-02.md](reconciliation-2026-10-02.md) | Current receipt for the v0.7.35 release: updated and created items, judgment calls, readback and dry-run result |
+| [reconciliation-2026-10-02.md](reconciliation-2026-10-02.md) | Receipt for the v0.7.35 release: updated and created items, judgment calls, readback and dry-run result |
+| [reconciliation-2026-10-03.md](reconciliation-2026-10-03.md) | Latest receipt: PM4 removal moved out of v0.8.0, native migration records and Issue closures |
 
 Update the affected manifest records from live Issues, accepted requirements, commits and recorded validation. Preserve source keys so wording changes update existing items. Reconcile the matching passages in both roadmaps; the script does not interpret prose or decide acceptance. `docs_sync` maintains the implementation and release narrative in [STATUS](../STATUS.md) and related documents.
 

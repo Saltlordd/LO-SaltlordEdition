@@ -2,7 +2,7 @@
 
 [English](ROADMAP.md) · [开发状态](STATUS.md) · [更新日志](../CHANGELOG.md) · [维护者 Project](https://github.com/users/freefrank/projects/3)
 
-Issue、发布记录和全部 Project 条目于 2026-09-30 通过 GitHub 复核；[Project 对账记录](project-management/reconciliation-2026-09-30.md)保存实际修正与回读结果。`[x]` 表示所述交付或跟踪范围已完成；`[~]` 表示仍有明确余项；`[ ]` 表示规划工作。关闭跟踪项不代表新增游戏或硬件验证。v0.7.25 发布后，发布记录和开放 Issue 列表已于 2026-10-01 重新读取，PR #135 合并后又于 2026-10-02 约 05:50 UTC 再次读取，v0.7.35 发布后约 09:25 UTC 又读取了一次；同一天向 Project 新增了七个条目（#114、#116、#117、#118、#121 和两个草稿），随后的完整同步计划显示与清单没有差异。同日约 09:40 UTC，v0.7.35 发布后 Project 又对账了一次：更新了 12 个条目，新增 3 个（v0.7.35 发布条目、对应 PR #146 的高屏幕／超宽屏布局条目和对应 PR #127 的着色器包校验规则条目），共 249 个条目，回读没有不一致。`docs/project-management/` 下的清单已同步更新，随后的同步演练没有报告任何改动；这次变更见 [2026-10-02 对账记录](project-management/reconciliation-2026-10-02.md)。
+Issue、发布记录和全部 Project 条目于 2026-09-30 通过 GitHub 复核；[Project 对账记录](project-management/reconciliation-2026-09-30.md)保存实际修正与回读结果。`[x]` 表示所述交付或跟踪范围已完成；`[~]` 表示仍有明确余项；`[ ]` 表示规划工作。关闭跟踪项不代表新增游戏或硬件验证。v0.7.25 发布后，发布记录和开放 Issue 列表已于 2026-10-01 重新读取，PR #135 合并后又于 2026-10-02 约 05:50 UTC 再次读取，v0.7.35 发布后约 09:25 UTC 又读取了一次；同一天向 Project 新增了七个条目（#114、#116、#117、#118、#121 和两个草稿），随后的完整同步计划显示与清单没有差异。同日约 09:40 UTC，v0.7.35 发布后 Project 又对账了一次：更新了 12 个条目，新增 3 个（v0.7.35 发布条目、对应 PR #146 的高屏幕／超宽屏布局条目和对应 PR #127 的着色器包校验规则条目），共 249 个条目，回读没有不一致。`docs/project-management/` 下的清单已同步更新，随后的同步演练没有报告任何改动；这次变更见 [2026-10-02 对账记录](project-management/reconciliation-2026-10-02.md)。2026-10-03 修正了移除 PM4 的相关条目并把它移出 v0.8.0，同时把维护者已关闭的三个 Issue 条目同步进清单，见 [2026-10-03 对账记录](project-management/reconciliation-2026-10-03.md)。
 
 ## 当前交付
 
@@ -55,7 +55,7 @@ Issue、发布记录和全部 Project 条目于 2026-09-30 通过 GitHub 复核�
 5. [x] **D3D12 DLSS 插帧交付：**D3D12 DLSS FG 和图像菜单即时切换已随 v0.7.9 交付，并纳入 v0.7.15 功能验收；更广验证和 failure injection 覆盖另行保留。
 6. [~] **动态 MFG 后续：**D3D12 adapter 已包含受能力限制的诊断动态 MFG 路径，游戏内菜单仍只提供固定模式。Vulkan 路径会拒绝动态请求，因为 Streamline 2.14.1 文档把动态 MFG 列为仅限 D3D12；Vulkan DLSS 只提供固定 2×–6×。更广 API、平台、倍率和硬件验证仍待完成。
 7. [x] **原生 90／120 FPS 与 VRR：**原生游戏呈现和 FreeSync／G-SYNC Compatible 输出节奏已随 v0.7.15 发布，并获维护者验收。同场景输出节奏和硬件指示器变化已有有界用户证据；Ring、音频、过场、更广游戏、退出生命周期、FG 画质和独立 120 FPS 实体显示帧测量仍属后续覆盖，默认保留 30 FPS。
-8. [ ] **移除 PM4 转换器：**替代架构可行性提前调查，执行排在插帧与呈现工作之后。
+8. [~] **移除 PM4 转换器（2026-10-03 移出 v0.8.0）：**已经做了架构梳理（draft PR #83）、有界旁路原型（draft PR #84）和原生前端，三者都没有进 `main`。原生前端（git.zkx.ca 上的 `fix/native-frontend-rework` 分支，PR #89）在 SDK flush 之前接管普通 mesh，把它们的 stream 等待换成原生同步，并在原版 shader 准备完成后接手。固定 Uhra 广场存档中约 70% 的绘制走了原生路径，但命令处理器的 CPU 没有下降（4K120 D3D12 ABBA：每帧 7.24 对 7.06 ms，原生对关闭），PR #89 因此于 2026-09-30 关闭、未合并。shader 准备、特殊和录制绘制、事件、swap 和呈现仍依赖 PM4，去掉它游戏无法运行。过程中找到的命令处理器开销优化已通过 PR #98 合入。完全移除在 Project 中为 Paused／Deferred，不再是 v0.8.0 的发布条件。
 9. [ ] **Linux AArch64：**平台交付目标，尚不宣称官方包或实机验收。
 10. [~] **macOS AArch64／Apple Silicon：**平台目标，关联 #96（GitHub 于 2026-10-01 按“已完成”关闭）。MikeRavenelle 的 `arm64-macos` 工作已整合为实验性的 arm64／Metal 路径，合并后包含在 v0.7.25 源码中，作为源码构建路径；v0.7.25 没有提供 macOS 安装包，v0.7.35 是第一个带有 macOS 安装包的版本：在 Mac 上构建的实验性磁盘映像，ad-hoc 签名、未公证（[macOS 发布说明](MACOS_RELEASE.md#published-image-2026-10-02)）。验证仅限[开发状态](STATUS.md#macos-integration-branch--2026-10-01)记录的 M1 Max 新游戏／首战脚本、冷启动 shader 预编译和缓存复用检查，以及使用下载的 Metal 着色器包的开场新游戏战斗、在没有 EDR 余量的外接显示器上请求 HDR（输出保持 SDR）；后两项都是发布前在 `main` 和 HDR 审查分支上做的。磁盘映像本身没有从下载安装过。长时间游玩、更广场景、画质、性能、其他 Mac，以及 Developer ID 签名并公证的安装包仍待完成。Project 中的原生 macOS 条目现为 In Progress，Release 为 v0.7.35（首个磁盘映像随该版本发布），上述范围仍待完成。实验性的 MetalFX 插帧（固定 2×，仅限 macOS 26）已包含在 v0.7.35 源码中（[PR #119](https://github.com/freefrank/LostOdysseyRecomp/pull/119)），只针对 macOS 26 SDK 做过编译检查，尚未在 Mac 硬件上运行（[笔记](notes/vulkan-fg-fsr4-metalfx.md#metalfx-fg-on-the-existing-macos-port)）。
 11. [ ] **实验性 Android：**探索目标，尚无 APK 或设备验证。
@@ -77,7 +77,7 @@ Gate 1 backlog：调查已知 SDK `PRESENT-AFTER-WRITE` 同步例外并补充显
 
 ## 后续积压
 
-DX11、超出 v0.7.35 实验性输出的 HDR 覆盖、高分辨率阴影、SSAO／深度访问、GI／反射、光追、WMV 播放与暂停的 Switch 工作保留各自 Project 范围。明确延期的研究与 SDK 同步例外使用 Paused／Deferred，移出当前 Todo，但不代表取消。
+DX11、超出 v0.7.35 实验性输出的 HDR 覆盖、高分辨率阴影、SSAO／深度访问、GI／反射、光追、WMV 播放、移除 PM4 转换器与暂停的 Switch 工作保留各自 Project 范围。明确延期的研究与 SDK 同步例外使用 Paused／Deferred，移出当前 Todo，但不代表取消。
 
 逐项证据见 [Project](https://github.com/users/freefrank/projects/3)，早期细节见[历史路线图](archive/ROADMAP-2026-09-10.md)。本轮整理没有重跑构建、游戏或测试。
 
