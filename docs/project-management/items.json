@@ -6383,12 +6383,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Done",
-        "Delivery": "Released",
-        "Release": "v0.7.35",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "The PR #135 guard shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted): the touch-entry check (C1) takes its original rejection branch while a battle request is queued or loading. A 264-check fixture with the original game functions and a full runtime link passed. Gameplay validation of the reported softlock is pending: the maintainer said on 2026-10-01 that the bug could come from the original game rather than the recomp, and on 2026-10-02 that an in-game check was done in a Codex session, which has no repository record. The full softlock mechanism and reporter confirmation remain open."
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result."
       }
     },
     {
