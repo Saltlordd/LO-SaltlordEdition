@@ -118,6 +118,12 @@ static int HostResize(int fd, off_t length) {
 #define fread HostRead
 #define fflush HostFlush
 #define ftruncate HostResize
+#define LOG_WARNING(...) ((void)0)
+// FileHandle syncs save files before closing; the fixture flushes through HostFlush.
+struct FileSystem {
+    static bool SyncFile(FILE* file) { return fflush(file) == 0; }
+    static std::string PathUtf8(const std::filesystem::path& path) { return path.string(); }
+};
 static std::filesystem::path g_gameRoot;
 static uint64_t ToFileTime(std::filesystem::file_time_type) { return 123; }
 '''
