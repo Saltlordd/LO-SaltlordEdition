@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- Continue now finds saves whose folder under `save\` was renamed or copied from another slot (#175).
+
+### 简体中文
+
+- `save\` 下的存档文件夹被改名或从其他槽位复制过来后，“继续游戏”现在也能找到它（#175）。
+
 ## [v0.8.0](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0) — 2026-10-03
 
 ### English
