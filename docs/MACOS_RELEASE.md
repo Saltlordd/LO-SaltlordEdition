@@ -38,19 +38,37 @@ python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8
 
 ### v0.8.5 image
 
-The v0.8.5 disk image is built on the maintainer's M1 Max from tag `v0.8.5` with
+The v0.8.5 release was published at 2026-10-03T18:45:17Z ([release
+record](STATUS.md#v085-published--2026-10-03)). The image was built on the
+maintainer's M1 Max (macOS 26.6.2) from tag `v0.8.5` with
 `python3 tools/package_macos.py --version v0.8.5 --dmg` and uploaded to the
-release by hand. Its size, SHA-256 and image checks are not recorded here yet;
-add them, as for the v0.7.35 image below, after the image is built and the release is
-published.
+draft release by hand before publication (GitHub dates the asset
+2026-10-03T18:26:44Z). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.5.dmg` at 60,437,493 bytes with SHA-256
+`a6bbe600127e7d02589a604c1e98428f78d2642b7ed48739cc1dcac1d8e2441b`, which equals
+the SHA-256 recorded for the image built on the Mac. Checks on the built file:
+
+- `hdiutil verify` reports the image valid.
+- `codesign --verify --strict --deep` passes on the app. The signature is ad hoc
+  and the identifier is `io.github.freefrank.LostOdysseyRecomp`.
+- The bundle version (`CFBundleShortVersionString`) is `0.8.5`.
+
+Limits: no game run was made with this image, it was not installed from a
+download and the Gatekeeper approval flow was not exercised.
 
 ### v0.8.0 image
 
-The v0.8.0 disk image is built on the maintainer's M1 Max from tag `v0.8.0` with
+The v0.8.0 release was published at 2026-10-03T06:41:51Z ([release
+record](STATUS.md#v080-published--2026-10-03)). Its disk image was built on the
+maintainer's M1 Max from tag `v0.8.0` with
 `python3 tools/package_macos.py --version v0.8.0 --dmg` and uploaded to the
-release by hand. Its size, SHA-256 and image checks are not recorded here yet;
-add them, as for the v0.7.35 image below, after the image is built and the release is
-published.
+draft release by hand before publication (GitHub dates the asset
+2026-10-03T06:22:26Z). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.0.dmg` at 60,432,438 bytes with SHA-256
+`e9e3575a80521e491815f46346412333b99ac4f844c96caefe634923ed7d8ff6`. No
+`hdiutil` or `codesign` check of this image, and no comparison with a hash
+computed on the Mac, is recorded here. No game run was made with it and it was not
+installed from a download.
 
 ### Published image, 2026-10-02
 
@@ -206,7 +224,8 @@ the Mac model, macOS version, source commit, game edition and tested scenes
 alongside any local result. Keep the existing Windows/Linux release records
 separate from this experimental path.
 
-For v0.8.0 and v0.8.5 no game run with their disk images is recorded here yet. The v0.7.35
+For v0.8.0 and v0.8.5 no game run with their disk images is recorded here; the
+no acceptance of either release is recorded. The v0.7.35
 runs below are the existing record; a later source build also ran the opening
 battle with GTAO and 4× shadows on the same Mac ([changelog](../CHANGELOG.md)).
 

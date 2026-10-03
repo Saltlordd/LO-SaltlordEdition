@@ -1,6 +1,6 @@
 # Battle dialogue timing at 90/120 FPS (#148)
 
-Status: source fix added in `LostOdysseyRecomp/patches/battle_script_timer.cpp`; the focused guest fixture and disabled negative control pass. Full runtime build, real-scene acceptance and player confirmation remain pending. Issue [#148](https://github.com/freefrank/LostOdysseyRecomp/issues/148) remains open (2026-10-02).
+Status: source fix added in `LostOdysseyRecomp/patches/battle_script_timer.cpp`; the focused guest fixture and disabled negative control pass. Full runtime build, real-scene acceptance and player confirmation remain pending. Issue [#148](https://github.com/freefrank/LostOdysseyRecomp/issues/148) remains open (2026-10-02). Update, 2026-10-03: the maintainer closed #148 at 02:45 UTC ("solved in 9f52d78"); the fix was merged in `4022256` at 16:22 UTC and shipped in v0.8.5, not in v0.8.0 ([STATUS](../STATUS.md#v085-published--2026-10-03)). [#173](https://github.com/freefrank/LostOdysseyRecomp/issues/173) is the same bug in another scene and is open. The validation boundary above is unchanged: no in-game comparison and no reporter confirmation of the fix are recorded.
 
 ## Symptom and diagnosis
 

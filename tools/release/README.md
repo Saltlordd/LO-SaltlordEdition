@@ -50,10 +50,11 @@ The workflow exports a stable Flatpak directly as a CI artifact next to the
 Windows ZIP and AppImage. Since 2026-10-01 the workflow runs on Gitea
 (`.gitea/workflows/release.yml`, see [Pull request checks and releases on
 Gitea](../../docs/notes/ci-gitea.md)): after both platform jobs succeed, the
-publication job uploads the three Gitea artifacts to the GitHub release, then
-checks that the release holds those three packages and at most one more asset,
-`LostOdysseyRecomp-macos-arm64-<tag>.dmg`, which is built on a Mac and uploaded
-by hand ([macOS releases](../../docs/MACOS_RELEASE.md#disk-image-v0735)), and
+publication job uploads the Gitea artifacts to the GitHub release (the Windows
+ZIP, AppImage and Flatpak, and from v0.8.5 the Android APK from a third build
+job), then checks that the release holds those packages and at most one more
+asset, `LostOdysseyRecomp-macos-arm64-<tag>.dmg`, which is built on a Mac and
+uploaded by hand ([macOS releases](../../docs/MACOS_RELEASE.md#disk-image-v085)), and
 that every asset is uploaded and nonempty. Any other asset fails the check; the
 shader packs live on the `shader-packs` release. Re-runs validate an
 existing public release without changing its publication state.

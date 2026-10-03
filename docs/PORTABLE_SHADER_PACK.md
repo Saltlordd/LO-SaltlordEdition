@@ -84,6 +84,7 @@ Validation:
 - On an M1 Max with macOS 26.6.2, a Metal build of main `2cd3fe6` computed the same three contracts, downloaded the Metal pack from the release (SHA-256 as published, installed 9 s after start) and loaded it; a second start found it in 0.24 s. The `new-game-battle` scenario then passed with an empty shader cache (2,047 draws, 30 FPS): no guest shader was compiled, so every one came from the pack, and the opening movie and the battle menu rendered correctly. The 17 compiles in that run were the renderer's own built-in shaders.
 - v0.7.35 (published 2026-10-02T09:13:35Z) is the first version release built without a pack. The Linux release job's "Check published shader packs" step ran `publish_shader_packs.py --check` ([Gitea run 135](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/135)) and found the d3d12, metal and vulkan contracts in the index. The packages are 77,109,842 bytes (Windows ZIP), 76,270,072 (AppImage) and 54,113,384 (Flatpak), against 254,531,925, 253,770,232 and 231,397,328 for v0.7.25, which bundled the Vulkan pack. The release did not change the `shader-packs` prerelease, and no game run was made with the v0.7.35 packages ([release record](STATUS.md#v0735-published--2026-10-02)).
 - Not yet checked: Linux runs (the new sources only compiled there) and mouse input in the window.
+- Update, 2026-10-03: v0.8.0 (published 2026-10-03T06:41:51Z) and v0.8.5 (2026-10-03T18:45:17Z) also carry no pack. Their Windows ZIPs are 77,134,904 and 77,142,293 bytes, their AppImages 76,311,032 and 76,306,936 and their Flatpaks 54,113,296 and 54,129,440. The v0.8.5 runtime's contracts were already in the published index (DirectX 12 `239f8775...`, Vulkan `eecb4425...`; the `portable_dx12-239f877563b6dc7a.lospd` and `portable_vk-eecb4425e7f53d44.lospv` packs above): `publish_shader_packs.py --check` passed on a Mac before the tag and no pack was published for the release. The release run's mandatory Linux-job check succeeded; its output was not read here, and no game run was made with the packages ([v0.8.0 record](STATUS.md#v080-published--2026-10-03), [v0.8.5 record](STATUS.md#v085-published--2026-10-03)).
 
 ## Runtime contract and release check (after v0.7.25)
 
@@ -285,8 +286,9 @@ the configured private image, and copies the file to
 `<executable-directory>/shaders/portable_vk.lospv`. Linux install uses `bin/shaders`.
 This path is for development builds. Release CI no longer uses it (PR #144, first
 shipped in v0.7.35) and the packaging helpers do not copy the file; instead a
-version release stops unless the published `shader-packs` index lists all three
-contracts of its runtime ([release check](#runtime-contract-and-release-check-after-v0725)).
+version release stops unless the published `shader-packs` index lists all
+contracts of its runtime (three in v0.7.35; two since v0.8.0, when Metal and
+Android began to read the Vulkan pack) ([release check](#runtime-contract-and-release-check-after-v0725)).
 Use the explicit tool commands above when changed pack inputs require inspection.
 
 For a standalone downloaded pack, put it under `shaders` beside the final game

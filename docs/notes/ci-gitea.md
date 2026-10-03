@@ -92,10 +92,14 @@ on both). That fetch is gone. Instead the Linux job builds `LoShaderPackTool` an
 its "Check published shader packs" step runs
 `tools/release/publish_shader_packs.py --check` against the same image: a tagged
 release stops unless the published index lists a pack for each of the runtime's
-three contracts (Vulkan, DirectX 12 and Metal), and a branch build only warns
+contracts, and a branch build only warns
 ([procedure](../PORTABLE_SHADER_PACK.md#runtime-contract-and-release-check-after-v0725)).
+That was three contracts (Vulkan, DirectX 12 and Metal) in v0.7.35; since PR #152
+(shipped in v0.8.0) Metal and Android read the Vulkan pack, so a runtime has two:
+Vulkan and DirectX 12.
 
-The publish job's set check requires the three CI packages and accepts at most
+The publish job's set check requires the CI packages (the three desktop
+packages, plus the Android APK from v0.8.5) and accepts at most
 one more asset, `LostOdysseyRecomp-macos-arm64-<tag>.dmg`. CI cannot link the
 Mac runtime without game data, so that disk image is built on a Mac and
 uploaded to the release by hand (for v0.7.35, to the draft before the publish
@@ -146,6 +150,36 @@ on the draft, uploaded by hand (GitHub dates the asset 09:01:25Z), and the set
 check accepted it as the one optional asset. The `shader-packs` prerelease did
 not change, and no game run was made with the packages; see
 [STATUS](../STATUS.md#v0735-published--2026-10-02). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
+Third release, 2026-10-03: v0.8.0 (tag commit `eddbb7d`) was built and published
+by [run 184](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/184)
+(API id 574), and all five jobs succeeded (UTC, read through the Gitea API on
+2026-10-03 at about 18:55 UTC): create draft 06:21:21-06:21:31, FSR inputs
+06:19:51-06:31:06, Windows build and ZIP 06:31:09-06:38:06, Linux AppImage and Flatpak 06:31:11-06:40:50 (privileged
+docker runner) and publish 06:40:51-06:41:52, which published at
+2026-10-03T06:41:51Z. About 22 minutes passed from the run start to publication.
+The workflow had no Android job then. The macOS disk image was uploaded to the
+draft by hand (GitHub dates the asset 06:22:26Z). The Android APK was added to the
+published release by hand afterwards (GitHub dates the asset 08:03:03Z). This
+record does not include the output of the run's "Check published shader packs"
+step. See [STATUS](../STATUS.md#v080-published--2026-10-03).
+
+Fourth release, 2026-10-03: v0.8.5 (tag commit `30a76ac`) was built and published
+by [run 212](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/212)
+(API id 602) and is the first release with an Android job (PRs #170 and #177). All
+six jobs succeeded (UTC, same read): create draft 18:26:07-18:26:17, FSR inputs
+18:23:40-18:35:00, Android APK 18:26:19-18:32:42 (privileged docker runner),
+Windows build and ZIP 18:35:01-18:42:02, Linux AppImage and Flatpak 18:35:03-18:44:18
+and publish 18:44:21-18:45:18, which uploaded the four CI packages, verified the
+set (the check now requires the APK) and published at 2026-10-03T18:45:17Z. About
+22 minutes passed from the run start to publication. The macOS disk image was
+uploaded to the draft by hand (GitHub dates the asset 18:26:44Z), before the
+publish job ran. The published `shader-packs` index already covered this runtime's
+contracts: `publish_shader_packs.py --check` passed on the Mac before the tag, and
+the release's Linux job, which makes the same check mandatory for a tag, succeeded
+(its step output was not read here). No game run was made with the packages; see
+[STATUS](../STATUS.md#v085-published--2026-10-03). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
 Differences from the GitHub release workflow:
