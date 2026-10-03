@@ -723,15 +723,29 @@ namespace gpu::video
                 std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
         }
 
+        // Frame generation presents through each SDK's own swap chain. D3D12
+        // and Metal recreate that chain in SDR, and the Vulkan FSR presenter
+        // only takes RGBA8/BGRA8. Vulkan DLSS-G accepts the HDR10 chain plume
+        // prefers (Streamline DLSS-G guide 11.0); LO_HDR_FG=0 opts out.
+        bool HdrFrameGenerationCompatible()
+        {
+            const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
+                g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
+                settings::GetConfig(), std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+                std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+            if (!fg.Enabled()) return true;
+            if (!g_vulkan || fg.config.provider != framegen::Provider::Dlss) return false;
+            const char* optOut = std::getenv("LO_HDR_FG");
+            return !optOut || std::strcmp(optOut, "0") != 0;
+        }
+
+        // Per-frame scene conditions. The HDR swap chain stays; a frame that
+        // fails these presents its SDR scene through the output transform.
         bool HdrConfigurationCompatible()
         {
             const auto config = settings::GetConfig();
-            const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
-                g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
-                config, std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
-                std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
             return config.antialiasing == 0 && config.upscaler == upscaling::Upscaler::Off &&
-                config.scalingQuality != settings::ScalingMetalFx && !fg.Enabled();
+                config.scalingQuality != settings::ScalingMetalFx && HdrFrameGenerationCompatible();
         }
 
         void UpdateHdrOutput(bool refreshDisplay = false)
@@ -1966,14 +1980,22 @@ namespace gpu::video
             plume::RenderSwapChainDesc swapDescription(g_window, kSwapChainFormat, kSwapChainBuffers);
 #endif
             const auto hdrConfig = settings::GetConfig();
-            g_hdrSwapchain = hdrConfig.hdr && HdrConfigurationCompatible();
+            // Vulkan keeps the HDR swap chain while AA/upscaling pause the
+            // scene per frame. D3D12 and Metal still decide at startup: their
+            // frame generation reconcile replaces the swap chain in SDR and
+            // skips entirely while an HDR swap chain exists.
+            g_hdrSwapchain = hdrConfig.hdr && (g_vulkan ? HdrFrameGenerationCompatible() : HdrConfigurationCompatible());
             g_hdrPaperWhiteNits = float(hdrConfig.hdrPaperWhiteNits);
             g_hdrPeakNits = float(hdrConfig.hdrPeakNits);
             if (g_hdrSwapchain) {
                 swapDescription.format = plume::RenderFormat::R16G16B16A16_FLOAT;
                 swapDescription.outputMode = plume::RenderOutputMode::HDR_LINEAR;
+                if (!HdrConfigurationCompatible())
+                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while AA or upscaling is selected");
+            } else if (hdrConfig.hdr && g_vulkan) {
+                LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain here (FSR FG, or DLSS-G with LO_HDR_FG=0)");
             } else if (hdrConfig.hdr) {
-                LOG_WARNING("HDR: SDR retained; requires D3D12/Metal, AA off, upscaling off, frame generation off and a non-MetalFX scaling filter");
+                LOG_WARNING("HDR: SDR swap chain retained; requires AA off, upscaling off, frame generation off and a non-MetalFX scaling filter on this backend");
             }
             g_swapChain = g_queue->createSwapChain(swapDescription);
             if (!g_swapChain || g_swapChain->isEmpty()) return "window surface/swapchain initialization failed";

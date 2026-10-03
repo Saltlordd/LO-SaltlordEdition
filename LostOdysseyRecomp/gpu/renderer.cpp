@@ -8432,15 +8432,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                      (color->format != RenderFormat::R8G8B8A8_UNORM &&
                       color->format != RenderFormat::R16G16B16A16_FLOAT) ||
                      activePlan.requestedUpscaler != upscaling::Upscaler::Off ||
-                     activePlan.effectiveAA != 0 ||
-                     activePlan.frameGeneration != upscaling::FrameGeneration::Off))
+                     activePlan.effectiveAA != 0))
                     color->hdrValid = false;
+                // Frame generation policy is video's, through hdrSceneEnabled.
                 if (hdrSceneEnabled.load(std::memory_order_relaxed) && color &&
                     (color->format == RenderFormat::R8G8B8A8_UNORM ||
                      color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u) &&
                     activePlan.requestedUpscaler == upscaling::Upscaler::Off &&
-                    activePlan.effectiveAA == 0 &&
-                    activePlan.frameGeneration == upscaling::FrameGeneration::Off) {
+                    activePlan.effectiveAA == 0) {
                     bool forwarded = false;
                     if (fullSceneCopy && !depth && sceneCopyBank == 0 &&
                         rasterViewport.x == 0 && rasterViewport.y == 0 &&

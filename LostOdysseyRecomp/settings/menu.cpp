@@ -862,8 +862,8 @@ void Publish(uint8_t *base, uint32_t config)
         }
         case GraphicsRow::Hdr:
             next.help = graphics_menu::HdrAvailable(edit.graphicsBackend)
-                ? Tr(L"Requires an HDR display and restart. Use AA Off, upscaling Off, FG Off, and Bilinear/Bicubic scaling for this first HDR path.",
-                     L"需要 HDR 螢幕並重新啟動。首版 HDR 請選擇關閉抗鋸齒、超解析度與影格生成，縮放濾鏡選雙線性或雙三次。")
+                ? Tr(L"Requires an HDR display and restart. Use AA Off, upscaling Off and Bilinear/Bicubic scaling for this first HDR path; frame generation stays SDR except DLSS on Vulkan.",
+                     L"需要 HDR 螢幕並重新啟動。首版 HDR 請關閉抗鋸齒與超解析度，縮放濾鏡選雙線性或雙三次；影格生成僅 Vulkan 的 DLSS 可與 HDR 同時開啟。")
                 : Tr(L"HDR output is unavailable for this graphics backend.",
                      L"目前圖形後端無法使用 HDR 輸出。");
             break;
@@ -940,12 +940,19 @@ void Publish(uint8_t *base, uint32_t config)
         next.dialogSelection = importChoice;
     }
 #if LO_PLATFORM_ANDROID
-    next.notice = tab == 2 && graphics_menu::AndroidFsrAvailable &&
+    const bool hdrConflict = edit.hdr && (edit.antialiasing != 0 || edit.upscaler != gpu::upscaling::Upscaler::Off);
+    next.notice = tab == 2 && hdrConflict
+        ? Tr(L"HDR is paused while AA or upscaling is selected.",
+             L"選取抗鋸齒或超解析度時，HDR 會暫停。")
+        : tab == 2 && graphics_menu::AndroidFsrAvailable &&
         edit.upscaler == gpu::upscaling::Upscaler::Fsr ? DlssNotice() : std::wstring{};
 #else
+    // Vulkan DLSS-G presents through the HDR10 swap chain; other frame
+    // generation paths keep an SDR swap chain (see video.cpp).
+    const bool fgKeepsSdr = edit.frameGenerationProvider != framegen::Provider::Off &&
+        !(edit.graphicsBackend == GraphicsBackend::Vulkan && edit.frameGenerationProvider == framegen::Provider::Dlss);
     const bool hdrConflict = edit.hdr && (edit.antialiasing != 0 ||
-        edit.upscaler != gpu::upscaling::Upscaler::Off ||
-        edit.frameGenerationProvider != framegen::Provider::Off || edit.scalingQuality == ScalingMetalFx);
+        edit.upscaler != gpu::upscaling::Upscaler::Off || fgKeepsSdr || edit.scalingQuality == ScalingMetalFx);
     next.notice = tab == 2 && edit.hdr && !graphics_menu::HdrAvailable(edit.graphicsBackend)
         ? Tr(L"The saved HDR preference is inactive on this graphics backend.",
              L"已儲存的 HDR 偏好在目前圖形後端不會啟用。")
