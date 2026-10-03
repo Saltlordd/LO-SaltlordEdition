@@ -1719,8 +1719,11 @@ static uint32_t XamContentGetDeviceState(uint32_t device, XXOVERLAPPED* overlapp
     CompleteOverlapped(overlapped, result, 0);
     return overlapped ? ERROR_IO_PENDING : result;
 }
-static uint32_t XamContentFlush(const char*, XXOVERLAPPED* overlapped)
+static uint32_t XamContentFlush(const char* rootName, XXOVERLAPPED* overlapped)
 {
+    if (rootName)
+        if (const auto root = XamGetRootPath(rootName); !root.empty())
+            XamSyncSaveRoot(root);
     CompleteOverlapped(overlapped, ERROR_SUCCESS, 0);
     return overlapped ? ERROR_IO_PENDING : ERROR_SUCCESS;
 }
@@ -1738,10 +1741,7 @@ static uint32_t XamContentSetThumbnail(uint32_t userIndex, const XCONTENT_DATA* 
             std::error_code ec;
             if (std::filesystem::is_directory(root, ec))
             {
-                std::ofstream out(root / ".lo-thumbnail.png", std::ios::binary | std::ios::trunc);
-                out.write(static_cast<const char*>(buffer), size);
-                out.close();
-                result = out ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
+                result = FileSystem::WriteFileDurably(root / ".lo-thumbnail.png", buffer, size) ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
             }
             else result = ERROR_PATH_NOT_FOUND;
         }
