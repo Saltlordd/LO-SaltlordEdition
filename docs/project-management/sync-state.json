@@ -3536,6 +3536,34 @@
       },
       "title": "Add a No Random Encounters switch to the F1 Debug Menu",
       "body_sha256": "ea5fbe789b26118d5b1ad96bf5a3295db279bb167aba9674da40a1f2bfde765e"
+    },
+    "release-v0-8-6": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-XLPE",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.6",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.6 at 2026-10-03T20:46:53Z: latest release, annotated tag at commit b639c399 on main, built and published by Gitea Actions run 214 (six jobs succeeded; the Linux shader-pack check passed). Assets: Windows ZIP 77,145,524 B (SHA-256 e91e49f5...), Linux AppImage 76,306,936 B (ce05a6f5...), Flatpak 54,116,648 B (48282bca...), Android APK 45,159,622 B (cbaab1f1...; CI-built) and macOS DMG 60,437,598 B (71a17706...; built on the maintainer's M1 Max, uploaded by hand). Published, not accepted: the #171 reporter has not confirmed, and no game run was made with the v0.8.6 packages.",
+        "Source key": "release-v0-8-6"
+      },
+      "title": "Publish the Lunar Palace platform fix in v0.8.6",
+      "body_sha256": "7ee14a05c3cd462d9f990f5be3483acb0e5ed52be5d86937eac3455809a0be28"
+    },
+    "issue-171-lunar-palace-platforms-rise": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-XLQc",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Field interaction",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.6",
+        "Evidence": "In the Lunar Palace the two platforms that start with pillars on them rose by themselves after a random battle, leaving the pillars floating. The cause was the #114 touch-entry guard (PR #135, shipped in v0.7.35); it made the per-frame touch poll read false while a battle request was queued, and the platform scripts read that as no pillar on the platform. The guard was removed in v0.8.6 (commit 058d8ffd; published 2026-10-03T20:46:53Z; not accepted). The maintainer verified it with the reporter's save on a diagnostic build, not the release package: with the guard one battle broke the platform, without it the platform stayed down. Closed as completed by the maintainer at 2026-10-03T20:54:17Z after replying that v0.8.6 fixes it. The reporter has not replied, so there is no reporter confirmation. Saves made after the platform had risen keep that state. The removal re-opens the #114 softlock window.",
+        "Source key": "issue-171-lunar-palace-platforms-rise"
+      }
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"
