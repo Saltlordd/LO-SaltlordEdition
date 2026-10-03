@@ -224,6 +224,8 @@ struct FileHandle : KernelObject
     uint64_t position = 0;
     uint64_t size = 0;
     bool writable = false;
+    // Writable save file: synced to disk before it closes.
+    bool durable = false;
 
     // Directory enumeration state
     std::vector<std::filesystem::directory_entry> entries;
@@ -234,7 +236,11 @@ struct FileHandle : KernelObject
     ~FileHandle() override
     {
         if (file)
+        {
+            if (durable && !FileSystem::SyncFile(file))
+                LOG_WARNING("could not sync save file '{}'", FileSystem::PathUtf8(path));
             fclose(file);
+        }
         io_diagnostics::RecordEvent(io_diagnostics::Stage::Destroyed, "FileHandle", &diagnostic,
             g_memory.MapVirtual(this), &path, IoGuestPcr(), &ioMutex, this);
     }
@@ -300,6 +306,62 @@ std::filesystem::path FileSystem::GetSaveRoot() { return g_saveRoot; }
 std::filesystem::path FileSystem::GetCacheRoot() { return g_cacheRoot; }
 std::filesystem::path GetGamePath() { return g_gameRoot; }
 std::filesystem::path GetSavePath() { return g_saveRoot; }
+
+static std::FILE* OpenHostFile(const std::filesystem::path& path, bool create)
+{
+#ifdef _WIN32
+    return _wfopen(path.c_str(), create ? L"wb" : L"r+b");
+#else
+    return fopen(path.c_str(), create ? "wb" : "r+b");
+#endif
+}
+
+bool FileSystem::SyncFile(std::FILE* file)
+{
+    if (!file || fflush(file) != 0)
+        return false;
+#ifdef _WIN32
+    return FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(_fileno(file)))) != 0;
+#else
+    return fsync(fileno(file)) == 0;
+#endif
+}
+
+void FileSystem::SyncFiles(const std::filesystem::path& directory)
+{
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(directory, ec))
+    {
+        if (!entry.is_regular_file(ec))
+            continue;
+        if (std::FILE* file = OpenHostFile(entry.path(), false))
+        {
+            if (!SyncFile(file))
+                LOG_WARNING("could not sync save file '{}'", PathUtf8(entry.path()));
+            fclose(file);
+        }
+    }
+}
+
+bool FileSystem::WriteFileDurably(const std::filesystem::path& path, const void* data, size_t size)
+{
+    auto temporary = path;
+    temporary += ".tmp";
+    std::FILE* file = OpenHostFile(temporary, true);
+    if (!file)
+        return false;
+    bool written = (size == 0 || fwrite(data, 1, size, file) == size) && SyncFile(file);
+    written = fclose(file) == 0 && written;
+    std::error_code ec;
+    if (written)
+        std::filesystem::rename(temporary, path, ec);
+    if (!written || ec)
+    {
+        std::filesystem::remove(temporary, ec);
+        return false;
+    }
+    return true;
+}
 
 static bool StartsWithNoCase(std::string_view s, std::string_view prefix)
 {
@@ -547,6 +609,11 @@ static uint32_t OpenFileHandle(be<uint32_t>* FileHandleOut, uint32_t DesiredAcce
             return STATUS_ACCESS_DENIED;
         }
         handle->writable = wantWrite;
+        if (wantWrite)
+        {
+            const auto relative = hostPath.lexically_normal().lexically_relative(g_saveRoot.lexically_normal());
+            handle->durable = !relative.empty() && *relative.begin() != "..";
+        }
         _fseeki64(handle->file, 0, SEEK_END);
         handle->size = uint64_t(_ftelli64(handle->file));
         _fseeki64(handle->file, 0, SEEK_SET);
@@ -726,7 +793,9 @@ uint32_t NtFlushBuffersFile(uint32_t handleValue, XIO_STATUS_BLOCK* IoStatusBloc
     {
         trace.Acquired(handle->diagnostic, &handle->ioMutex, handle->path, handle.get());
         FileIoLock ioLock(handle->ioMutex, trace);
-        status = fflush(handle->file) == 0 ? STATUS_SUCCESS : 0xC0000185u;
+        // FlushFileBuffers rejects read-only handles; they have nothing to write.
+        const bool flushed = handle->writable ? FileSystem::SyncFile(handle->file) : fflush(handle->file) == 0;
+        status = flushed ? STATUS_SUCCESS : 0xC0000185u;
         trace.SetStage(io_diagnostics::Stage::TransferDone);
     }
     if (IoStatusBlock) { IoStatusBlock->Status = status; IoStatusBlock->Information = 0; }

@@ -13,6 +13,8 @@ XCONTENT_DATA XamMakeContent(uint32_t type, const std::string_view& name);
 void XamRegisterContent(const XCONTENT_DATA& data, const std::string_view& root);
 
 std::string XamGetRootPath(const std::string_view& root);
+// Sync every file of a mounted save container to disk (other roots are ignored).
+void XamSyncSaveRoot(const std::string_view& root);
 void XamRootCreate(const std::string_view& root, const std::string_view& path);
 
 uint32_t XamNotifyCreateListener(uint64_t qwAreas);

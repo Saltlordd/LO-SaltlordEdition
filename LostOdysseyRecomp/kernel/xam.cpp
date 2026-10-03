@@ -83,15 +83,36 @@ static bool ValidContentName(const XCONTENT_DATA& data)
     return !name.empty() && name != "." && name != ".." && name.find_first_of("/\\:") == std::string_view::npos;
 }
 
+// Files whose names start with ".lo-" are host metadata; everything else in a
+// save folder is the game's own data (save.bin for Lost Odyssey).
+static bool HasSaveData(const std::filesystem::path& folder)
+{
+    std::error_code ec;
+    for (const auto& entry : std::filesystem::directory_iterator(folder, ec))
+    {
+        if (!entry.is_regular_file(ec) || FileSystem::PathUtf8(entry.path().filename()).starts_with(".lo-"))
+            continue;
+        std::ifstream in(entry.path(), std::ios::binary);
+        char buffer[4096];
+        while (in.read(buffer, sizeof(buffer)) || in.gcount() > 0)
+            if (std::any_of(buffer, buffer + in.gcount(), [](char c) { return c != 0; }))
+                return true;
+    }
+    return false;
+}
+
+// The save data decides what is listed. .lo-content only supplies the display
+// name: a crash right after saving can leave it zero-filled, and a renamed or
+// copied folder keeps the old slot name in it. ContentCreate opens
+// save/<szFileName>, so the folder name is always the content name.
 static void DiscoverSavedContent()
 {
-    // Report each skipped or renamed folder once per process; menus enumerate often.
+    // Report each folder once per process; menus enumerate often.
     static std::unordered_set<std::string> reported;
-    const auto report = [](const std::string& folder, std::string_view reason, std::string_view stored = {})
+    const auto report = [](const std::string& folder, std::string_view message)
     {
-        if (!reported.insert(folder).second) return;
-        if (stored.empty()) LOG_WARNING("save folder '{}' skipped: {}", folder, reason);
-        else LOG_WARNING("save folder '{}' {} '{}'; using the folder name", folder, reason, stored);
+        if (reported.insert(folder).second)
+            LOG_WARNING("save folder '{}' {}", folder, message);
     };
 
     std::error_code ec;
@@ -99,38 +120,35 @@ static void DiscoverSavedContent()
     {
         if (!entry.is_directory(ec)) continue;
         const std::string folder = FileSystem::PathUtf8(entry.path().filename());
-        XCONTENT_DATA data{};
+        XCONTENT_DATA data = XamMakeContent(XCONTENTTYPE_SAVEDATA, "");
+        if (folder.size() >= sizeof(data.szFileName))
+        {
+            report(folder, "skipped: name too long for a content name");
+            continue;
+        }
+        memcpy(data.szFileName, folder.data(), folder.size());
+        if (!ValidContentName(data))
+        {
+            report(folder, "skipped: invalid content name");
+            continue;
+        }
+        if (!HasSaveData(entry.path()))
+        {
+            report(folder, "skipped: no save data, or the save data is all zero");
+            continue;
+        }
+
+        XCONTENT_DATA stored{};
         std::ifstream in(entry.path() / ".lo-content", std::ios::binary);
-        if (!in.read(reinterpret_cast<char*>(&data), sizeof(data)))
+        if (in.read(reinterpret_cast<char*>(&stored), sizeof(stored)) && stored.dwContentType == XCONTENTTYPE_SAVEDATA)
         {
-            report(folder, "missing or short .lo-content");
-            continue;
+            memcpy(data.szDisplayName, stored.szDisplayName, sizeof(data.szDisplayName));
+            const std::string_view storedName(stored.szFileName, strnlen(stored.szFileName, sizeof(stored.szFileName)));
+            if (storedName != folder)
+                report(folder, fmt::format("records slot '{}'; using the folder name", storedName));
         }
-        if (data.dwContentType != XCONTENTTYPE_SAVEDATA)
-        {
-            report(folder, "not save data");
-            continue;
-        }
-        // A renamed or copied slot keeps the old name in .lo-content. The folder
-        // holds the data and ContentCreate opens save/<szFileName>, so the
-        // folder name wins.
-        if (!ValidContentName(data) || folder != data.szFileName)
-        {
-            if (folder.size() >= sizeof(data.szFileName))
-            {
-                report(folder, "folder name too long for a content name");
-                continue;
-            }
-            const std::string stored(data.szFileName, strnlen(data.szFileName, sizeof(data.szFileName)));
-            memset(data.szFileName, 0, sizeof(data.szFileName));
-            memcpy(data.szFileName, folder.data(), folder.size());
-            if (!ValidContentName(data))
-            {
-                report(folder, "invalid content name");
-                continue;
-            }
-            report(folder, "records slot", stored.empty() ? std::string_view("(empty)") : std::string_view(stored));
-        }
+        else
+            report(folder, "has no usable .lo-content; listing it from its save data");
         XamRegisterContent(data, FileSystem::PathUtf8(entry.path()));
     }
 }
@@ -421,10 +439,8 @@ static uint32_t ContentCreate(uint32_t dwUserIndex, const char* szRootName, cons
             if (ec) return ERROR_ACCESS_DENIED;
             if (pContentData->dwContentType == XCONTENTTYPE_SAVEDATA)
             {
-                std::ofstream metadata(rootPath / ".lo-content", std::ios::binary | std::ios::trunc);
-                metadata.write(reinterpret_cast<const char*>(pContentData), sizeof(*pContentData));
-                metadata.close();
-                if (!metadata) return ERROR_WRITE_FAULT;
+                if (!FileSystem::WriteFileDurably(rootPath / ".lo-content", pContentData, sizeof(*pContentData)))
+                    return ERROR_WRITE_FAULT;
             }
             XamRegisterContent(*pContentData, root);
             XamRootCreate(szRootName, root);
@@ -484,12 +500,26 @@ uint32_t XamContentCreateEx(uint32_t dwUserIndex, const char* szRootName, const 
     return pOverlapped ? ERROR_IO_PENDING : result;
 }
 
+void XamSyncSaveRoot(const std::string_view& root)
+{
+    const std::filesystem::path path = std::u8string_view(reinterpret_cast<const char8_t*>(root.data()), root.size());
+    const auto relative = path.lexically_normal().lexically_relative(GetSavePath().lexically_normal());
+    if (!relative.empty() && *relative.begin() != "..")
+        FileSystem::SyncFiles(path);
+}
+
 uint32_t XamContentClose(const char* szRootName, XXOVERLAPPED* pOverlapped)
 {
+    std::string root;
     {
         std::lock_guard lock(g_xamMutex);
-        g_rootMap.erase(StringHash(NormalizeRoot(szRootName)));
+        const auto key = StringHash(NormalizeRoot(szRootName));
+        if (const auto found = g_rootMap.find(key); found != g_rootMap.end())
+            root = found->second;
+        g_rootMap.erase(key);
     }
+    if (!root.empty())
+        XamSyncSaveRoot(root);
     CompleteOverlapped(pOverlapped, ERROR_SUCCESS, 0);
     return pOverlapped ? ERROR_IO_PENDING : ERROR_SUCCESS;
 }

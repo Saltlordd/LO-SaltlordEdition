@@ -2,6 +2,7 @@
 
 #include <string>
 #include <cstdint>
+#include <cstdio>
 
 #include <filesystem>
 #include <string_view>
@@ -40,6 +41,13 @@ struct FileSystem
     static std::filesystem::path GetGameRoot();
     static std::filesystem::path GetSaveRoot();
     static std::filesystem::path GetCacheRoot();
+
+    // Save data must reach the disk before the game reports success: a crash
+    // or power loss right after saving otherwise leaves zero-filled files.
+    static bool SyncFile(std::FILE* file);
+    static void SyncFiles(const std::filesystem::path& directory);
+    // Write to a sibling temporary file, sync it, then replace the target.
+    static bool WriteFileDurably(const std::filesystem::path& path, const void* data, size_t size);
 };
 
 std::filesystem::path GetGamePath();
