@@ -26,6 +26,19 @@ def checkNativeLibraries = tasks.register('checkNativeLibraries') {
     }
 }
 
+// Release packaging (tools/android/ci_build.sh) passes the version tag:
+// -PloVersionName=v0.8.0 gives versionName 0.8.0 and versionCode 80000
+// (major*1000000 + minor*10000 + patch), so updates install over each other.
+def loVersionName = (project.findProperty('loVersionName') ?: '0.1.0-dev').toString().replaceFirst(/^v/, '')
+def loVersionMatch = loVersionName =~ /^(\d+)\.(\d+)\.(\d+)/
+def loVersionCode = loVersionMatch.find()
+    ? loVersionMatch.group(1).toInteger() * 1000000 + loVersionMatch.group(2).toInteger() * 10000 + loVersionMatch.group(3).toInteger()
+    : 1
+// Release signing: LO_ANDROID_KEYSTORE (path), LO_ANDROID_KEYSTORE_PASSWORD,
+// LO_ANDROID_KEY_ALIAS, LO_ANDROID_KEY_PASSWORD. Without them the release
+// build type carries the debug signature (CI keeps that keystore persistent).
+def loKeystore = System.getenv('LO_ANDROID_KEYSTORE')
+
 android {
     namespace 'io.github.freefrank.lostodyssey'
     compileSdk 35
@@ -35,9 +48,17 @@ android {
         applicationId 'io.github.freefrank.lostodyssey'
         minSdk 26
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0-dev'
+        versionCode loVersionCode
+        versionName loVersionName
         ndk { abiFilters 'arm64-v8a' }
+    }
+    if (loKeystore) {
+        signingConfigs.create('loRelease') {
+            storeFile file(loKeystore)
+            storePassword System.getenv('LO_ANDROID_KEYSTORE_PASSWORD')
+            keyAlias System.getenv('LO_ANDROID_KEY_ALIAS')
+            keyPassword System.getenv('LO_ANDROID_KEY_PASSWORD')
+        }
     }
     sourceSets.main {
         java.srcDir layout.buildDirectory.dir('generated/sdl-java')
@@ -51,7 +72,12 @@ android {
     // Extracted native libraries: libadrenotools opens its hook libraries by
     // path from nativeLibraryDir when a custom Vulkan driver is loaded.
     packaging { jniLibs { useLegacyPackaging = true } }
-    buildTypes { release { minifyEnabled false } }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig loKeystore ? signingConfigs.loRelease : signingConfigs.debug
+        }
+    }
 }
 
 tasks.named('preBuild') { dependsOn checkNativeLibraries }

@@ -42,6 +42,10 @@ if verify_binary "$output"; then
     echo "Reusing Android DXC: $output"
     sha256sum "$output"
     exit 0
+elif [[ -s "$output" ]]; then
+    # Say why an existing library is rebuilt; the `file` description varies by host.
+    echo "Existing $output failed the ABI/API/version/export checks:" >&2
+    file "$output" >&2 || true
 fi
 if verify_binary "$artifact"; then
     mkdir -p "$(dirname "$output")"
