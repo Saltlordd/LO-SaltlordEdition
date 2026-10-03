@@ -85,15 +85,52 @@ static bool ValidContentName(const XCONTENT_DATA& data)
 
 static void DiscoverSavedContent()
 {
+    // Report each skipped or renamed folder once per process; menus enumerate often.
+    static std::unordered_set<std::string> reported;
+    const auto report = [](const std::string& folder, std::string_view reason, std::string_view stored = {})
+    {
+        if (!reported.insert(folder).second) return;
+        if (stored.empty()) LOG_WARNING("save folder '{}' skipped: {}", folder, reason);
+        else LOG_WARNING("save folder '{}' {} '{}'; using the folder name", folder, reason, stored);
+    };
+
     std::error_code ec;
     for (const auto& entry : std::filesystem::directory_iterator(GetSavePath(), ec))
     {
         if (!entry.is_directory(ec)) continue;
+        const std::string folder = FileSystem::PathUtf8(entry.path().filename());
         XCONTENT_DATA data{};
         std::ifstream in(entry.path() / ".lo-content", std::ios::binary);
-        if (!in.read(reinterpret_cast<char*>(&data), sizeof(data)) ||
-            data.dwContentType != XCONTENTTYPE_SAVEDATA || !ValidContentName(data) ||
-            FileSystem::PathUtf8(entry.path().filename()) != data.szFileName) continue;
+        if (!in.read(reinterpret_cast<char*>(&data), sizeof(data)))
+        {
+            report(folder, "missing or short .lo-content");
+            continue;
+        }
+        if (data.dwContentType != XCONTENTTYPE_SAVEDATA)
+        {
+            report(folder, "not save data");
+            continue;
+        }
+        // A renamed or copied slot keeps the old name in .lo-content. The folder
+        // holds the data and ContentCreate opens save/<szFileName>, so the
+        // folder name wins.
+        if (!ValidContentName(data) || folder != data.szFileName)
+        {
+            if (folder.size() >= sizeof(data.szFileName))
+            {
+                report(folder, "folder name too long for a content name");
+                continue;
+            }
+            const std::string stored(data.szFileName, strnlen(data.szFileName, sizeof(data.szFileName)));
+            memset(data.szFileName, 0, sizeof(data.szFileName));
+            memcpy(data.szFileName, folder.data(), folder.size());
+            if (!ValidContentName(data))
+            {
+                report(folder, "invalid content name");
+                continue;
+            }
+            report(folder, "records slot", stored.empty() ? std::string_view("(empty)") : std::string_view(stored));
+        }
         XamRegisterContent(data, FileSystem::PathUtf8(entry.path()));
     }
 }
@@ -265,6 +302,7 @@ uint32_t XamContentCreateEnumerator(uint32_t dwUserIndex, uint32_t DeviceID, uin
     for (const auto& [key, value] : registry)
         if (dwContentType != XCONTENTTYPE_DLC || DeviceID == 0 || DeviceID == value.DeviceID)
             enumerator->items.push_back(value);
+    LOG_KERNEL("type={} -> {} items", dwContentType, enumerator->items.size());
 
     if (pcbBuffer)
         *pcbBuffer = sizeof(_XCONTENT_DATA) * cItem;
