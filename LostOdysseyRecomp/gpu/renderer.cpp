@@ -8434,8 +8434,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                      activePlan.requestedUpscaler != upscaling::Upscaler::Off ||
                      activePlan.effectiveAA != 0))
                     color->hdrValid = false;
-                // Frame generation policy lives in video (hdrSceneEnabled);
-                // the plan's frameGeneration field is never set at runtime.
+                // Frame generation policy is video's, through hdrSceneEnabled.
                 if (hdrSceneEnabled.load(std::memory_order_relaxed) && color &&
                     (color->format == RenderFormat::R8G8B8A8_UNORM ||
                      color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u) &&

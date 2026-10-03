@@ -35,7 +35,6 @@
 #endif
 #include "command_processor.h"
 #include "frame_rate.h"
-#include <cstring>
 #include "vrr_policy.h"
 #include "frame_pacer.h"
 #include "deadline_wait.h"
@@ -1980,16 +1979,22 @@ namespace gpu::video
             plume::RenderSwapChainDesc swapDescription(g_window, kSwapChainFormat, kSwapChainBuffers);
 #endif
             const auto hdrConfig = settings::GetConfig();
-            g_hdrSwapchain = hdrConfig.hdr && HdrFrameGenerationCompatible();
+            // Vulkan keeps the HDR swap chain while AA/upscaling pause the
+            // scene per frame. D3D12 and Metal still decide at startup: their
+            // frame generation reconcile replaces the swap chain in SDR and
+            // skips entirely while an HDR swap chain exists.
+            g_hdrSwapchain = hdrConfig.hdr && (g_vulkan ? HdrFrameGenerationCompatible() : HdrConfigurationCompatible());
             g_hdrPaperWhiteNits = float(hdrConfig.hdrPaperWhiteNits);
             g_hdrPeakNits = float(hdrConfig.hdrPeakNits);
             if (g_hdrSwapchain) {
                 swapDescription.format = plume::RenderFormat::R16G16B16A16_FLOAT;
                 swapDescription.outputMode = plume::RenderOutputMode::HDR_LINEAR;
                 if (!HdrConfigurationCompatible())
-                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while AA, upscaling or MetalFX scaling is selected");
+                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while AA or upscaling is selected");
+            } else if (hdrConfig.hdr && g_vulkan) {
+                LOG_WARNING("HDR: SDR swap chain retained; DLSS-G presents through its own swap chain (set LO_HDR_FG=1 to try it with the HDR10 swap chain)");
             } else if (hdrConfig.hdr) {
-                LOG_WARNING("HDR: SDR swap chain retained; frame generation presents through an SDR-only SDK swap chain on this backend (Vulkan DLSS-G: set LO_HDR_FG=1 to try the HDR10 swap chain)");
+                LOG_WARNING("HDR: SDR swap chain retained; requires AA off, upscaling off, frame generation off and a non-MetalFX scaling filter on this backend");
             }
             g_swapChain = g_queue->createSwapChain(swapDescription);
             if (!g_swapChain || g_swapChain->isEmpty()) return "window surface/swapchain initialization failed";
