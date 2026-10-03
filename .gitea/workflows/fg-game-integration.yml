@@ -1,7 +1,6 @@
 name: FG game integration compile
 
-# Gitea copy of .github/workflows/fg-game-integration.yml. Pull request checks
-# run on git.zkx.ca; the GitHub workflow is manual-only.
+# Pull request checks run on git.zkx.ca; this workflow has no GitHub copy.
 on:
   workflow_dispatch:
   push:

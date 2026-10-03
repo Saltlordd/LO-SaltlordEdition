@@ -1,6 +1,5 @@
 name: Reusable frame generation
-# Gitea copy of .github/workflows/reusable-fg.yml. Pull request checks run on
-# git.zkx.ca; the GitHub workflow is manual-only.
+# Pull request checks run on git.zkx.ca; this workflow has no GitHub copy.
 on:
   workflow_dispatch:
   push:
