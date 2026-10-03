@@ -7,9 +7,9 @@
 # LO_CI_CACHE pointing at the runner's persistent volume.
 #
 # Outputs out/apk/LostOdysseyRecomp-android-arm64-<RELEASE_TAG|debug>.apk.
-# With RELEASE_TAG set the APK is the release build type, signed with the
-# LO_ANDROID_KEYSTORE* secrets when they are configured and with the persistent
-# debug keystore otherwise (see packaging/android/runtime/build.gradle).
+# With RELEASE_TAG set the APK is the release build type. Every APK is signed
+# with the project's debug keystore from the build-inputs checkout (the key
+# that signed v0.8.0); there is no release keystore by decision.
 set -euo pipefail
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
@@ -21,9 +21,6 @@ jobs=${LO_BUILD_JOBS:-20}
 export ANDROID_HOME="$cache/android-sdk"
 export LO_DXC_CACHE_DIR="$cache/android-dxc"
 export GRADLE_USER_HOME="$cache/gradle"
-# AGP's auto-generated debug keystore lives under this home; keeping it on the
-# volume makes every CI APK carry the same debug signature (installable over
-# the previous one).
 export ANDROID_USER_HOME="$cache/android-user-home"
 export CCACHE_DIR="$cache/ccache"
 export CCACHE_BASEDIR="$repo"
@@ -31,6 +28,24 @@ export CCACHE_NOHASHDIR=1
 export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-20G}
 mkdir -p "$ANDROID_HOME" "$LO_DXC_CACHE_DIR" "$GRADLE_USER_HOME" "$ANDROID_USER_HOME" "$CCACHE_DIR"
 ccache --zero-stats >/dev/null || true
+
+echo "== Signing key"
+# The project's debug keystore (build-inputs android/debug.keystore, the key
+# that signed v0.8.0) is the only signing key. Without it, a keystore kept on
+# the cache volume is used (generated once), so CI APKs still match each other.
+keystore="$cache/android-user-home/lostodyssey-debug.keystore"
+keystore_input="$repo/out/build-input/android/debug.keystore"
+if [[ -f "$keystore_input" ]]; then
+    cp "$keystore_input" "$keystore"
+    echo "Using the build-inputs debug keystore"
+elif [[ ! -f "$keystore" ]]; then
+    echo "No build-inputs debug keystore; generating a cache-local one" >&2
+    keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
+        -alias androiddebugkey -dname "CN=Android Debug,O=Android,C=US" \
+        -keyalg RSA -keysize 2048 -validity 10000
+fi
+keytool -list -keystore "$keystore" -storepass android -alias androiddebugkey | grep -i fingerprint || true
+export LO_ANDROID_DEBUG_KEYSTORE="$keystore"
 
 echo "== Android SDK packages"
 sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"

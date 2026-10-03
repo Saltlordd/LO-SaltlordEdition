@@ -47,7 +47,7 @@ v0.8.0 包含 Windows D3D12／Vulkan、Linux Vulkan 和 macOS Metal 的实验性
 
 ### Android ARM64 运行时（实验性）
 
-实验性的 arm64 APK `LostOdysseyRecomp-android-arm64-v0.8.0.apk` 在 [v0.8.0 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)后补充上传。它是开发构建（应用名显示为 "Lost Odyssey (development)"，使用 debug 签名），不是普遍支持的 Android 版本；从下一个版本起，APK 由发布流程和其他安装包一起构建、发布。运行时使用 SDL Android activity、应用专属 external storage、Android ARM64 FFmpeg 配置和 Android DXC 构建。工具链和当前验证边界见 [Android 构建说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
+实验性的 arm64 APK `LostOdysseyRecomp-android-arm64-v0.8.0.apk` 在 [v0.8.0 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)后补充上传。它是开发构建（应用名显示为 "Lost Odyssey (development)"），不是普遍支持的 Android 版本；从下一个版本起，APK 由发布流程和其他安装包一起构建、发布。应用使用项目固定的 debug 签名并一直保持，因此每个版本都能覆盖安装上一个版本。运行时使用 SDL Android activity、应用专属 external storage、Android ARM64 FFmpeg 配置和 Android DXC 构建。工具链和当前验证边界见 [Android 构建说明](packaging/android/README.md) 与 [Android 移植研究记录](docs/notes/android-port-research-2026-10-02.md)。
 
 **安装。** 装好 APK 后，把游戏数据放到应用读取的位置：Android 上没有导入器，先用任一桌面版的导入器生成 `game/disc1`–`disc4`（以及 `game/dlc/…`），再用 USB 文件传输模式把这个 `game` 目录复制到 `Android/data/io.github.freefrank.lostodyssey/files/`（应用打开过一次后该目录才存在；四张光盘约 20 GB）。必须有第 1 张光盘。首次启动时高通设备会先显示 **GPU driver** 页面（见下文），然后游戏会提示下载 Vulkan 着色器包，用屏幕上的 **A** 键接受。设置在游戏内的设置页面修改。步骤见[安装指南](docs/INSTALLING.zh-CN.md#android)，Android 的目录见[文件与目录](#文件与目录)。
 

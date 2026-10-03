@@ -34,10 +34,12 @@ def loVersionMatch = loVersionName =~ /^(\d+)\.(\d+)\.(\d+)/
 def loVersionCode = loVersionMatch.find()
     ? loVersionMatch.group(1).toInteger() * 1000000 + loVersionMatch.group(2).toInteger() * 10000 + loVersionMatch.group(3).toInteger()
     : 1
-// Release signing: LO_ANDROID_KEYSTORE (path), LO_ANDROID_KEYSTORE_PASSWORD,
-// LO_ANDROID_KEY_ALIAS, LO_ANDROID_KEY_PASSWORD. Without them the release
-// build type carries the debug signature (CI keeps that keystore persistent).
-def loKeystore = System.getenv('LO_ANDROID_KEYSTORE')
+// Signing: the app is debug-signed, always (maintainer decision, 2026-10-03:
+// no release keystore). LO_ANDROID_DEBUG_KEYSTORE points the debug signing
+// config at the project's fixed keystore (CI: the one that signed v0.8.0), so
+// every release installs over the previous one; unset, AGP's own debug
+// keystore is used.
+def loDebugKeystore = System.getenv('LO_ANDROID_DEBUG_KEYSTORE')
 
 android {
     namespace 'io.github.freefrank.lostodyssey'
@@ -52,13 +54,8 @@ android {
         versionName loVersionName
         ndk { abiFilters 'arm64-v8a' }
     }
-    if (loKeystore) {
-        signingConfigs.create('loRelease') {
-            storeFile file(loKeystore)
-            storePassword System.getenv('LO_ANDROID_KEYSTORE_PASSWORD')
-            keyAlias System.getenv('LO_ANDROID_KEY_ALIAS')
-            keyPassword System.getenv('LO_ANDROID_KEY_PASSWORD')
-        }
+    if (loDebugKeystore) {
+        signingConfigs.debug.storeFile = file(loDebugKeystore)
     }
     sourceSets.main {
         java.srcDir layout.buildDirectory.dir('generated/sdl-java')
@@ -75,7 +72,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            signingConfig loKeystore ? signingConfigs.loRelease : signingConfigs.debug
+            signingConfig signingConfigs.debug
         }
     }
 }

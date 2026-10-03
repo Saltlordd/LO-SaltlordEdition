@@ -126,7 +126,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## Android（实验性）
 
-[v0.8.0 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)在发布后补充了 `LostOdysseyRecomp-android-arm64-v0.8.0.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用 debug 签名：Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
+[v0.8.0 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)在发布后补充了 `LostOdysseyRecomp-android-arm64-v0.8.0.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
 
 1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次让它建好目录，然后关闭。
 2. 在电脑上准备游戏数据。Android 上没有导入器：用任一桌面版的导入器生成 `game/disc1`–`disc4`，有 DLC 的话还有 `game/dlc/<content-id>`，方法见[导入游戏数据](#automatic-content-import)。
