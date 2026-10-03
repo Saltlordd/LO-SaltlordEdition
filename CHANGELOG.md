@@ -4,25 +4,25 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
-## Unreleased
+## [v0.8.7](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) — 2026-10-03
 
 ### English
 
-- Android now checks for updates at startup and shows the same update prompt as the desktop; accepting opens the APK download in the browser.
-- Android now creates the `game` folder with a `README.txt` as soon as the app is opened, on the internal storage and on SD cards, so it shows up over USB (fixes the missing folder on devices that start on the GPU driver page); you copy `disc1`–`disc4` into it, and the game reads whichever storage holds `game/disc1/default.xex`.
-- Android now has a **Game folder** page (opened when no game data is found, and from **CTRL → Game folder**) where you can choose any folder on the internal storage or an SD card, so the game can be copied with an on-device file manager instead of a PC; this needs the "All files access" permission, and changing the folder restarts the game.
-- Android now has an **Import disc images…** button on the **Game folder** page that runs the desktop importer on the device, reading disc images (`.iso`) or extracted discs from the internal storage or an SD card and starting the game when the import finishes; it works with the on-screen controller, a physical controller or touch.
-- Android: logs are now written to `Android/data/io.github.freefrank.lostodyssey/files/logs/`, which a PC can copy over USB, and also go to logcat.
-- Android: native crashes and uncaught Java exceptions are written to that folder, and the log records the phone model, GPU and Vulkan driver.
+- Android now checks for updates at startup and offers the new APK for download.
+- Android now creates the `game` folder as soon as the app is opened, also on devices that start on the GPU driver page.
+- Android can now read the game from an SD card, or from any folder chosen on the new **Game folder** page (**CTRL → Game folder**).
+- Android can now import the game on the device from disc images or extracted discs (**Game folder → Import disc images…**).
+- Android now writes its logs and crash reports to `Android/data/io.github.freefrank.lostodyssey/files/logs/`, where a PC can copy them over USB.
+- The MetalFX settings texts are now translated into Japanese, Korean and Simplified Chinese.
 
 ### 简体中文
 
-- Android 现在启动时检查更新，并显示和桌面版相同的更新提示；接受后在浏览器里打开 APK 下载。
-- Android 现在应用一打开就在内部存储和 SD 卡上建好 `game` 目录和一个 `README.txt`，电脑通过 USB 就能看到（修复先进入 GPU driver 页面的设备上找不到目录的问题）；把 `disc1`–`disc4` 复制进去即可，游戏读取存有 `game/disc1/default.xex` 的存储。
-- Android 新增 **Game folder** 页面（找不到游戏数据时自动打开，也可从 **CTRL → Game folder** 进入），可以选择内部存储或 SD 卡上的任意文件夹，不用电脑也能用设备上的文件管理器复制游戏；需要“所有文件访问”权限，更改文件夹会重启游戏。
-- Android 的 **Game folder** 页面新增 **Import disc images…** 按钮，在设备上运行和桌面版相同的导入器，可从内部存储或 SD 卡读取光盘镜像（`.iso`）或已解出的光盘，导入完成后直接启动游戏；支持屏幕手柄、实体手柄和触摸操作。
-- Android：日志改为写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，电脑可通过 USB 复制，同时输出到 logcat。
-- Android：native 崩溃和未捕获的 Java 异常会写到该目录，日志中记录手机型号、GPU 和 Vulkan 驱动。
+- Android 现在启动时检查更新，并提供新版 APK 下载。
+- Android 现在一打开应用就建好 `game` 目录，先进入 GPU driver 页面的设备也一样。
+- Android 现在可以从 SD 卡读取游戏，也可以在新的 **Game folder** 页面（**CTRL → Game folder**）选择任意文件夹。
+- Android 现在可以在设备上从光盘镜像或已解出的光盘导入游戏（**Game folder → Import disc images…**）。
+- Android 现在把日志和崩溃报告写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，电脑可通过 USB 复制。
+- MetalFX 相关设置文字现在有日文、韩文和简体中文翻译。
 
 ## [v0.8.6](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) — 2026-10-03
 

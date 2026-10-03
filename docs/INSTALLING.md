@@ -2,13 +2,13 @@
 
 [简体中文](INSTALLING.zh-CN.md)
 
-This guide covers the published v0.8.6 packages (including the experimental Android APK) and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
+This guide covers the published v0.8.7 packages (including the experimental Android APK) and the current source path. Start with the package for your platform, import your own game data, then keep the save and profile folders when you update.
 
 ## Windows quick start
 
 Windows x64 and an AVX-capable CPU are required. Direct3D 12 is the default graphics backend. The release package already contains the importer, updater, DXC v1.8.2407 DLL pair and dependency licenses; Python and Visual Studio are not required to play.
 
-1. Download `LostOdysseyRecomp-windows-x64-v0.8.6.zip` from the [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6).
+1. Download `LostOdysseyRecomp-windows-x64-v0.8.7.zip` from the [v0.8.7 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7).
 2. Extract the complete ZIP to a writable folder outside `Program Files`.
 3. Run `LostOdysseyRecomp.exe`. If no usable game installation is found, the built-in importer opens.
 4. Choose the interface and game language, then set the graphics options. The game continues after the first-launch setup and shader preparation. It may first offer to download precompiled shaders for the selected renderer; see [Shader preparation](#shader-preparation).
@@ -56,21 +56,21 @@ Game data normally goes under `game/disc1` through `game/disc4`, with DLC under 
 
 ## Linux packages
 
-Linux runs through Vulkan. The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated. No Linux AArch64 package is published; an experimental source and cross-build path is described in [LINUX_ARM64.md](LINUX_ARM64.md).
+Linux runs through Vulkan. The [v0.8.7 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) provides an AppImage and a standalone Flatpak bundle. Steam Deck and other Linux hardware remain only partially validated. No Linux AArch64 package is published; an experimental source and cross-build path is described in [LINUX_ARM64.md](LINUX_ARM64.md).
 
 ### AppImage
 
-Download `LostOdysseyRecomp-linux-x64-v0.8.6.AppImage`, then run:
+Download `LostOdysseyRecomp-linux-x64-v0.8.7.AppImage`, then run:
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
-./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.7.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.7.AppImage
 ```
 
 You can import game data from the graphical importer. For a direct launch, pass the game directory, `disc1`, or `default.xex`:
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.7.AppImage --game /path/to/game
 ```
 
 A normally mounted AppImage stores saves and settings in your Linux user directories; see [file locations](#file-locations). `--game` chooses the game data and does not switch to portable storage. Putting `game-path.txt` beside the outer `.AppImage` file does not configure this mode.
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 Then install and run the downloaded bundle:
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.6.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.7.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -107,7 +107,7 @@ Keep the ELF directory as the working directory when you want portable `save/`, 
 
 ## macOS (Apple Silicon, experimental)
 
-The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) provides `LostOdysseyRecomp-macos-arm64-v0.8.6.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.8.0 and v0.8.6 apps declare macOS 15.0 as their minimum. The v0.7.35 app still declared macOS 14.0, but the bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, and it stays that way: the maintainer decided on 2026-10-03 not to do Developer ID signing or notarization. macOS therefore blocks the first launch.
+The [v0.8.7 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) provides `LostOdysseyRecomp-macos-arm64-v0.8.7.dmg`, a disk image with `LostOdysseyRecomp.app` and an Applications link. It needs an Apple Silicon Mac with macOS 15 or later, and the game renders with Metal. The game itself has only run on macOS 26.6.2. The v0.8.0 and v0.8.7 apps declare macOS 15.0 as their minimum. The v0.7.35 app still declared macOS 14.0, but the bundled shader compiler (DXC) is built for macOS 15 and the game has never run on macOS 14, so macOS 14 is not supported ([details](MACOS_RELEASE.md#minimum-macos-version)). The app is ad-hoc signed and not notarized, and it stays that way: the maintainer decided on 2026-10-03 not to do Developer ID signing or notarization. macOS therefore blocks the first launch.
 
 1. Download the disk image and open it.
 2. Drag `LostOdysseyRecomp.app` onto the Applications link in the window, then eject the disk image.
@@ -126,21 +126,21 @@ Validation is limited to one Mac. On the maintainer's M1 Max (macOS 26.6.2) the 
 
 ## Android (experimental)
 
-The [v0.8.6 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6) carries `LostOdysseyRecomp-android-arm64-v0.8.6.apk`, built with the other packages. It needs a 64-bit (arm64) Android 8.0 or newer device with Vulkan and about 20 GB of free storage for the four discs, and renders with Vulkan. The app is labelled "Lost Odyssey (development)" and is signed with the project's debug key, which every release keeps (the maintainer decided not to use a release keystore), so updates install over each other; Android refuses to install it over an APK with another signature, such as your own build, so uninstall that one first. Validation is one tablet (Lenovo TB321FU, Adreno 750); see the limits at the end.
+The [v0.8.7 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) carries `LostOdysseyRecomp-android-arm64-v0.8.7.apk`, built with the other packages. It needs a 64-bit (arm64) Android 8.0 or newer device with Vulkan and about 20 GB of free storage for the four discs, and renders with Vulkan. The app is labelled "Lost Odyssey (development)" and is signed with the project's debug key, which every release keeps (the maintainer decided not to use a release keystore), so updates install over each other; Android refuses to install it over an APK with another signature, such as your own build, so uninstall that one first. Validation is one tablet (Lenovo TB321FU, Adreno 750); see the limits at the end.
 
-1. Download the APK on the device, open it and allow installs from your browser or file manager when Android asks. Open the app once: it creates the folder `Android/data/io.github.freefrank.lostodyssey/files/game/` with a `README.txt` inside on the internal storage and on every SD card (current source; older versions only create the folder when the game itself starts). Then close it.
+1. Download the APK on the device, open it and allow installs from your browser or file manager when Android asks. Open the app once: it creates the folder `Android/data/io.github.freefrank.lostodyssey/files/game/` with a `README.txt` inside on the internal storage and on every SD card (older versions only create the folder when the game itself starts). Then close it.
 2. Prepare the game data on a PC. The easiest route is to import on the device (see the alternative below); otherwise use the desktop importer (any package) to produce `game/disc1`–`disc4` and, if you have it, `game/dlc/<content-id>` as described in [Importing game data](#automatic-content-import).
 3. Connect the device to the PC over USB in file-transfer (MTP) mode and copy the importer's `disc1`–`disc4` folders (and `dlc/`) into the `game` folder under `Android/data/io.github.freefrank.lostodyssey/files/` (on the internal storage or on an SD card), so that `…/files/game/disc1/default.xex` exists. The game uses the first storage, internal or SD card, that has that file, otherwise the internal one. Disc 1 is required; the other discs are found beside it. `adb push` to `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game` works too. On-device file managers usually cannot write into `Android/data`.
 
-   Import on the device (current source, after v0.8.6): the **Game folder** page has an **Import disc images…** button that starts the same importer as the desktop (source, disc and DLC review, destination, import with progress). Choose disc images (`.iso`) or extracted discs anywhere on the internal storage or an SD card; the source browser's left panel lists **Internal storage** and each **SD card <id>**, and starts in Download. The destination defaults to the custom game folder if one is set, otherwise the app folder `Android/data/io.github.freefrank.lostodyssey/files/game/` on the internal storage; you can pick another destination in the importer, and an import into a folder outside the app folders is remembered as the custom game folder. The four discs need about 20 GB free, plus the source images. It needs "All files access" (the storage permission on Android 8–10), which the page asks for first. After a finished import the game starts directly; cancelling returns to the **Game folder** page, and starting an import while playing stops the game after a confirmation. Controls: the on-screen controller (D-pad or left stick, **A** select, **B** back, **X** choose the current folder, **Y** new folder on the destination screen), a physical controller, or tapping list rows and buttons. The desktop importer with a USB copy remains a valid alternative.
+   Import on the device: the **Game folder** page has an **Import disc images…** button that starts the same importer as the desktop (source, disc and DLC review, destination, import with progress). Choose disc images (`.iso`) or extracted discs anywhere on the internal storage or an SD card; the source browser's left panel lists **Internal storage** and each **SD card <id>**, and starts in Download. The destination defaults to the custom game folder if one is set, otherwise the app folder `Android/data/io.github.freefrank.lostodyssey/files/game/` on the internal storage; you can pick another destination in the importer, and an import into a folder outside the app folders is remembered as the custom game folder. The four discs need about 20 GB free, plus the source images. It needs "All files access" (the storage permission on Android 8–10), which the page asks for first. After a finished import the game starts directly; cancelling returns to the **Game folder** page, and starting an import while playing stops the game after a confirmation. Controls: the on-screen controller (D-pad or left stick, **A** select, **B** back, **X** choose the current folder, **Y** new folder on the destination screen), a physical controller, or tapping list rows and buttons. The desktop importer with a USB copy remains a valid alternative.
 
-   Alternative without a PC or the importer (current source, after v0.8.6): the **Game folder** page opens instead of the game when no `disc1/default.xex` is found, and later from **CTRL → Game folder**. Copy the game folder (`disc1`–`disc4`) to any folder on the internal storage or an SD card with an on-device file manager, then press **Choose folder…** and pick it with the system folder picker (the folder that holds `disc1`, or `disc1` itself). Because the game reads files by path, this needs Android's "All files access" permission (the storage permission on Android 8–10); the page explains this and opens the system setting. A chosen folder that holds `disc1/default.xex` is used first, then the app folder on each storage. **Use app folder** clears the choice, and changing the folder while playing restarts the game.
+   Alternative without a PC or the importer: the **Game folder** page opens instead of the game when no `disc1/default.xex` is found, and later from **CTRL → Game folder**. Copy the game folder (`disc1`–`disc4`) to any folder on the internal storage or an SD card with an on-device file manager, then press **Choose folder…** and pick it with the system folder picker (the folder that holds `disc1`, or `disc1` itself). Because the game reads files by path, this needs Android's "All files access" permission (the storage permission on Android 8–10); the page explains this and opens the system setting. A chosen folder that holds `disc1/default.xex` is used first, then the app folder on each storage. **Use app folder** clears the choice, and changing the folder while playing restarts the game.
 4. Open the app. On Qualcomm devices the **GPU driver** page appears first: the device's own Vulkan driver leaves the text of the highlighted menu row invisible, so download a Mesa Turnip package (KIMCHI `Turnip_v26.0.0_R8.zip` was verified on an Adreno 750; the page shows which driver the Eden emulator recommends for your model) or keep **System GPU driver**, then press **Start game**. The page is reachable later from **CTRL → GPU driver**; changing the driver restarts the game. Other devices go straight to the game.
 5. The game offers the Vulkan shader pack download in the same window as the desktop; accept it with the on-screen **A** button (**B** skips and compiles on the device, which takes minutes). Later launches reuse the cache.
 
 Touch controls appear over the game. **CTRL** opens the controller settings (size, opacity, layout editor, and the GPU driver page); a USB or Bluetooth controller hides the touch controls automatically. Settings are changed on the in-game Settings page; there is no first-launch page.
 
-The app keeps settings in its private storage under `files/config/`, saves, profiles, the shader pack and cache under `files/` and downloaded GPU driver packages under `files/gpu_driver/`. Private storage is not visible to file managers; uninstalling the app deletes it together with the game data in `Android/data`. In current source, with **Automatic updates** on, the app checks for a newer release at startup and shows the same update prompt as the desktop (**Download (A)** / **Later (B)**); accepting opens the APK download in the browser. To update, install the new APK over the old one; saves and settings stay.
+The app keeps settings in its private storage under `files/config/`, saves, profiles, the shader pack and cache under `files/` and downloaded GPU driver packages under `files/gpu_driver/`. Private storage is not visible to file managers; uninstalling the app deletes it together with the game data in `Android/data`. With **Automatic updates** on, the app checks for a newer release at startup and shows the same update prompt as the desktop (**Download (A)** / **Later (B)**); accepting opens the APK download in the browser. To update, install the new APK over the old one; saves and settings stay.
 
 <a id="android-logs"></a>
 Logs are written to `Android/data/io.github.freefrank.lostodyssey/files/logs/`, where a PC connected over USB can copy them: `runtime-<timestamp>.log` for the current and two previous runs, `native-stderr.log` (and `native-stderr.previous.log` from the run before) with native output and crash reports, and `java-crash-<time>.txt` when the app itself fails. The phone model, Android version, GPU, Vulkan driver and the selected GPU driver package are recorded near the start of the runtime log. If the game crashes or stays black, open the app once more before copying, so the PC sees the complete files, and attach them to the report. On-device file managers on Android 11 and later usually cannot open `Android/data`. With adb, `adb logcat -s LostOdyssey` shows the same lines live.

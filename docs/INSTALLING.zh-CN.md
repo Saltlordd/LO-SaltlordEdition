@@ -2,13 +2,13 @@
 
 [English](INSTALLING.md)
 
-本文说明已发布的 v0.8.6 安装包（含实验性 Android APK）和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
+本文说明已发布的 v0.8.7 安装包（含实验性 Android APK）和当前源码路径。按平台下载程序，导入自己的游戏数据；更新时保留存档和个人配置目录。
 
 ## Windows 快速开始
 
 需要 Windows x64 和支持 AVX 的 CPU。Windows 默认使用 Direct3D 12。发布包已经包含导入器、更新器、DXC v1.8.2407 DLL 对及依赖许可证；游玩发布包不需要安装 Python 或 Visual Studio。
 
-1. 从 [v0.8.6 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)下载 `LostOdysseyRecomp-windows-x64-v0.8.6.zip`。
+1. 从 [v0.8.7 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7)下载 `LostOdysseyRecomp-windows-x64-v0.8.7.zip`。
 2. 将完整 ZIP 解压到可写目录，避免放在 `Program Files` 下。
 3. 运行 `LostOdysseyRecomp.exe`。未找到可用的游戏安装时，会打开内置导入器。
 4. 首次设置中选择界面语言、游戏语言和图形选项，完成着色器准备后进入游戏。游戏可能会先询问是否下载所选渲染器的预编译着色器，见[着色器准备](#shader-preparation)。
@@ -56,21 +56,21 @@ DLC 可以直接选择，也可以放在扫描目录中。支持的包需要包�
 
 ## Linux 安装包
 
-Linux 只使用 Vulkan。 [v0.8.6 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。不发布 Linux AArch64 安装包；实验性的源码构建和交叉编译路径见 [LINUX_ARM64.md](LINUX_ARM64.md)。
+Linux 只使用 Vulkan。 [v0.8.7 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7)提供 AppImage 和独立 Flatpak。Steam Deck 及其他 Linux 硬件仍只有限定范围的验证。不发布 Linux AArch64 安装包；实验性的源码构建和交叉编译路径见 [LINUX_ARM64.md](LINUX_ARM64.md)。
 
 ### AppImage
 
-下载 `LostOdysseyRecomp-linux-x64-v0.8.6.AppImage` 后运行：
+下载 `LostOdysseyRecomp-linux-x64-v0.8.7.AppImage` 后运行：
 
 ```bash
-chmod +x LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
-./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage
+chmod +x LostOdysseyRecomp-linux-x64-v0.8.7.AppImage
+./LostOdysseyRecomp-linux-x64-v0.8.7.AppImage
 ```
 
 可以直接使用图形导入器。若要指定路径启动，可传入游戏目录、`disc1` 或 `default.xex`：
 
 ```bash
-./LostOdysseyRecomp-linux-x64-v0.8.6.AppImage --game /path/to/game
+./LostOdysseyRecomp-linux-x64-v0.8.7.AppImage --game /path/to/game
 ```
 
 正常挂载运行的 AppImage 会把存档和设置放在 Linux 用户目录，见[文件位置](#file-locations)。`--game` 只选择游戏数据，不会切换为便携存储；把 `game-path.txt` 放在外层 `.AppImage` 文件旁不能配置这种运行方式。
@@ -87,7 +87,7 @@ flatpak install --user flathub org.freedesktop.Platform//26.08
 再安装并运行下载的 bundle：
 
 ```bash
-flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.6.flatpak
+flatpak --user install --bundle LostOdysseyRecomp-linux-x64-v0.8.7.flatpak
 flatpak run io.github.freefrank.LostOdysseyRecomp
 ```
 
@@ -107,7 +107,7 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## macOS（Apple Silicon，实验性）
 
-[v0.8.6 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)提供 `LostOdysseyRecomp-macos-arm64-v0.8.6.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.8.0 和 v0.8.6 应用声明的最低系统都是 macOS 15.0。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，并且会一直如此：维护者于 2026-10-03 决定不做 Developer ID 签名和公证。因此 macOS 会拦截首次启动。
+[v0.8.7 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7)提供 `LostOdysseyRecomp-macos-arm64-v0.8.7.dmg`，这是内含 `LostOdysseyRecomp.app` 和 Applications 链接的磁盘映像。需要 macOS 15 或更高版本的 Apple Silicon Mac，游戏使用 Metal 渲染。游戏本身只在 macOS 26.6.2 上运行过。v0.8.0 和 v0.8.7 应用声明的最低系统都是 macOS 15.0。v0.7.35 应用声明的最低系统仍是 macOS 14.0，但内置的着色器编译器（DXC）按 macOS 15 构建，游戏也从未在 macOS 14 上运行过，因此不支持 macOS 14（[详情](MACOS_RELEASE.md#minimum-macos-version)）。应用仅做 ad-hoc 签名、未经公证，并且会一直如此：维护者于 2026-10-03 决定不做 Developer ID 签名和公证。因此 macOS 会拦截首次启动。
 
 1. 下载磁盘映像并打开。
 2. 把 `LostOdysseyRecomp.app` 拖到窗口中的 Applications 链接上，然后推出磁盘映像。
@@ -126,21 +126,21 @@ Flatpak 默认游戏目录是 `/var/data/game`。manifest 允许访问 host、`/
 
 ## Android（实验性）
 
-[v0.8.6 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.6)随安装包一起提供 `LostOdysseyRecomp-android-arm64-v0.8.6.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
+[v0.8.7 发布](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7)随安装包一起提供 `LostOdysseyRecomp-android-arm64-v0.8.7.apk`。需要支持 Vulkan 的 64 位（arm64）Android 8.0 或更高版本设备，四张光盘约占 20 GB 空间，画面用 Vulkan 渲染。应用名显示为 "Lost Odyssey (development)"，使用项目固定的 debug 签名，每个版本都沿用（维护者决定不使用正式签名 keystore），因此可以互相覆盖安装；Android 不允许覆盖安装签名不同的 APK（例如你自己构建的版本），需要先卸载。验证只在一台平板（联想 TB321FU，Adreno 750）上做过，边界见本节末尾。
 
-1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次：它会在内部存储和每张 SD 卡上建好 `Android/data/io.github.freefrank.lostodyssey/files/game/` 目录，里面有一个 `README.txt`（当前源码；旧版本要等游戏本身启动后才建目录）。然后关闭。
+1. 在设备上下载 APK 并打开，按 Android 的提示允许来自浏览器或文件管理器的安装。打开应用一次：它会在内部存储和每张 SD 卡上建好 `Android/data/io.github.freefrank.lostodyssey/files/game/` 目录，里面有一个 `README.txt`（旧版本要等游戏本身启动后才建目录）。然后关闭。
 2. 在电脑上准备游戏数据。最省事的办法是直接在设备上导入（见下面的说明）；否则用任一桌面版的导入器生成 `game/disc1`–`disc4`，有 DLC 的话还有 `game/dlc/<content-id>`，方法见[导入游戏数据](#automatic-content-import)。
 3. 用 USB 把设备连到电脑，选文件传输（MTP）模式，把导入器生成的 `disc1`–`disc4` 目录（和 `dlc/`）复制到 `Android/data/io.github.freefrank.lostodyssey/files/` 下的 `game` 目录里（内部存储或 SD 卡均可），使 `…/files/game/disc1/default.xex` 存在。游戏使用第一个存在该文件的存储（内部存储或 SD 卡），否则用内部存储。必须有第 1 张光盘，其余光盘在它旁边查找。也可以 `adb push` 到 `/sdcard/Android/data/io.github.freefrank.lostodyssey/files/game`。设备上的文件管理器一般写不进 `Android/data`。
 
-   在设备上导入（当前源码，v0.8.6 之后）：**Game folder** 页面有 **Import disc images…** 按钮，启动和桌面版相同的导入器（来源、光盘与 DLC 检查、目标、带进度的导入）。来源可以是内部存储或 SD 卡上任意位置的光盘镜像（`.iso`）或已解出的光盘；来源浏览器左侧列出 **Internal storage** 和每张 **SD card <id>**，默认从 Download 开始。目标默认是已设置的自定义游戏文件夹，没有设置则是内部存储上的应用目录 `Android/data/io.github.freefrank.lostodyssey/files/game/`；也可以在导入器里选别的目标，导入到应用目录以外的文件夹时，应用会把它记为自定义游戏文件夹。四张光盘约需 20 GB 空闲空间，另加来源镜像。需要“所有文件访问”权限（Android 8–10 为存储权限），页面会先请求。导入完成后直接启动游戏；取消则回到 **Game folder** 页面，游戏运行中开始导入会在确认后先停止游戏。操作：屏幕手柄（方向键或左摇杆，**A** 选择，**B** 返回，**X** 选定当前文件夹，**Y** 在目标页面新建文件夹）、实体手柄，或点按列表行和按钮。桌面导入器加 USB 复制仍然可用。
+   在设备上导入：**Game folder** 页面有 **Import disc images…** 按钮，启动和桌面版相同的导入器（来源、光盘与 DLC 检查、目标、带进度的导入）。来源可以是内部存储或 SD 卡上任意位置的光盘镜像（`.iso`）或已解出的光盘；来源浏览器左侧列出 **Internal storage** 和每张 **SD card <id>**，默认从 Download 开始。目标默认是已设置的自定义游戏文件夹，没有设置则是内部存储上的应用目录 `Android/data/io.github.freefrank.lostodyssey/files/game/`；也可以在导入器里选别的目标，导入到应用目录以外的文件夹时，应用会把它记为自定义游戏文件夹。四张光盘约需 20 GB 空闲空间，另加来源镜像。需要“所有文件访问”权限（Android 8–10 为存储权限），页面会先请求。导入完成后直接启动游戏；取消则回到 **Game folder** 页面，游戏运行中开始导入会在确认后先停止游戏。操作：屏幕手柄（方向键或左摇杆，**A** 选择，**B** 返回，**X** 选定当前文件夹，**Y** 在目标页面新建文件夹）、实体手柄，或点按列表行和按钮。桌面导入器加 USB 复制仍然可用。
 
-   不用电脑也不用导入器的办法（当前源码，v0.8.6 之后）：找不到 `disc1/default.xex` 时会先打开 **Game folder** 页面而不是游戏，之后也可从 **CTRL → Game folder** 进入。先用设备上的文件管理器把游戏文件夹（`disc1`–`disc4`）复制到内部存储或 SD 卡上的任意文件夹，再点 **Choose folder…**，用系统文件夹选择器选中它（含 `disc1` 的文件夹，或 `disc1` 本身）。游戏按路径读取文件，所以需要 Android 的“所有文件访问”权限（Android 8–10 为存储权限）；页面会说明并打开系统设置。选定的文件夹里有 `disc1/default.xex` 时优先使用，否则依次用各存储上的应用目录。**Use app folder** 清除选择；游戏运行中更改文件夹会重启游戏。
+   不用电脑也不用导入器的办法：找不到 `disc1/default.xex` 时会先打开 **Game folder** 页面而不是游戏，之后也可从 **CTRL → Game folder** 进入。先用设备上的文件管理器把游戏文件夹（`disc1`–`disc4`）复制到内部存储或 SD 卡上的任意文件夹，再点 **Choose folder…**，用系统文件夹选择器选中它（含 `disc1` 的文件夹，或 `disc1` 本身）。游戏按路径读取文件，所以需要 Android 的“所有文件访问”权限（Android 8–10 为存储权限）；页面会说明并打开系统设置。选定的文件夹里有 `disc1/default.xex` 时优先使用，否则依次用各存储上的应用目录。**Use app folder** 清除选择；游戏运行中更改文件夹会重启游戏。
 4. 打开应用。高通设备会先显示 **GPU driver** 页面：设备自带的 Vulkan 驱动会让菜单光标所在行的文字消失，所以下载一个 Mesa Turnip 驱动包（KIMCHI `Turnip_v26.0.0_R8.zip` 在 Adreno 750 上验证过；页面会显示 Eden 模拟器对你的型号推荐哪个），或者保留 **System GPU driver**，然后按 **Start game**。之后可从 **CTRL → GPU driver** 再进这个页面；切换驱动会重启游戏。其他设备直接进入游戏。
 5. 游戏会用和桌面相同的窗口提示下载 Vulkan 着色器包，用屏幕上的 **A** 键接受（**B** 跳过并在设备上编译，需要几分钟）。之后启动会复用缓存。
 
 游戏画面上有触摸手柄。**CTRL** 打开手柄设置（大小、透明度、布局编辑器和 GPU driver 页面）；连接 USB 或蓝牙手柄后触摸手柄自动隐藏。设置在游戏内的设置页面修改，没有首次设置页面。
 
-应用把设置放在私有存储的 `files/config/`，存档、档案、着色器包和缓存放在 `files/` 下，下载的 GPU 驱动包在 `files/gpu_driver/`。私有存储文件管理器看不到；卸载应用会连同 `Android/data` 里的游戏数据一起删除。当前源码中，开启 **Automatic updates** 时应用启动会检查新版本，并显示和桌面版相同的更新提示（**Download (A)** / **Later (B)**），接受后在浏览器里打开 APK 下载。更新时直接覆盖安装新 APK，存档和设置会保留。
+应用把设置放在私有存储的 `files/config/`，存档、档案、着色器包和缓存放在 `files/` 下，下载的 GPU 驱动包在 `files/gpu_driver/`。私有存储文件管理器看不到；卸载应用会连同 `Android/data` 里的游戏数据一起删除。开启 **Automatic updates** 时应用启动会检查新版本，并显示和桌面版相同的更新提示（**Download (A)** / **Later (B)**），接受后在浏览器里打开 APK 下载。更新时直接覆盖安装新 APK，存档和设置会保留。
 
 <a id="android-logs"></a>
 日志写在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`，电脑通过 USB 连接可以复制：`runtime-<timestamp>.log` 是本次和之前两次运行的日志，`native-stderr.log`（以及上一次运行的 `native-stderr.previous.log`）包含 native 输出和崩溃报告，应用本身出错时还会有 `java-crash-<time>.txt`。运行日志开头记录了手机型号、Android 版本、GPU、Vulkan 驱动和所选的 GPU 驱动包。游戏闪退或一直黑屏时，复制前先再打开一次应用，让电脑看到完整的文件，然后把这些文件附到报告里。Android 11 及以上设备上的文件管理器一般打不开 `Android/data`。使用 adb 时，`adb logcat -s LostOdyssey` 可以实时看到同样的内容。
