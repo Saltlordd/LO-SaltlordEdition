@@ -256,3 +256,18 @@ The catalog and package logic has JVM tests:
 ```sh
 ./gradlew :runtime:testDebugUnitTest
 ```
+
+## Continuous integration
+
+`.gitea/workflows/android-apk.yml` builds this APK on git.zkx.ca's privileged
+Linux runner for every push that touches the runtime, the Android packaging,
+the patches or the workflow, and on manual dispatch. It follows this document:
+host recompiler tools and PPC code generation as in the Linux release job, the
+Android SDK packages from `sdkmanager`, `tools/android/build-dxc.sh` for the
+Android DXC, `tools/android/build-runtime.sh` (assemble + lint), then
+`:runtime:testDebugUnitTest`. The SDK/NDK, the DXC build, the Gradle home and
+ccache live on the runner's `LO_CI_CACHE` volume, so only the first run pays
+for the DXC compile. The APK is uploaded as the
+`LostOdysseyRecomp-android-arm64-debug` artifact and the result is mirrored to
+the GitHub commit as `gitea/android-apk`. A green run proves packaging, lint
+and the JVM tests, not device behaviour.

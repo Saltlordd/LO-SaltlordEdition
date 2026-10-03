@@ -1,0 +1,176 @@
+name: Android APK
+
+# Builds the arm64 development APK (tools/android/build-runtime.sh), runs the
+# runtime module's lint and JVM tests, and uploads the APK as an artifact. Runs
+# on git.zkx.ca only; the privileged runner's LO_CI_CACHE volume keeps the
+# Android SDK/NDK, the Android DXC build, the Gradle home and ccache between
+# runs, so the first run (which compiles DXC) is the slow one. A green run is
+# a packaging check, not device acceptance.
+on:
+  workflow_dispatch:
+  push:
+    branches: ['**']
+    paths:
+      - .gitea/workflows/android-apk.yml
+      - CMakeLists.txt
+      - cmake/**
+      - LostOdysseyRecomp/**
+      - packaging/android/**
+      - thirdparty/ffmpeg.cmake
+      - thirdparty/ffmpeg-config/android-aarch64/**
+      - thirdparty/libadrenotools/**
+      - tools/android/**
+      - tools/patches/**
+permissions:
+  contents: read
+jobs:
+  apk:
+    name: Android arm64 APK
+    runs-on: ubuntu-22.04-privileged
+    timeout-minutes: 240
+    env:
+      ANDROID_NDK_VERSION: 28.2.13676358
+      ANDROID_CMDLINE_TOOLS: https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install host toolchain for the recompiler tools
+        run: bash tools/release/install_appimage_toolchain.sh
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build file unzip wget ccache openjdk-17-jdk-headless
+          # Jammy's distribution CMake predates the project's 3.28 minimum.
+          python -m pip install 'cmake==3.31.6'
+          echo "JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64" >> "$GITHUB_ENV"
+      - name: Locate the persistent cache
+        run: |
+          if [ -z "${LO_CI_CACHE:-}" ]; then
+            echo 'This job needs the privileged runner and its LO_CI_CACHE volume.' >&2
+            exit 1
+          fi
+          mkdir -p "$LO_CI_CACHE/android-sdk" "$LO_CI_CACHE/android-dxc" "$LO_CI_CACHE/gradle" "$LO_CI_CACHE/ccache"
+          {
+            echo "ANDROID_HOME=$LO_CI_CACHE/android-sdk"
+            echo "LO_DXC_CACHE_DIR=$LO_CI_CACHE/android-dxc"
+            echo "GRADLE_USER_HOME=$LO_CI_CACHE/gradle"
+            echo "CCACHE_DIR=$LO_CI_CACHE/ccache"
+            echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE"
+            echo 'CCACHE_NOHASHDIR=1'
+            echo 'CCACHE_MAXSIZE=20G'
+          } >> "$GITHUB_ENV"
+          CCACHE_DIR="$LO_CI_CACHE/ccache" ccache --zero-stats >/dev/null
+      - name: Install the Android SDK packages
+        run: |
+          set -euo pipefail
+          tools="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$tools" ]; then
+            wget -q -O /tmp/cmdline-tools.zip "$ANDROID_CMDLINE_TOOLS"
+            sha256sum /tmp/cmdline-tools.zip
+            rm -rf /tmp/cmdline-tools && mkdir -p /tmp/cmdline-tools
+            unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools
+            mkdir -p "$ANDROID_HOME/cmdline-tools"
+            rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+            mv /tmp/cmdline-tools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+          fi
+          yes | "$tools" --licenses >/dev/null || true
+          "$tools" --install \
+            "platforms;android-35" "build-tools;35.0.0" "platform-tools" \
+            "ndk;$ANDROID_NDK_VERSION" "cmake;3.22.1" >/dev/null
+          "$tools" --list_installed
+      - name: Retrieve private build input
+        uses: actions/checkout@v4
+        with:
+          github-server-url: https://github.com
+          token: ${{ secrets.LO_GITHUB_TOKEN }}
+          repository: freefrank/LostOdysseyRecomp-build-inputs
+          ref: 77f076e0e03966736cbf8919ce793bafadce82d9
+          path: out/build-input
+          sparse-checkout: |
+            /default.xex
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Verify private build input
+        env:
+          LO_BUILD_XEX_PATH: out/build-input/default.xex
+        run: python tools/release/fetch_build_input.py
+      - name: Apply dependency patches
+        run: |
+          git -C tools/XenonRecomp apply --reverse --check ../patches/XenonRecomp-lostodyssey.patch >/dev/null 2>&1 || git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
+      - name: Build recompiler tools
+        run: |
+          cmake -S tools/xexdump -B out/build/tools -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang-18 \
+            -DCMAKE_CXX_COMPILER=clang++-18
+          cmake --build out/build/tools --target XenonRecomp XenonAnalyse xexdump
+      - name: Generate game code
+        run: |
+          out/build/tools/xexdump LostOdysseyRecompLib/private/disc1/default.xex LostOdysseyRecompLib/private/image_disc1.bin
+          python tools/ppc_codegen.py generate --executable out/build/tools/XenonRecomp/XenonRecomp/XenonRecomp
+      - name: Build or reuse the Android DXC
+        env:
+          LO_DXC_JOBS: '20'
+        run: bash tools/android/build-dxc.sh
+      - name: Build the runtime and package the APK
+        env:
+          LO_ANDROID_BUILD_DIR: ${{ github.workspace }}/out/build/android-runtime
+          LO_ANDROID_DXC: ${{ github.workspace }}/out/android-dxc/libdxcompiler.so
+          LO_BUILD_JOBS: '20'
+        run: |
+          bash tools/android/build-runtime.sh \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+      - name: Run the runtime module's JVM tests
+        working-directory: packaging/android
+        run: ./gradlew :runtime:testDebugUnitTest
+      - name: Compiler cache statistics
+        if: always()
+        run: ccache --show-stats || true
+      - name: Collect the APK
+        run: |
+          mkdir -p out/apk
+          cp packaging/android/runtime/build/outputs/apk/debug/runtime-debug.apk out/apk/LostOdysseyRecomp-android-arm64-debug.apk
+          sha256sum out/apk/*.apk
+      - uses: actions/upload-artifact@v3 # Gitea does not support v4
+        with:
+          name: LostOdysseyRecomp-android-arm64-debug
+          path: out/apk/*.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v3 # Gitea does not support v4
+        if: always()
+        with:
+          name: android-test-reports
+          path: |
+            packaging/android/runtime/build/reports/**
+            packaging/android/runtime/build/test-results/**
+          retention-days: 7
+  # Mirror the result onto the GitHub commit so pull requests show it. Needs a
+  # Gitea secret LO_GITHUB_TOKEN (fine-grained PAT, Commit statuses: write).
+  github-status:
+    needs: [apk]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Report to GitHub
+        env:
+          LO_GITHUB_TOKEN: ${{ secrets.LO_GITHUB_TOKEN }}
+          RESULTS: ${{ needs.apk.result }}
+          CONTEXT: gitea/android-apk
+          RUN_URL: https://git.zkx.ca/${{ github.repository }}/actions/runs/${{ github.run_number }}
+        run: |
+          if [ -z "$LO_GITHUB_TOKEN" ]; then echo 'LO_GITHUB_TOKEN is not set; skipping'; exit 0; fi
+          state=success
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; cancelled) [ "$state" = failure ] || state=error ;; *) state=failure ;; esac
+          done
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $LO_GITHUB_TOKEN" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/freefrank/LostOdysseyRecomp/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"$CONTEXT\",\"description\":\"Gitea Actions: $RESULTS\",\"target_url\":\"$RUN_URL\"}") || true
+          echo "GitHub status $state for $GITHUB_SHA -> HTTP $code"
