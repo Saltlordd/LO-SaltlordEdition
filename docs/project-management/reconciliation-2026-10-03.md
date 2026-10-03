@@ -39,6 +39,15 @@ A second pass the same night updated three more items through `sync.py --apply` 
 
 Both roadmaps were brought up to date with the same reads: #114, #116 and #121 closed, #118 open with the PR #149 fix pending, #103 closed, #148 and #151 opened on 2026-10-02 (11 open Issues at about 02:27 UTC on 2026-10-03), and items 9 and 11 of the v0.8.0 plan describe the merged Linux AArch64 and Android work. #103, #148 and #151 have no Project items, and none were created.
 
+## P3 to the backlog, P4 accepted
+
+On the maintainer's decisions the same night, P3's remainder moved to the backlog and all P4 validation was recorded as passed. Two items were updated through `sync.py --apply` (6 and then 4 operations, 0 conflicts) and the `Release` of P3 was cleared with `clearProjectV2ItemFieldValue`; the read-backs found 0 mismatches and the plan afterwards returned 248 unchanged, 0 conflicts, 0 operations.
+
+| Key | Before (Status / Delivery / Release) | After | Basis |
+| --- | --- | --- | --- |
+| `temporal-phased-p3-fg-infrastructure` | In Progress / In progress / v0.8.0 | Paused / Deferred / none; body and Evidence | The foundation (PR #72) is merged and used by the shipped frame generation. Its synchronization hazard is inside Streamline and stays under `streamline-vulkan-present-after-write`; resize, mode-switch and exit validation moved to P4. |
+| `temporal-phased-p4-dlss-fg-2x` | In Progress / In progress / v0.8.0 | Done / Validated / v0.8.0; body and Evidence | Maintainer acceptance of all P4 validation on 2026-10-03, including the lifecycle validation moved from P3. All criteria are checked on that acceptance; no new run is attached. |
+
 ## Evidence boundaries
 
 Read on 2026-10-03: the commits on `fix/native-frontend-rework` (local and git.zkx.ca; the branch is not on GitHub), the PR #84 and PR #89 states and the PR #89 closing comment, the PR #83 state, the PR #98 merge, and the Issue states and closure times above. The 70% native draw share, the per-swap count and the 4K120 ABBA numbers are quoted from the PR #89 closing comment and were not measured again. No build, game run or test was run for this pass.
