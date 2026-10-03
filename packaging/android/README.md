@@ -163,7 +163,16 @@ browser; desktop-style automatic install and restart and automatic tar
 capture packaging are not supported by this development target. The app
 creates `game/disc1`–`disc4` under `Android/data/<package>/files/` on the
 internal storage and every SD card when opened, and the game reads the first
-storage with `game/disc1/default.xex`, else the internal one. A successful
+storage with `game/disc1/default.xex`, else the internal one. A folder chosen on
+the **Game folder** page (shown at launch when no game data is found, and from
+**CTRL → Game folder**) is checked first; the game reads files by path, so it
+needs "All files access" (storage permission on Android 8–10), and changing the
+folder restarts the game. The page's **Import disc images…** button runs the
+desktop importer screens on the device (disc images or extracted discs from any
+storage; destination defaults to the chosen folder, else the app folder; a
+folder outside the app folders is remembered as the chosen one); it needs the
+same permission, starts the game when finished, returns to the page when
+cancelled, and stops a running game after a confirmation. A successful
 native link or Gradle package is not gameplay acceptance; install the APK and
 record resource loading, shader compilation, input, audio, lifecycle and a
 bounded game-flow test separately.
