@@ -102,6 +102,9 @@ namespace gpu::renderer
     // Null means this frame must use the ordinary SDR resolved surface.
     void SetHdrSceneEnabled(bool enabled);
     plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height);
+    // The pre-upscale extended-gamma scene kept for an upscaled resolve, for
+    // presentation's highlight gain; smaller than the resolve it belongs to.
+    plume::RenderTexture* AcquireHdrGainSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height);
     // Opt-in DLSS-G input from the exact current full resolve. Waits for the
     // producer fence only after a matching composited backbuffer is selected.
     bool AcquireFgCompositeInputs(uint32_t physicalAddress, frame_generation::CompositeHandoff& handoff);
