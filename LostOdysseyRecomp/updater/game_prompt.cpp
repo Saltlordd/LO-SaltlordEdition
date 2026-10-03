@@ -2,6 +2,9 @@
 
 #include <SDL.h>
 #include <host_ui/rasterizer.h>
+#if defined(__ANDROID__)
+#include <hid/android_touch.h>
+#endif
 #include <host_ui/widgets.h>
 
 #include <algorithm>
@@ -83,6 +86,26 @@ void BeginOffer(std::string_view version, std::string_view changelog, uint32_t u
     state.accepted = false;
     state.phase = Phase::Offer;
 }
+
+#if defined(__ANDROID__)
+// The on-screen controller covers the window and feeds hid, not SDL events:
+// its newly pressed buttons act like a controller's.
+void ApplyTouch(uint16_t &previous)
+{
+    const uint16_t buttons = hid::android_touch::Snapshot().buttons;
+    const uint16_t pressed = buttons & ~previous;
+    previous = buttons;
+    if (!pressed) return;
+    std::lock_guard lock(state.mutex);
+    if (state.phase != Phase::Offer) return;
+    if (pressed & 0x0001) state.scroll = std::max(0, state.scroll - 1); // D-pad up
+    if (pressed & 0x0002) state.scroll = std::min(MaxScroll(), state.scroll + 1); // D-pad down
+    if (pressed & 0x0004) state.selected = 0; // D-pad left
+    if (pressed & 0x0008) state.selected = 1; // D-pad right
+    if (pressed & 0x1000) Resolve(state.selected == 0); // A
+    else if (pressed & 0x2000) Resolve(false); // B
+}
+#endif
 }
 
 void ShowChecking(uint32_t uiLanguage)
@@ -152,6 +175,10 @@ bool ConfirmBeforeImport(std::string_view version, std::string_view changelog, u
     pixels.Resize(1280, 720);
     host_ui::Rasterizer rasterizer(pixels);
     const uint32_t windowId = SDL_GetWindowID(window);
+#if defined(__ANDROID__)
+    // Ignore a button still held from before the window opened.
+    uint16_t touchButtons = hid::android_touch::Snapshot().buttons;
+#endif
     while (Visible())
     {
         SDL_Event event;
@@ -172,6 +199,9 @@ bool ConfirmBeforeImport(std::string_view version, std::string_view changelog, u
                 HandleEvent(event, windowId, width, height);
             } while (Visible() && SDL_PollEvent(&event));
         }
+#if defined(__ANDROID__)
+        ApplyTouch(touchButtons);
+#endif
         if (!Visible()) break;
         Render(rasterizer);
         SDL_UpdateTexture(texture, nullptr, pixels.pixels.data(), 1280 * sizeof(uint32_t));
@@ -288,8 +318,9 @@ void Render(host_ui::Rasterizer &r)
         r.DrawString(122, 212 + (i - state.scroll) * 22, state.lines[i], white);
     if (MaxScroll())
         r.DrawString(112, 594, state.chinese ? "上下滚动查看全部内容" : "Scroll to read all changes", muted);
-#if defined(__APPLE__)
-    // macOS opens the release page; the signed app is replaced by the user.
+#if defined(__APPLE__) || defined(__ANDROID__)
+    // macOS opens the release page and Android downloads the APK in the
+    // browser; the user installs the new app.
     host_ui::DrawButton(r, 866, 618, 140, 46,
         state.chinese ? L"下载 (A)" : L"Download (A)", state.selected == 0);
 #else

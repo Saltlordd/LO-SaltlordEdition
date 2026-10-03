@@ -341,6 +341,12 @@ int wmain(int argc, wchar_t **argv)
        "browser_download_url":"https://github.com/freefrank/LostOdysseyRecomp/releases/download/v0.4.6/LostOdysseyRecomp-macos-arm64-v0.4.6.dmg"}]})", error);
     const auto macAsset = macRelease ? updater::SelectAsset(*macRelease, "macos", "arm64", error) : std::nullopt;
     Expect(macAsset && macAsset->size == 789, "macOS selects its disk image");
+    const auto androidRelease = updater::ParseGitHubRelease(R"({"tag_name":"v0.4.6","assets":[
+      {"name":"LostOdysseyRecomp-android-arm64-v0.4.6.apk","state":"uploaded","size":321,
+       "browser_download_url":"https://github.com/freefrank/LostOdysseyRecomp/releases/download/v0.4.6/LostOdysseyRecomp-android-arm64-v0.4.6.apk"}]})", error);
+    const auto androidAsset = androidRelease ? updater::SelectAsset(*androidRelease, "android", "arm64", error) : std::nullopt;
+    Expect(androidAsset && androidAsset->size == 321, "Android selects its APK");
+    Expect(release && !updater::SelectAsset(*release, "android", "arm64", error), "Android needs an APK");
     const auto legacyManifest = updater::ParsePackageManifest(
         R"({"version":"v9.9.9","development_build":false,"files":{"LostOdysseyRecomp.exe":"legacy-digest"}})", error);
     Expect(legacyManifest && legacyManifest->files.size() == 1 &&

@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
     }
     os::diagnostics::LogStartupEnvironment();
 
-#if !LO_PLATFORM_ANDROID && (defined(_WIN32) || defined(__linux__) || defined(__APPLE__))
+#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
     // Check for a newer runtime before opening the content importer or setup.
     if (!getenv("LO_HEADLESS") && !getenv("LO_BACKGROUND"))
     {
@@ -309,7 +309,7 @@ int main(int argc, char* argv[])
                 if (settings::restart::LaunchWaitingProcess(prepared.runnerPath.wstring(),
                                                              updater::ApplyHelperArguments(prepared.planPath)))
                     return 0;
-#elif defined(__linux__)
+#elif defined(__linux__) && !LO_PLATFORM_ANDROID
                 const std::string selfExe = updater::CurrentExecutablePath().string();
                 const std::string planStr = prepared.planPath.string();
                 const std::string waitPid = std::to_string(getpid());
@@ -425,7 +425,7 @@ int main(int argc, char* argv[])
 
     // After the update check and before shader preparation: when no installed
     // distribution pack matches the configured renderer, offer the published one.
-    // Android takes the same Vulkan pack as the desktop (no app update check there).
+    // Android takes the same Vulkan pack as the desktop.
     {
         updater::shader_pack::StartupRequest packRequest;
         packRequest.configuredBackend = settings::GetConfig().graphicsBackend;

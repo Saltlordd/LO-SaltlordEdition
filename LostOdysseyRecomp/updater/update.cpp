@@ -312,6 +312,8 @@ std::optional<ReleaseAsset> SelectAsset(const Release &release, std::string_view
     // macOS releases ship a disk image; the updater only opens the release page.
     else if (platform == "macos") extension = ".dmg";
     else if (platform == "linux") extension = ".AppImage";
+    // Android hands the APK to the browser; the system installer replaces the app.
+    else if (platform == "android") extension = ".apk";
     else { error = "unsupported update platform"; return std::nullopt; }
     const std::string expected = "LostOdysseyRecomp-" + std::string(platform) + "-" +
                                  std::string(architecture) + "-" + release.tag + extension;
