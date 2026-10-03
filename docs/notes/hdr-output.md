@@ -85,6 +85,22 @@ Same rig and protocol as above (RTX 5080, Vulkan, 2560×1440, frozen Uhra save, 
 
 Found and fixed on the way: the scene processor records the SDR pass and the HDR pass into the same command list, and the first build let them share `Presentation`'s pass pool and `SmaaPipeline` (an FXAA intermediate was re-created as FP16 while the SDR draw still referenced it, `VK_ERROR_DEVICE_LOST`). SDR and HDR now own separate pass pools and SMAA instances.
 
+## Upscaling with the presentation highlight gain — 2026-10-02
+
+Same rig and protocol (RTX 5080, 2560×1440 output, frozen Uhra save, foreground, exit 0, no `[error]` lines). `LO_SCREENSHOT_PRESENTED=1` read the presented frame back at swap 4500 and decoded it (`HDR screenshot: … linear_max=<content nits>`); an SDR frame on the PQ chain decodes to the 203-nit reference white, so the readback is the pass/fail signal.
+
+| Run | Gain applied | Presented peak |
+|---|---|---|
+| Vulkan, DLSS DLAA (2560×1440 → 2560×1440) | yes, 1:1 gain map | 841.8 nits, 9,246 pixels above white |
+| Vulkan, DLSS Quality (1707×960 → 2560×1440) | yes, upsampled gain map | 886.4 nits, 6,040 above white |
+| Vulkan, FSR Quality (1706×960 → 2560×1440) | yes | 885.0 nits, 7,913 above white |
+| Vulkan, DLSS-G ×2 + DLAA, 80 s | yes | DLSS-G `runtime=ready status=0`, 4,391 generated intervals |
+| Direct3D 12, DLSS Quality, 45 s | yes | `display_active=true peak=1015`; readback swap not reached in 45 s |
+
+Before the fix the same DLAA/Quality/FSR runs decoded 204.8 / 205.0 / 204.8 nits: the sidecar was never recorded because the recording block, not only the forwarding, was gated on `requestedUpscaler == Off`; and the first attempt to find the input resolve by the consumer's color texture failed because DLSS reads its own copy (`promotion source … found=`), so the scene is now identified through `temporalScene.Color()`. With DLAA (input == output) the first working build presented the raw sidecar instead of the DLAA'd frame because the same-size check in `AcquireHdrResolvedSurface` admitted it; gain surfaces now have their own `AcquireHdrGainSurface` and are never returned as a direct scene.
+
+SDR previews look like the SDR runs (the preview tone-maps the HDR frame). Not checked: the gain map at a highlight's dark edge on a panel (the brightness weight is the only halo guard), UI over clipped areas, MetalFX temporal and spatial (Mac not run), AO + upscaling, Android.
+
 ## Unfinished validation
 
 On 2026-10-02 the Metal HDR path compiled on an M1 Max (macOS 26.6.2) and the opening battle ran with HDR requested, but that Mac was in clamshell mode on an external display without EDR headroom: the game kept its linear EDR output without HDR (`encoding=2 display_active=false`), the inactive case changed above. Its screenshots matched an SDR run, but they are re-encoded previews and could not show the shadow difference. Metal HDR output itself has not been seen yet. Linux Wayland/Gamescope HDR and packaged AppImage/Flatpak output have not been run on HDR hardware in the collected evidence. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify its platform/backend/display scope. Broader scenes, GPUs, display modes, monitor changes, system HDR toggles, performance and long play remain open validation work.
