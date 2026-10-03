@@ -3627,7 +3627,7 @@
     {
       "key": "hdr-output-tonemapping",
       "title": "Add HDR output and tone mapping",
-      "body": "<!-- lo-project:hdr-output-tonemapping -->\n\n建立完整 HDR 输出与色调映射链。v0.7.35（PR #145）提供了实验性的 HDR 输出路径和亮度校准页；完整链路仍有未完成的范围。\n\n## Scope and completion criteria\n\n- [ ] 核对场景线性颜色、曝光和输出传递函数（v0.7.35 的初始路径在 FP16 中保留合格的场景高光，并在最终呈现时应用所选的纸白和峰值；AA、放大和帧生成需为 Off）\n- [x] 实现显示器/交换链模式协商、设置与可靠 SDR 回退（实验性，PR #145：Windows D3D12 scRGB，Windows/Linux Vulkan HDR10/PQ 或扩展线性，macOS Metal EDR；没有精确的表面格式和色彩空间组合时回退到 SDR；启用 HDR 需要重启）\n- [ ] 保护 UI 亮度和影片/过场行为\n\n## Validation and acceptance\n\n真实 HDR 显示器下验证动态范围、色彩、亮度、模式切换及截图含义。\n\n维护者 2026-10-02 确认做过设备上的 HDR 验证，但没有记录具体的平台、后端和显示器，所以这不能证明跨平台覆盖。自动检查：Windows D3D12 和 Vulkan 的图案、场景、峰值调整和 PQ 夹具以及默认 SDR 回归通过；Windows Vulkan 协商到 HDR10/PQ 表面并完成 HDR→SDR→HDR 缩放；WSLg Wayland 表面测试安全回退到 SDR。在 M1 Max 上 Metal 路径编译并运行了开场战斗（请求 HDR），但外接显示器没有 EDR 余量，输出仍是 SDR，所以没有见过 Metal 的 HDR 输出本身。Linux 和 Mac 的 HDR 显示器没有试过。初始路径要求 AA、放大和帧生成为 Off，且空间滤镜不是 MetalFX。\n\n已随 v0.7.35 发布，没有报告者确认，维护者尚未验收；实现、测试、发布与用户验收独立。\n\nDependencies (source keys): `temporal-color-exposure`.\n\nstage_detail: Released in v0.7.35 as experimental; scene/exposure contract, UI and movie behavior, and display validation remain open\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [PR #145](https://github.com/freefrank/LostOdysseyRecomp/pull/145)\n- [docs/notes/hdr-output.md](https://github.com/freefrank/LostOdysseyRecomp/blob/95f2c8968d0c5c29a7e96c76c76bef0d9434ebbe/docs/notes/hdr-output.md)\n- [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)\n\n\n## Open Issue association\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/90 requests HDR and save states. HDR shipped as an experimental option in v0.7.35 (PR #145); the issue stays open for save states, which are tracked separately as `save-state-support`.\n",
+      "body": "<!-- lo-project:hdr-output-tonemapping -->\n\n建立完整 HDR 输出与色调映射链。v0.7.35（PR #145）提供了实验性的 HDR 输出路径和亮度校准页，v0.8.0（PR #159、#162）让它可与 AA、放大和 Vulkan DLSS 帧生成同时使用；完整链路仍有未完成的范围。\n\n## Scope and completion criteria\n\n- [ ] 核对场景线性颜色、曝光和输出传递函数（v0.7.35 的初始路径在 FP16 中保留合格的场景高光，并在最终呈现时应用所选的纸白和峰值；v0.8.0 起 AA、放大和 Vulkan DLSS 帧生成可与 HDR 同时开启，D3D12 和 Metal 的帧生成仍使用 SDR 交换链）\n- [x] 实现显示器/交换链模式协商、设置与可靠 SDR 回退（实验性，PR #145：Windows D3D12 scRGB，Windows/Linux Vulkan HDR10/PQ 或扩展线性，macOS Metal EDR；没有精确的表面格式和色彩空间组合时回退到 SDR；启用 HDR 需要重启）\n- [ ] 保护 UI 亮度和影片/过场行为\n\n## Validation and acceptance\n\n真实 HDR 显示器下验证动态范围、色彩、亮度、模式切换及截图含义。\n\n维护者 2026-10-02 确认做过设备上的 HDR 验证，但没有记录具体的平台、后端和显示器，所以这不能证明跨平台覆盖。自动检查：Windows D3D12 和 Vulkan 的图案、场景、峰值调整和 PQ 夹具以及默认 SDR 回归通过；Windows Vulkan 协商到 HDR10/PQ 表面并完成 HDR→SDR→HDR 缩放；WSLg Wayland 表面测试安全回退到 SDR。在 M1 Max 上 Metal 路径编译并运行了开场战斗（请求 HDR），但外接显示器没有 EDR 余量，输出仍是 SDR，所以没有见过 Metal 的 HDR 输出本身。Linux 和 Mac 的 HDR 显示器没有试过。初始路径要求 AA、放大和帧生成为 Off，且空间滤镜不是 MetalFX。\n\n已随 v0.7.35 发布，v0.8.0 扩展了与 AA、放大和 Vulkan 帧生成同时使用的范围，没有报告者确认，维护者尚未验收；实现、测试、发布与用户验收独立。\n\n## v0.8.0 — 2026-10-03\n\nv0.8.0（2026-10-03T06:41:51Z）通过 PR #159 和 #162 发布：Vulkan 在启动时创建 HDR 交换链，AA 或放大启用时把 SDR 场景经输出变换显示，所以关掉它们不需要重启；FXAA、SMAA 和 TAA 在 HDR 场景上运行第二个 FP16 pass；DLSS、FSR 和 MetalFX 仍对 SDR 场景放大，呈现 pass 只对接近削顶的像素从 HDR 场景展开；Vulkan DLSS 帧生成使用 HDR10/PQ 交换链（`LO_HDR_FG=0` 可关闭），D3D12 和 Metal 的帧生成保持 SDR 交换链。RTX 5080（Vulkan，1440p）上 FXAA、SMAA、TAA 各运行 70 秒、退出码 0、没有错误；放大运行在第 4500 次交换时读回的呈现帧（SDR 帧解码为 203 nit）：DLAA 841.8、DLSS Quality 886.4、FSR Quality 885.0 nit，之前为 204–205；DLSS-G ×2 加 DLAA 运行 80 秒，生成 4,391 个间隔；D3D12 的 SMAA 和 DLSS Quality 报告 `display_active=true`。M1 Max 上 MetalFX temporal 请求 HDR 时经增益 pass 呈现，读回 4.73 EDR 单位；TB321FU 上只从日志看到 HDR10/PQ 表面和带 GTAO 的 SMAA pass。\n\n维护者 2026-10-03 在 Issue #90 写到 HDR 在他的 Mac、Windows 和 Android 设备上、用 D3D12 和 Vulkan 通过了测试（没有记录显示器和设置），随后以存档状态推迟为由关闭了 #90；该 Issue 里一位报告者问 HDR 现在能否与 AA、放大和插帧同时使用，没有记录到回答。没有覆盖：面板实测、呈现路径里在 HDR 帧上应用 AA、AO 与 AA 或放大同时开启、高光边缘的增益图、第二个 AA pass 的开销。Issue #179（白电平不正确）仍然打开，本次没有审阅。\n\nDependencies (source keys): `temporal-color-exposure`.\n\nstage_detail: Released in v0.7.35 as experimental and extended in v0.8.0; scene/exposure contract, UI and movie behavior, and display validation remain open\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [PR #145](https://github.com/freefrank/LostOdysseyRecomp/pull/145)\n- [docs/notes/hdr-output.md](https://github.com/freefrank/LostOdysseyRecomp/blob/95f2c8968d0c5c29a7e96c76c76bef0d9434ebbe/docs/notes/hdr-output.md)\n- [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)\n- [PR #159](https://github.com/freefrank/LostOdysseyRecomp/pull/159)\n- [PR #162](https://github.com/freefrank/LostOdysseyRecomp/pull/162)\n- [v0.8.0 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)\n\n\n## Open Issue association\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/90 requests HDR and save states. HDR shipped as an experimental option in v0.7.35 (PR #145); HDR gained AA, upscaler and Vulkan frame-generation support in v0.8.0 (PRs #159, #162); the maintainer closed the issue on 2026-10-03T06:50Z because save states are postponed, tracked separately as `save-state-support`.\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
@@ -3637,7 +3637,7 @@
         "Release": "v0.7.35",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Released as an experimental option in v0.7.35 (PR #145; published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted) for Windows D3D12 and Vulkan, Linux Vulkan and macOS Metal. Needs AA, upscaling and frame generation Off. The maintainer confirmed on-device HDR validation on 2026-10-02 without recording platform, backend or display, so cross-platform coverage is not established. Windows Vulkan negotiated HDR10/PQ; WSLg only fell back to SDR; on an M1 Max the external display had no EDR headroom, so Metal HDR output was not seen. Linux and Mac HDR displays are untried. Issue #90 stays open for save states (separate record)."
+        "Evidence": "Experimental option in v0.7.35 (PR #145; Windows D3D12 and Vulkan, Linux Vulkan, macOS Metal). v0.8.0 (published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted) adds PRs #159 and #162: HDR with FXAA/SMAA/TAA, DLSS/FSR/MetalFX and Vulkan DLSS frame generation (D3D12 and Metal frame generation keep an SDR swap chain). RTX 5080, Vulkan, 1440p: AA modes ran 70 s without errors; presented-frame readback rose from 204-205 to 841.8 (DLAA), 886.4 (DLSS Quality) and 885.0 (FSR Quality) nits; Metal and Android only from logs and readbacks. On #90 (closed 2026-10-03T06:50Z, save states postponed) the maintainer wrote that HDR passed on their Mac, Windows and Android hardware with D3D12 and Vulkan, without recording display or settings. A reporter's question there about AA, upscaling and frame generation has no recorded answer; #179 (white levels) is open and unreviewed. Open: scene/exposure contract, UI and movies, panel measurements, AO with AA or upscaling."
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -3646,7 +3646,10 @@
         "docs/ROADMAP.zh-CN.md#阶段-4现代化",
         "https://github.com/freefrank/LostOdysseyRecomp/pull/145",
         "docs/notes/hdr-output.md",
-        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35"
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/159",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/162",
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0"
       ],
       "source_lines": [
         {
@@ -3663,22 +3666,27 @@
     {
       "key": "higher-resolution-shadows",
       "title": "Add higher-resolution shadow rendering",
-      "body": "<!-- lo-project:higher-resolution-shadows -->\n\n提升阴影分辨率并验证资源与画面收益。\n\n## Scope and completion criteria\n\n- [ ] 确定可安全缩放的 shadow map/viewport/采样偏移\n- [ ] 评估质量档、显存、性能、bias 与各类型阴影合约\n\n## Validation and acceptance\n\n相同场景和光源比较分辨率/画质/性能，避免引入自阴影和边缘闪烁。\n\n尚未完成所列场景验收；实现/发布/测试与用户验收独立。\n\nstage_detail: Not started\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n",
+      "body": "<!-- lo-project:higher-resolution-shadows -->\n\n提升阴影分辨率并验证资源与画面收益。v0.8.0（[PR #155](https://github.com/freefrank/LostOdysseyRecomp/pull/155)）提供了 Graphics 设置“阴影分辨率”（1×、2×、4×，默认 1×）：它只缩放识别出的 ShadowDepthRT/ShadowDepthZ 目标，倍率作用于每个纹理轴，所以 2× 是 4 倍纹素、4× 是 16 倍；它不会缩放所有深度表面，也不替换游戏的阴影算法。\n\n## Scope and completion criteria\n\n- [x] 确定可安全缩放的 shadow map/viewport/采样偏移（PR #155：阴影目标总是预设为 896 行，被丢弃的 surface 的 view 会安全回收）\n- [ ] 评估质量档、显存、性能、bias 与各类型阴影合约（1×/2×/4× 质量档已提供；帧率没有测，显存开销没有记录，只在 #118 的存档、Uhra 和开场战斗里看过画面）\n\n## Validation and acceptance\n\n相同场景和光源比较分辨率/画质/性能，避免引入自阴影和边缘闪烁。\n\nPR #155 的检查：`LoShadowResolutionTest`（3,337 项）和 `LoMenuFlowTest` 通过；D3D12 和 Vulkan 的局部深度清除夹具在 1×、2×、4× 下逐像素无差异；默认设置下 Uhra 存档 4K 画面与 `main` 相差约 1% 像素，`main` 与自身相比也如此；GTAO 加 4× 阴影在 #118 存档上两个后端都渲染正确；M1 Max 的 `new-game-battle` 场景在默认设置和 GTAO 加 4× 阴影下通过；TB321FU 上 GTAO 加 4× 阴影渲染了开场战斗。帧率没有基准测试（当时另一个进程在编译）。维护者在 Issue #112 回复“Done!”，并于 2026-10-03T06:54Z 关闭了它；没有报告者确认。\n\n已随 v0.8.0 发布，维护者尚未验收；实现、测试、发布与验收分别记录。\n\nstage_detail: Released in v0.8.0; performance, VRAM cost and broader scenes not validated\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [PR #155](https://github.com/freefrank/LostOdysseyRecomp/pull/155)\n- [Issue #112](https://github.com/freefrank/LostOdysseyRecomp/issues/112)\n- [docs/notes/shadow-ambient-occlusion.md](https://github.com/freefrank/LostOdysseyRecomp/blob/eddbb7db76acf532523c50ce8044a573d35f5f1d/docs/notes/shadow-ambient-occlusion.md)\n- [v0.8.0 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": null,
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.0",
         "Start date": null,
-        "Target date": null
+        "Target date": null,
+        "Evidence": "Shadow resolution setting (1x, 2x, 4x; default 1x) shipped in v0.8.0 (PR #155, merged 2026-10-02T21:44Z; published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). PR checks: LoShadowResolutionTest (3,337 checks) and LoMenuFlowTest passed; at default settings on the Uhra save at 4K, D3D12 and Vulkan differed from main in about 1% of pixels, as main does against itself; 4x shadows rendered the #118 save correctly on both; the M1 Max new-game-battle scenario passed at default and at 4x; the TB321FU rendered the opening battle at 4x. Frame rates were not benchmarked (another process was compiling) and the VRAM cost is not recorded. The maintainer closed #112 with 'Done!' on 2026-10-03; no reporter confirmation."
       },
       "source_refs": [
         "docs/ROADMAP.md",
         "docs/ROADMAP.zh-CN.md",
         "docs/ROADMAP.md#phase-4-modernization",
-        "docs/ROADMAP.zh-CN.md#阶段-4现代化"
+        "docs/ROADMAP.zh-CN.md#阶段-4现代化",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/155",
+        "https://github.com/freefrank/LostOdysseyRecomp/issues/112",
+        "docs/notes/shadow-ambient-occlusion.md",
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0"
       ],
       "source_lines": [
         {
@@ -3695,22 +3703,27 @@
     {
       "key": "ssao-and-reshade-depth",
       "title": "Evaluate SSAO and clean depth access",
-      "body": "<!-- lo-project:ssao-and-reshade-depth -->\n\n研究 SSAO，并为 ReShade 提供正确、稳定的场景深度。\n\n## Scope and completion criteria\n\n- [ ] 识别 UI 前的正确深度/尺寸/范围与生命周期\n- [ ] 评估深度别名、重建、jitter 和场景切换\n- [ ] 定义 SSAO 接入点与深度暴露方式\n\n## Validation and acceptance\n\n用多场景深度可视化与实际效果验证前后层级、遮挡、UI 和切换。\n\n尚未完成所列场景验收；实现/发布/测试与用户验收独立。\n\nstage_detail: Not started\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n",
+      "body": "<!-- lo-project:ssao-and-reshade-depth -->\n\n研究 SSAO，并为 ReShade 提供正确、稳定的场景深度。v0.8.0（[PR #155](https://github.com/freefrank/LostOdysseyRecomp/pull/155)）把 SSAO 和 GTAO 作为实验性的 Graphics 设置（关闭、SSAO、GTAO，默认关闭）发布：它们使用当前帧已解析的深度和颜色，从深度重建法线，在 gamma 编码的场景颜色（HDR 时还有匹配的扩展 gamma 旁路）上做后期合成，场景输入不可靠时跳过该场景。它们无法区分环境光和直接光，也不能替换原生材质光照；目前 40 个游戏单位的半径没有按米校准，也没有逐场景调整。ReShade 深度暴露这一半没有工作记录。\n\n## Scope and completion criteria\n\n- [ ] 识别 UI 前的正确深度/尺寸/范围与生命周期（AO 用的是当前帧已解析的深度，实际 UI 前范围与生命周期没有专门核对）\n- [ ] 评估深度别名、重建、jitter 和场景切换（AO 与 AA 或放大同时开启的情况没有覆盖）\n- [ ] 定义 SSAO 接入点与深度暴露方式（SSAO/GTAO 的接入点已定义并发布；面向 ReShade 的深度暴露方式没有记录）\n\n## Validation and acceptance\n\n用多场景深度可视化与实际效果验证前后层级、遮挡、UI 和切换。\n\nPR #155 的检查：`LoAmbientOcclusionGpuTest`（D3D12，合成数据）和 `LoDepthClearGpuTest` 通过；GTAO 加 4× 阴影在 #118 存档上两个后端都渲染正确；M1 Max 的场景在 GTAO 加 4× 阴影下通过；TB321FU 上渲染了开场战斗。没有覆盖：AO 与 AA 或放大同时开启、帧率、逐场景调整。维护者在 Issue #112 回复“Done!”，并于 2026-10-03T06:54Z 关闭了它；没有报告者确认。\n\nSSAO/GTAO 已随 v0.8.0 发布，维护者尚未验收；实现、测试、发布与验收分别记录。\n\nstage_detail: SSAO/GTAO released in v0.8.0 as experimental; ReShade depth exposure and broader validation remain open\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.md) (repository reference; working-tree requirements may be newer)\n- [docs/ROADMAP.zh-CN.md](https://github.com/freefrank/LostOdysseyRecomp/blob/147bffb214cd3650f3eadb810e86f7237511ac23/docs/ROADMAP.zh-CN.md) (repository reference; working-tree requirements may be newer)\n- [PR #155](https://github.com/freefrank/LostOdysseyRecomp/pull/155)\n- [Issue #112](https://github.com/freefrank/LostOdysseyRecomp/issues/112)\n- [docs/notes/shadow-ambient-occlusion.md](https://github.com/freefrank/LostOdysseyRecomp/blob/eddbb7db76acf532523c50ce8044a573d35f5f1d/docs/notes/shadow-ambient-occlusion.md)\n- [v0.8.0 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)\n",
       "issue_url": null,
       "fields": {
         "Kind": "Research",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": null,
+        "Status": "In Progress",
+        "Delivery": "Released",
+        "Release": "v0.8.0",
         "Start date": null,
-        "Target date": null
+        "Target date": null,
+        "Evidence": "Experimental ambient occlusion (Off, SSAO, GTAO; default Off) shipped in v0.8.0 (PR #155, merged 2026-10-02T21:44Z; published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). It uses the current frame's resolved depth and colour, rebuilds normals from depth and skips a scene whose inputs look unreliable. No ReShade depth-exposure work is recorded: that half stays open. Checks: LoAmbientOcclusionGpuTest (D3D12, synthetic) and LoDepthClearGpuTest passed; GTAO rendered the #118 save on D3D12 and Vulkan, the M1 Max scenario and the TB321FU opening battle. AO with anti-aliasing or upscaling, frame rates and scene-by-scene tuning (the 40-unit radius is uncalibrated) are not covered. The maintainer closed #112 with 'Done!' on 2026-10-03; no reporter confirmation."
       },
       "source_refs": [
         "docs/ROADMAP.md",
         "docs/ROADMAP.zh-CN.md",
         "docs/ROADMAP.md#phase-4-modernization",
-        "docs/ROADMAP.zh-CN.md#阶段-4现代化"
+        "docs/ROADMAP.zh-CN.md#阶段-4现代化",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/155",
+        "https://github.com/freefrank/LostOdysseyRecomp/issues/112",
+        "docs/notes/shadow-ambient-occlusion.md",
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0"
       ],
       "source_lines": [
         {
@@ -4094,9 +4107,9 @@
         "Kind": "Feature",
         "Area": "Temporal rendering",
         "Status": "Done",
-        "Delivery": "Validated",
+        "Delivery": "Released",
         "Release": "v0.8.0",
-        "Evidence": "Maintainer accepted all P4 validation as passed on 2026-10-03, including the resize, mode-switch and exit validation moved from P3. Vulkan DLSS frame generation (fixed 2× to 6×) shipped in v0.7.35 through PR #119 on the foundation of PR #72. The Streamline PRESENT-AFTER-WRITE exception stays deferred under streamline-vulkan-present-after-write.",
+        "Evidence": "Maintainer accepted all P4 validation as passed on 2026-10-03, including the resize, mode-switch and exit validation moved from P3. Vulkan DLSS frame generation (fixed 2× to 6×) shipped in v0.7.35 through PR #119 on the foundation of PR #72. The Streamline PRESENT-AFTER-WRITE exception stays deferred under streamline-vulkan-present-after-write. v0.8.0 (published 2026-10-03T06:41:51Z; not accepted) is the milestone release; it adds HDR with Vulkan DLSS frame generation (PR #162).",
         "Source key": "temporal-phased-p4-dlss-fg-2x"
       },
       "source_refs": [
@@ -5012,7 +5025,7 @@
     {
       "key": "native-macos-platform",
       "title": "Establish a native macOS (AArch64 / Apple Silicon) port",
-      "body": "<!-- lo-project:native-macos-platform -->\n\nNative macOS AArch64 (Apple Silicon) port, planned as a roadmap target for milestone v0.8.0. An experimental arm64/Metal path was included in the v0.7.25 source as a source-build path, and the first package shipped ahead of that milestone in v0.7.35.\n\n## Scope and completion criteria\n\n- [x] Establish toolchain, dependencies, distribution and platform integration feasibility on macOS AArch64 / Apple Silicon.\n- [ ] Define Metal/Vulkan (MoltenVK), window, input, audio, and guest memory alignment requirements for native macOS.\n- [ ] Validate a proportionate native macOS AArch64 path after implementation is authorized.\n\n## Delivery and validation — 2026-10-02\n\nv0.7.35 (published 2026-10-02T09:13:35Z) ships the first macOS package, `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` (60,429,795 bytes, SHA-256 `4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94`): experimental, ad-hoc signed and not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand. The app declares macOS 14.0 as its minimum but has only run on macOS 26.6.2. The only recorded run is the opening new-game battle on that M1 Max with Metal and the downloaded Metal shader pack. Long play, broader scenes, other Macs, image quality, performance, notarization, and Metal HDR output or MetalFX frame generation on Mac hardware are not validated. Publication is not acceptance.\n\n## Boundaries\n\nAn experimental arm64/Metal implementation and a first package exist; hardware validation covers one machine, and player acceptance, notarized distribution and broader platform support are not established.\n\n\n## Open Issue association\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/96 tracked an external Apple Silicon/Metal fork and proposed upstream portability work; it was closed as completed on 2026-10-01. The remaining platform work (long play, other Macs, notarization) stays open in this record.\n\n## Sources\n\n- [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)\n- [docs/MACOS_RELEASE.md](https://github.com/freefrank/LostOdysseyRecomp/blob/95f2c8968d0c5c29a7e96c76c76bef0d9434ebbe/docs/MACOS_RELEASE.md)\n",
+      "body": "<!-- lo-project:native-macos-platform -->\n\nNative macOS AArch64 (Apple Silicon) port, planned as a roadmap target for milestone v0.8.0. An experimental arm64/Metal path was included in the v0.7.25 source as a source-build path, and the first package shipped ahead of that milestone in v0.7.35.\n\n## Scope and completion criteria\n\n- [x] Establish toolchain, dependencies, distribution and platform integration feasibility on macOS AArch64 / Apple Silicon.\n- [ ] Define Metal/Vulkan (MoltenVK), window, input, audio, and guest memory alignment requirements for native macOS.\n- [ ] Validate a proportionate native macOS AArch64 path after implementation is authorized.\n\n## Delivery and validation — 2026-10-02\n\nv0.7.35 (published 2026-10-02T09:13:35Z) ships the first macOS package, `LostOdysseyRecomp-macos-arm64-v0.7.35.dmg` (60,429,795 bytes, SHA-256 `4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94`): experimental, ad-hoc signed and not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand. The app declares macOS 14.0 as its minimum but has only run on macOS 26.6.2. The only recorded run is the opening new-game battle on that M1 Max with Metal and the downloaded Metal shader pack. Long play, broader scenes, other Macs, image quality, performance, notarization, and Metal HDR output or MetalFX frame generation on Mac hardware are not validated. Publication is not acceptance.\n\n## Later releases - 2026-10-03\n\nv0.8.0 (2026-10-03T06:41:51Z) and v0.8.5 (2026-10-03T18:45:17Z) each shipped a new disk image, built on the maintainer's M1 Max and uploaded by hand. Since PR #147 (v0.8.0) the app requires macOS 15 or later; the 14.0 minimum above was the v0.7.35 value. The v0.8.5 image's `hdiutil verify` and `codesign --verify --strict --deep` (ad hoc signature) checks passed and its bundle version is 0.8.5; it was not installed from a download and no game run was made with it. On 2026-10-03 the maintainer decided that macOS packages stay ad-hoc signed and that Developer ID signing and notarization will not be done.\n\n## Boundaries\n\nAn experimental arm64/Metal implementation and a first package exist; hardware validation covers one machine, and player acceptance, notarized distribution and broader platform support are not established.\n\n\n## Open Issue association\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/96 tracked an external Apple Silicon/Metal fork and proposed upstream portability work; it was closed as completed on 2026-10-01. The remaining platform work (long play, other Macs, notarization) stays open in this record.\n\n## Sources\n\n- [v0.7.35 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35)\n- [docs/MACOS_RELEASE.md](https://github.com/freefrank/LostOdysseyRecomp/blob/95f2c8968d0c5c29a7e96c76c76bef0d9434ebbe/docs/MACOS_RELEASE.md)\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
@@ -5022,7 +5035,7 @@
         "Release": "v0.7.35",
         "Start date": null,
         "Target date": null,
-        "Evidence": "First macOS package shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted), ahead of the v0.8.0 plan: LostOdysseyRecomp-macos-arm64-v0.7.35.dmg (60,429,795 bytes, SHA-256 4c8998fe42105c7db5492b5fc666a1185692682a54287866a61bd27076d76d94), experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand. The arm64/Metal source-build path was in v0.7.25. Validated only on one M1 Max (macOS 26.6.2): the opening new-game battle with Metal and the downloaded Metal shader pack. The app declares macOS 14.0 but has only run on 26.6.2. Long play, broader scenes, other Macs, performance and Metal HDR or MetalFX output on Mac hardware are open. On 2026-10-03 the maintainer decided that macOS packages stay ad-hoc signed: Developer ID signing and notarization will not be done. Issue #96 closed as completed on 2026-10-01."
+        "Evidence": "First macOS package shipped in v0.7.35, ahead of the v0.8.0 plan; v0.8.0 and v0.8.5 shipped newer disk images (v0.8.5: 60,437,493 bytes, SHA-256 a6bbe600...; experimental, ad-hoc signed, not notarized, built on the maintainer's M1 Max from the tag and uploaded by hand, not by CI; not accepted). The minimum is macOS 15 since PR #147 (v0.8.0). Validated only on one M1 Max (macOS 26.6.2): the opening new-game battle with Metal and the downloaded Metal shader pack; the v0.8.5 image passed hdiutil verify and an ad-hoc codesign check but was not installed from a download. Long play, broader scenes, other Macs, performance and Metal HDR or MetalFX on Mac displays are open. Maintainer decision 2026-10-03: packages stay ad-hoc signed, no Developer ID signing or notarization. Issue #96 closed 2026-10-01."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35",
@@ -5964,7 +5977,7 @@
         "Release": "v0.8.0",
         "Start date": null,
         "Target date": null,
-        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate."
+        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. The v0.8.0 lane is kept as the plan milestone and is open for the maintainer to move."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/pull/60"
@@ -5973,23 +5986,28 @@
     {
       "key": "experimental-android-platform",
       "title": "Experimental Android platform support",
-      "body": "<!-- lo-project:experimental-android-platform -->\n\nExperimental Android platform support planned as an exploratory roadmap target for milestone v0.8.0.\n\n## Scope and completion criteria\n\n- [x] Investigate Android NDK toolchain integration, CMake build flow, and C++ runtime requirements.\n- [x] Evaluate Android Vulkan swapchain, subsurface presentation, and shader compilation constraints.\n- [ ] Define guest memory mapping, touch/virtual controls, controller input, and audio routing.\n- [x] Establish a minimal proof-of-concept APK/library build path when authorized.\n\n## Boundaries\n\nExperimental scope. The source build and a development APK exist (see below); no APK is published, and full-game, 16 KB page, physical-controller and broader device validation are open.\n\n## Deferred - 2026-10-03\n\nThe maintainer deferred Android out of v0.8.0 because of an upstream Qualcomm bug. The merged code stays on `main`; no APK is published. Android CI will be added later by the maintainer.\n\n## Merged to main - 2026-10-02\n\nPR #150 merged the Android port (`fe89910`): an ARM64 SDL/Vulkan runtime with app-owned game-data storage, an ARM64/PIC build of the recompiled PPC library, a diagnostic probe APK, SDL physical-controller support, a hideable and editable touch controller, foreground-return surface recreation, and Adreno 750 shader fixes. PR #152 then gave Android the shared `portable_vk.lospv` pack with the startup download prompt.\n\nOn a Lenovo TB321FU (Android 16, Adreno 750, 4 KB pages) the development APK loads the XEX, plays the opening video, reaches the first battle and completes two touch-driven attacks with visible damage. The guest memory alias test passed on that 4 KB device under the ADB shell. Criterion 3 stays open: touch and controller input are implemented, but 16 KB page mapping, audio beyond the native queue evidence, and physical-controller hot-plug are unverified. See `docs/notes/android-port-research-2026-10-02.md` and `packaging/android/README.md`.\n",
+      "body": "<!-- lo-project:experimental-android-platform -->\n\nExperimental Android platform support planned as an exploratory roadmap target for milestone v0.8.0.\n\n## Scope and completion criteria\n\n- [x] Investigate Android NDK toolchain integration, CMake build flow, and C++ runtime requirements.\n- [x] Evaluate Android Vulkan swapchain, subsurface presentation, and shader compilation constraints.\n- [ ] Define guest memory mapping, touch/virtual controls, controller input, and audio routing.\n- [x] Establish a minimal proof-of-concept APK/library build path when authorized.\n\n## Boundaries\n\nExperimental scope. The source build exists and an experimental APK is published with v0.8.0 (attached by hand) and v0.8.5 (CI-built); full-game, 16 KB page, physical-controller and broader device validation are open.\n\n## Deferred - 2026-10-03 (history; superseded by the section below)\n\nThe maintainer deferred Android out of v0.8.0 because of an upstream Qualcomm bug. The merged code stays on `main`. At that time no APK was published and Android CI was still to be added by the maintainer.\n\n## Merged to main - 2026-10-02\n\nPR #150 merged the Android port (`fe89910`): an ARM64 SDL/Vulkan runtime with app-owned game-data storage, an ARM64/PIC build of the recompiled PPC library, a diagnostic probe APK, SDL physical-controller support, a hideable and editable touch controller, foreground-return surface recreation, and Adreno 750 shader fixes. PR #152 then gave Android the shared `portable_vk.lospv` pack with the startup download prompt.\n\nOn a Lenovo TB321FU (Android 16, Adreno 750, 4 KB pages) the development APK loads the XEX, plays the opening video, reaches the first battle and completes two touch-driven attacks with visible damage. The guest memory alias test passed on that 4 KB device under the ADB shell. Criterion 3 stays open: touch and controller input are implemented, but 16 KB page mapping, audio beyond the native queue evidence, and physical-controller hot-plug are unverified. See `docs/notes/android-port-research-2026-10-02.md` and `packaging/android/README.md`.\n\n## Shipped - 2026-10-03\n\nAn experimental Android arm64 APK was published after the deferral. v0.8.0 (published 06:41:51Z) got `LostOdysseyRecomp-android-arm64-v0.8.0.apk` (46,326,870 bytes) by hand at 08:03Z, built locally in WSL. According to [PR #170](https://github.com/freefrank/LostOdysseyRecomp/pull/170), that APK was installed over a debug build on the Lenovo TB321FU (Adreno 750, 4 KB pages) and reached the title screen. v0.8.5 (published 18:45:17Z) is the first release whose Android APK is built by CI: [PR #170](https://github.com/freefrank/LostOdysseyRecomp/pull/170) added the Android build and the `release-android` job (Gitea run 212, cited from docs/STATUS.md), and [PR #177](https://github.com/freefrank/LostOdysseyRecomp/pull/177) signs every APK with the project's debug keystore, with no release keystore (maintainer decision of 2026-10-03). [PR #168](https://github.com/freefrank/LostOdysseyRecomp/pull/168) and [PR #169](https://github.com/freefrank/LostOdysseyRecomp/pull/169) add a GPU driver page that downloads or installs a Mesa Turnip Vulkan driver on Qualcomm devices, whose own driver leaves the highlighted menu row's text invisible, and a launcher icon. The `Release` field is v0.8.5 for that reason and because the maintainer had deferred Android out of v0.8.0. The v0.8.5 APK itself was not installed in this record.\n\n- [x] Android CI builds the APK and ships it with tag releases (PR #170, v0.8.5)\n- [ ] 16 KB page devices, other GPUs and devices, audio beyond the native queue evidence, physical-controller hot-plug and the Turnip page on other devices stay unverified\n- [ ] Maintainer or player acceptance of the Android APK\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Release": null,
+        "Status": "In Progress",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
         "Start date": null,
         "Target date": null,
-        "Evidence": "PR #150 (2026-10-02) merged an experimental Android ARM64 SDL/Vulkan runtime, touch and physical controllers and a development APK build; PR #152 added the shared SPIR-V pack download. On an Adreno 750 tablet (4 KB pages) it plays the opening video, reaches the first battle and completes two touch attacks. No APK is published; longer play, 16 KB devices, other GPUs and physical controllers are unverified. The maintainer will add Android CI later (2026-10-03). On 2026-10-03 the maintainer deferred Android out of v0.8.0 because of an upstream Qualcomm bug; the bug details are not recorded in the repository."
+        "Evidence": "Experimental Android arm64 APK published: attached by hand to v0.8.0 at 08:03Z on 2026-10-03, after publication (built locally in WSL), and built by CI as part of v0.8.5 (published 18:45:17Z; PRs #170, #177; not accepted). Release is v0.8.5 because the maintainer had deferred Android out of v0.8.0. PRs #168 and #169 add a GPU driver page that loads a Mesa Turnip Vulkan driver on Qualcomm devices, where the device driver leaves the highlighted menu row's text invisible, and a launcher icon. APKs are signed with the project's debug keystore; there is no release keystore (maintainer decision). Checked on one Adreno 750 tablet (4 KB pages): the v0.8.0 APK reached the title screen; the v0.8.5 APK was not installed. 16 KB pages, other devices and GPUs, audio and controller hot-plug are unverified."
       },
       "source_refs": [
         "PR #150",
         "PR #152",
         "docs/notes/android-port-research-2026-10-02.md",
-        "packaging/android/README.md"
+        "packaging/android/README.md",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/168",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/169",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/170",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/177",
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5"
       ]
     },
     {
@@ -6325,7 +6343,7 @@
     {
       "key": "save-state-support",
       "title": "Evaluate save-state support",
-      "body": "<!-- lo-project:save-state-support -->`n`n## Open request`n`nIssue #90 requests save states. The maintainer stated that save states are not planned. This is retained as deferred backlog without implementation, compatibility, validation, or release claims.`n`n## Source`n`n- https://github.com/freefrank/LostOdysseyRecomp/issues/90`n",
+      "body": "<!-- lo-project:save-state-support -->\n\n## Open request\n\nIssue #90 requested HDR and save states. The maintainer stated that save states are not planned (2026-09-29), kept the issue open for them (2026-10-01, 2026-10-02) and closed it as completed on 2026-10-03T06:50Z because save states are postponed to much later. This is retained as deferred backlog without implementation, compatibility, validation, or release claims. The HDR half shipped in v0.7.35 and v0.8.0 (see `hdr-output-tonemapping`).\n\n## Source\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/90\n",
       "fields": {
         "Kind": "Feature",
         "Area": "Save & Storage",
@@ -6334,7 +6352,7 @@
         "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "Issue #90 open request. Maintainer stated save states are not planned; retained as deferred backlog. The HDR half shipped in v0.7.35 (see hdr-output-tonemapping); on 2026-10-02 the maintainer said save states are still open and kept the issue for them."
+        "Evidence": "Issue #90 asked for HDR and save states. The maintainer said save states are not planned (2026-09-29), kept the issue open for them (2026-10-01, 2026-10-02) and closed it as completed on 2026-10-03T06:50Z because save states are postponed to much later. Retained as deferred backlog without implementation. The HDR half shipped in v0.7.35 and v0.8.0 (see hdr-output-tonemapping)."
       }
     },
     {
@@ -6410,12 +6428,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Rendering",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
-        "Release": "v0.7.35",
+        "Release": "v0.8.0",
         "Start date": null,
         "Target date": null,
-        "Evidence": "v0.7.35 shipped PR #122 (host GPU occlusion queries on Direct3D 12 and Vulkan). The reporter wrote on 2026-10-02 that the sun still flickered on the RX 6600 in v0.7.35. PR #149 (merged to main 2026-10-02, not released) keeps each query count for the object that issued it: in a 23-second sail past the #118 cliff on an AMD Radeon 8060S (D3D12 through Proton) v0.7.35 flashed three times and the fix never did. Awaiting reporter confirmation after the next release."
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T08:12Z. v0.7.35 shipped PR #122 (host GPU occlusion queries); the reporter then wrote that the sun still flickered on the RX 6600. PR #149 (merged 2026-10-02T18:50Z) keeps each query count with the object that issued it and shipped in v0.8.0 (published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). Sailing the #118 save for 23 s: v0.7.35 logic flashed 3 times on an AMD Radeon 8060S (D3D12 through Proton) and once on an RTX 5080 (D3D12); the fix gave none on both. The reporter (RX 6600) wrote at 08:40Z that v0.8.0 works perfectly: the one reporter confirmation recorded for a v0.8.0 or v0.8.5 change. A spot where the sun is legitimately visible after the fix was not checked."
       }
     },
     {
@@ -6584,6 +6602,139 @@
         "https://github.com/freefrank/LostOdysseyRecomp/pull/144",
         "docs/PORTABLE_SHADER_PACK.md",
         "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "issue-112-native-gtao-and-shadow-resolution",
+      "title": "[Feature] native GTAO support?",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/112",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics quality",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.0",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T06:54Z, 12 minutes after v0.8.0 was published (the maintainer had answered 'Done!' at 02:25Z). Shadow resolution (1x, 2x, 4x) and experimental SSAO/GTAO (Off by default) shipped in v0.8.0 (PR #155, merged 2026-10-02T21:44Z; published 2026-10-03T06:41:51Z, tag commit eddbb7d; not accepted). Frame rates were not benchmarked and AO with anti-aliasing or upscaling is not covered. No reporter confirmation. The validation limits are on higher-resolution-shadows and ssao-and-reshade-depth."
+      }
+    },
+    {
+      "key": "release-v0-8-0",
+      "title": "Publish HDR with every AA and upscaler, shadow and AO settings and the shared shader pack in v0.8.0",
+      "body": "<!-- lo-project:release-v0-8-0 -->\n\nv0.8.0 于 2026-10-03T06:41:51Z 发布（草稿创建于 06:18:15Z）。它不是草稿或预发布版本，在 v0.8.5 发布前是最新的正式版本，包含 v0.7.35 之后合并到 `main` 的全部工作。发布不等于验收，维护者尚未验收 v0.8.0。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.0`（tag 对象 `2a51f84`）指向 `main` 上的提交 `eddbb7d`（`docs: prepare v0.8.0 release notes`；前一个提交 `0b773cc` 把源码版本号改为 0.8.0）\n- [x] Gitea Actions [run 184](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/184) 构建并发布 Windows ZIP、Linux AppImage 和 Linux Flatpak：五个 job 全部成功（该工作流当时没有 Android job）。run 的结果引自 docs/STATUS.md，本次没有重新读取\n- [x] 在维护者的 M1 Max 上构建 macOS 磁盘映像（DMG），手工上传到草稿发布页\n- [x] 实验性 Android arm64 APK 在发布之后手工补传（GitHub 记录 2026-10-03T08:03:03Z），在本地 WSL 构建，不是 CI 产物\n- [ ] 取得更多报告者的确认（目前只记录到 #118 的报告者写到 v0.8.0 正常）\n- [ ] 维护者验收 v0.8.0\n\n## Delivery verification\n\n发布页 [v0.8.0](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0) 的五个附件（大小和 SHA-256 为 GitHub API 在 2026-10-03 读取的值）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.0.zip` | 77,134,904 | `ae3aad9f925ec7f3efec5d3c0dbf01ed137d9b85f0d9060db3dff572243cba48` |\n| `LostOdysseyRecomp-linux-x64-v0.8.0.AppImage` | 76,311,032 | `57dce43313d3ae69d5aab007f038671a9a58176e07212d66729d13495e7be4e1` |\n| `LostOdysseyRecomp-linux-x64-v0.8.0.flatpak` | 54,113,296 | `88b3a6daf5fb9fba5ed469818221d9a697277eebd68fde19cc5e8cb434ee6488` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.0.dmg` | 60,432,438 | `e9e3575a80521e491815f46346412333b99ac4f844c96caefe634923ed7d8ff6` |\n| `LostOdysseyRecomp-android-arm64-v0.8.0.apk` | 46,326,870 | `a5516c68876b4288d770029337aa8a8b1a2c8743cb5cfe7f522256739e2deba1` |\n\nAPK 是发布后补传的，发布时只有前四个附件。战斗对话修复（#148、#173）不在 v0.8.0 里，它在 v0.8.5 发布。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.7.35..v0.8.0` 中合并的 PR 和提交：\n\n- HDR：[PR #159](https://github.com/freefrank/LostOdysseyRecomp/pull/159)、[PR #162](https://github.com/freefrank/LostOdysseyRecomp/pull/162) 让 HDR 可与 FXAA、SMAA、TAA、DLSS、FSR、MetalFX 以及 Vulkan DLSS 帧生成同时使用（Issue #90 的 HDR 部分）\n- 画面：[PR #155](https://github.com/freefrank/LostOdysseyRecomp/pull/155) 阴影分辨率（1×、2×、4×）和实验性 SSAO/GTAO（Issue #112）；[PR #149](https://github.com/freefrank/LostOdysseyRecomp/pull/149) 遮挡查询的快速结果跟随发起查询的对象（Issue #118）\n- 着色器：[PR #152](https://github.com/freefrank/LostOdysseyRecomp/pull/152) 一个 `portable_vk.lospv` 供 Vulkan、Metal 和 Android 共用\n- 输入和兼容：[PR #97](https://github.com/freefrank/LostOdysseyRecomp/pull/97) SDL2 2.33.0 控制器数据库，支持 8BitDo（Issue #103，贡献者 Xarishark）；[PR #124](https://github.com/freefrank/LostOdysseyRecomp/pull/124) 损坏的 `OptiScaler.dll` 不再弹出阻塞的错误对话框；[PR #125](https://github.com/freefrank/LostOdysseyRecomp/pull/125) 更多设置菜单翻译；[PR #147](https://github.com/freefrank/LostOdysseyRecomp/pull/147) macOS 最低版本改为 15，macOS CI 用自带的 DXC 编译着色器\n- 平台：[PR #150](https://github.com/freefrank/LostOdysseyRecomp/pull/150) 实验性 Android 端口（源码和开发 APK 构建）；[PR #60](https://github.com/freefrank/LostOdysseyRecomp/pull/60) 实验性 Linux AArch64 交叉构建路径（没有 ARM64 安装包）\n- 工具、文档和 CI：[PR #123](https://github.com/freefrank/LostOdysseyRecomp/pull/123)、[PR #126](https://github.com/freefrank/LostOdysseyRecomp/pull/126)、[PR #138](https://github.com/freefrank/LostOdysseyRecomp/pull/138)、[PR #153](https://github.com/freefrank/LostOdysseyRecomp/pull/153)、[PR #154](https://github.com/freefrank/LostOdysseyRecomp/pull/154)、[PR #156](https://github.com/freefrank/LostOdysseyRecomp/pull/156)、[PR #158](https://github.com/freefrank/LostOdysseyRecomp/pull/158)、[PR #160](https://github.com/freefrank/LostOdysseyRecomp/pull/160)、[PR #161](https://github.com/freefrank/LostOdysseyRecomp/pull/161)，以及项目管理文档 [PR #163](https://github.com/freefrank/LostOdysseyRecomp/pull/163) 至 [PR #166](https://github.com/freefrank/LostOdysseyRecomp/pull/166)\n\n各项的验证范围和限制记录在各自的 Project 记录里和 docs/STATUS.md。\n\n## Validation and acceptance\n\n没有用 v0.8.0 安装包本身做过游戏运行。已记录的限制包括：HDR 没有面板实测，AO 与 AA 或放大同时开启没有覆盖，阴影和 AO 的帧率没有基准测试；8BitDo 没有真机记录；Android APK 只在一台 Adreno 750 平板上到过标题画面；macOS 只在一台 M1 Max 上运行过。维护者尚未验收 v0.8.0；发布不是报告者确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.0 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0)\n- [v0.7.35…v0.8.0 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.7.35...v0.8.0)\n- [Gitea Actions run 184](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/184)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/eddbb7db76acf532523c50ce8044a573d35f5f1d/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.0",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.0 at 2026-10-03T06:41:51Z: public release (latest until v0.8.5), annotated tag at commit eddbb7d on main, built and published by Gitea Actions run 184 (five jobs succeeded; no Android job). Assets at publication: Windows ZIP 77,134,904 B (SHA-256 ae3aad9f...), Linux AppImage 76,311,032 B (57dce433...), Flatpak 54,113,296 B (88b3a6da...) and macOS DMG 60,432,438 B (e9e3575a...; built on the maintainer's M1 Max, uploaded by hand). An experimental Android APK (46,326,870 B, a5516c68...) was attached by hand at 08:03Z, built locally in WSL. The battle dialogue fix (#148, #173) is not in v0.8.0. Published, not accepted; the #118 reporter's report that it works is the only reporter confirmation recorded."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.0",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.7.35...v0.8.0",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/184",
+        "eddbb7db76acf532523c50ce8044a573d35f5f1d",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-5",
+      "title": "Publish the battle dialogue fix, save recovery and CI-built Android APK in v0.8.5",
+      "body": "<!-- lo-project:release-v0-8-5 -->\n\nv0.8.5 于 2026-10-03T18:45:17Z 发布。它不是草稿或预发布版本，是当前最新的正式版本，包含 v0.8.0 之后合并到 `main` 的全部工作。发布不等于验收，维护者尚未验收 v0.8.5。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.5`（tag 对象 `f142045`）指向 `main` 上的提交 `30a76ac`（`docs: prepare v0.8.5 release notes`；前一个提交 `67003cb` 把源码版本号改为 0.8.5）\n- [x] Gitea Actions [run 212](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/212) 构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功，这是第一个带 Android job 的发布。run 的结果引自 docs/STATUS.md，本次没有重新读取\n- [x] 在维护者的 M1 Max 上从 tag 构建 macOS 磁盘映像（DMG），手工上传到草稿发布页（GitHub 记录 18:26:44Z），不是 CI 产物\n- [ ] 取得 #148、#173 和 #175 报告者对 v0.8.5 的确认\n- [ ] 维护者验收 v0.8.5\n\n## Delivery verification\n\n发布页 [v0.8.5](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5) 的五个附件（大小和 SHA-256 为 GitHub API 在 2026-10-03 读取的值）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.5.zip` | 77,142,293 | `8a114710aa01c4f543e1849a18f1ac0007839836fb6001413a2a44deafcfd82b` |\n| `LostOdysseyRecomp-linux-x64-v0.8.5.AppImage` | 76,306,936 | `7bd107ee98fbe11e467386cdeb919e4237b6db30acd13c2dc6fb15ddb19d791a` |\n| `LostOdysseyRecomp-linux-x64-v0.8.5.flatpak` | 54,129,440 | `0dea69ef3a4166743b88a3923b88faa1eab71ffbf897dd136c20df741f045376` |\n| `LostOdysseyRecomp-android-arm64-v0.8.5.apk` | 45,160,198 | `5b6027a3d1688345cda4bebe7a249ab3f2830a0289de84049461c000fe7f5a1c` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.5.dmg` | 60,437,493 | `a6bbe600127e7d02589a604c1e98428f78d2642b7ed48739cc1dcac1d8e2441b` |\n\nAPK 由 CI 构建，用项目的调试密钥库签名（没有发布密钥库，维护者 2026-10-03 的决定）。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.0..v0.8.5` 中合并的 PR 和提交：\n\n- 战斗：提交 `9f52d78`（合并为 `4022256`）保留高帧率下战斗脚本等待的小数部分，修复 90 和 120 FPS 下带台词的战斗长时间停顿或卡住（Issue #148、#173）\n- 存档：[PR #178](https://github.com/freefrank/LostOdysseyRecomp/pull/178) 按文件夹名列出存档；[PR #181](https://github.com/freefrank/LostOdysseyRecomp/pull/181) 只要 `save.bin` 有数据就列出存档，并在游戏继续前把存档写入磁盘（Issue #175）\n- 调试：[PR #180](https://github.com/freefrank/LostOdysseyRecomp/pull/180) F1 调试菜单新增“No Random Encounters”开关（在排查 Issue #171 时提出）\n- Android：[PR #170](https://github.com/freefrank/LostOdysseyRecomp/pull/170) CI 构建 APK 并随 tag 发布；[PR #177](https://github.com/freefrank/LostOdysseyRecomp/pull/177) 所有 APK 用项目的调试密钥库签名；[PR #168](https://github.com/freefrank/LostOdysseyRecomp/pull/168)、[PR #169](https://github.com/freefrank/LostOdysseyRecomp/pull/169) Mesa Turnip GPU 驱动页面和启动图标\n- 文档：Android 安装说明、Eden 的 Adreno 驱动列表致谢和面向玩家的更新日志重写\n\n各项的验证范围和限制记录在各自的 Project 记录里和 docs/STATUS.md。\n\n## Validation and acceptance\n\n没有用 v0.8.5 安装包本身做过游戏运行，macOS 映像也没有从下载安装。#148 在修复合并之前被维护者关闭，#173 在发布后被维护者关闭并要求报告者在仍有问题时回报，两位报告者都没有确认 v0.8.5。#175 的报告者在发布三分钟后写“一切正常”，没有说明所用的版本；维护者随后请他确认 v0.8.5 能否找到存档，没有记录到回答。维护者尚未验收 v0.8.5；发布不是报告者确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.5 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5)\n- [v0.8.0…v0.8.5 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.0...v0.8.5)\n- [Gitea Actions run 212](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/212)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/30a76ac403d0e463cf3d2775936e98a7e8501e8f/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.5 at 2026-10-03T18:45:17Z: latest release, annotated tag at commit 30a76ac on main, built and published by Gitea Actions run 212 (six jobs succeeded, the first with an Android job; the result is cited from docs/STATUS.md, not re-read). Assets: Windows ZIP 77,142,293 B (SHA-256 8a114710...), Linux AppImage 76,306,936 B (7bd107ee...), Flatpak 54,129,440 B (0dea69ef...), Android APK 45,160,198 B (5b6027a3...; CI-built, debug-keystore signed) and macOS DMG 60,437,493 B (a6bbe600...; built on the maintainer's M1 Max, uploaded by hand). Published, not accepted: no reporter has confirmed the fix for #148, #173 or #175 on a named v0.8.5 build."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.0...v0.8.5",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/212",
+        "30a76ac403d0e463cf3d2775936e98a7e8501e8f",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "issue-148-battle-dialogue-pauses",
+      "title": "[Bug] Long pauses in dialog during battles that contain dialog.",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/148",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T02:45Z ('solved in 9f52d78'), before the fix was merged (4022256, 16:22Z) and before any release. It shipped only in v0.8.5 (published 18:45:17Z, tag commit 30a76ac; not accepted), not in v0.8.0. The original script code converts each update's elapsed time to a 60 Hz step and drops the fraction above 60 updates per second, so battle script waits never finish; the hook carries the fraction (LO_BATTLE_SCRIPT_TIMER=0 turns it off). A generated guest fixture passes at 30, 60, 90 and 120 Hz and its negative control stays stuck; no live comparison in the reported scenes is recorded. The reporter's 06:14Z comment says the pauses seem tied to frame rates above 60 FPS: a statement about the cause, not a test of the fix. No reporter confirmation."
+      }
+    },
+    {
+      "key": "issue-173-first-forest-battle-hang",
+      "title": "[Bug] Hang on first battle in forest.",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/173",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "High frame rate",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T19:03Z (who wrote that it should be fixed in 0.8.5 and asked for a report if not), 18 minutes after v0.8.5 was published. The maintainer identified it from the reporter's video as the #148 bug (waits in battle scripts never finish at 90 or 120 FPS) and suggested 60 or 30 FPS until the release. The fix (9f52d78, merged as 4022256 at 16:22Z) shipped in v0.8.5, not v0.8.0; see issue-148-battle-dialogue-pauses for the cause and checks. The reporter attached no log and gave no frame rate, version or platform, and has not replied, so neither the cause nor the fix is confirmed for this report. Not accepted."
+      }
+    },
+    {
+      "key": "issue-175-save-not-found-after-power-loss",
+      "title": "After saving using in game sace point, game no longer finds save file[Bug]",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/175",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Save & Storage",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Closed as completed by the maintainer at 2026-10-03T18:23Z, 22 minutes before v0.8.5 was published (18:45:17Z; not accepted). A power blink after saving left .lo-content as 308 zero bytes while save.bin survived, so Continue hid the slot. PR #178 listed renamed folders (not the cause); PR #181 lists a save whenever save.bin has data and syncs saves to disk. Checked locally on a Windows build with the reporter's own save.bin and a zeroed .lo-content (lists and loads The White Boa - Brig) plus LoStorageTest modes. Not covered: CREATE_ALWAYS still clears the old container before the game rewrites it. The reporter wrote 'Its all working now' at 18:48Z without naming a build; the maintainer's 18:50Z request to confirm Continue on v0.8.5 has no recorded answer."
+      }
+    },
+    {
+      "key": "debug-no-random-encounters-20261003",
+      "title": "Add a No Random Encounters switch to the F1 Debug Menu",
+      "body": "<!-- lo-project:debug-no-random-encounters-20261003 -->\n\nF1 调试菜单的 Overview 页在 Save Anywhere 下方新增“No Random Encounters”开关，和 Save Anywhere 一样保存在 `settings.ini`（`no_random_encounters`）。开启后，野外行走遇敌更新里一次成功的抽取会被改成“不战斗”；已走距离的计数和阈值更新照常运行，剧情战斗不走这条路径。它是在排查 Issue #171 时提出的，当时反复的随机战斗拖慢了复现。已随 v0.8.5 发布。\n\n## Scope and completion criteria\n\n- [x] [PR #180](https://github.com/freefrank/LostOdysseyRecomp/pull/180)：菜单新增一行（Win/Cancel 下移一行），开关持久化，开启时行走遇敌的成功抽取不进入战斗\n- [ ] 检查其他区域、开关打开时的剧情战斗和长时间游玩\n- [ ] 发布后取得玩家确认\n\n## Validation and acceptance\n\n本地通过 `LoDebugMenuInteractionTest`（新行双向切换、末行边界）、`LoDebugOverlayTest` 和 `LoSaveAnywhereConfigTest`（INI 读取、非法值、普通设置保存后仍保留）。PR 记录：在 120 FPS、第四碟 Great Ancient Ruins、开关打开时走过 Hanging Corridor 和 Lunar Palace 没有随机战斗，RB 换人和柱子机关正常。其他区域、开关打开时的剧情战斗和长时间游玩没有检查。\n\n已随 v0.8.5 发布，没有玩家确认；实现、测试、发布与验收分别记录。\n\nstage_detail: Released in v0.8.5; awaiting broader validation\n\n## Sources\n\n- [PR #180](https://github.com/freefrank/LostOdysseyRecomp/pull/180)\n- [Issue #171](https://github.com/freefrank/LostOdysseyRecomp/issues/171)\n- [v0.8.5 release](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Debug menu",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.5",
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Released in v0.8.5 (PR #180, merged 2026-10-03T17:59:46Z; published 18:45:17Z, tag commit 30a76ac; not accepted). F1 Debug Menu switch below Save Anywhere (settings.ini no_random_encounters): a successful walking-encounter draw becomes no battle, distance counters still run, scripted battles are unaffected. Requested while investigating #171. LoDebugMenuInteractionTest, LoDebugOverlayTest and LoSaveAnywhereConfigTest passed locally; at 120 FPS in disc 4, Great Ancient Ruins, the PR author walked the Hanging Corridor and Lunar Palace without random battles and RB party switching and the pillar mechanisms worked. Other areas, story battles with the switch on and long play were not checked. No player confirmation."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/180",
+        "https://github.com/freefrank/LostOdysseyRecomp/issues/171",
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5"
       ],
       "source_lines": [],
       "record_type": "backlog"
