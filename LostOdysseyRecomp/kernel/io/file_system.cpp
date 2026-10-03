@@ -793,7 +793,9 @@ uint32_t NtFlushBuffersFile(uint32_t handleValue, XIO_STATUS_BLOCK* IoStatusBloc
     {
         trace.Acquired(handle->diagnostic, &handle->ioMutex, handle->path, handle.get());
         FileIoLock ioLock(handle->ioMutex, trace);
-        status = FileSystem::SyncFile(handle->file) ? STATUS_SUCCESS : 0xC0000185u;
+        // FlushFileBuffers rejects read-only handles; they have nothing to write.
+        const bool flushed = handle->writable ? FileSystem::SyncFile(handle->file) : fflush(handle->file) == 0;
+        status = flushed ? STATUS_SUCCESS : 0xC0000185u;
         trace.SetStage(io_diagnostics::Stage::TransferDone);
     }
     if (IoStatusBlock) { IoStatusBlock->Status = status; IoStatusBlock->Information = 0; }
