@@ -27,6 +27,8 @@ struct Presentation::Impl
     std::unique_ptr<RenderPipeline> pipeline;
     std::unique_ptr<RenderPipeline> hdrPipeline;
     std::unique_ptr<RenderPipeline> presentPipeline;
+    std::unique_ptr<RenderShader> gainPs;
+    std::unique_ptr<RenderPipeline> gainPipeline;
     std::unique_ptr<RenderPipelineLayout> uiLayout;
     std::unique_ptr<RenderShader> uiVs, uiPs;
     std::unique_ptr<RenderPipeline> uiPipeline, uiPresentPipeline;
@@ -40,6 +42,7 @@ struct Presentation::Impl
         RenderFormat format = RenderFormat::UNKNOWN;
     };
     std::vector<Pass> passes[2];
+    Pass gainPass;
     bool EnsureUiPipelines();
 };
 struct Presentation::UiCompositionLease
@@ -232,17 +235,29 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
     float3 b=a*0.5+0.25*(sampleFrame(p-direction*0.5)+sampleFrame(p+direction*0.5));
     float lb=luma(b);
     return finishFrame((lb<lo || lb>hi)?a:b);
+}
+// Highlight gain: frame = final SDR output, calibrationScene = pre-upscale
+// extended-gamma scene (valid imageSize inside a calibrationRect.xy allocation).
+float4 gainPixel(float4 position : SV_Position) : SV_Target {
+    float3 sdr = frame.Load(int3(position.xy, 0)).rgb;
+    float2 uv = (position.xy / extent) * (imageSize / calibrationRect.xy);
+    float3 hdr = calibrationScene.SampleLevel(linearClamp, uv, 0).rgb;
+    float3 gain = max(hdr, 1.0);
+    float weight = smoothstep(0.8, 1.0, max(sdr.r, max(sdr.g, sdr.b)));
+    return float4(sdr * lerp(1.0.xxx, gain, weight), 1);
 })";
     auto vs = xenos::CompileCachedHlsl(source, "vertex", "vs_6_0", binaryFormat);
     auto ps = xenos::CompileCachedHlsl(source, "pixel", "ps_6_0", binaryFormat);
-    if (!vs.ok || !ps.ok)
+    auto gainPs = xenos::CompileCachedHlsl(source, "gainPixel", "ps_6_0", binaryFormat);
+    if (!vs.ok || !ps.ok || !gainPs.ok)
     {
-        LOG_WARNING("presentation shaders: {} {}", vs.errors, ps.errors);
+        LOG_WARNING("presentation shaders: {} {} {}", vs.errors, ps.errors, gainPs.errors);
         return false;
     }
     p.vs = device->createShader(vs.bytecode.data(), vs.bytecode.size(), "vertex", renderFormat);
     p.ps = device->createShader(ps.bytecode.data(), ps.bytecode.size(), "pixel", renderFormat);
-    if (!p.vs || !p.ps) return false;
+    p.gainPs = device->createShader(gainPs.bytecode.data(), gainPs.bytecode.size(), "gainPixel", renderFormat);
+    if (!p.vs || !p.ps || !p.gainPs) return false;
     RenderDescriptorSetBuilder set;
     set.begin();
     set.addTexture(0);
@@ -272,10 +287,13 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
     // extended-gamma AA pass, so every instance owns the variant.
     desc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
     p.hdrPipeline = device->createGraphicsPipeline(desc);
+    desc.pixelShader = p.gainPs.get();
+    p.gainPipeline = device->createGraphicsPipeline(desc);
+    desc.pixelShader = p.ps.get();
     desc.renderTargetFormat[0] = swapchainFormat;
     p.presentPipeline = device->createGraphicsPipeline(desc);
 
-    p.initialized = bool(p.pipeline) && bool(p.presentPipeline) && bool(p.hdrPipeline) &&
+    p.initialized = bool(p.pipeline) && bool(p.presentPipeline) && bool(p.hdrPipeline) && bool(p.gainPipeline) &&
         p.smaa[0].Init(device, p.vs.get(), p.sampler.get(), p.vulkan) &&
         p.smaa[1].Init(device, p.vs.get(), p.sampler.get(), p.vulkan);
     return p.initialized;
@@ -367,6 +385,54 @@ bool Presentation::ProcessSceneColor(RenderCommandList *commands, RenderTexture 
     commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(source, RenderTextureLayout::SHADER_READ));
     commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(target, RenderTextureLayout::SHADER_READ));
     return true;
+}
+RenderTexture* Presentation::ComposeHdrGain(RenderCommandList *commands, RenderTexture *sdr, RenderTexture *hdr,
+                                            uint32_t width, uint32_t height, uint32_t hdrValidWidth, uint32_t hdrValidHeight,
+                                            uint32_t hdrAllocationWidth, uint32_t hdrAllocationHeight)
+{
+    auto &p = *impl;
+    if (!commands || !sdr || !hdr || sdr == hdr || !width || !height || width > 16384 || height > 16384 ||
+        !hdrValidWidth || !hdrValidHeight || hdrValidWidth > hdrAllocationWidth || hdrValidHeight > hdrAllocationHeight ||
+        !p.initialized || !p.gainPipeline)
+        return nullptr;
+    auto &pass = p.gainPass;
+    if (!pass.descriptors) {
+        RenderDescriptorSetBuilder set;
+        set.begin(); set.addTexture(0); set.addSampler(p.vulkan ? 1 : 0); set.addTexture(p.vulkan ? 2 : 1); set.end();
+        pass.descriptors = set.create(p.device);
+        if (!pass.descriptors) return nullptr;
+        pass.descriptors->setSampler(1, p.sampler.get());
+    }
+    if (pass.width != width || pass.height != height || !pass.texture) {
+        pass.framebuffer.reset();
+        pass.texture = p.device->createTexture(RenderTextureDesc::Texture2D(width, height, 1,
+            RenderFormat::R16G16B16A16_FLOAT, RenderTextureFlag::RENDER_TARGET));
+        if (!pass.texture) { pass.width = pass.height = 0; return nullptr; }
+        pass.width = width; pass.height = height; pass.format = RenderFormat::R16G16B16A16_FLOAT;
+        const RenderTexture *attachment[] = {pass.texture.get()};
+        pass.framebuffer = p.device->createFramebuffer(RenderFramebufferDesc(attachment, 1));
+        if (!pass.framebuffer) { pass.texture.reset(); pass.width = pass.height = 0; return nullptr; }
+    }
+    pass.descriptors->setTexture(0, sdr, RenderTextureLayout::SHADER_READ);
+    pass.descriptors->setTexture(2, hdr, RenderTextureLayout::SHADER_READ);
+    commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(sdr, RenderTextureLayout::SHADER_READ));
+    commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(hdr, RenderTextureLayout::SHADER_READ));
+    commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(pass.texture.get(), RenderTextureLayout::COLOR_WRITE));
+    commands->setFramebuffer(pass.framebuffer.get());
+    RenderViewport viewport(0, 0, float(width), float(height));
+    RenderRect scissor(0, 0, width, height);
+    commands->setViewports(&viewport, 1);
+    commands->setScissors(&scissor, 1);
+    struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange,outputFlags;float outputScale,peakRatio;float calibrationRect[4]; }
+        constants{0, 0, float(width), float(height), float(hdrValidWidth), float(hdrValidHeight), 0, 0, 0, 0, 1, 1,
+                  {float(hdrAllocationWidth), float(hdrAllocationHeight), 0, 0}};
+    commands->setGraphicsPipelineLayout(p.layout.get());
+    commands->setPipeline(p.gainPipeline.get());
+    commands->setGraphicsPushConstants(0, &constants);
+    commands->setGraphicsDescriptorSet(pass.descriptors.get(), 0);
+    commands->drawInstanced(3, 1, 0, 0);
+    commands->barriers(RenderBarrierStage::GRAPHICS, RenderTextureBarrier(pass.texture.get(), RenderTextureLayout::SHADER_READ));
+    return pass.texture.get();
 }
 std::shared_ptr<Presentation::UiCompositionLease> Presentation::DrawSeparatedUi(
     RenderCommandList *commands, RenderTexture *hudless,
@@ -543,6 +609,11 @@ std::shared_ptr<Presentation::UiCompositionLease> Presentation::DrawSeparatedUi(
     plume::RenderTexture *, uint32_t, uint32_t, bool)
 {
     return {};
+}
+plume::RenderTexture* Presentation::ComposeHdrGain(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *,
+                                                   uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t)
+{
+    return nullptr;
 }
 void Presentation::DrawComposited(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *,
                                   uint32_t, uint32_t, uint32_t, uint32_t, ScalingFilter, bool)

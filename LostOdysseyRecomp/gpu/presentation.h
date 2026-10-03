@@ -60,6 +60,16 @@ class Presentation
     bool ProcessSceneColor(plume::RenderCommandList *commands, plume::RenderTexture *source,
                            plume::RenderTexture *target, uint32_t width, uint32_t height,
                            Antialiasing antialiasing, bool hdr = false);
+    // Synthesize an extended-gamma FP16 frame from the final SDR frame (any
+    // upscaler, UI included) and the pre-upscale FP16 scene: per channel
+    // gain = max(hdr, 1) sampled bilinearly, weighted by the pixel's own
+    // brightness so only near-clipping pixels are expanded. Returns an owned
+    // output-size texture in SHADER_READ, valid until the next present fence,
+    // or nullptr. hdrValid is the scene's valid extent inside hdrAllocation.
+    plume::RenderTexture* ComposeHdrGain(plume::RenderCommandList *commands, plume::RenderTexture *sdr,
+                                         plume::RenderTexture *hdr, uint32_t width, uint32_t height,
+                                         uint32_t hdrValidWidth, uint32_t hdrValidHeight,
+                                         uint32_t hdrAllocationWidth, uint32_t hdrAllocationHeight);
     // Composite an independently produced straight-alpha UI image over a
     // HUD-less output-resolution scene. This performs no AA or scaling and is
     // intended for the final real/generated-frame presentation stage. Source

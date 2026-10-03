@@ -658,6 +658,9 @@ namespace gpu::renderer
                 std::unique_ptr<HostTexture> hdrTex;
                 uint64_t hdrWriteOrdinal = 0;
                 uint64_t hdrFrame = ~0ull;
+                // hdrTex holds the pre-upscale scene (smaller than tex) for the
+                // presentation highlight gain instead of a same-size resolve.
+                bool hdrGain = false;
                 frame_plan::FramePlan sourcePlan{};
                 bool sourcePlanValid = false;
                 uint64_t fgOwner = 0, fgEpoch = 0, fgSourceAllocation = 0, fgSourceGeneration = 0;
@@ -1015,6 +1018,11 @@ namespace gpu::renderer
                 RenderDescriptorSet* rgbSet = nullptr;
                 uint64_t fallbackConstants = UINT64_MAX, rgbConstants = UINT64_MAX;
                 bool prepared = false, activeMapping = false, srApplied = false;
+                // This frame's extended-gamma resolve of the input scene, borrowed
+                // for the promoted target's resolve (presentation highlight gain).
+                RenderTexture* hdrSource = nullptr;
+                uint32_t hdrSourceWidth = 0, hdrSourceHeight = 0;
+                uint64_t hdrSourceFrame = ~0ull;
             } sceneCopyPromotion;
             SrDispatchOptions frameSrOptions{};
             uint64_t sceneCopyPromotionFrame = ~0ull;
@@ -2422,6 +2430,25 @@ namespace gpu::renderer
                 // parkedLow is installed by Activate after the map identity check.
                 sceneCopyPromotion.preparedPromoted = std::move(promoted);
                 sceneCopyPromotion.prepared = true;
+                if (hdrSceneEnabled.load(std::memory_order_relaxed)) {
+                    // The consumer's color input is its own copy; identify the
+                    // scene resolve through the observed color resolve instead.
+                    const auto& observed = temporalScene.Color();
+                    auto* rs = temporalScene.Ready() ? FindResolved(observed.address, observed.format) : nullptr;
+                    const bool found = rs && rs->tex && rs->writeOrdinal == observed.ordinal && rs->hdrTex && rs->hdrTex->texture &&
+                        rs->hdrFrame == frame && rs->hdrWriteOrdinal == rs->writeOrdinal && !rs->hdrGain;
+                    if (found) {
+                        sceneCopyPromotion.hdrSource = rs->hdrTex->texture.get();
+                        sceneCopyPromotion.hdrSourceWidth = rs->hdrTex->width;
+                        sceneCopyPromotion.hdrSourceHeight = rs->hdrTex->height;
+                        sceneCopyPromotion.hdrSourceFrame = frame;
+                    }
+                    static uint32_t promotionHdrLogs = 0;
+                    if (promotionHdrLogs++ < 8)
+                        LOG_INFO("renderer HDR: promotion source frame={} found={} resolve={} ordinal_match={} hdr_frame={} hdr_ordinal={}",
+                            frame, found, rs != nullptr, rs && rs->writeOrdinal == observed.ordinal,
+                            rs ? rs->hdrFrame : 0, rs ? rs->hdrWriteOrdinal : 0);
+                }
                 return true;
             }
 
@@ -8519,17 +8546,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     (key.colorMask & 7u) &&
                     (!hdrSceneEnabled.load(std::memory_order_relaxed) ||
                      (color->format != RenderFormat::R8G8B8A8_UNORM &&
-                      color->format != RenderFormat::R16G16B16A16_FLOAT) ||
-                     activePlan.requestedUpscaler != upscaling::Upscaler::Off))
+                      color->format != RenderFormat::R16G16B16A16_FLOAT)))
                     color->hdrValid = false;
                 // Frame generation and AA policy is video's, through hdrSceneEnabled;
-                // spatial AA forwards its FP16 twin below.
+                // spatial AA forwards its FP16 twin below. An upscaled (promoted)
+                // target keeps the input resolve for presentation's gain pass instead.
                 if (hdrSceneEnabled.load(std::memory_order_relaxed) && color &&
                     (color->format == RenderFormat::R8G8B8A8_UNORM ||
-                     color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u) &&
-                    activePlan.requestedUpscaler == upscaling::Upscaler::Off) {
+                     color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u)) {
                     bool forwarded = false;
-                    if (fullSceneCopy && !depth && sceneCopyBank == 0 &&
+                    if (activePlan.requestedUpscaler == upscaling::Upscaler::Off &&
+                        fullSceneCopy && !depth && sceneCopyBank == 0 &&
                         rasterViewport.x == 0 && rasterViewport.y == 0 &&
                         std::floor(rasterViewport.width) == rasterViewport.width &&
                         std::floor(rasterViewport.height) == rasterViewport.height &&
@@ -10702,6 +10729,47 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     color_qualification::InvalidateSurfaceResolved(rs.sdrWriteOrdinal);
                 }
                 rs.hdrWriteOrdinal = 0;
+                rs.hdrGain = false;
+                // A promoted (upscaled) target has no sidecar of its own; keep the
+                // input scene's extended resolve for the presentation gain pass.
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) && destFormat == 6 && fullResolved &&
+                    !color.hdrValid && activePlan.requestedUpscaler != upscaling::Upscaler::Off) {
+                    static uint32_t gainProbeLogs = 0;
+                    if (gainProbeLogs++ < 8)
+                        LOG_INFO("renderer HDR: promoted resolve frame={} address={:#x} active_match={} promotion_frame={} source={} source_frame={} size={}x{}",
+                            frame, destBase, sceneCopyPromotion.active == &color, sceneCopyPromotion.frame,
+                            sceneCopyPromotion.hdrSource != nullptr, sceneCopyPromotion.hdrSourceFrame, texW, texH);
+                }
+                if (hdrSceneEnabled.load(std::memory_order_relaxed) && destFormat == 6 && fullResolved &&
+                    !color.hdrValid && sceneCopyPromotion.active == &color && sceneCopyPromotion.frame == frame &&
+                    sceneCopyPromotion.hdrSource && sceneCopyPromotion.hdrSourceFrame == frame) {
+                    const uint32_t gainW = sceneCopyPromotion.hdrSourceWidth, gainH = sceneCopyPromotion.hdrSourceHeight;
+                    if (!rs.hdrTex || rs.hdrTex->width != gainW || rs.hdrTex->height != gainH) {
+                        if (rs.hdrTex) Gpu().retiredTextures.push_back(std::move(rs.hdrTex));
+                        auto target = std::make_unique<HostTexture>();
+                        target->width = gainW; target->height = gainH;
+                        target->format = RenderFormat::R16G16B16A16_FLOAT;
+                        target->texture = device->createTexture(RenderTextureDesc::Texture2D(gainW, gainH, 1,
+                            target->format, RenderTextureFlag::RENDER_TARGET));
+                        if (target->texture) rs.hdrTex = std::move(target);
+                    }
+                    if (rs.hdrTex && rs.hdrTex->texture) {
+                        commandList->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(sceneCopyPromotion.hdrSource, RenderTextureLayout::COPY_SOURCE));
+                        Transition(*rs.hdrTex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                        RenderBox box{0, 0, int32_t(gainW), int32_t(gainH), 0, 1};
+                        commandList->copyTextureRegion(
+                            RenderTextureCopyLocation::Subresource(rs.hdrTex->texture.get()),
+                            RenderTextureCopyLocation::Subresource(sceneCopyPromotion.hdrSource),
+                            0, 0, 0, &box);
+                        rs.hdrFrame = frame;
+                        rs.hdrWriteOrdinal = rs.writeOrdinal;
+                        rs.hdrGain = true;
+                        static uint32_t gainLogs = 0;
+                        if (gainLogs++ < 8)
+                            LOG_INFO("renderer HDR: gain source kept frame={} address={:#x} scene={}x{} output={}x{} ordinal={}",
+                                frame, destBase, gainW, gainH, texW, texH, rs.hdrWriteOrdinal);
+                    }
+                }
                 if (hdrSceneEnabled.load(std::memory_order_relaxed) &&
                     destFormat == 6 && fullResolved && color.hdrValid && color.hdrFrame == frame &&
                     color.hdrValidWidth >= texW && color.hdrValidHeight >= texH &&
@@ -11706,11 +11774,24 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
             g_renderer->PlanSuppressed()) return nullptr;
         const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
-        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture ||
+        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture || rs->hdrGain ||
             rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
             !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
             !rs->sourcePlanValid || rs->hdrTex->width != rs->tex->width ||
             rs->hdrTex->height != rs->tex->height) return nullptr;
+        width = rs->hdrTex->width; height = rs->hdrTex->height;
+        return rs->hdrTex->texture.get();
+    }
+    plume::RenderTexture* AcquireHdrGainSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
+    {
+        if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
+            g_renderer->PlanSuppressed()) return nullptr;
+        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
+        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture || !rs->hdrGain ||
+            rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
+            !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
+            !rs->sourcePlanValid || rs->hdrTex->width > rs->tex->width ||
+            rs->hdrTex->height > rs->tex->height) return nullptr;
         width = rs->hdrTex->width; height = rs->hdrTex->height;
         return rs->hdrTex->texture.get();
     }
@@ -12001,6 +12082,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         frame_plan::FramePlan*, frame_generation::ResolvedHandoff*) { return nullptr; }
     void SetHdrSceneEnabled(bool) {}
     plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
+    plume::RenderTexture* AcquireHdrGainSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
     bool AcquireFgCompositeInputs(uint32_t, frame_generation::CompositeHandoff&) { return false; }
     void CancelFgHandoffs() {}
     void SetFrameGenerationInputCaptureEnabled(bool) {}

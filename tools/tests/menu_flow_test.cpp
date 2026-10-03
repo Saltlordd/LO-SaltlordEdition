@@ -1585,10 +1585,16 @@ int main(int argc, char** argv)
                     "AA runs on the HDR scene and produces no HDR notice");
             settings::edit.upscaler = gpu::upscaling::Upscaler::Fsr;
             settings::pending = 0; Tick(base);
-            Require(settings::snapshot.notice.find(L"HDR is paused") != std::wstring::npos &&
+            Require(settings::snapshot.notice.find(L"HDR is paused") == std::wstring::npos &&
                     settings::edit.upscaler == gpu::upscaling::Upscaler::Fsr,
-                    "incompatible upscaling produces HDR notice without changing preference");
+                    "upscaling keeps HDR through the highlight gain and produces no HDR notice");
             settings::edit.upscaler = gpu::upscaling::Upscaler::Off;
+            settings::edit.frameGenerationProvider = framegen::Provider::Fsr;
+            settings::pending = 0; Tick(base);
+            Require(settings::snapshot.notice.find(L"HDR is paused") != std::wstring::npos &&
+                    settings::edit.frameGenerationProvider == framegen::Provider::Fsr,
+                    "SDR-only frame generation produces HDR notice without changing preference");
+            settings::edit.frameGenerationProvider = framegen::Provider::Off;
             settings::edit.graphicsBackend = settings::GraphicsBackend::Vulkan;
             settings::row = int(GraphicsRow::Hdr);
             settings::pending = 0; Tick(base);

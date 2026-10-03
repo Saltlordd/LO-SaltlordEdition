@@ -739,14 +739,12 @@ namespace gpu::video
             return !optOut || std::strcmp(optOut, "0") != 0;
         }
 
-        // Per-frame scene conditions. The HDR swap chain stays; a frame that
-        // fails these presents its SDR scene through the output transform.
-        // FXAA/SMAA/TAA run on the FP16 scene; upscaling still pauses it.
+        // Per-frame scene conditions. AA runs on the FP16 scene and upscaling
+        // (DLSS/FSR/MetalFX) keeps the pre-upscale scene for presentation's
+        // highlight gain, so only frame generation can still hold HDR back.
         bool HdrConfigurationCompatible()
         {
-            const auto config = settings::GetConfig();
-            return config.upscaler == upscaling::Upscaler::Off &&
-                config.scalingQuality != settings::ScalingMetalFx && HdrFrameGenerationCompatible();
+            return HdrFrameGenerationCompatible();
         }
 
         void UpdateHdrOutput(bool refreshDisplay = false)
@@ -1991,8 +1989,6 @@ namespace gpu::video
             if (g_hdrSwapchain) {
                 swapDescription.format = plume::RenderFormat::R16G16B16A16_FLOAT;
                 swapDescription.outputMode = plume::RenderOutputMode::HDR_LINEAR;
-                if (!HdrConfigurationCompatible())
-                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while upscaling is selected");
             } else if (hdrConfig.hdr && g_vulkan) {
                 LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain here (FSR FG, or DLSS-G with LO_HDR_FG=0)");
             } else if (hdrConfig.hdr) {
@@ -3586,6 +3582,8 @@ namespace gpu::video
                 renderer::ScaleResolvedSize(physicalAddress & 0x1FFFFFFF, sourceWidth, sourceHeight);
                 sourceWidth=std::min(sourceWidth,rw); sourceHeight=std::min(sourceHeight,rh);
                 bool hdrScene = false;
+                plume::RenderTexture* hdrGainSource = nullptr;
+                uint32_t hdrGainValidWidth = 0, hdrGainValidHeight = 0, hdrGainWidth = 0, hdrGainHeight = 0;
                 if (g_hdrSceneEnabled) {
                     uint32_t hdrWidth = 0, hdrHeight = 0;
                     auto* hdrSource = renderer::AcquireHdrResolvedSurface(physicalAddress & 0x1FFFFFFF, hdrWidth, hdrHeight);
@@ -3596,6 +3594,13 @@ namespace gpu::video
                         if (admitted++ < 8)
                             LOG_INFO("HDR: extended scene selected address={:#x} source={}x{} valid={}x{}",
                                 physicalAddress, hdrWidth, hdrHeight, sourceWidth, sourceHeight);
+                    } else if (!hdrSource && (hdrSource = renderer::AcquireHdrGainSurface(physicalAddress & 0x1FFFFFFF, hdrWidth, hdrHeight))) {
+                        // Pre-upscale scene: applied as a highlight gain to the
+                        // final frame after any spatial upscale below.
+                        hdrGainSource = hdrSource;
+                        hdrGainWidth = hdrWidth; hdrGainHeight = hdrHeight;
+                        hdrGainValidWidth = sourcePlan.cpuSerial && sourcePlan.width ? std::min(sourcePlan.width, hdrWidth) : hdrWidth;
+                        hdrGainValidHeight = sourcePlan.cpuSerial && sourcePlan.height ? std::min(sourcePlan.height, hdrHeight) : hdrHeight;
                     }
                 }
                 g_frameWidth = sourceWidth;
@@ -3698,6 +3703,17 @@ namespace gpu::video
                 if (g_presentation && settings::GetConfig().scalingQuality == settings::ScalingMetalFx)
                     source = UpscaleWithMetalFx(source, sourceWidth, sourceHeight);
 #endif
+                if (g_presentation && hdrGainSource) {
+                    if (auto* gained = g_presentation->ComposeHdrGain(g_commandList.get(), source, hdrGainSource,
+                            sourceWidth, sourceHeight, hdrGainValidWidth, hdrGainValidHeight, hdrGainWidth, hdrGainHeight)) {
+                        source = gained;
+                        hdrScene = true;
+                        static uint32_t gainLogs = 0;
+                        if (gainLogs++ < 8)
+                            LOG_INFO("HDR: highlight gain applied address={:#x} scene={}x{} (valid {}x{}) output={}x{}",
+                                physicalAddress, hdrGainWidth, hdrGainHeight, hdrGainValidWidth, hdrGainValidHeight, sourceWidth, sourceHeight);
+                    }
+                }
                 if(g_presentation) {
                     const auto decision = frame_plan::ResolvePresentationDecision(&sourcePlan,
                         renderer::SceneAAApplied(physicalAddress & 0x1FFFFFFF), uint32_t(presentationOptions.antialiasing),
