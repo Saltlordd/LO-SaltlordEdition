@@ -60,11 +60,18 @@ if [[ -f "$prebuilt" ]] && echo "$prebuilt_sha256  $prebuilt" | sha256sum -c --q
     mkdir -p "$(dirname "$artifact")" "$repo/out/android-dxc"
     cp "$prebuilt" "$artifact"
     cp "$prebuilt" "$repo/out/android-dxc/libdxcompiler.so"
-    echo "Seeded the Android DXC cache from the build-inputs prebuilt ($prebuilt_sha256)"
-elif [[ -f "$prebuilt" ]]; then
-    echo "build-inputs libdxcompiler.so does not match the pinned hash; falling back to a source build" >&2
+    # The hash is the stronger check; build-dxc.sh's `file`-based test depends
+    # on the host's magic database and sent run 581 into a source build.
+    echo "Seeded the Android DXC from the build-inputs prebuilt ($prebuilt_sha256)"
+    file "$repo/out/android-dxc/libdxcompiler.so" || true
+else
+    if [[ -f "$prebuilt" ]]; then
+        echo "build-inputs libdxcompiler.so does not match the pinned hash; falling back to a source build" >&2
+    else
+        echo "No build-inputs libdxcompiler.so; falling back to a source build" >&2
+    fi
+    LO_DXC_JOBS=${LO_DXC_JOBS:-6} bash "$repo/tools/android/build-dxc.sh"
 fi
-LO_DXC_JOBS=${LO_DXC_JOBS:-6} bash "$repo/tools/android/build-dxc.sh"
 
 echo "== Runtime build, debug APK and lint"
 export LO_ANDROID_BUILD_DIR="$repo/out/build/android-runtime"
