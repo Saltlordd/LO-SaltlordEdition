@@ -58,7 +58,7 @@ Known limits found in the review and left for later:
 - Frame generation on every backend, and AA/upscaling/MetalFX scaling on Direct3D 12 and Metal, still decide the swap chain at startup. If `hdr=1` is saved while one of them is on, turning it off later does not prompt for the restart that would enable HDR. (On Vulkan, AA and upscaling no longer have this limit: the HDR swap chain exists whenever `hdr=1` and the scene falls back per frame.)
 - If the Vulkan presentation pipeline cannot be rebuilt after a surface format change, later frames use the old pipeline.
 - The Vulkan SDR swap chain now accepts only RGBA8 or BGRA8 with the sRGB nonlinear color space and logs a warning on every resize; a WSI without that pair fails where it used to work. `VK_EXT_hdr_metadata` is enabled but unused.
-- Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report.
+- Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report. Since the swap chain no longer waits for AA and upscaling to be off, this now also reaches `hdr=1` users who have them on; Android takes the same path, and its surface rebuild on resume (`EnsureAndroidSurfaceSwapChain`) still recreates the chain in RGBA8.
 - On the calibration page, Esc cancels the changes, but controller B keeps them.
 
 ## HDR swap chain with AA, upscaling and DLSS-G — 2026-10-02
@@ -70,7 +70,7 @@ Four isolated Windows Vulkan runs on an RTX 5080 (driver 616.56, 2560×1440, the
 - The same without `LO_HDR_FG`: `HDR: SDR swap chain retained; DLSS-G presents through its own swap chain`, DLSS-G generated 8,397 intervals over 90 s.
 - SMAA with `hdr=1`, frame generation off: HDR swap chain, scene paused, no errors; this `DrawComposited` → `Draw(hdrScene=false)` path onto a PQ target was unreachable before this change.
 
-These are log and SDR-preview results, not HDR panel measurements: `display_active=false display_state_known=false transport=true` on Windows Vulkan, as in the known limits above.
+These are log and SDR-preview results, not HDR panel measurements: `display_active=false display_state_known=false transport=true` on Windows Vulkan, as in the known limits above. A 25-second Direct3D 12 run with the same settings right afterwards reported `display_active=true display_state_known=true peak=1015` from DXGI, so Windows HDR was on for the Vulkan runs and the PQ output went to an HDR-mode display; what it looked like on that panel was not recorded.
 
 ## Unfinished validation
 
