@@ -812,7 +812,8 @@ if(WIN32 AND LO_BUILD_GPU)
         ${CMAKE_SOURCE_DIR}/tools/tests/backend_lifecycle_test.cpp
         ${LO_RUNTIME_ROOT}/os/log_file.cpp
         ${LO_RUNTIME_ROOT}/gpu/presentation.cpp ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
-    target_compile_definitions(LoBackendLifecycleTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED)
+    # video.cpp reads LO_HAS_FSR / LO_HAS_FSR_D3D12; this fixture links no FSR backend.
+    target_compile_definitions(LoBackendLifecycleTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED LO_HAS_FSR=0 LO_HAS_FSR_D3D12=0)
     target_link_options(LoBackendLifecycleTest PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
     target_link_libraries(LoBackendLifecycleTest PRIVATE plume d3d12 dxgi fmt::fmt SDL2::SDL2-static xxHash::xxhash)
     foreach(target LoBackendDeviceTest LoBackendCacheTest LoBackendLifecycleTest)
