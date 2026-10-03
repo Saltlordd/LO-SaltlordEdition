@@ -3714,6 +3714,15 @@ namespace gpu::video
                                 physicalAddress, hdrGainWidth, hdrGainHeight, hdrGainValidWidth, hdrGainValidHeight, sourceWidth, sourceHeight);
                     }
                 }
+                // Periodic tally of how each presented frame reached HDR (or did not).
+                {
+                    static uint32_t directFrames = 0, gainFrames = 0, sdrFrames = 0;
+                    if (hdrScene && hdrGainSource) ++gainFrames;
+                    else if (hdrScene) ++directFrames;
+                    else if (g_hdrSceneEnabled) ++sdrFrames;
+                    if (g_hdrSceneEnabled && (directFrames + gainFrames + sdrFrames) % 600 == 0)
+                        LOG_INFO("HDR: presented frames direct={} gain={} sdr={}", directFrames, gainFrames, sdrFrames);
+                }
                 if(g_presentation) {
                     const auto decision = frame_plan::ResolvePresentationDecision(&sourcePlan,
                         renderer::SceneAAApplied(physicalAddress & 0x1FFFFFFF), uint32_t(presentationOptions.antialiasing),
