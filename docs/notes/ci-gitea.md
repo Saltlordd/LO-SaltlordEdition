@@ -17,6 +17,7 @@ and issue triage stay on GitHub.
 | `fg-game-integration.yml` | clang-cl compile of the production renderer/video units, FG bridge link and input contract | Windows |
 | `reusable-fg.yml` | Shared FG core; DLSS, FSR and combined native adapters | Linux and Windows |
 | `review-regressions.yml` (from the 2026-09-30 project review) | Sanitizer regression suite; updater AppImage restart test; AppImage and Flatpak packaging script tests | Linux |
+| `android-apk.yml` | arm64 development APK (`tools/android/build-runtime.sh`: PPC code generation, Android DXC, NDK build, Gradle assemble + lint), runtime JVM tests; APK artifact `LostOdysseyRecomp-android-arm64-debug`. SDK/NDK, DXC, Gradle home and ccache persist on `LO_CI_CACHE` | Linux (privileged) |
 
 ## Running the checks
 
