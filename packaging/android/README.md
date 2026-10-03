@@ -262,12 +262,14 @@ The catalog and package logic has JVM tests:
 Two Gitea workflows build this APK through `tools/android/ci_build.sh` on
 git.zkx.ca's privileged Linux runner, after the same host recompiler tools and
 PPC code generation as the Linux release job. The script installs the Android
-SDK packages with `sdkmanager`, builds or reuses the Android DXC
-(`tools/android/build-dxc.sh`), runs `tools/android/build-runtime.sh`
+SDK packages with `sdkmanager`, seeds the Android DXC from the verified
+prebuilt in the private build-inputs repository (`android/libdxcompiler.so`,
+hash pinned in the script; `tools/android/build-dxc.sh` only compiles it as a
+fallback, which exceeds the runner's memory), runs `tools/android/build-runtime.sh`
 (assemble + lint) and `:runtime:testDebugUnitTest`. The SDK/NDK, the DXC build,
 the Gradle home, ccache and the auto-generated debug keystore live on the
-runner's `LO_CI_CACHE` volume, so only the first run pays for the DXC compile
-and every CI APK carries the same debug signature.
+runner's `LO_CI_CACHE` volume, so every CI APK carries the same debug
+signature.
 
 - `.gitea/workflows/android-apk.yml` runs on pushes that touch
   `packaging/android`, `tools/android` or `thirdparty/libadrenotools`, and on

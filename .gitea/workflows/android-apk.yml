@@ -48,10 +48,11 @@ jobs:
           github-server-url: https://github.com
           token: ${{ secrets.LO_GITHUB_TOKEN }}
           repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 77f076e0e03966736cbf8919ce793bafadce82d9
+          ref: 429003a82e6da4bf41cb3ce0cff1bd4e3ed1c0ef
           path: out/build-input
           sparse-checkout: |
             /default.xex
+            /android/libdxcompiler.so
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Verify private build input
