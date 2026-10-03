@@ -1052,6 +1052,35 @@ static void CheckDlc(const std::filesystem::path& imported, bool restart)
         restart ? "fresh-process restart" : "shared-root/async/open/read/reopen/negative cases", packages.size(), payloadFiles, payloadBytes);
 }
 
+// #175: a slot folder renamed or copied after saving still lists and opens
+// under the folder name; a folder without .lo-content stays hidden.
+static void CheckRenamedSlot()
+{
+    const auto save = FileSystem::GetSaveRoot();
+    std::filesystem::create_directories(save / "user01");
+    std::filesystem::create_directories(save / "notes");
+    auto stored = XamMakeContent(1, "user00");
+    std::ofstream(save / "user01" / ".lo-content", std::ios::binary).write(reinterpret_cast<const char*>(&stored), sizeof(stored));
+    std::ofstream(save / "user01" / "save.bin") << "slot";
+
+    be<uint32_t> size{}, handle{}, count{};
+    Check(XamContentCreateEnumerator(0, 1, 1, 0x1000, 30, &size, &handle) == 0, "enumerate renamed slot");
+    XCONTENT_DATA listed[30]{};
+    Check(XamEnumerate(handle, 0, listed, sizeof(listed), &count, nullptr) == 0 && count == 1, "renamed slot listed, folder without metadata skipped");
+    Check(std::string_view(listed[0].szFileName) == "user01", "renamed slot uses the folder name");
+    DestroyKernelObject(handle);
+
+    auto* content = g_userHeap.Alloc<XCONTENT_DATA>();
+    *content = listed[0];
+    auto* root = static_cast<char*>(g_userHeap.Alloc(16));
+    strcpy(root, "save");
+    auto* disposition = g_userHeap.Alloc<be<uint32_t>>();
+    Check(Call(__imp__XamContentCreateEx, {0, Addr(root), Addr(content), 3, Addr(disposition), 0, 0, 0, 0}) == 0 &&
+        *disposition == 2, "open renamed slot");
+    Check(FileSystem::ResolvePath("save:\\save.bin") == save / "user01" / "save.bin", "renamed slot mounts its own folder");
+    std::puts("PASS: renamed save slot lists and opens under its folder name");
+}
+
 int main(int argc, char** argv)
 {
     try
@@ -1079,6 +1108,7 @@ int main(int argc, char** argv)
         FileSystem::Init(std::filesystem::absolute("game"));
         XamInit();
         const std::string_view mode(argv[1]);
+        if (mode == "renamed-slot") { CheckRenamedSlot(); return 0; }
         Check(mode == "write" || mode == "overwrite" || mode == "read" || mode == "read-overwritten", "invalid test mode");
         const bool overwrite = mode == "overwrite" || mode == "read-overwritten";
         const bool writing = mode == "write" || mode == "overwrite";
