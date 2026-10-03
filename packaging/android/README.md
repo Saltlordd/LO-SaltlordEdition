@@ -267,9 +267,11 @@ prebuilt in the private build-inputs repository (`android/libdxcompiler.so`,
 hash pinned in the script; `tools/android/build-dxc.sh` only compiles it as a
 fallback, which exceeds the runner's memory), runs `tools/android/build-runtime.sh`
 (assemble + lint) and `:runtime:testDebugUnitTest`. The SDK/NDK, the DXC build,
-the Gradle home, ccache and the auto-generated debug keystore live on the
-runner's `LO_CI_CACHE` volume, so every CI APK carries the same debug
-signature.
+the Gradle home and ccache live on the runner's `LO_CI_CACHE` volume. Every
+APK is signed with the project's debug keystore from the private build-inputs
+repository (`android/debug.keystore`, the key that signed v0.8.0); the
+maintainer decided on 2026-10-03 that the app stays debug-signed and never gets
+a release keystore, so each release installs over the previous one.
 
 - `.gitea/workflows/android-apk.yml` runs on pushes that touch
   `packaging/android`, `tools/android` or `thirdparty/libadrenotools`, and on
@@ -279,9 +281,6 @@ signature.
   build-only dispatches). It builds the release build type with the tag as
   `versionName` (`versionCode` = major×1000000 + minor×10000 + patch) and
   publishes `LostOdysseyRecomp-android-arm64-<tag>.apk` with the other
-  packages. Configure the Gitea secrets `LO_ANDROID_KEYSTORE` (base64 of the
-  keystore), `LO_ANDROID_KEYSTORE_PASSWORD`, `LO_ANDROID_KEY_ALIAS` and
-  `LO_ANDROID_KEY_PASSWORD` for a real release signature; until then the APK is
-  signed with the persistent CI debug keystore.
+  packages, signed with the same debug keystore.
 
 A green run proves packaging, lint and the JVM tests, not device behaviour.

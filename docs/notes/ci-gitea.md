@@ -17,7 +17,7 @@ and issue triage stay on GitHub.
 | `fg-game-integration.yml` | clang-cl compile of the production renderer/video units, FG bridge link and input contract | Windows |
 | `reusable-fg.yml` | Shared FG core; DLSS, FSR and combined native adapters | Linux and Windows |
 | `review-regressions.yml` (from the 2026-09-30 project review) | Sanitizer regression suite; updater AppImage restart test; AppImage and Flatpak packaging script tests | Linux |
-| `android-apk.yml` (pushes to `packaging/android`, `tools/android`, `thirdparty/libadrenotools`, or dispatch) | arm64 debug APK through `tools/android/ci_build.sh` (PPC code generation, Android DXC, NDK build, Gradle assemble + lint, runtime JVM tests); artifact `LostOdysseyRecomp-android-arm64-debug`. SDK/NDK, DXC, Gradle home, ccache and the debug keystore persist on `LO_CI_CACHE` | Linux (privileged) |
+| `android-apk.yml` (pushes to `packaging/android`, `tools/android`, `thirdparty/libadrenotools`, or dispatch) | arm64 debug APK through `tools/android/ci_build.sh` (PPC code generation, Android DXC, NDK build, Gradle assemble + lint, runtime JVM tests); artifact `LostOdysseyRecomp-android-arm64-debug`. SDK/NDK, DXC, Gradle home and ccache persist on `LO_CI_CACHE`; signed with the project's debug keystore from build-inputs | Linux (privileged) |
 
 ## Running the checks
 
@@ -73,7 +73,7 @@ git push zkx refs/tags/vX.Y.Z
 | Create draft release (before the builds, so a missing CHANGELOG section or tag fails early) | `docker-runner` |
 | FSR shader inputs, Windows build and ZIP | `win-t640` |
 | Linux build, AppImage and Flatpak | `docker-lo-release-privileged` |
-| Android arm64 APK (`tools/android/ci_build.sh`, same host code generation as Linux; release build type, `LO_ANDROID_KEYSTORE*` secrets or the persistent debug keystore) | `docker-lo-release-privileged` |
+| Android arm64 APK (`tools/android/ci_build.sh`, same host code generation as Linux; release build type signed with the project's debug keystore from build-inputs, no release keystore by decision) | `docker-lo-release-privileged` |
 | Publish: upload the Gitea artifacts to the draft, verify the set, make it public and latest | `docker-runner` |
 
 The build jobs only produce Gitea artifacts. The publish job runs after both

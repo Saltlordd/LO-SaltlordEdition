@@ -500,8 +500,9 @@ jobs:
     needs: [create-draft-release]
     # Same host code generation as the Linux job, then tools/android/ci_build.sh
     # (shared with android-apk.yml). The privileged runner's LO_CI_CACHE keeps
-    # the SDK/NDK, the Android DXC, the Gradle home, ccache and the debug
-    # keystore; release signing uses the LO_ANDROID_KEYSTORE* secrets when set.
+    # the SDK/NDK, the Android DXC, the Gradle home and ccache. The APK is
+    # signed with the project's debug keystore from build-inputs; there is no
+    # release keystore (maintainer decision, 2026-10-03).
     runs-on: ubuntu-22.04-privileged
     timeout-minutes: 240
     steps:
@@ -528,11 +529,12 @@ jobs:
           github-server-url: https://github.com
           token: ${{ secrets.LO_GITHUB_TOKEN }}
           repository: freefrank/LostOdysseyRecomp-build-inputs
-          ref: 429003a82e6da4bf41cb3ce0cff1bd4e3ed1c0ef
+          ref: 2ba529b72c68ae2ee01903d24f7eac55cbb900df
           path: out/build-input
           sparse-checkout: |
             /default.xex
             /android/libdxcompiler.so
+            /android/debug.keystore
           sparse-checkout-cone-mode: false
           persist-credentials: false
       - name: Verify private build input
@@ -554,19 +556,7 @@ jobs:
           out/build/tools/xexdump LostOdysseyRecompLib/private/disc1/default.xex LostOdysseyRecompLib/private/image_disc1.bin
           python tools/ppc_codegen.py generate --executable out/build/tools/XenonRecomp/XenonRecomp/XenonRecomp
       - name: Build the APK
-        env:
-          LO_ANDROID_KEYSTORE: ${{ secrets.LO_ANDROID_KEYSTORE != '' && format('{0}/out/android-keystore.jks', github.workspace) || '' }}
-          LO_ANDROID_KEYSTORE_B64: ${{ secrets.LO_ANDROID_KEYSTORE }}
-          LO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.LO_ANDROID_KEYSTORE_PASSWORD }}
-          LO_ANDROID_KEY_ALIAS: ${{ secrets.LO_ANDROID_KEY_ALIAS }}
-          LO_ANDROID_KEY_PASSWORD: ${{ secrets.LO_ANDROID_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          if [ -n "$LO_ANDROID_KEYSTORE" ]; then
-            printf '%s' "$LO_ANDROID_KEYSTORE_B64" | base64 -d > "$LO_ANDROID_KEYSTORE"
-          fi
-          bash tools/android/ci_build.sh
-          rm -f out/android-keystore.jks
+        run: bash tools/android/ci_build.sh
       - uses: actions/upload-artifact@v3 # Gitea does not support v4
         with:
           name: LostOdysseyRecomp-android-arm64

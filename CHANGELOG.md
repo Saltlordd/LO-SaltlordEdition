@@ -26,7 +26,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - More Settings texts are translated into Japanese, Korean and Simplified Chinese.
 - On Windows, a broken `OptiScaler.dll` no longer shows an error dialog at startup.
 - The macOS app now requires macOS 15 or later.
-- This release does not include an Android APK yet.
+- An experimental Android arm64 APK was added to this release after publication (see the Android section of the README).
 
 ### 简体中文
 
@@ -38,7 +38,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - 设置菜单又有一批文字翻译为日语、韩语和简体中文。
 - Windows 上，损坏的 `OptiScaler.dll` 不再在启动时弹出错误对话框。
 - macOS 版本现在需要 macOS 15 或更高版本。
-- 本版本暂不提供 Android APK。
+- 发布后补充上传了实验性的 Android arm64 APK（见 README 的 Android 一节）。
 
 ## [v0.7.35](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.7.35) — 2026-10-02
 
