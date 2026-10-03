@@ -73,6 +73,7 @@
 #endif
 #if LO_PLATFORM_MACOS
 // Declared the way plume's examples do; plume_metal.h pulls in metal-cpp.
+
 namespace plume {
     std::unique_ptr<RenderInterface> CreateMetalInterface();
     void SetMetalMinimumPresentDuration(RenderSwapChain* swapChain, double seconds);
@@ -96,6 +97,40 @@ namespace plume {
 #include <windows.h>
 #endif
 #endif
+
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+#include <adrenotools/driver.h>
+#include <dlfcn.h>
+#endif
+
+// LO_VK_CUSTOM_DRIVER=<soname>: load a custom Vulkan driver (Mesa Turnip) from
+// LO_CUSTOM_DRIVER_DIR through libadrenotools before plume initialises volk.
+// Diagnostic for Qualcomm proprietary driver issues; silently ignored elsewhere.
+static void LoadCustomVulkanDriver()
+{
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+    const char* driver = getenv("LO_VK_CUSTOM_DRIVER");
+    if (!driver || !*driver) return;
+    const char* hookDir = getenv("LO_NATIVE_LIB_DIR");
+    const char* driverDir = getenv("LO_CUSTOM_DRIVER_DIR");
+    void* handle = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, nullptr,
+        hookDir ? hookDir : "", driverDir ? driverDir : "", driver, nullptr, nullptr);
+    if (!handle) {
+        LOG_ERROR("vulkan: custom driver '{}' failed to load (hooks '{}', dir '{}')", driver,
+            hookDir ? hookDir : "", driverDir ? driverDir : "");
+        return;
+    }
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(handle, "vkGetInstanceProcAddr"));
+    if (!gipa) {
+        LOG_ERROR("vulkan: custom driver '{}' has no vkGetInstanceProcAddr", driver);
+        return;
+    }
+    volkInitializeCustom(gipa);
+    LOG_INFO("vulkan: custom driver '{}' loaded through libadrenotools, instance version {:#x}",
+        driver, volkGetInstanceVersion());
+#endif
+}
+
 
 #ifdef LO_GPU_PLUME
 namespace plume
@@ -1872,6 +1907,7 @@ namespace gpu::video
 #else
             g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
             g_temporalUpscaler = std::make_unique<TemporalUpscaler>(*g_dlssController);
+            LoadCustomVulkanDriver();
             g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
 #endif
             if (!g_interface) return "API/loader initialization failed";

@@ -47,6 +47,10 @@ cp "$build/LostOdysseyRecomp/libmain.so" "$stage/"
 cp "$build/thirdparty/SDL/libSDL2.so" "$stage/"
 cp "$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so" "$stage/"
 cp "$dxc" "$stage/libdxcompiler.so"
+# libadrenotools hook libraries (custom Vulkan driver loading), when built.
+for hook in "$build"/adrenotools/src/hook/lib*.so; do
+    [ -f "$hook" ] && cp "$hook" "$stage/"
+done
 for library in "$stage"/*.so; do
     "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" --file-header "$library" | grep -q 'AArch64'
     "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" --strip-unneeded "$library"

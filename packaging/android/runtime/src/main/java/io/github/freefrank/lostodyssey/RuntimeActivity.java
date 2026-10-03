@@ -65,11 +65,17 @@ public final class RuntimeActivity extends SDLActivity {
             if (override != null && !override.isEmpty()) game = new File(override);
             // Expose the existing renderer diagnostics to ADB on development APKs.
             // A fresh process is required when changing these native switches.
-            for (String name : new String[] { "LO_VS_DEBUG", "LO_PS_DEBUG",
-                    "LO_NO_ALPHATEST", "LO_DEBUG_CAPTURE_SWAP", "LO_TRACE_INPUT",
-                    "LO_CLEAR_RT", "LO_NO_SHADER_PREPARE", "LO_DRAW_TRACE", "LO_DRAW_TRACE_COUNT" }) {
-                String value = getIntent().getStringExtra(name);
-                if (value != null) nativeSetenv(name, value);
+            // Custom Vulkan driver loading (libadrenotools) needs these paths.
+            nativeSetenv("LO_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir + "/");
+            nativeSetenv("LO_CUSTOM_DRIVER_DIR", getFilesDir().getAbsolutePath() + "/gpu_driver/");
+            // Every LO_* extra is forwarded: `am start --es LO_DEBUG_CAPTURE_SWAP 3000`.
+            Bundle extras = getIntent().getExtras();
+            if (extras != null) {
+                for (String name : extras.keySet()) {
+                    if (!name.startsWith("LO_")) continue;
+                    Object value = extras.get(name);
+                    if (value != null) nativeSetenv(name, String.valueOf(value));
+                }
             }
         }
         return new String[] { "--game", game.getAbsolutePath(), "--quiet-kernel" };
