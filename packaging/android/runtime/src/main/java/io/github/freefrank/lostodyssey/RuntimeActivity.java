@@ -1,14 +1,22 @@
 package io.github.freefrank.lostodyssey;
 
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.widget.RelativeLayout;
 import java.io.File;
 import org.libsdl.app.SDLActivity;
 
 /** Experimental game runtime. User-supplied discs live in app-owned storage. */
 public final class RuntimeActivity extends SDLActivity {
+    /** A start that stays in the foreground this long counts as reached for the driver choice. */
+    private static final long BOOT_SETTLED_MS = 15000;
+
     private TouchControlsView touchControls;
+    private final Handler bootHandler = new Handler(Looper.getMainLooper());
+    private final Runnable bootSettled = () -> GpuDriverStore.clearBootPending(this);
 
     static native void nativeSetTouchInput(int buttons, int leftTrigger, int rightTrigger,
                                            int leftX, int leftY, int rightX, int rightY);
@@ -17,6 +25,7 @@ public final class RuntimeActivity extends SDLActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        GpuDriverStore.markBootPending(this);
         if (mLayout != null && !mBrokenLibraries) {
             touchControls = new TouchControlsView(this);
             mLayout.addView(touchControls, new RelativeLayout.LayoutParams(
@@ -24,6 +33,13 @@ public final class RuntimeActivity extends SDLActivity {
                 RelativeLayout.LayoutParams.MATCH_PARENT));
             nativeSetTouchInput(0, 0, 0, 0, 0, 0, 0);
         }
+    }
+
+    /** Opens the GPU driver page over the game (CTRL dialog). */
+    void openGpuDriverPage() {
+        Intent intent = new Intent(this, GpuDriverActivity.class);
+        intent.putExtra(GpuDriverActivity.EXTRA_FROM_GAME, true);
+        startActivity(intent);
     }
 
     @Override
@@ -36,6 +52,8 @@ public final class RuntimeActivity extends SDLActivity {
     protected void onResume() {
         super.onResume();
         if (touchControls != null) touchControls.onHostResume();
+        bootHandler.removeCallbacks(bootSettled);
+        bootHandler.postDelayed(bootSettled, BOOT_SETTLED_MS);
     }
 
     @Override
@@ -47,6 +65,9 @@ public final class RuntimeActivity extends SDLActivity {
     @Override
     protected void onDestroy() {
         if (touchControls != null) touchControls.clearTouches();
+        bootHandler.removeCallbacks(bootSettled);
+        // A normal exit is not a failed start, however short it was.
+        GpuDriverStore.clearBootPending(this);
         super.onDestroy();
     }
 
@@ -59,15 +80,20 @@ public final class RuntimeActivity extends SDLActivity {
     protected String[] getArguments() {
         File external = getExternalFilesDir(null);
         File game = new File(external != null ? external : getFilesDir(), "game/disc1");
+        // Custom Vulkan driver (libadrenotools): the hook libraries sit in the
+        // extracted native library directory, the chosen package in its own folder.
+        nativeSetenv("LO_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir + "/");
+        GpuDriverStore.Installed driver = GpuDriverStore.selectedDriver(this);
+        if (driver != null) {
+            nativeSetenv("LO_CUSTOM_DRIVER_DIR", driver.directory.getAbsolutePath() + "/");
+            nativeSetenv("LO_VK_CUSTOM_DRIVER", driver.metadata.libraryName);
+        }
         // Debug launches can select an isolated fixture without changing saves.
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             String override = getIntent().getStringExtra("game_root");
             if (override != null && !override.isEmpty()) game = new File(override);
             // Expose the existing renderer diagnostics to ADB on development APKs.
             // A fresh process is required when changing these native switches.
-            // Custom Vulkan driver loading (libadrenotools) needs these paths.
-            nativeSetenv("LO_NATIVE_LIB_DIR", getApplicationInfo().nativeLibraryDir + "/");
-            nativeSetenv("LO_CUSTOM_DRIVER_DIR", getFilesDir().getAbsolutePath() + "/gpu_driver/");
             // Every LO_* extra is forwarded: `am start --es LO_DEBUG_CAPTURE_SWAP 3000`.
             Bundle extras = getIntent().getExtras();
             if (extras != null) {

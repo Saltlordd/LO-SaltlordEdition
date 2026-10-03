@@ -55,4 +55,10 @@ android {
 }
 
 tasks.named('preBuild') { dependsOn checkNativeLibraries }
-dependencies { implementation 'androidx.core:core:1.15.0' }
+dependencies {
+    implementation 'androidx.core:core:1.15.0'
+    // JVM tests of the driver catalog/store logic (`:runtime:testDebugUnitTest`);
+    // the real org.json replaces the SDK stub that throws on the host.
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}
