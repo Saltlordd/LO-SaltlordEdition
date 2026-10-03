@@ -61,6 +61,17 @@ Known limits found in the review and left for later:
 - Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report.
 - On the calibration page, Esc cancels the changes, but controller B keeps them.
 
+## HDR swap chain with AA, upscaling and DLSS-G — 2026-10-02
+
+Four isolated Windows Vulkan runs on an RTX 5080 (driver 616.56, 2560×1440, the frozen Uhra save, `tools/perf/run-fg-game.ps1` with `-SettingsOverrides`/`-ExtraEnvironment`, foreground, 75–110 s each). Every run negotiated `VK_FORMAT_A2B10G10R10_UNORM_PACK32` + `VK_COLOR_SPACE_HDR10_ST2084_EXT` when it requested HDR and exited 0.
+
+- DLSS DLAA + SMAA with `hdr=1`: HDR swap chain created, `HDR: scene_enabled=false`, SDR scene on the PQ chain, no errors.
+- AA off, upscaling off, DLSS-G ×2 with `LO_HDR_FG=1`: `HDR: scene_enabled=true`, `HDR: extended scene selected`, DLSS-G `enabled=true runtime=ready status=0`, 9,867 generated intervals over 110 s (89.9 % of samples enabled; the one 17.8 s interruption was the save load, `reason=resource_boundary`), `sdk_errors=0`. The SDR preview screenshot of the Great Gate scene was intact.
+- The same without `LO_HDR_FG`: `HDR: SDR swap chain retained; DLSS-G presents through its own swap chain`, DLSS-G generated 8,397 intervals over 90 s.
+- SMAA with `hdr=1`, frame generation off: HDR swap chain, scene paused, no errors; this `DrawComposited` → `Draw(hdrScene=false)` path onto a PQ target was unreachable before this change.
+
+These are log and SDR-preview results, not HDR panel measurements: `display_active=false display_state_known=false transport=true` on Windows Vulkan, as in the known limits above.
+
 ## Unfinished validation
 
 On 2026-10-02 the Metal HDR path compiled on an M1 Max (macOS 26.6.2) and the opening battle ran with HDR requested, but that Mac was in clamshell mode on an external display without EDR headroom: the game kept its linear EDR output without HDR (`encoding=2 display_active=false`), the inactive case changed above. Its screenshots matched an SDR run, but they are re-encoded previews and could not show the shadow difference. Metal HDR output itself has not been seen yet. Linux Wayland/Gamescope HDR and packaged AppImage/Flatpak output have not been run on HDR hardware in the collected evidence. The maintainer confirmed on-device HDR validation on 2026-10-02, but did not specify its platform/backend/display scope. Broader scenes, GPUs, display modes, monitor changes, system HDR toggles, performance and long play remain open validation work.
