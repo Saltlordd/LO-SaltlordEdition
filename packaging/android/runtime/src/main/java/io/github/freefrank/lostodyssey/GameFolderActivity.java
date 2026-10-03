@@ -67,6 +67,12 @@ public final class GameFolderActivity extends Activity {
         scroll.setFillViewport(true);
         scroll.addView(page, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
             ViewGroup.LayoutParams.WRAP_CONTENT));
+        // Android 15 draws apps edge to edge: keep the page clear of the status bar.
+        scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+            view.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            return insets;
+        });
         setContentView(scroll);
     }
 

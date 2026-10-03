@@ -19,15 +19,16 @@ import java.util.List;
  *
  * Android creates that folder only when the app first asks for it, and a PC
  * sees new folders over USB (MTP) only after the media scanner has indexed a
- * file inside them. The launcher therefore creates the disc folders on every
- * volume and scans a README in each, so they are there to copy into.
+ * file inside them. The launcher therefore creates the game folder on every
+ * volume and scans a README in each, so it is there to copy into. Empty disc
+ * folders are not made: the importer and the disc lookup would take them for
+ * a damaged installation.
  */
 final class GameStorage {
-    static final String[] DISCS = { "disc1", "disc2", "disc3", "disc4" };
     static final String README = "README.txt";
     private static final String README_TEXT =
-        "Copy the imported game data here: disc1/default.xex must exist.\n"
-        + "Put disc2-disc4 beside disc1 and DLC in dlc/<content-id>.\n"
+        "Copy the imported game data here: the folders disc1 to disc4 from the importer,\n"
+        + "so that disc1/default.xex exists, and DLC in dlc/<content-id>.\n"
         + "The game uses the first storage (internal or SD card) whose disc1 has default.xex,\n"
         + "otherwise this folder on the internal storage.\n";
 
@@ -41,12 +42,13 @@ final class GameStorage {
         return result;
     }
 
-    /** Creates {@code game/disc1}-{@code disc4} and a README on each volume; returns the README paths written. */
+    /** Creates {@code game/} with a README on each volume; returns the README paths written. */
     static List<String> createFolders(List<File> volumes) {
         List<String> written = new ArrayList<>();
         for (File volume : volumes) {
             File game = new File(volume, "game");
-            for (String disc : DISCS) new File(game, disc).mkdirs();
+            //noinspection ResultOfMethodCallIgnored
+            game.mkdirs();
             File readme = new File(game, README);
             if (readme.exists() || !game.isDirectory()) continue;
             try (OutputStream output = new FileOutputStream(readme)) {

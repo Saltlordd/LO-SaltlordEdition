@@ -1,6 +1,7 @@
 package io.github.freefrank.lostodyssey;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.File;
@@ -16,14 +17,15 @@ public class GameStorageTest {
     @Rule public TemporaryFolder temporary = new TemporaryFolder();
 
     @Test
-    public void createsDiscFoldersAndReadmeOnEveryVolumeOnce() throws IOException {
+    public void createsTheGameFolderAndReadmeOnEveryVolumeOnce() throws IOException {
         File internal = temporary.newFolder("internal", "files");
         File card = temporary.newFolder("card", "files");
         List<String> written = GameStorage.createFolders(Arrays.asList(internal, card));
         assertEquals(2, written.size());
         for (File volume : Arrays.asList(internal, card)) {
-            for (String disc : GameStorage.DISCS) assertTrue(new File(volume, "game/" + disc).isDirectory());
             assertTrue(new File(volume, "game/" + GameStorage.README).isFile());
+            // Empty disc folders would look like a damaged installation.
+            assertFalse(new File(volume, "game/disc1").exists());
         }
         assertTrue(GameStorage.createFolders(Arrays.asList(internal, card)).isEmpty());
     }
@@ -35,8 +37,10 @@ public class GameStorageTest {
         List<File> volumes = Arrays.asList(internal, card);
         GameStorage.createFolders(volumes);
         assertEquals(new File(internal, "game/disc1"), GameStorage.selectDisc1(null, volumes, internal));
+        assertTrue(new File(card, "game/disc1").mkdirs());
         assertTrue(new File(card, "game/disc1/default.xex").createNewFile());
         assertEquals(new File(card, "game/disc1"), GameStorage.selectDisc1(null, volumes, internal));
+        assertTrue(new File(internal, "game/disc1").mkdirs());
         assertTrue(new File(internal, "game/disc1/default.xex").createNewFile());
         assertEquals(new File(internal, "game/disc1"), GameStorage.selectDisc1(null, volumes, internal));
     }
@@ -53,6 +57,7 @@ public class GameStorageTest {
         File custom = temporary.newFolder("Games", "LostOdyssey");
         List<File> volumes = Collections.singletonList(internal);
         GameStorage.createFolders(volumes);
+        assertTrue(new File(internal, "game/disc1").mkdirs());
         assertTrue(new File(internal, "game/disc1/default.xex").createNewFile());
         assertEquals(new File(internal, "game/disc1"), GameStorage.selectDisc1(custom, volumes, internal));
         assertTrue(new File(custom, "disc1").mkdirs());
