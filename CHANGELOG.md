@@ -4,6 +4,18 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- Fixed the pillar platforms in the Lunar Palace (Great Ancient Ruins, disc 4) rising on their own after a random battle, which left the pillars floating and the puzzle stuck (#171).
+- Removed the v0.7.35 change that blocked object interactions while a battle was starting (#114); it caused the Lunar Palace problem above.
+
+### 简体中文
+
+- 修复 Lunar Palace（第 4 张光盘的大古代遗迹）中放着柱子的升降台在随机战斗后自行升起、柱子悬空、谜题无法继续的问题（#171）。
+- 撤销 v0.7.35 加入的“战斗开始时禁止与物体互动”改动（#114）；上面的 Lunar Palace 问题正是它造成的。
+
 ## [v0.8.5](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.5) — 2026-10-03
 
 ### English

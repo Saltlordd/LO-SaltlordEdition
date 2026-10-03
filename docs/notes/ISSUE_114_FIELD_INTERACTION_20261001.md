@@ -85,5 +85,39 @@ to identify the softlock mechanism. Local evidence is retained under ignored
 `out/issue114/`; private game assets and extracted function bodies are not part of
 this document.
 
-Implementation and focused checks are complete. Full-game reproduction, gameplay
+Implementation and focused checks were complete. Full-game reproduction, gameplay
 validation, player acceptance and publication remain pending; issue #114 stays open.
+
+## 2026-10-03: guard removed (caused #171)
+
+The guard was removed after it was traced as the cause of
+[#171](https://github.com/freefrank/LostOdysseyRecomp/issues/171): in the Lunar
+Palace (`ev7_0_scrw`, disc 4) the two platforms that start with pillars on them
+rose by themselves after a random battle, leaving the pillars floating.
+
+C1 is a general "object A touches object B" query (A and B come from the
+script operands; B or any of its parents must be in A's contact list), not only
+a player interaction. Platform object scripts (records 35/36, persistent bits
+`0x1E2F`/`0x1E30`) poll `C1 0x30, <pillar>` every frame and treat "no pillar
+touching" as a removal, which raises the platform and sets its bit. A random
+encounter queues the request about 0.1 s before the field unloads; during that
+window the field VM still runs, so the guard turned every C1 poll into a
+rejection. The platform script stored its pending raise in its frame (`L2 = 1`),
+the frame survived the battle, and the raise finished about 1.5 s after the
+field returned. The original predicate only reports a battle once it is
+committed, when field scripts are no longer running, so the original game never
+returns a false negative to these polls.
+
+Checks with the #171 reporter's save (v0.8.0-equivalent build plus diagnostics,
+120 FPS): the platform stays down with no encounters; one normal battle inside
+the room raises it every time; the same build without
+`patches/field_interaction.cpp` keeps it down after a battle. A battle-request
+log showed the request at phase 1 from 67.90 s, the field unloading at
+68.01 s, and the request already cleared when the field returned.
+
+Narrowing the guard to the player operand (`C1 1, …`, which the containers use)
+was considered and rejected: ev7 also polls `C1 1/2/3, <platform>` for the
+platform rides, so any per-frame C1 poll can still read a false result in that
+window. With the guard removed, the original #114 window (a touch accepted while
+an encounter is queued) can occur again; a future fix should defer the
+encounter while a touch-started script runs instead of changing C1's result.
