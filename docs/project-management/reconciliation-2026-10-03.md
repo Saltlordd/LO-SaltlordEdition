@@ -54,7 +54,7 @@ Maintainer decisions on 2026-10-03, recorded in the `Evidence` field only (3 ope
 
 - `native-macos-platform`: macOS packages stay ad-hoc signed; Developer ID signing and notarization will not be done. [MACOS_RELEASE](../MACOS_RELEASE.md#signed-release-workflow) keeps the helper for reference.
 - `linux-aarch64-platform`: ships as is, without an ARM64 hardware validation gate.
-- `experimental-android-platform`: the maintainer will add Android CI later.
+- `experimental-android-platform`: the maintainer will add Android CI later. In a later pass the maintainer deferred Android out of v0.8.0 because of an upstream Qualcomm bug: the item moved from In Progress / In progress / v0.8.0 to Paused / Deferred with `Release` cleared (`clearProjectV2ItemFieldValue`), and its body records the deferral. The bug details are not recorded in the repository.
 
 ## Evidence boundaries
 
