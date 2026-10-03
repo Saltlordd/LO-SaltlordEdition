@@ -3611,7 +3611,7 @@
         "Area": "Temporal rendering",
         "Status": "Paused",
         "Delivery": "Deferred",
-        "Release": "v0.8.0",
+        "Release": "v0.9.0",
         "Start date": null,
         "Target date": null,
         "Evidence": "Historical broad frame-generation research is deferred. Active delivered work is tracked by the D3D12 FSR/DLSS FG records; active Vulkan work remains in P0/P3/P4. This item stays as deferred backlog rather than an active Todo."
@@ -3996,7 +3996,7 @@
         "Area": "Temporal rendering",
         "Status": "In Progress",
         "Delivery": "Validated",
-        "Release": "v0.8.0",
+        "Release": "v0.9.0",
         "Start date": "2026-09-22",
         "Evidence": "P0 Gate 1 PASSED by maintainer acceptance on 2026-09-27. The known Streamline Vulkan PRESENT-AFTER-WRITE exception is separately deferred under streamline-vulkan-present-after-write. The foreground run recorded 1,980 generated intervals, zero SDK errors and normal cleanup. Physical-display classification, failure injection and settings-restart coverage remain separate follow-up validation.",
         "Source key": "temporal-phased-p0-common-contracts-probe"
@@ -5974,7 +5974,7 @@
         "Area": "Platforms",
         "Status": "In Progress",
         "Delivery": "In progress",
-        "Release": "v0.8.0",
+        "Release": "v0.9.0",
         "Start date": null,
         "Target date": null,
         "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. The v0.8.0 lane is kept as the plan milestone and is open for the maintainer to move."

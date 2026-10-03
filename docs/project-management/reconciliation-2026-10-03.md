@@ -147,3 +147,7 @@ Not established: maintainer acceptance of v0.8.0 or v0.8.5; reporter confirmatio
 ### Records
 
 [items.json](items.json) holds the 7 added records and the 9 changed ones (255 in total); [sync-state.json](sync-state.json) holds the applied values and Project item IDs. The plans, apply report and before and after snapshots were kept outside the repository, in the session scratchpad (`plan0.json`, `plan1.json`, `apply1.json`, `before_items.json`, `after_items.json`), and are not committed.
+
+### Release lane follow-up
+
+Later on 2026-10-03 the maintainer moved the three items still in the published v0.8.0 lane to v0.9.0: `temporal-phased-p0-common-contracts-probe`, `linux-aarch64-platform` and `frame-generation-research` (Release field only; Status and Delivery unchanged). The plan showed 3 updates and 0 conflicts; after `--apply` the Project read back v0.9.0 for all three and a new plan showed 0 operations. `shader-delivery-v080` stays Paused without a Release value.
