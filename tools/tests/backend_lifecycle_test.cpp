@@ -4,9 +4,13 @@
 #include <condition_variable>
 #include <functional>
 #include <future>
+#include <thread>
 #include <iostream>
 #include <deque>
+#include <filesystem>
+#include <optional>
 #include <gpu/shader/dxc_compiler.h>
+#include <gpu/fsr_upscaler.h>
 #include <settings/config.h>
 #include <settings/restart.h>
 #include <SDL.h>
@@ -59,6 +63,10 @@ namespace settings {
 Config GetConfig() { std::lock_guard lock(fixture::mutex); return fixture::config; }
 bool DrawMenu(std::vector<uint32_t>&,uint64_t&,uint32_t,uint32_t) { return false; }
 void PointerClick(float,float,bool) { throw std::runtime_error("unexpected pointer input"); }
+void PointerDrag(float,float,bool) { throw std::runtime_error("unexpected pointer input"); }
+bool IsOpen() { return false; }
+bool CalibrationKey(uint32_t) { return false; }
+HdrCalibration GetHdrCalibration() { return {}; }
 }
 namespace hid {
 void Init() {} // No real controllers, keyboard state, or SDL joystick thread.
@@ -66,9 +74,13 @@ void SetExternalEventPump(bool v) { fixture::externalPump=v; }
 void HandleControllerEvent(uint32_t,int32_t) {}
 void HandleKeyboardEvent(int32_t,bool) {}
 void ClearKeyboardState() {}
+void PumpHostInput() {}
 }
 namespace debug_menu {
 void Toggle() { throw std::runtime_error("unexpected debug input"); }
+void HandleInput(InputAction) { throw std::runtime_error("unexpected debug input"); }
+bool IsOverlayVisible() { return false; }
+void RenderOverlay(host_ui::Rasterizer&) {}
 void Update() {
     std::deque<std::function<void()>> work;
     { std::lock_guard lock(fixture::mutex); work.swap(fixture::commands); }
@@ -77,7 +89,17 @@ void Update() {
 }
 Memory::Memory() = default;
 Memory g_memory; // Empty; PresentFrontbuffer/guest-memory paths are not invoked.
-namespace gpu { bool SetFrameRateTarget(uint32_t) { return true; } }
+namespace gpu {
+bool SetFrameRateTarget(uint32_t) { return true; }
+uint32_t GetFrameRateTarget() { return 30; }
+CommandProcessor g_commandProcessor;
+// Production finishes a requested exit on the GPU owner thread once the
+// command processor stops; a detached thread stands in for that owner.
+void CommandProcessor::RequestStopForExit() {
+    static std::atomic<bool> once{false};
+    if(!once.exchange(true)) std::thread([]{ video::FinishRequestedExit(); }).detach();
+}
+}
 namespace gpu::renderer {
 bool Init() { throw std::runtime_error("LO_NO_RENDERER guard not respected"); }
 void Shutdown() { ++fixture::rendererShutdowns; }
@@ -89,10 +111,53 @@ void SetOutputSize(uint32_t,uint32_t) {}
 void ScaleResolvedSize(uint32_t,uint32_t&,uint32_t&) {}
 plume::RenderTexture* AcquireResolvedSurface(uint32_t,uint32_t&,uint32_t&,uint32_t&, frame_plan::FramePlan*, frame_generation::ResolvedHandoff*) { return nullptr; }
 void CancelFgHandoffs() {}
+bool SuppressPresent() { return false; }
+bool DrainForFrameGenerationReconfigure() { return true; }
+void SetHdrSceneEnabled(bool) {}
+plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t,uint32_t&,uint32_t&) { return nullptr; }
 bool SceneAAApplied(uint32_t) { return false; }
 bool ReadbackResolvedSurface(uint32_t,std::vector<uint32_t>&,uint32_t&,uint32_t&) { return false; }
 std::vector<uint32_t> GetResolvedAddresses() { return {}; }
 void DumpRenderTargets(const char*) {}
+}
+// Upscaler, DLSS probe, and sizing paths are reached through video init/reset
+// but never configured here; the stubs mirror present_capture_test.cpp.
+namespace settings {
+void SetHdrDisplayInfo(HdrDisplayInfo) {}
+void SetHdrCalibrationSceneAvailable(bool) {}
+}
+namespace gpu {
+TemporalUpscaler::TemporalUpscaler(dlss::Controller& controller) : dlss_(&controller) {}
+TemporalUpscaler::~TemporalUpscaler() { fsr_.release(); } // No SDK adapter is ever constructed.
+void TemporalUpscaler::ReleaseCompleted(uint64_t) {}
+void TemporalUpscaler::AbandonAfterDeviceLoss() {}
+void TemporalUpscaler::ShutdownAfterGpuDrain() {}
+bool TemporalUpscaler::ShutdownComplete() const { return true; }
+upscaling::OutputSizing TemporalUpscaler::QuerySizing(const plume::D3D12Device&, const upscaling::SizingKey&) { return {}; }
+}
+namespace gpu::optiscaler {
+const LoadResult& Initialize(bool) { static const LoadResult result; return result; }
+}
+namespace gpu::upscaling {
+void PublishDeviceCapability(BackendDeviceSnapshot) {}
+BackendDeviceSnapshot PublishedDeviceCapability() { return {}; }
+OutputSizing SizingService::QueryOutputSizing(TemporalUpscaler&, const plume::VulkanInterface&, const plume::VulkanDevice&, const SizingKey&) { return {}; }
+}
+namespace gpu::frame_plan {
+void NoteCurrentDlssStatus() {}
+void ResetSizing(uint64_t) {}
+void PublishSizing(upscaling::OutputSizing) {}
+std::optional<upscaling::SizingKey> TakeSizingRequest() { return {}; }
+}
+namespace gpu::dlss {
+Controller::Controller(std::filesystem::path, std::filesystem::path) {}
+plume::VulkanExtensionHooks Controller::ExtensionHooks() { return {}; }
+void Controller::ProbeOnce(const plume::VulkanInterface&, const plume::VulkanDevice&, bool) {}
+void Controller::ProbeOnce(const plume::D3D12Device&) {}
+void Controller::ReleaseCompletedThrough(uint64_t) {}
+void Controller::AbandonUsesAfterDeviceLoss() {}
+void Controller::ShutdownAfterGpuDrain() {}
+const char* ProbeStateName(ProbeState) { return "stub"; }
 }
 
 namespace fixture {
@@ -190,7 +255,7 @@ int main(int argc,char** argv) {
             std::ofstream("source-pid.txt")<<GetCurrentProcessId();
             if(mode=="restart") settings::restart::Request();
             else fixture::Owner([]{SDL_Event event{};event.type=SDL_QUIT;SDL_PushEvent(&event);});
-            // Only the production window thread's normal close/restart exits successfully.
+            // Only the production close/restart path, finished on the GPU owner, exits successfully.
             std::this_thread::sleep_for(std::chrono::seconds(20));
             throw std::runtime_error("production close/restart did not exit");
         }
