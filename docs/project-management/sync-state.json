@@ -2731,28 +2731,27 @@
       "fields": {
         "Kind": "Infrastructure",
         "Area": "Temporal rendering",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Release": "v0.8.0",
-        "Evidence": "Provider-neutral present/input lifetime tracking and the final composited-backbuffer FG path are merged at 81fe304 (PR #72). The authorized 70-second Uhra run recorded generated-frame evidence; P3 remains In Progress for synchronization resolution and resize, mode-switch and exit-lifecycle validation. HUDless/UI separation is deferred to the separate v1.0.0 item.",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "Foundation merged at 81fe304 (PR #72) and used by the shipped D3D12 (v0.7.9) and Vulkan DLSS (v0.7.35) frame generation. Moved out of v0.8.0 by the maintainer on 2026-10-03: the Streamline synchronization hazard stays under streamline-vulkan-present-after-write pending an SDK fix, and resize, mode-switch and exit validation moved to P4.",
         "Source key": "temporal-phased-p3-fg-infrastructure"
       },
       "title": "P3: Implement frame generation presentation infrastructure and leases",
-      "body_sha256": "df7a03493870f4ee7300949e7f171f4b7fdc220b1946fd0757e87b37fbc8befa"
+      "body_sha256": "5fa1db975db261a33391b1bccaa4c48943f64c242a09f1588f7d33aeb483ee61"
     },
     "temporal-phased-p4-dlss-fg-2x": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8QYr4",
       "fields": {
         "Kind": "Feature",
         "Area": "Temporal rendering",
-        "Status": "In Progress",
-        "Delivery": "In progress",
+        "Status": "Done",
+        "Delivery": "Validated",
         "Release": "v0.8.0",
-        "Evidence": "Windows Vulkan fixed 2× DLSS Frame Generation is integrated at 81fe304 (PR #72). The authorized 70-second Uhra run recorded 48 enabled periods, 2,830 generated intervals and zero SDK errors. P4 remains In Progress for provider combinations, lifecycle recovery, pacing, visual quality and external-display validation; the known SDK exception is separately deferred. PR #119 shipped in v0.7.35 (published 2026-10-02T09:13:35Z; not accepted): Vulkan DLSS frame generation follows the Graphics menu and settings.ini with fixed 2× to 6× limited to the SDK-reported maximum (one RTX 5080, 2560x1440 window, Uhra save). Experimental Vulkan FSR FG and MetalFX FG exist only in source builds; MetalFX FG has not run on Mac hardware. AMD and Intel GPUs, exclusive fullscreen and image quality are unchecked.",
+        "Evidence": "Maintainer accepted all P4 validation as passed on 2026-10-03, including the resize, mode-switch and exit validation moved from P3. Vulkan DLSS frame generation (fixed 2× to 6×) shipped in v0.7.35 through PR #119 on the foundation of PR #72. The Streamline PRESENT-AFTER-WRITE exception stays deferred under streamline-vulkan-present-after-write.",
         "Source key": "temporal-phased-p4-dlss-fg-2x"
       },
       "title": "P4: Deliver fixed 2× DLSS Frame Generation on Windows Vulkan",
-      "body_sha256": "af17ba0354d7d19ed9f581edb94279ca30bf39ed4d01da996f286a46e99123a2"
+      "body_sha256": "9c101799e2c4419e8665eabc71423379d33484768bdcc8e4a15de8b8aaa2e743"
     },
     "d3d12-bundled-shader-pack": {
       "id": "PVTI_lAHOAAsUY84Biy1azg8n2NU",
