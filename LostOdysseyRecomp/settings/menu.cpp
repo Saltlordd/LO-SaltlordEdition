@@ -940,7 +940,11 @@ void Publish(uint8_t *base, uint32_t config)
         next.dialogSelection = importChoice;
     }
 #if LO_PLATFORM_ANDROID
-    next.notice = tab == 2 && graphics_menu::AndroidFsrAvailable &&
+    const bool hdrConflict = edit.hdr && (edit.antialiasing != 0 || edit.upscaler != gpu::upscaling::Upscaler::Off);
+    next.notice = tab == 2 && hdrConflict
+        ? Tr(L"HDR is paused while AA or upscaling is selected.",
+             L"選取抗鋸齒或超解析度時，HDR 會暫停。")
+        : tab == 2 && graphics_menu::AndroidFsrAvailable &&
         edit.upscaler == gpu::upscaling::Upscaler::Fsr ? DlssNotice() : std::wstring{};
 #else
     const bool hdrConflict = edit.hdr && (edit.antialiasing != 0 ||

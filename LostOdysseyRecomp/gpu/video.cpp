@@ -35,6 +35,7 @@
 #endif
 #include "command_processor.h"
 #include "frame_rate.h"
+#include <cstring>
 #include "vrr_policy.h"
 #include "frame_pacer.h"
 #include "deadline_wait.h"
@@ -723,15 +724,28 @@ namespace gpu::video
                 std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
         }
 
+        // Frame generation presents through each SDK's own swap chain. D3D12
+        // and Metal recreate that chain in SDR; Vulkan DLSS-G accepts the
+        // HDR10 chain plume prefers (Streamline DLSS-G guide 11.0) and is
+        // opt-in with LO_HDR_FG=1 while that is being evaluated.
+        bool HdrFrameGenerationCompatible()
+        {
+            const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
+                g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
+                settings::GetConfig(), std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+                std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+            if (!fg.Enabled()) return true;
+            const char* allow = std::getenv("LO_HDR_FG");
+            return g_vulkan && allow && std::strcmp(allow, "1") == 0;
+        }
+
+        // Per-frame scene conditions. The HDR swap chain stays; a frame that
+        // fails these presents its SDR scene through the output transform.
         bool HdrConfigurationCompatible()
         {
             const auto config = settings::GetConfig();
-            const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
-                g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
-                config, std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
-                std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
             return config.antialiasing == 0 && config.upscaler == upscaling::Upscaler::Off &&
-                config.scalingQuality != settings::ScalingMetalFx && !fg.Enabled();
+                config.scalingQuality != settings::ScalingMetalFx && HdrFrameGenerationCompatible();
         }
 
         void UpdateHdrOutput(bool refreshDisplay = false)
@@ -1966,14 +1980,16 @@ namespace gpu::video
             plume::RenderSwapChainDesc swapDescription(g_window, kSwapChainFormat, kSwapChainBuffers);
 #endif
             const auto hdrConfig = settings::GetConfig();
-            g_hdrSwapchain = hdrConfig.hdr && HdrConfigurationCompatible();
+            g_hdrSwapchain = hdrConfig.hdr && HdrFrameGenerationCompatible();
             g_hdrPaperWhiteNits = float(hdrConfig.hdrPaperWhiteNits);
             g_hdrPeakNits = float(hdrConfig.hdrPeakNits);
             if (g_hdrSwapchain) {
                 swapDescription.format = plume::RenderFormat::R16G16B16A16_FLOAT;
                 swapDescription.outputMode = plume::RenderOutputMode::HDR_LINEAR;
+                if (!HdrConfigurationCompatible())
+                    LOG_INFO("HDR: swap chain requested; the HDR scene pauses while AA, upscaling or MetalFX scaling is selected");
             } else if (hdrConfig.hdr) {
-                LOG_WARNING("HDR: SDR retained; requires D3D12/Metal, AA off, upscaling off, frame generation off and a non-MetalFX scaling filter");
+                LOG_WARNING("HDR: SDR swap chain retained; frame generation presents through an SDR-only SDK swap chain on this backend (Vulkan DLSS-G: set LO_HDR_FG=1 to try the HDR10 swap chain)");
             }
             g_swapChain = g_queue->createSwapChain(swapDescription);
             if (!g_swapChain || g_swapChain->isEmpty()) return "window surface/swapchain initialization failed";

@@ -7,7 +7,8 @@ This note documents the experimental HDR path for the cross-platform renderer, w
 HDR is opt-in in the Graphics menu and takes effect after a restart. The current implemented configuration is:
 
 - Windows with Direct3D 12 or Vulkan, Linux with Vulkan, or macOS with Metal. Vulkan selects an exact HDR surface format/color-space pair; an unsupported pair uses SDR.
-- Anti-aliasing Off, upscaling Off, frame generation Off and a non-MetalFX spatial filter.
+- Anti-aliasing Off, upscaling Off and a non-MetalFX spatial filter. With `hdr=1` the HDR swap chain is created regardless of these; while one of them is selected, each frame presents its SDR scene through the output transform instead, and turning them off takes effect without a restart.
+- Frame generation Off. The SDK swap chains that frame generation presents through are SDR on Direct3D 12 and Metal, so saving `hdr=1` with frame generation on keeps the SDR swap chain and needs a restart after turning either off. Vulkan DLSS-G accepts the HDR10/PQ chain plume prefers (Streamline DLSS-G guide section 11, which rejects FP16 scRGB); `LO_HDR_FG=1` opts into that combination while it is being evaluated.
 - Paper-white 80–400 nits and manually entered peak from paper-white through 10,000 nits.
 
 Auto peak is the default. It follows the current display's reported peak when available, otherwise uses a 1000-nit content reference. The Linux Vulkan path does not yet obtain a display peak, so Auto currently uses that fallback there. Existing `hdr_peak_nits` profiles without `hdr_peak_auto` retain their manual choice. The **HDR peak brightness** page freezes a deterministic comparison frame and renders it through the actual output transfer: the left view is an SDR brightness preview clipped at reference white, while the right view uses normal HDR tone mapping and updates the peak live. Mouse or controller **X** switches between the Scene and Test pattern; if no valid scene is available, the standard pattern is used. The menu copies its source once when opened rather than every frame. Use the slider, type a numeric value, or restore Auto. Changes preview while the page is open and apply after saving Graphics settings; only the HDR output toggle needs a restart. Unsupported display state or scene input uses the existing SDR path. The pattern cannot demonstrate HDR while output is inactive. See the [Linux/Vulkan implementation note](linux-vulkan-hdr.md) for WSI conditions and pending hardware acceptance. Savestate work is unrelated to this change.
@@ -54,7 +55,7 @@ The review of PR #145 changed three things before merging.
 
 Known limits found in the review and left for later:
 
-- HDR output is decided at startup. If `hdr=1` is saved while AA, upscaling, frame generation or MetalFX scaling is on, turning those off later does not prompt for the restart that would enable HDR.
+- Frame generation still decides the swap chain at startup. If `hdr=1` is saved while frame generation is on, turning it off later does not prompt for the restart that would enable HDR. (AA, upscaling and MetalFX scaling no longer have this limit: the HDR swap chain exists whenever `hdr=1` and the scene falls back per frame.)
 - If the Vulkan presentation pipeline cannot be rebuilt after a surface format change, later frames use the old pipeline.
 - The Vulkan SDR swap chain now accepts only RGBA8 or BGRA8 with the sRGB nonlinear color space and logs a warning on every resize; a WSI without that pair fails where it used to work. `VK_EXT_hdr_metadata` is enabled but unused.
 - Windows Vulkan treats HDR as active when the surface offers an HDR format, which may also happen while Windows HDR is off. Its Auto peak uses the 1000-nit fallback instead of the DXGI output report.
