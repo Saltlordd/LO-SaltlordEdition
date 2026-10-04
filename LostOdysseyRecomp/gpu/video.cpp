@@ -198,9 +198,9 @@ static void LogVulkanPhysicalDevices(VkInstance instance)
 #endif
 
 #if defined(__ANDROID__) && !defined(LO_VIDEO_SUBMISSION_UNIT)
-// A driver the renderer cannot use fails the same way on every start. The
-// activity reopens the GPU driver page with this reason when the native main
-// returns, instead of the launcher starting the same driver again (#185).
+// A driver the renderer cannot use fails the same way on every start. When the
+// native main returns, the activity shows this reason (on the GPU driver page
+// on Qualcomm devices, in a dialog elsewhere) instead of closing (#185).
 static void ReportGraphicsFailureToActivity(const std::string& reason)
 {
     auto* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());

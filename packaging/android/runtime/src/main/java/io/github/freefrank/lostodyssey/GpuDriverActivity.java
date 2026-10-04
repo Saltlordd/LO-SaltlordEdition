@@ -69,7 +69,12 @@ public final class GpuDriverActivity extends Activity {
         if (!fromGame) {
             // Shows the previous run's logs over USB, complete even after a crash.
             PlayerLogs.publish(this);
-            if (!GpuDriverStore.supported()) { launchGame(); return; }
+            if (!GpuDriverStore.supported()) {
+                // No custom drivers here: say why the game closed instead of
+                // starting it into the same failure again.
+                if (graphicsFailure != null) showUnsupportedDriver(); else launchGame();
+                return;
+            }
             failedDriver = GpuDriverStore.takeFailedBoot(this);
             if (failedDriver == null && graphicsFailure == null && GpuDriverStore.choiceMade(this)) {
                 launchGame();
@@ -81,6 +86,16 @@ public final class GpuDriverActivity extends Activity {
         setContentView(buildPage());
         refreshInstalled();
         loadFeeds(false);
+    }
+
+    private void showUnsupportedDriver() {
+        new AlertDialog.Builder(this)
+            .setTitle("GPU driver not supported")
+            .setMessage("This device's Vulkan driver cannot run the game: " + graphicsFailure
+                + ".\n\nThe log is in Android/data/io.github.freefrank.lostodyssey/files/logs/.")
+            .setPositiveButton("Close", (dialog, which) -> finish())
+            .setOnCancelListener(dialog -> finish())
+            .show();
     }
 
     private void launchGame() {

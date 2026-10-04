@@ -107,8 +107,9 @@ public final class RuntimeActivity extends SDLActivity {
         }
         // The same driver would fail again on the next start, and the launcher
         // goes straight to the game once a driver was chosen: show the GPU
-        // driver page with the reason instead (#185).
-        if (isFinishing() && graphicsFailure != null && GpuDriverStore.supported()) {
+        // driver page with the reason instead (#185). Devices without custom
+        // drivers get the reason in a dialog.
+        if (isFinishing() && graphicsFailure != null) {
             Intent intent = new Intent(this, GpuDriverActivity.class);
             intent.putExtra(GpuDriverActivity.EXTRA_GRAPHICS_FAILURE, graphicsFailure);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
