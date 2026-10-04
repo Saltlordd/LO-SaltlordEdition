@@ -32,6 +32,9 @@ void CheckSequence(std::string_view code, std::initializer_list<std::string_view
 void CheckGeneratedGuestCallers()
 {
     const auto root = std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
+    // The generated callers come from game data; without it only the dispatch contract below runs.
+    if (!std::filesystem::exists(root / "LostOdysseyRecompLib/ppc/ppc_recomp.3.cpp"))
+        return;
     const auto read = [](const std::filesystem::path& path) {
         std::ifstream input(path);
         Check(bool(input), "generated caller source must be available");

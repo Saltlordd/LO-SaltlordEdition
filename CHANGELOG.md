@@ -8,15 +8,27 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
-- Fixed character and object shadows shaking and flickering on AMD GPUs, including the Steam Deck, most visible in towns and cutscenes (#176).
-- The shader packs change with this fix; the first start after updating offers to download the new packs.
 - Fixed flickering self-shadows on characters and objects in cutscenes when TAA or upscaling is on (#183).
 
 ### 简体中文
 
-- 修复 AMD 显卡（包括 Steam Deck）上角色和物体阴影抖动、闪烁的问题，在城镇和过场动画中最明显（#176）。
-- 着色器包随此修复更新，更新后第一次启动会提示下载新的着色器包。
 - 修复开启 TAA 或超分辨率时，过场动画中角色和物体自阴影闪烁的问题（#183）。
+
+## [v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) — 2026-10-04
+
+### English
+
+- Fixed character and object shadows shaking and flickering on AMD GPUs, including the Steam Deck (#176).
+- The shader packs change with this fix; the first start after updating offers to download the new packs.
+- Android no longer closes silently when the GPU driver cannot run the game: it shows the reason, and on Qualcomm devices opens the GPU driver page, where a Turnip driver can be picked (#185).
+- FSR and DLSS no longer recreate their working images every frame, which lowered the frame rate (#172).
+
+### 简体中文
+
+- 修复 AMD 显卡（包括 Steam Deck）上角色和物体阴影抖动、闪烁的问题（#176）。
+- 着色器包随此修复更新，更新后第一次启动会提示下载新的着色器包。
+- GPU 驱动无法运行游戏时，Android 版不再无提示地退出，而是显示原因；高通设备会打开 GPU driver 页面，可在那里改选 Turnip 驱动（#185）。
+- FSR 和 DLSS 不再每帧重新创建工作图像，此前这会拉低帧率（#172）。
 
 ## [v0.8.7](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) — 2026-10-03
 

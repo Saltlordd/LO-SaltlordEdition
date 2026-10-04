@@ -86,6 +86,17 @@ Validation:
 - Not yet checked: Linux runs (the new sources only compiled there) and mouse input in the window.
 - Update, 2026-10-03: v0.8.0 (published 2026-10-03T06:41:51Z) and v0.8.5 (2026-10-03T18:45:17Z) also carry no pack. Their Windows ZIPs are 77,134,904 and 77,142,293 bytes, their AppImages 76,311,032 and 76,306,936 and their Flatpaks 54,113,296 and 54,129,440. The v0.8.5 runtime's contracts were already in the published index (DirectX 12 `239f8775...`, Vulkan `eecb4425...`; the `portable_dx12-239f877563b6dc7a.lospd` and `portable_vk-eecb4425e7f53d44.lospv` packs above): `publish_shader_packs.py --check` passed on a Mac before the tag and no pack was published for the release. The release run's mandatory Linux-job check succeeded; its output was not read here, and no game run was made with the packages ([v0.8.0 record](STATUS.md#v080-published--2026-10-03), [v0.8.5 record](STATUS.md#v085-published--2026-10-03)).
 
+### Update, 2026-10-04: packs for translator version 27
+
+PR #186 (the AMD shadow fix, shipped in v0.8.10) raises the shader translator version to 27, so both contracts changed and the packs of 2026-10-02 no longer match the v0.8.10 runtime. The new packs were built on Windows (RTX 5080) from `main` at `682fef55` (the v0.8.10 tag differs from it only in the source version in `CMakeLists.txt` and in documents) with `tools/shader_pack/build_packs.py --sources <the 950 learned sources> --stage`: Vulkan 373 s and D3D12 110 s from an empty cache, 28,687 records each, and `verify-runtime` passed for both. After the maintainer approved, `publish_shader_packs.py --publish` uploaded them to the `shader-packs` prerelease; GitHub dates the packs 05:14:56Z and `index.json` 05:17:13Z on 2026-10-04, before the tag (05:17:26Z). `publish_shader_packs.py --check` then passed locally ("lists packs for all renderers of this runtime"). The index keeps the entries for older contracts (the prerelease now holds seven pack assets), so older runtimes still find theirs.
+
+| Pack | Bytes | SHA-256 | Contract |
+|---|---:|---|---|
+| `portable_vk-a7d1ab94ff3a0597.lospv` (Vulkan on Windows, Linux and Android; Metal) | 241,862,616 | `954c2acfc7d6a2d6eacc2dc7925703c86a7c94ab023d5477673dd149f2d214dc` | `a7d1ab94ff3a0597…` |
+| `portable_dx12-48cf14e3720d8a64.lospd` | 80,492,620 | `b83563863ba2aca8f3698afd5bc6e29fe87d030d86bda3d374d2a96a202b5262` | `48cf14e3720d8a64…` |
+
+GitHub's digests equal these SHA-256 values. [v0.8.10](STATUS.md#v0810-published--2026-10-04) was published at 2026-10-04T05:39:20Z; its Linux job runs the same `--check` and succeeded, and its output was not read. No game run with these packs, and no download of them by a running game, is recorded here.
+
 ## Runtime contract and release check (after v0.7.25)
 
 v0.7.25 shipped the Vulkan pack pinned for v0.7.10, although its runtime had moved from shader translator version 24 to 26 (the macOS merge changed predicate-push translation). The game rejected the pack (`portable shader pack rejected; local cache fallback: portable shader contract mismatch`) and compiled all 28,549 shaders on first launch: 180 s with 15 workers on a 16-thread CPU. Nothing in the release compared the pack with the runtime, and `verify-runtime` could not do it in general. The runtime hashed its guest image after `XexLoader` had written host-assigned import addresses into it, so the tool relied on one audited contract pair, which the next translator change made useless.

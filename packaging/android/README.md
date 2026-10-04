@@ -260,6 +260,13 @@ loader as `LO_CUSTOM_DRIVER_DIR` and `LO_VK_CUSTOM_DRIVER`. A package that
 loads but cannot create a Vulkan instance or device falls back to the system
 driver in-process; a start that never reaches the game (the process dies within
 15 seconds) selects the system driver again and reopens the page with a notice.
+When no driver gives the renderer a usable Vulkan device (for example a system
+driver below Vulkan 1.2, like the Adreno 650's), `video.cpp` passes the reason
+to `RuntimeActivity.reportGraphicsFailure` and the activity reopens the page
+with it when the native main returns, instead of closing; otherwise the
+launcher would start the same driver again on every start (#185). Devices
+without the page (Mali, PowerVR) show the reason in a dialog instead. A start
+on the system driver that dies within 15 seconds reopens the page too.
 `adb shell am start -n io.github.freefrank.lostodyssey/.RuntimeActivity` still
 starts the game directly, honouring the stored choice; debug builds also accept
 `--es LO_VK_CUSTOM_DRIVER <file> --es LO_CUSTOM_DRIVER_DIR <dir>` to override it.

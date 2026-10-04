@@ -1,40 +1,71 @@
 # macOS releases
 
 macOS support is an experimental Apple Silicon integration. v0.7.35 was the
-first release with a macOS package, followed by v0.8.0, v0.8.5, v0.8.6 and v0.8.7:
-`LostOdysseyRecomp-macos-arm64-v0.8.7.dmg`, a disk image that is ad-hoc signed
+first release with a macOS package, followed by v0.8.0, v0.8.5, v0.8.6, v0.8.7 and v0.8.10:
+`LostOdysseyRecomp-macos-arm64-v0.8.10.dmg`, a disk image that is ad-hoc signed
 and not notarized. All of them stay that way: on 2026-10-03 the maintainer decided that
 Developer ID signing and notarization will not be done. GitHub CI builds the source
 and tests that do not require private game data; it does not link a complete
 runtime with game data, so the disk image is built on a Mac and uploaded to the
 release by hand.
 
-## Disk image (v0.8.7)
+## Disk image (v0.8.10)
 
 Build the runtime first using [the macOS build instructions](BUILDING.md#building-on-macos).
 Then run this on the Mac that built the executable:
 
 ```sh
-python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8.7 --dmg
+python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8.10 --dmg
 ```
 
 - `--dmg` writes a compressed HFS+ disk image, with the volume name "Lost
   Odyssey Recomp", that holds `LostOdysseyRecomp.app` and a link to
   `/Applications`. Without it the script writes a ZIP.
-- `--version v0.8.7` sets the asset tag, so the file is named
-  `LostOdysseyRecomp-macos-arm64-v0.8.7.dmg`. Keep the `v`: the script uses
+- `--version v0.8.10` sets the asset tag, so the file is named
+  `LostOdysseyRecomp-macos-arm64-v0.8.10.dmg`. Keep the `v`: the script uses
   the text as given, and the in-game updater looks for exactly this name. Do not
   use `--release` here; it needs a Developer ID identity, and the script exits
   without one.
 - Without `--identity` the app is signed ad hoc and the image is not signed.
   Neither is notarized.
 - The app declares macOS 15.0 as its minimum (`MINIMUM_MACOS` in the script,
-  matching `CMAKE_OSX_DEPLOYMENT_TARGET`), so the v0.8.0, v0.8.5, v0.8.6 and v0.8.7 apps declare
+  matching `CMAKE_OSX_DEPLOYMENT_TARGET`), so the v0.8.0, v0.8.5, v0.8.6, v0.8.7 and v0.8.10 apps declare
   15.0. The v0.7.35 image was made before this change and still declares 14.0; see
   [Minimum macOS version](#minimum-macos-version).
 - Upload the image to the release by hand. The release workflow's publish step
   accepts the four packages built by CI (Windows ZIP, AppImage, Flatpak and the
   Android APK) and, at most, this one disk image beside them.
+
+### v0.8.10 image
+
+The v0.8.10 release was published at 2026-10-04T05:39:20Z ([release
+record](STATUS.md#v0810-published--2026-10-04)). The image was built on the
+maintainer's M1 Max (macOS 26.6.2) from tag `v0.8.10` (`1dc10ad`; incremental
+build, 35 s) with `tools/package_macos.py --version v0.8.10 --dmg` and uploaded
+to the draft release by hand before publication (GitHub dates the asset
+2026-10-04T05:18:43Z). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.10.dmg` at 60,451,954 bytes with SHA-256
+`4e63e416f786210ef6ff62c7830581fce39fc7dc90f2c241d6b8ac806e012fde`, which equals
+the SHA-256 computed on the Mac. Checks on the built file:
+
+- `hdiutil verify` reports the image valid.
+- `codesign --verify --strict --deep` passes on the app. The signature is ad hoc
+  and the identifier is `io.github.freefrank.LostOdysseyRecomp`.
+- The bundle version (`CFBundleShortVersionString`) is `0.8.10`.
+
+Limits: no game run was made with this image, it was not installed from a
+download and the Gatekeeper approval flow was not exercised.
+
+### v0.8.7 image
+
+The v0.8.7 release was published at 2026-10-03T23:50:29Z ([release
+record](STATUS.md#v087-published--2026-10-03)). Its disk image was uploaded to
+the draft release by hand before publication (GitHub dates the asset
+2026-10-03T23:29:05Z to 23:29:25Z). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.7.dmg` at 60,444,375 bytes with SHA-256
+`79e7e2c38d7bcb00a8292e18458f22235ef2d605ae5c19ad870bab9487fdc923`. No
+`hdiutil` or `codesign` check of this image and no comparison with a hash
+computed on the Mac is recorded here, and no game run is recorded with it.
 
 ### v0.8.6 image
 
@@ -244,8 +275,8 @@ the Mac model, macOS version, source commit, game edition and tested scenes
 alongside any local result. Keep the existing Windows/Linux release records
 separate from this experimental path.
 
-For v0.8.0, v0.8.5, v0.8.6 and v0.8.7 no game run with their disk images is recorded
-here, and no acceptance of any of the four releases is recorded. The v0.7.35
+For v0.8.0, v0.8.5, v0.8.6, v0.8.7 and v0.8.10 no game run with their disk images is recorded
+here, and no acceptance of any of the five releases is recorded. The v0.7.35
 runs below are the existing record; a later source build also ran the opening
 battle with GTAO and 4× shadows on the same Mac ([changelog](../CHANGELOG.md)).
 

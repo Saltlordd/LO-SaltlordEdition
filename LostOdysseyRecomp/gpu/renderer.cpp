@@ -395,6 +395,20 @@ namespace gpu::renderer
             uint64_t hdrFrame = ~0ull;
             bool hdrValid = false;
             uint32_t hdrValidWidth = 0, hdrValidHeight = 0;
+            // Nonzero for scene-copy promotion images: retirement returns the
+            // image to the renderer's pool instead of destroying it.
+            RenderTextureFlags poolFlags = RenderTextureFlag::NONE;
+        };
+
+        // An idle scene-copy promotion image, reused once its slot's fence
+        // completed. Each use gets a fresh HostTexture and allocation serial.
+        struct PooledTexture
+        {
+            std::unique_ptr<RenderTexture> texture;
+            RenderFormat format = RenderFormat::UNKNOWN;
+            uint32_t width = 0, height = 0;
+            RenderTextureFlags flags = RenderTextureFlag::NONE;
+            uint64_t idleFrame = 0;
         };
 
         struct RenderTargetKey
@@ -1024,6 +1038,11 @@ namespace gpu::renderer
                 uint32_t hdrSourceWidth = 0, hdrSourceHeight = 0;
                 uint64_t hdrSourceFrame = ~0ull;
             } sceneCopyPromotion;
+            // Every SR frame needs three output-size images. Allocating them per
+            // frame cost milliseconds of render-thread time and VRAM churn.
+            std::vector<PooledTexture> promotionPool;
+            static constexpr size_t kPromotionPoolLimit = 12;
+            static constexpr uint64_t kPromotionPoolIdleFrames = 120;
             SrDispatchOptions frameSrOptions{};
             uint64_t sceneCopyPromotionFrame = ~0ull;
             uint64_t srReconfigureFrame = ~0ull;
@@ -2347,6 +2366,31 @@ namespace gpu::renderer
                 auto* result = pipeline.get(); cache.emplace(uint32_t(format), std::move(pipeline)); return result;
             }
 
+            // Takes a matching idle image or allocates one. The image keeps its
+            // own tracked layout; layout UNKNOWN only forces the next barrier.
+            void AcquirePromotionImage(HostTexture& tex, RenderTextureFlags flags)
+            {
+                tex.poolFlags = flags;
+                tex.layout = RenderTextureLayout::UNKNOWN;
+                const auto pooled = std::find_if(promotionPool.begin(), promotionPool.end(), [&](const PooledTexture& entry) {
+                    return entry.format == tex.format && entry.width == tex.width && entry.height == tex.height && entry.flags == flags;
+                });
+                if (pooled != promotionPool.end()) {
+                    tex.texture = std::move(pooled->texture);
+                    promotionPool.erase(pooled);
+                    return;
+                }
+                tex.texture = device->createTexture(RenderTextureDesc::Texture2D(tex.width, tex.height, 1, tex.format, flags));
+            }
+
+            // Called at slot completion: the GPU no longer uses the image.
+            bool ReturnPromotionImage(HostTexture& tex)
+            {
+                if (!tex.poolFlags || !tex.texture || promotionPool.size() >= kPromotionPoolLimit) return false;
+                promotionPool.push_back({std::move(tex.texture), tex.format, tex.width, tex.height, tex.poolFlags, frame});
+                return true;
+            }
+
             std::unique_ptr<HostTexture> CreatePromotedTarget(const HostTexture& source, resolution::Size output)
             {
                 auto target = std::make_unique<HostTexture>();
@@ -2355,9 +2399,7 @@ namespace gpu::renderer
                 target->resolutionSize = output;
                 target->width = std::max(1u, target->ScaleX(target->guestWidth));
                 target->height = std::max(1u, target->ScaleY(target->guestHeight));
-                target->texture = device->createTexture(RenderTextureDesc::Texture2D(target->width, target->height, 1,
-                    target->format, RenderTextureFlag::RENDER_TARGET));
-                target->layout = RenderTextureLayout::UNKNOWN;
+                AcquirePromotionImage(*target, RenderTextureFlag::RENDER_TARGET);
                 if (!target->texture) return nullptr;
                 return target;
             }
@@ -2377,9 +2419,7 @@ namespace gpu::renderer
                 // MetalFX writes its output as a render target.
                 const auto scratchFlags = RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS |
                     (activePlan.requestedUpscaler == upscaling::Upscaler::MetalFx ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE);
-                scratch->texture = device->createTexture(RenderTextureDesc::Texture2D(scratch->width, scratch->height, 1,
-                    scratch->format, scratchFlags));
-                scratch->layout = RenderTextureLayout::UNKNOWN;
+                AcquirePromotionImage(*scratch, scratchFlags);
                 if (!scratch->texture) return nullptr;
                 return scratch;
             }
@@ -2403,7 +2443,13 @@ namespace gpu::renderer
                 auto promoted = CreatePromotedTarget(color, output);
                 auto scratch = CreateSceneCopyScratch(color, output);
                 auto composite = CreatePromotedTarget(color, output);
-                if (!promoted || !scratch || !composite) return reject();
+                // Unused images go back to the pool through this slot.
+                const auto rejectImages = [&] {
+                    for (auto* image : {&promoted, &scratch, &composite})
+                        if (*image) Gpu().retiredTextures.push_back(std::move(*image));
+                    return reject();
+                };
+                if (!promoted || !scratch || !composite) return rejectImages();
                 const auto scale = [&](const HostTexture& src) {
                     SharedConstants constants{};
                     constants.transfer[0] = std::bit_cast<uint32_t>(float(src.width) / float(promoted->width));
@@ -2412,14 +2458,16 @@ namespace gpu::renderer
                 };
                 const uint64_t fallbackConstants = scale(color);
                 const uint64_t rgbConstants = scale(*promoted);
-                if (fallbackConstants == UINT64_MAX || rgbConstants == UINT64_MAX) return reject();
+                if (fallbackConstants == UINT64_MAX || rgbConstants == UINT64_MAX) return rejectImages();
                 auto* fallbackSet = AcquireSet(1);
                 auto* rgbSet = AcquireSet(1);
-                if (!fallbackSet || !rgbSet) return reject();
+                if (!fallbackSet || !rgbSet) return rejectImages();
                 fallbackSet->setTexture(0, color.texture.get(), RenderTextureLayout::SHADER_READ);
                 fallbackSet->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
                 rgbSet->setTexture(0, promoted->texture.get(), RenderTextureLayout::SHADER_READ);
                 rgbSet->setTexture(1, scratch->texture.get(), RenderTextureLayout::SHADER_READ);
+                for (auto* image : {&sceneCopyPromotion.preparedPromoted, &sceneCopyPromotion.scratch, &sceneCopyPromotion.composite})
+                    if (*image) Gpu().retiredTextures.push_back(std::move(*image));
                 sceneCopyPromotion = {};
                 sceneCopyPromotion.key = key; sceneCopyPromotion.frame = frame; sceneCopyPromotion.epoch = activePlan.geometryEpoch;
                 sceneCopyPromotion.sourceAllocation = color.allocationSerial;
@@ -2502,6 +2550,7 @@ namespace gpu::renderer
                 promotion.active = it->second.get(); promotion.activeMapping = true;
                 Transition(*promotion.parkedLow, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
                 if (!DrawPromotionResample(*promotion.active, promotion.fallbackSet, promotion.fallbackConstants, false)) {
+                    Gpu().retiredTextures.push_back(std::move(it->second));
                     it->second = std::move(promotion.parkedLow); promotion.active = nullptr; promotion.activeMapping = false;
                     return reject();
                 }
@@ -3840,12 +3889,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // Release read-only depth framebuffers before retired guest depth.
                 s.fsrAlphaBatches.clear();
 #endif
+                // Idle promotion images (SR off, resized) leave through the
+                // normal path below, which also erases their framebuffers.
+                std::erase_if(promotionPool, [&](PooledTexture& entry) {
+                    if (frame - entry.idleFrame <= kPromotionPoolIdleFrames) return false;
+                    auto idle = std::make_unique<HostTexture>();
+                    idle->texture = std::move(entry.texture);
+                    s.retiredTextures.push_back(std::move(idle));
+                    return true;
+                });
                 if (motionReplay) {
                     for (const auto& texture : s.retiredTextures)
                         motionReplay->ReleaseDepthAfterGpuCompletion(texture->texture.get());
                     motionReplay->ReleaseCompletedThrough(s.motionSerial);
                 }
                 for (const auto& texture : s.retiredTextures) {
+                    // A pooled image keeps its framebuffers for the next use.
+                    if (ReturnPromotionImage(*texture)) continue;
                     if (nativeVulkan && texture && texture->texture && vk_object_trace::Permit()) {
                         const auto& image = *static_cast<const VulkanTexture*>(texture->texture.get());
                         std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer_retired event=fence_completed_release slot=%u allocation=%llu image=0x%llx view=0x%llx temporal_serial=%llu sr_serial=%llu\n",
@@ -5376,6 +5436,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (fsrAlphaBridge) fsrAlphaBridge->DiscardUnsubmitted();
 #endif
                     sceneCopyPromotion = {};
+                    promotionPool.clear();
                     framebuffers.clear();
                     renderTargets.clear();
                     resolved.clear();

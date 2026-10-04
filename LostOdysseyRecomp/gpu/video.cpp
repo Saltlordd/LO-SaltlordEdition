@@ -102,6 +102,9 @@ namespace plume {
 #include <adrenotools/driver.h>
 #include <dlfcn.h>
 #endif
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 
 // LO_VK_CUSTOM_DRIVER=<soname>: load a custom Vulkan driver (Mesa Turnip) from
 // LO_CUSTOM_DRIVER_DIR through libadrenotools before plume initialises volk.
@@ -191,6 +194,30 @@ static void LogVulkanPhysicalDevices(VkInstance instance)
             driverProperties.conformanceVersion.major, driverProperties.conformanceVersion.minor,
             driverProperties.conformanceVersion.subminor, driverProperties.conformanceVersion.patch);
     }
+}
+#endif
+
+#if defined(__ANDROID__) && !defined(LO_VIDEO_SUBMISSION_UNIT)
+// A driver the renderer cannot use fails the same way on every start. When the
+// native main returns, the activity shows this reason (on the GPU driver page
+// on Qualcomm devices, in a dialog elsewhere) instead of closing (#185).
+static void ReportGraphicsFailureToActivity(const std::string& reason)
+{
+    auto* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    auto activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (!env || !activity) return;
+    jclass type = env->GetObjectClass(activity);
+    jmethodID method = type ? env->GetMethodID(type, "reportGraphicsFailure", "(Ljava/lang/String;)V") : nullptr;
+    if (method) {
+        jstring text = env->NewStringUTF(reason.c_str());
+        if (text) {
+            env->CallVoidMethod(activity, method, text);
+            env->DeleteLocalRef(text);
+        }
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
 }
 #endif
 
@@ -2203,6 +2230,10 @@ namespace gpu::video
             LOG_INFO("video: {} on {}", backend::Name(*selection.selected), g_device->getDescription().name);
         } else {
             LOG_ERROR("video: no usable backend; guest startup aborted: {}", selection.Describe());
+#if defined(__ANDROID__) && !defined(LO_VIDEO_SUBMISSION_UNIT)
+            for (const auto& attempt : selection.attempts)
+                if (attempt.backend == backend::Backend::Vulkan) ReportGraphicsFailureToActivity(attempt.error);
+#endif
             Shutdown();
             g_initAttempted = true; // A repeated call cannot silently start another retry cycle.
         }

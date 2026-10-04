@@ -201,6 +201,38 @@ stopped the job. No game run was made with the packages; see
 [STATUS](../STATUS.md#v086-published--2026-10-03). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
+Sixth release, 2026-10-03: v0.8.7 (tag commit `a45bc74`) was built and published
+by [run 227](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/227)
+(API id 617), started at 23:27:14Z. All six jobs succeeded (UTC, read through the
+Gitea API on 2026-10-04): create draft 23:28:45-23:28:55, FSR inputs
+23:27:14-23:38:35, Android APK 23:33:29-23:39:50, Windows build and ZIP
+23:38:40-23:45:38, Linux AppImage and Flatpak 23:39:51-23:49:17 and publish
+23:49:18-23:50:30, which published at 2026-10-03T23:50:29Z. About 23 minutes
+passed from the tag to publication. The macOS disk image was uploaded to the
+draft by hand (GitHub dates the asset 23:29:05Z to 23:29:25Z), before the
+publish job ran. No shader pack was published for the release; the Linux job's
+mandatory shader-pack check passed and its output was not read. No game run was
+made with the packages; see [STATUS](../STATUS.md#v087-published--2026-10-03). A
+green run shows that the pipeline works, not that the release has been played or
+accepted.
+
+Seventh release, 2026-10-04: v0.8.10 (tag commit `1dc10ad`) was built and
+published by [run 245](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/245)
+(API id 635), started at 05:17:34Z. All six jobs succeeded (UTC, read through the
+Gitea API on 2026-10-04 at about 05:45 UTC): create draft 05:17:34-05:17:45, FSR
+inputs 05:17:37-05:28:51, Android APK 05:17:48-05:24:12, Windows build and ZIP
+05:28:53-05:35:58, Linux AppImage and Flatpak 05:28:55-05:38:16 and publish
+05:38:19-05:39:22, which published at 2026-10-04T05:39:20Z. About 22 minutes
+passed from the run start to publication. The macOS disk image was uploaded to
+the draft by hand (GitHub dates the asset 05:18:43Z), before the publish job ran.
+The translator change in PR #186 changed both pack contracts, so new packs were
+published to the `shader-packs` prerelease before the tag (05:14-05:17Z; see the
+[pack reference](../PORTABLE_SHADER_PACK.md#update-2026-10-04-packs-for-translator-version-27));
+the Linux job's mandatory check passed and its output was not read. No game run
+was made with the packages; see [STATUS](../STATUS.md#v0810-published--2026-10-04).
+A green run shows that the pipeline works, not that the release has been played
+or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the
