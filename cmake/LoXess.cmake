@@ -6,7 +6,7 @@
 # preventing startup. XeSS-SR and XeSS-FG are Windows D3D12 only here.
 option(LO_ENABLE_XESS "Build Windows D3D12 Intel XeSS Super Resolution" OFF)
 option(LO_ENABLE_XESS_FG "Build Windows D3D12 Intel XeSS frame generation (with XeLL)" OFF)
-set(LO_XESS_SDK_ROOT "" CACHE PATH "Extracted Intel XeSS SDK 2.x root (inc/, bin/, LICENSE.txt)")
+set(LO_XESS_SDK_ROOT "" CACHE PATH "Extracted Intel XeSS SDK 3.x root (inc/, bin/, LICENSE.txt)")
 
 function(_lo_xess_require feature)
     if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT LO_BUILD_GPU)

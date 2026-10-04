@@ -86,7 +86,8 @@ D3D12 directories.
 XeSS Super Resolution (`LO_ENABLE_XESS`) and XeSS frame generation with Xe Low
 Latency (`LO_ENABLE_XESS_FG`) are optional Direct3D 12 providers. Point
 `LO_XESS_SDK_ROOT` at an extracted [Intel XeSS SDK](https://github.com/intel/xess)
-2.x release containing `inc/`, `bin/` and `LICENSE.txt`. No shaders are generated
+3.x release (checked with 3.0.2) containing `inc/`, `bin/` and `LICENSE.txt`. The
+FG adapter uses the multi-frame XeSS-FG API, which 2.x does not have. No shaders are generated
 and no import library is linked: the build stages `libxess.dll` (SR) or
 `libxess_fg.dll` and `libxell.dll` (FG) beside the executable together with
 `licenses/LICENSE-XeSS.txt`, and the runtime loads them on demand.
