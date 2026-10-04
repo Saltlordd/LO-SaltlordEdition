@@ -67,6 +67,7 @@ void PointerDrag(float,float,bool) { throw std::runtime_error("unexpected pointe
 bool IsOpen() { return false; }
 bool CalibrationKey(uint32_t) { return false; }
 HdrCalibration GetHdrCalibration() { return {}; }
+BrightnessCalibration GetBrightnessCalibration() { return {}; }
 }
 namespace hid {
 void Init() {} // No real controllers, keyboard state, or SDL joystick thread.
@@ -115,6 +116,8 @@ bool SuppressPresent() { return false; }
 bool DrainForFrameGenerationReconfigure() { return true; }
 void SetHdrSceneEnabled(bool) {}
 plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t,uint32_t&,uint32_t&) { return nullptr; }
+bool ResolvedScene(uint32_t,uint64_t&) { return false; }
+plume::RenderTexture* AcquireResolvedWrite(uint32_t,uint64_t,bool,uint32_t&,uint32_t&,uint32_t&) { return nullptr; }
 bool SceneAAApplied(uint32_t) { return false; }
 bool ReadbackResolvedSurface(uint32_t,std::vector<uint32_t>&,uint32_t&,uint32_t&) { return false; }
 std::vector<uint32_t> GetResolvedAddresses() { return {}; }

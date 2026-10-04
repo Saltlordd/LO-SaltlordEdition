@@ -86,7 +86,7 @@
 
 ### HDR（实验性）
 
-在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开校准页：左边是 SDR 预览，右边是 HDR，按 **LB / RB** 在游戏画面和测试图案之间切换。**Auto（自动）** 使用显示器回报的亮度，没有回报时按 1000 nit。HDR 可以和任一抗锯齿模式及超分一起使用；开启插帧时只有 Vulkan 上的 DLSS 插帧保持 HDR。支持 Windows（Direct3D 12 和 Vulkan）、Linux 和 macOS。
+在图像设置中开启 **HDR** 并保存，立即生效（开启插帧时需要重启）。**HDR 最高亮度**会打开校准页：左边是 SDR 预览，右边是 HDR，按 **LB / RB** 在游戏画面和测试图案之间切换。**Auto（自动）** 使用显示器回报的亮度，没有回报时按 1000 nit。HDR 可以和任一抗锯齿模式及超分一起使用；开启插帧时只有 Vulkan 上的 DLSS 插帧保持 HDR。支持 Windows（Direct3D 12 和 Vulkan）、Linux 和 macOS。
 
 ### 最新更新
 

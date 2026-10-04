@@ -521,8 +521,8 @@ bool settings::RasterizeMenu(const MenuSnapshot &current, uint32_t width, uint32
         {
             fill(160, 150, 960, 320, MakeColor(255, 15, 18, 22));
             text(235, 272, 810, 55,
-                 Translate(current.language, L"HDR output is inactive. Enable HDR and restart to view the comparison.",
-                     L"HDR 輸出尚未啟用；開啟 HDR 並重新啟動後可檢視對比圖。"),
+                 Translate(current.language, L"HDR output is inactive. Turn on HDR and save to view the comparison.",
+                     L"HDR 輸出尚未啟用；開啟 HDR 並儲存後可檢視對比圖。"),
                  19, ink, false, 1, outline, 14);
         }
         const std::wstring report = cal.automatic

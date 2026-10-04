@@ -14,6 +14,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - The game's display gamma adjustment for HDTVs is now applied, so blacks and contrast match Xenia without Expanded RGB range (#78, #179).
 - New **Brightness / Gamma** page in Graphics: compare the game's default picture with your setting on the last game scene or a test pattern. The original calibration screen is a button on that page.
 - The HDR calibration page switches between scene and test pattern with LB / RB, and shows the last game scene when opened from the game's menu.
+- Turning HDR on or off applies right after saving, without a restart (frame generation still needs one).
+- Android: HDR stays on after the app returns from the background.
 
 ### 简体中文
 
@@ -23,6 +25,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - 现在会应用游戏针对高清电视的显示 gamma 调整，黑位和对比度与 Xenia 一致，无需开启“扩展 RGB 范围”（#78、#179）。
 - 图像设置新增**亮度 / Gamma** 页面：在最后的游戏场景或测试图案上对照游戏默认画面和你的设置。原版亮度校准画面作为页面上的一个按钮保留。
 - HDR 校准页改用 LB / RB 切换场景和测试图案，从游戏菜单进入时也会显示最后的游戏场景。
+- 开关 HDR 保存后立即生效，无需重启（开启插帧时仍需重启）。
+- Android：应用从后台返回后 HDR 不再失效。
 
 ## [v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) — 2026-10-04
 

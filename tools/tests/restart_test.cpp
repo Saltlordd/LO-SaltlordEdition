@@ -86,7 +86,10 @@ int main()
     before = settings::Config{};
     after = before;
     after.hdr = true;
-    Require(settings::restart::Required(before, after), "HDR toggle requires restart");
+    Require(!settings::restart::Required(before, after), "HDR toggle applies live");
+    before.frameGenerationProvider = after.frameGenerationProvider = framegen::Provider::Dlss;
+    Require(settings::restart::Required(before, after), "HDR toggle with frame generation requires restart");
+    before.frameGenerationProvider = after.frameGenerationProvider = framegen::Provider::Off;
     before = after;
     after.hdrPaperWhiteNits = 220;
     Require(!settings::restart::Required(before, after), "HDR paper white changes live");
