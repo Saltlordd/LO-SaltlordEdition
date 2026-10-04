@@ -57,7 +57,7 @@ Android 运行时现在能在测试平板加载开发资源、播放开场视频
 
 运行时保留 SDL 实体手柄支持，并加入 Android 屏幕触摸手柄。源码实现现在支持 `Controller settings` 中的大小／透明度设置，以及可拖动、保存、重置和逐个显示或隐藏控件的 `Edit layout` 页面；布局模型检查和设备 UI 流程已在测试平板验证。这条源码路径尚未通过完整游戏流程验收。生成的 PPC 代码仍可作为独立的 Android ARM64/PIC 静态库目标构建。
 
-高通设备上的专有 Vulkan 驱动会把菜单光标所在行的文字画成全透明。因此应用会在首次启动游戏前打开 **GPU driver** 页面（游戏中也可从 **CTRL → GPU driver** 进入），在那里可以从和 Eden 模拟器相同的来源下载 Mesa Turnip 驱动包、或从 zip 安装并选用；修复已在开发平板上用 KIMCHI Turnip v26.0.0 R8 验证。详见 [Android 说明](packaging/android/README.md)。
+高通设备上的专有 Vulkan 驱动会把菜单光标所在行的文字画成全透明。因此应用会在首次启动游戏前打开 **GPU driver** 页面（游戏中也可从 **CTRL → GPU driver** 进入），在那里可以从和 Eden 模拟器相同的来源下载 Mesa Turnip 驱动包、或从 zip 安装并选用；修复已在开发平板上用 KIMCHI Turnip v26.0.0 R8 验证。如果所选驱动无法运行游戏（例如 Adreno 650 自带的 Vulkan 1.1 驱动），页面会重新打开并显示原因。详见 [Android 说明](packaging/android/README.md)。
 
 连接 USB 或蓝牙手柄后会自动隐藏触摸控件，并保留 `CTRL` 入口；打开 **Show touch controls** 可让两者同时使用，最后一只手柄断开后恢复已保存的触摸偏好。Android 也会隐藏不可用的桌面画面选项，并在从后台返回时重建 Vulkan Surface。Vulkan shader 可在电脑上按 Android 专用接口预编译，桌面 Vulkan bundle 与其不兼容；生成和安装方法见 [Android 说明](packaging/android/README.md)。
 
