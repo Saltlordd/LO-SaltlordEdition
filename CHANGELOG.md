@@ -8,10 +8,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- Fixed sky flicker in Sea of Baus battles with TAA, FSR or DLSS (#203).
 - Android: Adreno 6xx GPUs with the Turnip driver no longer stop at "descriptor/push-constant limits below renderer layout" (#185).
 
 ### 简体中文
 
+- 修复 Sea of Baus 战斗中开启 TAA、FSR 或 DLSS 时天空闪烁（#203）。
 - Android：Adreno 6xx GPU 使用 Turnip 驱动时不再因“descriptor/push-constant limits below renderer layout”无法启动（#185）。
 
 ## [v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) — 2026-10-04

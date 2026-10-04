@@ -73,6 +73,7 @@
 
 | 文档 | 类型 |
 |---|---|
+| [Sea of Baus battle sky jitter (#203) — 2026-10-04](jitter-sky-203-2026-10-04.md) | 历史 |
 | [Burning Cave material jitter (f25276) — 2026-10-01](jitter-cave-f25276-2026-10-01.md) | 历史 |
 | [Ice Canyon sky jitter (f12139) — 2026-10-01](jitter-sky-f12139-2026-10-01.md) | 历史 |
 | [Sky pairs and a depth VS from the map tour — 2026-10-01](jitter-sky-tour-2026-10-01.md) | 历史 |
