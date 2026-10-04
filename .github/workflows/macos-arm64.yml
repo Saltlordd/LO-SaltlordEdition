@@ -61,18 +61,19 @@ jobs:
             -DLO_BUILD_MOD_TESTS=ON
       - name: Build libraries and tests
         run: |
-          # Targets with inputs from LostOdysseyRecompLib (game data) are skipped; any other missing input fails.
-          ninja -C out/build/macos -t targets all | grep -oE '^Lo[A-Za-z0-9]+(Test|Probe|Tool):' | tr -d ':' | sort -u |
-          while read -r target; do
-            if dry=$(ninja -C out/build/macos -n "$target" 2>&1); then
-              echo "$target"
-            elif grep -qE "^ninja: error: '[^']*/LostOdysseyRecompLib/[^']*', needed by '[^']*', missing and no known rule to make it$" <<<"$dry"; then
-              echo "::notice::$target needs game data; skipped" >&2
-            else
-              echo "$dry" | tail -n 5 >&2
-              exit 1
-            fi
-          done > out/build/macos/ci-candidates.txt
+          # Skip targets with a missing input under LostOdysseyRecompLib (game data). `ninja -n` cannot
+          # tell: the CMake glob check makes it stop after a simulated build.ninja regeneration.
+          ( cd out/build/macos
+            ninja -t targets all | grep -oE '^Lo[A-Za-z0-9]+(Test|Probe|Tool):' | tr -d ':' | sort -u |
+            while read -r target; do
+              missing=$(ninja -t inputs "$target" | grep '/LostOdysseyRecompLib/' |
+                while read -r input; do [ -e "$input" ] || echo "$input"; done)
+              if [ -z "$missing" ]; then
+                echo "$target"
+              else
+                echo "::notice::$target needs game data ($(head -n 1 <<<"$missing")); skipped" >&2
+              fi
+            done > ci-candidates.txt )
           # Targets that include the generated PPC headers need game data too. Build past them and fail
           # only when some other compile, link or build step breaks.
           set +e
