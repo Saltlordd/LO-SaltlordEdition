@@ -3434,20 +3434,24 @@ namespace gpu::video
     }
 
     // The scene resolve to copy into copies[next] for the calibration previews,
-    // (re)allocating both copies to match; null when there is none. The caller
+    // (re)allocating both copies on a size change; null when there is none. The caller
     // records RecordSceneCopy and, once submitted, calls SceneCopySubmitted.
     static plume::RenderTexture* PrepareSceneCopy(uint32_t address, uint64_t ordinal, uint32_t width, uint32_t height)
     {
         auto& cache = g_hdrCalibrationCache;
+        const bool allocate = !cache.copies[0] || cache.width != width || cache.height != height;
+        // The copies keep the format they were made with: the HDR twin when the
+        // first frame has one, otherwise the SDR resolve presentation shows. A
+        // frame without the twin the copies need is skipped.
         uint32_t sourceWidth = 0, sourceHeight = 0, sourceFormat = 0;
-        auto* source = renderer::AcquireResolvedWrite(address, ordinal, true, sourceWidth, sourceHeight, sourceFormat);
+        plume::RenderTexture* source = allocate || cache.extended
+            ? renderer::AcquireResolvedWrite(address, ordinal, true, sourceWidth, sourceHeight, sourceFormat) : nullptr;
         const bool extended = source != nullptr;
-        // Otherwise the SDR resolve that presentation shows.
-        if (!source && (!(source = renderer::AcquireResolvedWrite(address, ordinal, false,
+        if (!source && ((!allocate && cache.extended) || !(source = renderer::AcquireResolvedWrite(address, ordinal, false,
                 sourceWidth, sourceHeight, sourceFormat)) || plume::RenderFormat(sourceFormat) != kSwapChainFormat))
             return nullptr;
         if (sourceWidth < width || sourceHeight < height) return nullptr;
-        if (!cache.copies[0] || cache.width != width || cache.height != height || cache.extended != extended) {
+        if (allocate) {
             for (auto& copy : cache.copies)
                 copy = g_device->createTexture(plume::RenderTextureDesc::Texture2D(width, height, 1,
                     extended ? plume::RenderFormat::R16G16B16A16_FLOAT : kSwapChainFormat));

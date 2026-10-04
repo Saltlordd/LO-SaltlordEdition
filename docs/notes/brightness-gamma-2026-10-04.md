@@ -18,10 +18,11 @@ The retail "Brightness calibration" screen is only a reference pattern for adjus
 
 - The game resolves every frame to one frontbuffer (0x714000 in Uhra), so its own menu overwrites the scene before the host menu opens; the earlier HDR preview copied at host-menu entry and therefore only worked for overlays opened over gameplay.
 - The renderer counts depth-tested, depth-writing draws per frame and records the count on each resolve (`renderer::ResolvedScene`). Gameplay draws about 1,180; the game's menus and their blurred backdrop draw 5. The tone-map pass is not a usable signal: it also runs for menu frames.
-- Gameplay frames copy the resolve into two textures in turn every 250 ms (the FP16 extended-gamma twin when HDR has one, otherwise RGBA8). The first frame without the scene, or a host menu, freezes the older copy: the frame where the game's menu starts its blur still draws the 3D world. The next gameplay frame unfreezes and starts fresh copies.
+- Gameplay frames copy the resolve into two textures in turn every 250 ms. The format is fixed when they are allocated (the FP16 extended-gamma twin if the first frame has one, otherwise RGBA8); later frames without that twin are skipped instead of reallocating. The first frame without the scene, or a host menu, freezes the older copy: the frame where the game's menu starts its blur still draws the 3D world. The next gameplay frame unfreezes and starts fresh copies.
+- The two copies stay allocated for the session: at a 4K FP16 render resolution about 130 MB, at 1080p RGBA8 about 16 MB. The previous design held no memory during gameplay but never had a scene when opened from the game's menu.
 
 ## Validation
 
-- Windows RTX 5080, D3D12, Uhra save, 1600x900, 120 FPS: opened from Y > System > Settings, the page shows the last field frame in SDR and in HDR (`extended=true`). With Expanded RGB range on and gamma 1.30 saved, gameplay luminance quantiles moved 1 % 0→0, median 92→116 (predicted 116.4), 99.9 % 251→252.
+- Windows RTX 5080, Uhra save, 1600x900, 120 FPS, opened from Y > System > Settings: the page shows the last field frame on D3D12 in SDR and HDR and on Vulkan in HDR (`extended=true`); the HDR peak page shows it too, and LB / RB switch scene and pattern on both pages. With Expanded RGB range on and gamma 1.30 saved, D3D12 SDR gameplay luminance quantiles moved 1 % 0→0, median 92→116 (predicted 116.4), 99.9 % 251→252.
 - LoMenuFlowTest (page open, edit, retail hand-off and return, Back over A), LoMenuRenderTest and LoPresentationTest (14/14 on D3D12 and Vulkan) pass.
-- Not checked: Vulkan and Metal in game, Android.
+- Not checked: Metal, Android.
