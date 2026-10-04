@@ -119,6 +119,10 @@ static void LoadCustomVulkanDriver()
 #if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
     const char* driver = getenv("LO_VK_CUSTOM_DRIVER");
     if (!driver || !*driver) return;
+    // Turnip keeps one of the five Adreno 6xx bindless sets for dynamic buffer
+    // offsets and reports four; the renderer binds five sets and has no dynamic
+    // offsets (#185). Mesa reads driconf options from the environment.
+    setenv("tu_dont_reserve_descriptor_set", "true", 0);
     const char* hookDir = getenv("LO_NATIVE_LIB_DIR");
     const char* driverDir = getenv("LO_CUSTOM_DRIVER_DIR");
     void* handle = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, nullptr,
@@ -2033,7 +2037,12 @@ namespace gpu::video
                     backend::Name(candidate), description.name, description.driverVersion,
                     uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
             }
-            if (const auto missing = backend::Missing(candidate, backend::Inspect(candidate, g_device.get())); !missing.empty()) return missing;
+            const auto capabilities = backend::Inspect(candidate, g_device.get());
+            if (g_device && candidate == backend::Backend::Vulkan)
+                LOG_INFO("vulkan limits: sets={} samplers={} sampled_images={} storage_buffers={} push_constants={}",
+                    capabilities.boundSets, capabilities.samplers, capabilities.sampledImages,
+                    capabilities.storageBuffers, capabilities.pushConstants);
+            if (const auto missing = backend::Missing(candidate, capabilities); !missing.empty()) return missing;
             if (g_vulkan && g_dlssController) {
                 bool retainNgxForFg = false;
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
