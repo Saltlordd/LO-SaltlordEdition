@@ -186,6 +186,9 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     {0xbda41a11626a545cull, 0x40496f0784d54689ull, true},
     // 1693: Aurora-Bound Train - Engine Car.
     {0xbda41a11626a545cull, 0x1693d368b809e65dull, true},
+    // Sea of Baus battle (#203): the #67 VS over b030 depth with PS fd46, which
+    // reads only the clip W copy and samples at mesh UVs. Same fallback as #67.
+    {0xbda41a11626a545cull, 0xfd46e0190f5f6c50ull, true},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)
