@@ -5780,12 +5780,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Desktop windowing",
-        "Status": "In Progress",
-        "Delivery": "In progress",
+        "Status": "Todo",
+        "Delivery": "Not started",
         "Release": null,
         "Start date": "2026-09-24",
         "Target date": null,
-        "Evidence": "Under active maintainer investigation (freefrank: 'still gonna dig deeper later.', 2026-09-24T23:11:46Z). Reporter log indicates startup failure where SetThreadDpiAwarenessContext(PMv2) returns null before GPU backend initializes. Retained as open investigation; not closed as unsupported."
+        "Evidence": "Windows 7 report (v0.5.13 legacy with a compatibility layer). SetThreadDpiAwarenessContext(PMv2) returns null, so the window thread stops before any GPU backend starts; the runtime also needs Windows 10 1803+ memory APIs (VirtualAlloc2, placeholders, MapViewOfFile3), which a DX11 backend would not remove. Moved to Todo on 2026-10-04 with the decision open: relabel as a feature or close as not planned."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/issues/49"
@@ -6389,6 +6389,51 @@
         "Start date": null,
         "Target date": null,
         "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result."
+      }
+    },
+    {
+      "key": "issue-167-cutscene-audio-desync",
+      "title": "[Bug] Audio out of sync in cutscenes.",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/167",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Audio",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Two reporters (v0.7.35 and v0.8.15, 30 FPS, no fast-forward): voice drifts from the lips in real-time cutscenes, more toward the end. Both logs show the audio callback paced exactly to the wall clock (every 1,875-frame interval 10.00 s, no dropped audio progress), so the drift is likely on the animation side. Asked the reporters on 2026-10-04 whether the voice runs ahead of or behind the lips. Next: run the reporter's save with LO_FRAME_TIMING=1 and compare slow frames with the drift."
+      }
+    },
+    {
+      "key": "issue-200-taa-proton-silent-exit",
+      "title": "[Bug] TAA exits silently while loading a save under Proton (AMD, D3D12)",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/200",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Maintainer report on psvita (Radeon 8060S, RADV, GE-Proton10-34, D3D12 via vkd3d-proton): with TAA (antialiasing=3, no upscaler) the game exits without a log entry while loading a save; AA off or FSR works. Leading suspect (unverified): TAA's deferred first-frame init compiles shaders and creates PSOs on the 1 MiB GPU worker thread stack, and a stack overflow also defeats the crash handler. Next: record the exit code and try LO_MV_ENABLE=0, LO_DISABLE_BLOOM_PREFILTER=1, Vulkan with TAA and an empty shader cache."
+      }
+    },
+    {
+      "key": "issue-179-sdr-white-levels",
+      "title": "[Bug] Incorrect white levels",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/179",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics presentation",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "SDR whites look blown out compared with Xenia Canary (RX 6600, borderless, v0.8.0). The SDR path ignores paper white and peak brightness. A Mac run of main 80d2ae9 with gamma-register logging (2026-10-04) showed the game writing one identity 256-entry gamma ramp on the first frame and no other ramp in the next 2,485 frames, so the ignored display gamma ramp does not explain the report at default settings; an in-game brightness change was not tested. Remaining suspects: Expanded RGB range (clips values above 235 to white), Windows Auto HDR or driver color features. Next: ask for settings.ini, the Auto HDR state and a Vulkan screenshot."
       }
     },
     {

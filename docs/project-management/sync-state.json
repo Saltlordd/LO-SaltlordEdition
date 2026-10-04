@@ -2868,10 +2868,10 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Desktop windowing",
-        "Status": "In Progress",
-        "Delivery": "In progress",
+        "Status": "Todo",
+        "Delivery": "Not started",
         "Start date": "2026-09-24",
-        "Evidence": "Under active maintainer investigation (freefrank: 'still gonna dig deeper later.', 2026-09-24T23:11:46Z). Reporter log indicates startup failure where SetThreadDpiAwarenessContext(PMv2) returns null before GPU backend initializes. Retained as open investigation; not closed as unsupported.",
+        "Evidence": "Windows 7 report (v0.5.13 legacy with a compatibility layer). SetThreadDpiAwarenessContext(PMv2) returns null, so the window thread stops before any GPU backend starts; the runtime also needs Windows 10 1803+ memory APIs (VirtualAlloc2, placeholders, MapViewOfFile3), which a DX11 backend would not remove. Moved to Todo on 2026-10-04 with the decision open: relabel as a feature or close as not planned.",
         "Source key": "issue-49-physical-pixel-window-coords"
       }
     },
@@ -3563,6 +3563,39 @@
         "Release": "v0.8.6",
         "Evidence": "In the Lunar Palace the two platforms that start with pillars on them rose by themselves after a random battle, leaving the pillars floating. The cause was the #114 touch-entry guard (PR #135, shipped in v0.7.35); it made the per-frame touch poll read false while a battle request was queued, and the platform scripts read that as no pillar on the platform. The guard was removed in v0.8.6 (commit 058d8ffd; published 2026-10-03T20:46:53Z; not accepted). The maintainer verified it with the reporter's save on a diagnostic build, not the release package: with the guard one battle broke the platform, without it the platform stayed down. Closed as completed by the maintainer at 2026-10-03T20:54:17Z after replying that v0.8.6 fixes it. The reporter has not replied, so there is no reporter confirmation. Saves made after the platform had risen keep that state. The removal re-opens the #114 softlock window.",
         "Source key": "issue-171-lunar-palace-platforms-rise"
+      }
+    },
+    "issue-167-cutscene-audio-desync": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-eKfY",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Audio",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Two reporters (v0.7.35 and v0.8.15, 30 FPS, no fast-forward): voice drifts from the lips in real-time cutscenes, more toward the end. Both logs show the audio callback paced exactly to the wall clock (every 1,875-frame interval 10.00 s, no dropped audio progress), so the drift is likely on the animation side. Asked the reporters on 2026-10-04 whether the voice runs ahead of or behind the lips. Next: run the reporter's save with LO_FRAME_TIMING=1 and compare slow frames with the drift.",
+        "Source key": "issue-167-cutscene-audio-desync"
+      }
+    },
+    "issue-200-taa-proton-silent-exit": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-eKgY",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Maintainer report on psvita (Radeon 8060S, RADV, GE-Proton10-34, D3D12 via vkd3d-proton): with TAA (antialiasing=3, no upscaler) the game exits without a log entry while loading a save; AA off or FSR works. Leading suspect (unverified): TAA's deferred first-frame init compiles shaders and creates PSOs on the 1 MiB GPU worker thread stack, and a stack overflow also defeats the crash handler. Next: record the exit code and try LO_MV_ENABLE=0, LO_DISABLE_BLOOM_PREFILTER=1, Vulkan with TAA and an empty shader cache.",
+        "Source key": "issue-200-taa-proton-silent-exit"
+      }
+    },
+    "issue-179-sdr-white-levels": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-eKhQ",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics presentation",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "SDR whites look blown out compared with Xenia Canary (RX 6600, borderless, v0.8.0). The SDR path ignores paper white and peak brightness. A Mac run of main 80d2ae9 with gamma-register logging (2026-10-04) showed the game writing one identity 256-entry gamma ramp on the first frame and no other ramp in the next 2,485 frames, so the ignored display gamma ramp does not explain the report at default settings; an in-game brightness change was not tested. Remaining suspects: Expanded RGB range (clips values above 235 to white), Windows Auto HDR or driver color features. Next: ask for settings.ini, the Auto HDR state and a Vulkan screenshot.",
+        "Source key": "issue-179-sdr-white-levels"
       }
     }
   },
