@@ -34,6 +34,7 @@ import suspect_log  # noqa: E402
 import trace  # noqa: E402
 
 SKY_PAIR = re.compile(r"\{\s*0x([0-9a-fA-F]{16})ull\s*,\s*0x([0-9a-fA-F]{16})ull\s*,\s*(true|false)\s*\}")
+LIGHT_PAIR = re.compile(r"\{\s*0x([0-9a-fA-F]{16})ull\s*,\s*0x([0-9a-fA-F]{16})ull\s*\}")
 DECLARATION = re.compile(r"^(?:float[234]?|int|uint|bool|CubeMapData)\s+\w+\s*=\s*[^;]*;$")
 DEBUG_COPY = re.compile(r"^xeDbgTex\s*=\s*r\d+\s*;$")
 GUEST_REGISTER = re.compile(r"\b(?:r\d+|xePV|ps)\b")
@@ -44,6 +45,7 @@ def mapping_state(header: Path) -> tuple[dict[str, int], dict[tuple[str, str], b
     slots = jitter_candidates.position_slots(header)
     text = header.read_text(encoding="utf-8")
     pairs = {(vs.lower(), ps.lower()): fallback == "true" for vs, ps, fallback in SKY_PAIR.findall(text)}
+    pairs |= {(vs.lower(), ps.lower()): False for vs, ps in LIGHT_PAIR.findall(text)}
     return slots, pairs
 
 
@@ -140,7 +142,7 @@ def suggest(pair: dict, slots: dict[str, int], sky_pairs: dict, decisions: dict 
     if vs in slots:
         return "already_mapped_vs", [f"PositionVPSlot maps {vs} to slot {slots[vs]}"]
     if (vs, ps) in sky_pairs:
-        return "already_mapped_pair", ["exact pair is in SkyMaterialPairs"]
+        return "already_mapped_pair", ["exact pair is in SkyMaterialPairs or ScreenLightPairs"]
     reasons, blockers = [], []
     rows = pair["log_rows"]
     if rows and not any(row["vp_finite"] for row in rows):

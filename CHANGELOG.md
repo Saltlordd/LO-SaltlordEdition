@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- Fixed flickering floor lighting in Old Sorceress' Mansion battles and block shadows in the cutscene where Tolten becomes king, with TAA or upscaling (#212).
+
+### 简体中文
+
+- 修复开启 TAA 或超分辨率时，Old Sorceress' Mansion 战斗中地面光照闪烁，以及 Tolten 即位过场中出现块状阴影的问题（#212）。
+
 ## [v0.8.21](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21) — 2026-10-04
 
 ### English
