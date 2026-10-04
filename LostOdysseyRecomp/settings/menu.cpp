@@ -46,6 +46,16 @@ std::wstring calibrationNumber;
 int calibrationFocus = 0;
 bool calibrationStartAutomatic = true;
 uint32_t calibrationStartPeakNits = 1000;
+// Brightness / gamma page. Focus: 0 brightness, 1 gamma, 2-5 buttons.
+std::atomic<bool> brightnessOpen{false};
+std::atomic<int> brightnessClick{-1};
+std::atomic<int> brightnessDragBrightness{INT_MIN}, brightnessDragGamma{-1};
+int brightnessFocus = 0;
+int brightnessStart = 0;
+uint32_t gammaStart = 100;
+// The original calibration screen returns to the page with the unsaved edit.
+bool returnToBrightness = false;
+constexpr int kBrightnessSliderX = 380, kBrightnessSliderWidth = 620;
 std::mutex snapshotMutex;
 using Row = MenuRow;
 using Snapshot = MenuSnapshot;
@@ -97,6 +107,31 @@ HdrCalibration MakeHdrCalibration(const Config &config, bool open)
     if (open) result.focus = calibrationFocus;
     if (result.numericEditing) result.numericText = calibrationNumber;
     return result;
+}
+BrightnessCalibration MakeBrightnessCalibration(const Config &config, bool open)
+{
+    BrightnessCalibration result;
+    result.open = open;
+    result.brightness = config.displayBrightness;
+    result.gamma = config.displayGamma;
+    result.expandRgbRange = config.expandRgbRange;
+    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
+    result.scenePreview = calibrationScenePreview.load(std::memory_order_relaxed);
+    if (open) result.focus = brightnessFocus;
+    return result;
+}
+float BrightnessSliderFraction(float x)
+{
+    return std::clamp((x - kBrightnessSliderX) / float(kBrightnessSliderWidth), 0.0f, 1.0f);
+}
+std::wstring BrightnessValue(int brightness)
+{
+    return brightness > 0 ? L"+" + std::to_wstring(brightness) : std::to_wstring(brightness);
+}
+std::wstring GammaValue(uint32_t gamma)
+{
+    const std::wstring hundredths = std::to_wstring(gamma % 100);
+    return std::to_wstring(gamma / 100) + L"." + (hundredths.size() < 2 ? L"0" : L"") + hundredths;
 }
 uint32_t CalibrationSliderValue(float x, uint32_t paperWhiteNits)
 {
@@ -472,6 +507,7 @@ void Publish(uint8_t *base, uint32_t config)
     next.row = row;
     next.language = edit.uiLanguage;
     next.calibration = MakeHdrCalibration(edit, calibrationOpen.load());
+    next.brightness = MakeBrightnessCalibration(edit, brightnessOpen.load());
     const uint32_t flags = PPC_LOAD_U32(config + 4);
     auto makeChoices = [&](const wchar_t *en, const wchar_t *zh, std::vector<std::wstring> choices,
                            uint32_t selected, bool enabled = true) {
@@ -677,7 +713,8 @@ void Publish(uint8_t *base, uint32_t config)
         placeGraphics(GraphicsRow::HdrPeak,
             Row{Tr(L"HDR peak brightness", L"HDR 最高亮度"), peakValue, hdrAvailable,
                 {L"◀", peakValue, L"▶"}, 1});
-        placeGraphics(GraphicsRow::Brightness, makeChoices(L"Brightness calibration", L"亮度校準", {Tr(L"Open", L"開啟")}, 0));
+        placeGraphics(GraphicsRow::Brightness, makeChoices(L"Brightness / Gamma", L"亮度 / Gamma",
+                   {BrightnessValue(edit.displayBrightness) + L" · " + GammaValue(edit.displayGamma)}, 0));
         placeGraphics(GraphicsRow::Save, makeChoices(L"Save graphics settings", L"儲存圖形設定", {Tr(L"Save", L"儲存")}, 0));
     }
     else
@@ -880,8 +917,11 @@ void Publish(uint8_t *base, uint32_t config)
             next.help = Tr(L"Press A to calibrate peak brightness against an HDR comparison pattern. Auto follows the active display report.",
                            L"按 A 以 HDR 對比圖校準最高亮度；自動模式跟隨目前顯示器的回報值。");
             break;
-        case GraphicsRow::DisplayMode:
         case GraphicsRow::Brightness:
+            next.help = Tr(L"Adjusts the game image's brightness and gamma. Press A to compare against the current scene. Changes apply after saving.",
+                           L"調整遊戲畫面的亮度與 Gamma。按 A 與目前畫面對照；儲存後套用。");
+            break;
+        case GraphicsRow::DisplayMode:
         case GraphicsRow::Save:
         case GraphicsRow::Count:
             break;
@@ -960,8 +1000,9 @@ void Publish(uint8_t *base, uint32_t config)
     std::lock_guard lock(snapshotMutex);
     // Presentation may have published availability while this snapshot was built.
     next.calibration.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
+    next.brightness.sceneAvailable = next.calibration.sceneAvailable;
     if (next.tab == snapshot.tab && next.row == snapshot.row && next.scroll == snapshot.scroll && next.language == snapshot.language &&
-        next.calibration == snapshot.calibration &&
+        next.calibration == snapshot.calibration && next.brightness == snapshot.brightness &&
         next.rows == snapshot.rows && next.help == snapshot.help && next.notice == snapshot.notice && next.dialogTitle == snapshot.dialogTitle &&
         next.dialogMessage == snapshot.dialogMessage && next.dialogChoices == snapshot.dialogChoices &&
         next.dialogSelection == snapshot.dialogSelection)
@@ -983,9 +1024,22 @@ void SetHdrCalibrationSceneAvailable(bool available)
     std::lock_guard lock(snapshotMutex);
     if (snapshot.calibration.sceneAvailable != available)
     {
-        snapshot.calibration.sceneAvailable = available;
+        snapshot.calibration.sceneAvailable = snapshot.brightness.sceneAvailable = available;
         ++snapshot.revision;
     }
+}
+BrightnessCalibration GetBrightnessCalibration()
+{
+    BrightnessCalibration result;
+    {
+        std::lock_guard lock(snapshotMutex);
+        result = snapshot.brightness;
+    }
+    // The open menu previews its unsaved values; gameplay uses the saved ones.
+    if (!active.load())
+        return MakeBrightnessCalibration(GetConfig(), false);
+    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
+    return result;
 }
 HdrCalibration GetHdrCalibration()
 {
@@ -1009,7 +1063,8 @@ HdrCalibration GetHdrCalibration()
 }
 bool CalibrationKey(uint32_t key)
 {
-    if (!calibrationOpen.load() || !(key == 8 || key == 13 || key == 27 || (key >= '0' && key <= '9')))
+    const bool brightnessKey = brightnessOpen.load() && (key == 13 || key == 27);
+    if (!brightnessKey && (!calibrationOpen.load() || !(key == 8 || key == 13 || key == 27 || (key >= '0' && key <= '9'))))
         return false;
     std::lock_guard lock(calibrationKeyMutex);
     calibrationKeys.push_back(key);
@@ -1017,6 +1072,14 @@ bool CalibrationKey(uint32_t key)
 }
 void PointerDrag(float x, float y, bool held)
 {
+    if (held && brightnessOpen.load())
+    {
+        if (y >= 516 && y < 552)
+            brightnessDragBrightness = int(std::lround(BrightnessSliderFraction(x) * 40.0f)) - 20;
+        else if (y >= 558 && y < 594)
+            brightnessDragGamma = 50 + int(std::lround(BrightnessSliderFraction(x) * 20.0f)) * 5;
+        return;
+    }
     if (!held || !calibrationOpen.load() || y < 540 || y >= 595) return;
     uint32_t paperWhite = 203;
     {
@@ -1082,6 +1145,20 @@ void PointerClick(float x, float y, bool reverse)
     if (!active.load())
         return;
     std::lock_guard lock(snapshotMutex);
+    if (snapshot.brightness.open)
+    {
+        // Same top toggle and button row as the HDR page; sliders take the pointer x.
+        if (y >= 34 && y < 78 && x >= 800 && x < 1120)
+            brightnessClick = x < 940 ? 7 : 8;
+        else if (y >= 516 && y < 552 && x >= 370 && x < 1010)
+            brightnessDragBrightness = int(std::lround(BrightnessSliderFraction(x) * 40.0f)) - 20;
+        else if (y >= 558 && y < 594 && x >= 370 && x < 1010)
+            brightnessDragGamma = 50 + int(std::lround(BrightnessSliderFraction(x) * 20.0f)) * 5;
+        else if (y >= 605 && y < 655)
+            brightnessClick = x >= 160 && x < 400 ? 2 : x >= 420 && x < 720 ? 3 :
+                              x >= 740 && x < 930 ? 4 : x >= 950 && x < 1120 ? 5 : -1;
+        return;
+    }
     if (snapshot.calibration.open)
     {
         if (y >= 34 && y < 78 && x >= 800 && x < 1120)
@@ -1190,6 +1267,7 @@ PPC_FUNC(sub_822F19B0)
         sawModal = false;
         closing = false;
         mainMenuRequested = false;
+        returnToBrightness = false;
         active = false;
     }
     if (closing)
@@ -1212,7 +1290,7 @@ PPC_FUNC(sub_822F19B0)
     if (state != 4)
     {
         if (state <= 2)
-            bypass = sawModal = false;
+            bypass = sawModal = returnToBrightness = false;
         else if (bypass)
             sawModal = true;
         active = false;
@@ -1243,7 +1321,17 @@ PPC_FUNC(sub_822F19B0)
     }
     if (!active.exchange(true))
     {
-        edit = GetConfig();
+        // Back from the original calibration screen: keep the unsaved edit and
+        // reopen the brightness page.
+        if (!std::exchange(returnToBrightness, false))
+        {
+            edit = GetConfig();
+            brightnessOpen = false;
+        }
+        else brightnessOpen = true;
+        brightnessClick = -1;
+        brightnessDragBrightness = INT_MIN;
+        brightnessDragGamma = -1;
         calibrationOpen = false;
         calibrationNumberEditing = false;
         calibrationNumber.clear();
@@ -1292,6 +1380,7 @@ PPC_FUNC(sub_822F19B0)
         releaseToParent = true;
         active = false;
         calibrationOpen = false;
+        brightnessOpen = false;
         cancelPolls = 0;
         pending = 0;
         PPCContext apply = ctx;
@@ -1304,6 +1393,22 @@ PPC_FUNC(sub_822F19B0)
         __imp__sub_82889E50(close, base);
         LOG_INFO("settings: replacement closing menu={:08X} state={} (native completion)",
                  menu, PPC_LOAD_U32(menu + 4));
+    };
+    auto openOriginalCalibration = [&] {
+        // Hand the original calibration screen its own brightness row.
+        const uint32_t list = menu + 0x558, table = PPC_LOAD_U32(list + 0x84);
+        // Retail row 12 opens brightness calibration; replacement menu row ids are independent.
+        for (uint32_t i = 0; i < 13; i++)
+            if (PPC_LOAD_U32(table + i * 0x30 + 4) == 12)
+            {
+                PPC_STORE_U32(list + 0x38, i);
+                break;
+            }
+        bypass = true;
+        sawModal = false;
+        active = false;
+        cancelButton = swapConfirm.load() ? 0x2000 : 0x1000;
+        cancelPolls = 6;
     };
     if (restart::ConsumeLaunchFailure())
     {
@@ -1517,7 +1622,8 @@ PPC_FUNC(sub_822F19B0)
             if (input & 0x2000) calibrationOpen = false;
             if (calibrationOpen.load())
             {
-                if (input & 0x4000) calibrationScenePreview = !calibrationScenePreview.load();
+                if (input & 0x100) calibrationScenePreview = true;
+                if (input & 0x200) calibrationScenePreview = false;
                 if (input & 1) calibrationFocus = (calibrationFocus + 5) % 6;
                 if (input & 2) calibrationFocus = (calibrationFocus + 1) % 6;
                 const int delta = (input & 4) ? -1 : (input & 8) ? 1 : 0;
@@ -1560,6 +1666,86 @@ PPC_FUNC(sub_822F19B0)
             calibrationDragNits = -1;
         }
         Publish(base, config);
+        return;
+    }
+    if (brightnessOpen.load())
+    {
+        if (const int dragged = brightnessDragBrightness.exchange(INT_MIN); dragged != INT_MIN)
+        {
+            edit.displayBrightness = std::clamp(dragged, -20, 20);
+            brightnessFocus = 0;
+        }
+        if (const int dragged = brightnessDragGamma.exchange(-1); dragged >= 0)
+        {
+            edit.displayGamma = uint32_t(std::clamp(dragged, 50, 150));
+            brightnessFocus = 1;
+        }
+        std::vector<uint32_t> keys;
+        {
+            std::lock_guard lock(calibrationKeyMutex);
+            keys.swap(calibrationKeys);
+        }
+        bool cancel = false;
+        for (const uint32_t key : keys)
+        {
+            if (key == 13) input |= 0x1000;
+            else if (key == 27) cancel = true;
+        }
+        if (const int clicked = brightnessClick.exchange(-1); clicked >= 2)
+        {
+            if (clicked >= 7)
+                calibrationScenePreview = clicked == 7;
+            else
+            {
+                brightnessFocus = clicked;
+                input |= 0x1000;
+            }
+        }
+        bool close = (input & 0x2000) != 0;
+        // LB / RB pick scene or pattern, like the tab bar.
+        if (input & 0x100) calibrationScenePreview = true;
+        if (input & 0x200) calibrationScenePreview = false;
+        if (input & 1) brightnessFocus = (brightnessFocus + 5) % 6;
+        if (input & 2) brightnessFocus = (brightnessFocus + 1) % 6;
+        if (const int delta = (input & 4) ? -1 : (input & 8) ? 1 : 0)
+        {
+            if (brightnessFocus == 0)
+                edit.displayBrightness = std::clamp(edit.displayBrightness + delta, -20, 20);
+            else if (brightnessFocus == 1)
+                edit.displayGamma = uint32_t(std::clamp(int(edit.displayGamma) + delta * 5, 50, 150));
+            else
+                brightnessFocus = 2 + (brightnessFocus - 2 + 4 + delta) % 4;
+        }
+        bool original = false;
+        if (input & 0x1000)
+        {
+            if (brightnessFocus == 2)
+            {
+                edit.displayBrightness = 0;
+                edit.displayGamma = 100;
+            }
+            else if (brightnessFocus == 3) original = true;
+            else if (brightnessFocus == 4) close = true;
+            else if (brightnessFocus == 5) cancel = true;
+        }
+        if (cancel)
+        {
+            edit.displayBrightness = brightnessStart;
+            edit.displayGamma = gammaStart;
+        }
+        if (cancel || close || original)
+        {
+            brightnessOpen = false;
+            brightnessClick = -1;
+            brightnessDragBrightness = INT_MIN;
+            brightnessDragGamma = -1;
+        }
+        Publish(base, config);
+        if (original)
+        {
+            returnToBrightness = true;
+            openOriginalCalibration();
+        }
         return;
     }
     auto graphicsSaved = [&] {
@@ -1923,22 +2109,16 @@ PPC_FUNC(sub_822F19B0)
             status = SaveConfig(languages) ? Tr(L"Language settings saved.", L"語言設定已儲存。")
                                            : Tr(L"Could not save settings.", L"無法儲存設定。");
     }
-    if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::Brightness))
+    // Back in the same poll wins, as it does over every other action.
+    if ((input & 0x1000) && !(input & 0x2000) && tab == 2 && row == int(GraphicsRow::Brightness))
     {
-        // Hand the original calibration screen its own brightness row.
-        const uint32_t list = menu + 0x558, table = PPC_LOAD_U32(list + 0x84);
-        // Retail row 12 opens brightness calibration; replacement menu row ids are independent.
-        for (uint32_t i = 0; i < 13; i++)
-            if (PPC_LOAD_U32(table + i * 0x30 + 4) == 12)
-            {
-                PPC_STORE_U32(list + 0x38, i);
-                break;
-            }
-        bypass = true;
-        sawModal = false;
-        active = false;
-        cancelButton = swapConfirm.load() ? 0x2000 : 0x1000;
-        cancelPolls = 6;
+        brightnessStart = edit.displayBrightness;
+        gammaStart = edit.displayGamma;
+        brightnessFocus = 0;
+        calibrationScenePreview = true;
+        brightnessOpen = true;
+        Publish(base, config);
+        return;
     }
     if (input & 0x2000)
     {

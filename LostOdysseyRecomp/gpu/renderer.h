@@ -102,6 +102,13 @@ namespace gpu::renderer
     // Null means this frame must use the ordinary SDR resolved surface.
     void SetHdrSceneEnabled(bool enabled);
     plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height);
+    // Whether the newest resolve at this address finished a frame that drew the
+    // game's tone-map pass (the 3D scene, not a menu), and that write's ordinal.
+    bool ResolvedScene(uint32_t physicalAddress, uint64_t& ordinal);
+    // That write, while it is still the newest at its address; hdr returns its
+    // same-size extended-gamma twin or null.
+    plume::RenderTexture* AcquireResolvedWrite(uint32_t physicalAddress, uint64_t ordinal, bool hdr,
+        uint32_t& width, uint32_t& height, uint32_t& format);
     // The pre-upscale extended-gamma scene kept for an upscaled resolve, for
     // presentation's highlight gain; smaller than the resolve it belongs to.
     plume::RenderTexture* AcquireHdrGainSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height);

@@ -86,7 +86,7 @@
 
 ### HDR（实验性）
 
-在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开校准页：左边是 SDR 预览，右边是 HDR，按 **X** 在游戏画面和测试图案之间切换。**Auto（自动）** 使用显示器回报的亮度，没有回报时按 1000 nit。HDR 可以和任一抗锯齿模式及超分一起使用；开启插帧时只有 Vulkan 上的 DLSS 插帧保持 HDR。支持 Windows（Direct3D 12 和 Vulkan）、Linux 和 macOS。
+在图像设置中开启 **HDR**，保存并重启。**HDR 最高亮度**会打开校准页：左边是 SDR 预览，右边是 HDR，按 **LB / RB** 在游戏画面和测试图案之间切换。**Auto（自动）** 使用显示器回报的亮度，没有回报时按 1000 nit。HDR 可以和任一抗锯齿模式及超分一起使用；开启插帧时只有 Vulkan 上的 DLSS 插帧保持 HDR。支持 Windows（Direct3D 12 和 Vulkan）、Linux 和 macOS。
 
 ### 最新更新
 
@@ -98,7 +98,7 @@
 | :--- | :--- |
 | 导入 | 支持文件夹、XEX、ISO、GOD、DLC 和替换光盘。原始文件保持不变。 |
 | 语言 | 菜单提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于你的版本。 |
-| 显示 | 16:9 和 21:9 分辨率；16:10、4:3 等更高的屏幕会被 3D 画面铺满。Off／FXAA／SMAA／TAA（实验性），DLSS、FSR 3.1 或 MetalFX 超分，以及 [HDR](#hdr实验性)。 |
+| 显示 | 16:9 和 21:9 分辨率；16:10、4:3 等更高的屏幕会被 3D 画面铺满。Off／FXAA／SMAA／TAA（实验性），DLSS、FSR 3.1 或 MetalFX 超分，以及 [HDR](#hdr实验性)。图像设置中的**亮度 / Gamma** 可以对照游戏默认画面调整，参考画面是最后的游戏场景或测试图案。 |
 | 阴影与环境光遮蔽 | 阴影分辨率 1×／2×／4×，实验性 SSAO／GTAO。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR。 |
 | 插帧 | Windows Direct3D 12：DLSS（显卡支持的倍率）或 FSR 2×。Windows Vulkan：DLSS 2×–6×。切换插帧方案可能需要重启。 |

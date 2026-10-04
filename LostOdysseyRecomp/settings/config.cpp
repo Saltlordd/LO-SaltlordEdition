@@ -27,6 +27,8 @@ Config Validate(Config value)
     value.hdrPaperWhiteNits = std::clamp(value.hdrPaperWhiteNits, 80u, 400u);
     value.hdrPeakNits = std::clamp(value.hdrPeakNits, 80u, 10000u);
     value.hdrPeakNits = std::max(value.hdrPeakNits, value.hdrPaperWhiteNits);
+    value.displayBrightness = std::clamp(value.displayBrightness, -20, 20);
+    value.displayGamma = std::clamp(value.displayGamma, 50u, 150u);
     if (!gpu::upscaling::KnownUpscaler(value.upscaler)) value.upscaler = gpu::upscaling::Upscaler::Off;
     value.dlssQuality = gpu::upscaling::NormalizeDlssQuality(value.dlssQuality);
     value.fsrQuality = gpu::upscaling::NormalizeFsrQuality(value.fsrQuality);
@@ -99,6 +101,15 @@ Config Read()
         if (name == "anisotropic_filtering") value.anisotropicFiltering = 0;
         uint32_t number = 0;
         const auto digits = key.substr(equal + 1);
+        if (name == "display_brightness")
+        {
+            // The only signed value.
+            int brightness = 0;
+            auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), brightness);
+            if (parsed.ec == std::errc{} && parsed.ptr == digits.data() + digits.size())
+                value.displayBrightness = brightness;
+            continue;
+        }
         auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number);
         if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size())
             continue;
@@ -129,6 +140,8 @@ Config Read()
             value.scalingQuality = number;
         else if (key == "expand_rgb_range" && number <= 1)
             value.expandRgbRange = number == 1;
+        else if (key == "display_gamma")
+            value.displayGamma = number;
         else if (key == "anisotropic_filtering")
             value.anisotropicFiltering = number;
         else if (key == "upscaler")
@@ -261,6 +274,8 @@ static bool WriteConfig(const Config &value)
            << "\nambient_occlusion=" << value.ambientOcclusion
            << "\nscaling_quality=" << value.scalingQuality
            << "\nexpand_rgb_range=" << (value.expandRgbRange ? 1 : 0)
+           << "\ndisplay_brightness=" << value.displayBrightness
+           << "\ndisplay_gamma=" << value.displayGamma
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
            << "\nupscaler=" << uint32_t(value.upscaler) << "\ndlss_quality=" << uint32_t(value.dlssQuality)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)

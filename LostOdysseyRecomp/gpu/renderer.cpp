@@ -668,6 +668,8 @@ namespace gpu::renderer
                 uint64_t frame = 0;
                 uint64_t writeOrdinal = 0;
                 uint32_t writeX = 0, writeY = 0, writeWidth = 0, writeHeight = 0;
+                // Depth-writing draws in the frame that wrote it (depthDraws).
+                uint32_t sceneDraws = 0;
                 uint64_t sdrWriteOrdinal = 0;
                 std::unique_ptr<HostTexture> hdrTex;
                 uint64_t hdrWriteOrdinal = 0;
@@ -689,6 +691,10 @@ namespace gpu::renderer
             // first, so the composite's fetch of the FP16 surface missed and fell
             // back to guest memory.
             std::unordered_map<uint32_t, std::vector<ResolvedSurface>> resolved;
+            // Depth-tested, depth-writing draws in depthDrawFrame: the 3D world
+            // draws hundreds, the game's menus and their blurred backdrops none.
+            uint64_t depthDrawFrame = ~0ull;
+            uint32_t depthDraws = 0;
             // SDR views that have an HDR companion in this frame. An arbitrary
             // overlay sampling one would collapse highlights on replay.
             std::unordered_set<RenderTexture*> hdrSdrSources;
@@ -6607,6 +6613,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         key.depthControl = (key.depthControl & ~0x70u) | (7u << 4);
                 }
                 key.modeCull = Reg(REG_PA_SU_SC_MODE_CNTL) & 0x3807;
+                if (depth && (depthControl & 6) == 6)
+                {
+                    if (depthDrawFrame != frame) { depthDrawFrame = frame; depthDraws = 0; }
+                    ++depthDraws;
+                }
                 if (depth && (depthControl & 2))
                 {
                     // The supported polygonal draws are triangles, fans, strips
@@ -10557,6 +10568,24 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 return rs->tex->texture.get();
             }
+            // A remembered resolve, while it is still the newest write at its
+            // address; hdr asks for its same-size extended-gamma twin instead.
+            RenderTexture* AcquireResolvedWrite(uint32_t address, uint64_t ordinal, bool hdr,
+                uint32_t& width, uint32_t& height, uint32_t& format)
+            {
+                if (PlanSuppressed()) return nullptr;
+                const auto* rs = NewestResolved(address & 0x1FFFFFFF);
+                if (!rs || !rs->tex || !ordinal || rs->writeOrdinal != ordinal) return nullptr;
+                if (!hdr) {
+                    width = rs->tex->width; height = rs->tex->height; format = uint32_t(rs->tex->format);
+                    return rs->tex->texture.get();
+                }
+                if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !rs->hdrTex || !rs->hdrTex->texture ||
+                    rs->hdrGain || rs->hdrFrame != rs->frame || rs->hdrWriteOrdinal != ordinal ||
+                    rs->hdrTex->width != rs->tex->width || rs->hdrTex->height != rs->tex->height) return nullptr;
+                width = rs->hdrTex->width; height = rs->hdrTex->height; format = uint32_t(rs->hdrTex->format);
+                return rs->hdrTex->texture.get();
+            }
             bool AcquireFgCompositeForPresent(uint32_t address, frame_generation::CompositeHandoff& out)
             {
                 out = {};
@@ -10667,6 +10696,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.frame = frame;
                 rs.writeOrdinal = ++resolveWriteOrdinal;
                 rs.writeX = x0; rs.writeY = y0; rs.writeWidth = w; rs.writeHeight = h;
+                rs.sceneDraws = 0;
                 WriteP2ResolveEvent("depth", depth, destBase, rs, vulkan ? "blit" : "copy");
                 if (taa_collection::Enabled())
                     rs.tex->bindingProducer.Copy(depth.bindingProducer, taa_collection::ConsentEpoch(), frame,
@@ -10784,6 +10814,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.frame = frame;
                 rs.writeOrdinal = ++resolveWriteOrdinal;
                 rs.writeX = x0; rs.writeY = y0; rs.writeWidth = w; rs.writeHeight = h;
+                rs.sceneDraws = depthDrawFrame == frame ? depthDraws : 0;
                 const bool fullResolved = x0==0&&y0==0&&w==texW&&h==texH;
                 const bool isSdrProducerResolved = color_qualification::IsHostTextureQualified(color.sdrProducerFrame, frame) &&
                     color.qualifiedSdrWidth >= texW && color.qualifiedSdrHeight >= texH &&
@@ -11847,6 +11878,28 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         width = rs->hdrTex->width; height = rs->hdrTex->height;
         return rs->hdrTex->texture.get();
     }
+    bool ResolvedScene(uint32_t physicalAddress, uint64_t& ordinal)
+    {
+        if (!g_renderer || g_renderer->PlanSuppressed()) return false;
+        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
+        if (!rs || !rs->tex) return false;
+        ordinal = rs->writeOrdinal;
+        // Gameplay draws about a thousand, the game's menus a handful.
+        const bool scene = rs->sceneDraws >= 16;
+        static bool lastScene = false;
+        static uint32_t flips = 0;
+        if (scene != lastScene && flips < 16) {
+            ++flips;
+            LOG_INFO("renderer: frontbuffer scene={} depth_draws={} frame={}", scene, rs->sceneDraws, rs->frame);
+        }
+        lastScene = scene;
+        return scene;
+    }
+    plume::RenderTexture* AcquireResolvedWrite(uint32_t physicalAddress, uint64_t ordinal, bool hdr,
+        uint32_t& width, uint32_t& height, uint32_t& format)
+    {
+        return g_renderer ? g_renderer->AcquireResolvedWrite(physicalAddress, ordinal, hdr, width, height, format) : nullptr;
+    }
     plume::RenderTexture* AcquireHdrGainSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
     {
         if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
@@ -12147,6 +12200,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         frame_plan::FramePlan*, frame_generation::ResolvedHandoff*) { return nullptr; }
     void SetHdrSceneEnabled(bool) {}
     plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
+    bool ResolvedScene(uint32_t, uint64_t&) { return false; }
+    plume::RenderTexture* AcquireResolvedWrite(uint32_t, uint64_t, bool, uint32_t&, uint32_t&, uint32_t&) { return nullptr; }
     plume::RenderTexture* AcquireHdrGainSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
     bool AcquireFgCompositeInputs(uint32_t, frame_generation::CompositeHandoff&) { return false; }
     void CancelFgHandoffs() {}

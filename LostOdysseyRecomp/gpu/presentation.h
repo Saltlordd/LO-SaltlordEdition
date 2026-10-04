@@ -35,6 +35,19 @@ struct PresentationOptions
     bool displayGammaRamp = false;
     // The frozen calibration scene gets the same ramp as gameplay.
     bool calibrationDisplayGammaRamp = false;
+    // Player brightness (black level) and gamma, applied after the RGB range
+    // expansion (settings::Config::displayBrightness / displayGamma). Only a
+    // draw that sets displayAdjust, brightnessPreview or hdrCalibration loads
+    // these values; other draws leave the current curve in place.
+    int displayBrightness = 0;
+    uint32_t displayGamma = 100;
+    // The final pass applies the curve to the game image.
+    bool displayAdjust = false;
+    // calibrationRect compares the game image (left) with the curve applied
+    // (right): calibrationScene when set, otherwise a grey test pattern.
+    // calibrationSceneExtended marks an FP16 extended-gamma scene.
+    bool brightnessPreview = false;
+    bool calibrationSceneExtended = false;
 };
 // Owned by the presentation thread. Resources stay alive until the present fence.
 class Presentation

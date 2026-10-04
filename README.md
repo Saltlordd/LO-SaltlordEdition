@@ -86,7 +86,7 @@ Only one tablet has been tested so far. [Step-by-step guide](docs/INSTALLING.md#
 
 ### HDR (experimental)
 
-Turn on **HDR** in Graphics, save and restart. **HDR peak brightness** opens a calibration page: an SDR preview on the left, HDR on the right, and **X** switches between the game scene and a test pattern. **Auto** uses the brightness your display reports, or 1000 nits if it reports none. HDR works with every anti-aliasing mode and upscaler; with frame generation it stays on only for DLSS on Vulkan. Available on Windows (Direct3D 12 and Vulkan), Linux and macOS.
+Turn on **HDR** in Graphics, save and restart. **HDR peak brightness** opens a calibration page: an SDR preview on the left, HDR on the right, and **LB / RB** switch between the game scene and a test pattern. **Auto** uses the brightness your display reports, or 1000 nits if it reports none. HDR works with every anti-aliasing mode and upscaler; with frame generation it stays on only for DLSS on Vulkan. Available on Windows (Direct3D 12 and Vulkan), Linux and macOS.
 
 ### Latest changes
 
@@ -98,7 +98,7 @@ Turn on **HDR** in Graphics, save and restart. **HDR peak brightness** opens a c
 | :--- | :--- |
 | Import | Folder, XEX, ISO and GOD sources, DLC and disc replacement. Your original files are not changed. |
 | Languages | English, Japanese, Korean, Traditional Chinese and Simplified Chinese menus. Game languages depend on your edition. |
-| Display | 16:9 and 21:9 resolutions; taller screens such as 16:10 and 4:3 are filled with the 3D scene. Off/FXAA/SMAA/TAA (experimental), DLSS, FSR 3.1 or MetalFX upscaling, and [HDR](#hdr-experimental). |
+| Display | 16:9 and 21:9 resolutions; taller screens such as 16:10 and 4:3 are filled with the 3D scene. Off/FXAA/SMAA/TAA (experimental), DLSS, FSR 3.1 or MetalFX upscaling, and [HDR](#hdr-experimental). **Brightness / Gamma** in Graphics adjusts the picture next to the game's default, on the last game scene or a test pattern. |
 | Shadows and AO | Shadow resolution 1×/2×/4× and experimental SSAO/GTAO. |
 | Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR. |
 | Frame generation | Windows Direct3D 12: DLSS (the multipliers your GPU supports) or FSR 2×. Windows Vulkan: DLSS 2×–6×. Changing the provider may need a restart. |
