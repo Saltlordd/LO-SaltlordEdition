@@ -6917,7 +6917,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const auto* jitterAnchor = temporalDrawAnchor ? &*temporalDrawAnchor :
                     (temporalScene.Draws() ? &temporalScene.Anchor() : nullptr);
                 std::optional<temporal::SceneResolve> jitterSampledDepth;
-                const bool jitterShadowPair = key.vs == 0x99c2b4b0960a9ccdull && key.ps == 0xd55a20d004031279ull;
+                const bool jitterShadowPair = temporal::IsShadowProjectionPair(key.vs, key.ps);
                 if (temporalActive && temporalJitter && jitterShadowPair)
                 {
                     const uint32_t fetch0 = Reg(REG_FETCH_CONSTANTS), fetch1 = Reg(REG_FETCH_CONSTANTS + 1);
