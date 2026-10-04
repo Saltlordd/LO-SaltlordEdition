@@ -233,6 +233,42 @@ was made with the packages; see [STATUS](../STATUS.md#v0810-published--2026-10-0
 A green run shows that the pipeline works, not that the release has been played
 or accepted.
 
+Eighth release, 2026-10-04: v0.8.15 (tag commit `a4162b0`) was built and
+published by [run 252](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/252)
+(API id 642), started at 11:29:36Z. All six jobs succeeded (UTC, read through the
+Gitea API on 2026-10-04 at about 22:05 UTC, after v0.8.21 was published): create
+draft 11:32:06-11:32:16, FSR inputs 11:29:36-11:40:59, Android APK
+11:36:00-11:42:14, Windows build and ZIP 11:41:00-11:47:53, Linux AppImage and
+Flatpak 11:42:16-11:51:21 and publish 11:51:23-11:52:17, which published at
+2026-10-04T11:52:16Z. About 23 minutes passed from the run start to publication.
+The macOS disk image was uploaded to the draft by hand (GitHub dates the asset
+11:32:29Z), before the publish job ran. No shader pack was published: the Linux
+job's mandatory check ran at 11:48:13-11:48:16Z and passed, and its log, read for
+this record, printed the contracts of v0.8.10 (`d3d12 48cf14e3...`, `vulkan
+a7d1ab94...`) and that the index lists packs for all renderers of this runtime
+(see the [pack reference](../PORTABLE_SHADER_PACK.md#update-2026-10-04-later-no-new-packs-for-v0815-and-v0821)).
+This run was recorded after the release, not when it was published. No game run
+with the packages is recorded; see
+[STATUS](../STATUS.md#v0815-published--2026-10-04). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
+Ninth release, 2026-10-04: v0.8.21 (tag commit `37ffd02`) was built and published
+by [run 271](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/271)
+(API id 661), started at 21:40:40Z. All six jobs succeeded (UTC, read through the
+Gitea API on 2026-10-04 at about 22:05-22:10 UTC): create draft 21:43:11-21:43:21,
+FSR inputs 21:40:40-21:52:01, Android APK 21:43:23-21:49:43, Windows build and ZIP
+21:52:02-21:59:03, Linux AppImage and Flatpak 21:52:05-22:01:20 and publish
+22:01:22-22:02:57, which published at 2026-10-04T22:02:56Z. About 22 minutes
+passed from the run start to publication. The macOS disk image was built on the
+Mac from the tag and uploaded to the draft by hand (GitHub dates the asset
+21:43:41Z), before the publish job ran. No shader pack was published:
+the Linux job's mandatory check ran at 21:58:07-21:58:10Z and passed, and its log,
+read for this record, printed the same contracts as v0.8.10 and v0.8.15; the same
+`--check` run on Windows with `LoShaderPackTool` from the tag tree printed them
+too. No game run with the packages is recorded; see
+[STATUS](../STATUS.md#v0821-published--2026-10-04). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the
