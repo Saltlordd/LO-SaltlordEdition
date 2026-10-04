@@ -4,6 +4,18 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- Fixed character and object shadows shaking and flickering on AMD GPUs, including the Steam Deck, most visible in towns and cutscenes (#176).
+- The shader packs change with this fix; the first start after updating offers to download the new packs.
+
+### 简体中文
+
+- 修复 AMD 显卡（包括 Steam Deck）上角色和物体阴影抖动、闪烁的问题，在城镇和过场动画中最明显（#176）。
+- 着色器包随此修复更新，更新后第一次启动会提示下载新的着色器包。
+
 ## [v0.8.7](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) — 2026-10-03
 
 ### English
