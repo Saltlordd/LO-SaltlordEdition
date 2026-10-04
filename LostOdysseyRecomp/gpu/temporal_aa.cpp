@@ -281,12 +281,16 @@ float4 motionPixel(float4 position) {
    if(!corePrimary)return motionRejected(center,float3(0,0,0));
    history=bilinearHistory;
   }
+  // One exit for this branch. With the returns inside it, vkd3d-proton's DXIL
+  // to SPIR-V conversion produced unstructured control flow that Mesa rejects,
+  // and RADV then crashed while creating the pipeline (#200).
+  bool unsupported=false;
   [branch]if(!primaryDepthFound) {
-   if(!stable || !(pad1&8) || stationaryPolicy.w==0 || length(mv)>stationaryPolicy.y)return motionRejected(center,float3(0,0,0));
-   if(((pad1&128)?!stationaryMultiSurfaceSupport(p,md,secondaryDepth)
-                 :!stationaryCoverageSupport(p,md,secondaryDepth)))
-    return motionRejected(center,float3(0,0,0));
+   unsupported=!stable || !(pad1&8) || stationaryPolicy.w==0 || length(mv)>stationaryPolicy.y
+    || ((pad1&128)?!stationaryMultiSurfaceSupport(p,md,secondaryDepth)
+                  :!stationaryCoverageSupport(p,md,secondaryDepth));
   }
+  if(unsupported)return motionRejected(center,float3(0,0,0));
  if(!all(isfinite(history)))return motionRejected(center,float3(0,1,1));
  float3 lo=center.rgb,hi=center.rgb;
  [unroll]for(int y=-1;y<=1;++y)[unroll]for(int x=-1;x<=1;++x) {
