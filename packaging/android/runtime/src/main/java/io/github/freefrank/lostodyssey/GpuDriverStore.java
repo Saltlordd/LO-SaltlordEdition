@@ -35,6 +35,7 @@ final class GpuDriverStore {
     static final String KEY_CHOICE_MADE = "choice_made";
     static final String KEY_BOOT_PENDING = "boot_pending";
     static final String SYSTEM_DRIVER = "";
+    static final String SYSTEM_DRIVER_NAME = "System GPU driver";
     static final String DIRECTORY = "gpu_driver";
     static final String META_FILE = "meta.json";
     static final long MAX_META_BYTES = 500_000L;
@@ -183,15 +184,18 @@ final class GpuDriverStore {
     }
 
     /**
-     * A custom driver whose last start never reached the game. Clearing it
-     * falls back to the system driver so the player can always get in.
+     * The name of the driver whose last start never reached the game, or null.
+     * A custom driver is replaced by the system driver so the player can always
+     * get in; a failed start on the system driver only reopens the page, where
+     * a custom driver can be picked (#185).
      */
     static String takeFailedBoot(Context context) {
         SharedPreferences preferences = preferences(context);
         String pending = preferences.getString(KEY_BOOT_PENDING, null);
-        if (pending == null || pending.isEmpty()) {
-            if (pending != null) preferences.edit().remove(KEY_BOOT_PENDING).commit();
-            return null;
+        if (pending == null) return null;
+        if (pending.isEmpty()) {
+            preferences.edit().remove(KEY_BOOT_PENDING).commit();
+            return SYSTEM_DRIVER_NAME;
         }
         preferences.edit().remove(KEY_BOOT_PENDING).putString(KEY_SELECTED, SYSTEM_DRIVER).commit();
         Installed driver = read(new File(root(context), pending));

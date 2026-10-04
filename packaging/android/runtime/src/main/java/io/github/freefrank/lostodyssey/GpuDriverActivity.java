@@ -42,12 +42,15 @@ import java.util.Set;
  */
 public final class GpuDriverActivity extends Activity {
     static final String EXTRA_FROM_GAME = "from_game";
+    /** The renderer could not start with the selected driver; the value is the reason. */
+    static final String EXTRA_GRAPHICS_FAILURE = "graphics_failure";
     private static final int REQUEST_OPEN_PACKAGE = 1;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private boolean fromGame;
     private String originalSelection;
     private String failedDriver;
+    private String graphicsFailure;
     private LinearLayout installedSection, sourcesSection;
     private Button primaryButton;
     private TextView statusLine;
@@ -62,18 +65,37 @@ public final class GpuDriverActivity extends Activity {
         // Make the game folders before the first start so they can be filled over USB.
         GameStorage.prepare(this);
         fromGame = getIntent().getBooleanExtra(EXTRA_FROM_GAME, false);
+        graphicsFailure = getIntent().getStringExtra(EXTRA_GRAPHICS_FAILURE);
         if (!fromGame) {
             // Shows the previous run's logs over USB, complete even after a crash.
             PlayerLogs.publish(this);
-            if (!GpuDriverStore.supported()) { launchGame(); return; }
+            if (!GpuDriverStore.supported()) {
+                // No custom drivers here: say why the game closed instead of
+                // starting it into the same failure again.
+                if (graphicsFailure != null) showUnsupportedDriver(); else launchGame();
+                return;
+            }
             failedDriver = GpuDriverStore.takeFailedBoot(this);
-            if (failedDriver == null && GpuDriverStore.choiceMade(this)) { launchGame(); return; }
+            if (failedDriver == null && graphicsFailure == null && GpuDriverStore.choiceMade(this)) {
+                launchGame();
+                return;
+            }
         }
         originalSelection = GpuDriverStore.selected(this);
         pendingSelection = originalSelection;
         setContentView(buildPage());
         refreshInstalled();
         loadFeeds(false);
+    }
+
+    private void showUnsupportedDriver() {
+        new AlertDialog.Builder(this)
+            .setTitle("GPU driver not supported")
+            .setMessage("This device's Vulkan driver cannot run the game: " + graphicsFailure
+                + ".\n\nThe log is in Android/data/io.github.freefrank.lostodyssey/files/logs/.")
+            .setPositiveButton("Close", (dialog, which) -> finish())
+            .setOnCancelListener(dialog -> finish())
+            .show();
     }
 
     private void launchGame() {
@@ -120,9 +142,21 @@ public final class GpuDriverActivity extends Activity {
         page.addView(dim("The Qualcomm driver drops the text on the highlighted menu row. "
             + "A Mesa Turnip package fixes it. Downloads come from the same GitHub "
             + "sources as the Eden emulator; the game restarts when the driver changes."));
-        if (failedDriver != null) {
-            TextView warning = text("The last start with \"" + failedDriver
-                + "\" did not reach the game. The system driver is selected again.", 14f, true);
+        String notice = null;
+        if (graphicsFailure != null) {
+            GpuDriverStore.Installed selected = GpuDriverStore.selectedDriver(this);
+            notice = selected == null
+                ? "The system GPU driver cannot run the game: " + graphicsFailure
+                    + ". Download a Turnip driver below, select it and start the game."
+                : "The last start with \"" + selected.metadata.name + "\" could not start the renderer: "
+                    + graphicsFailure + ". Select another driver.";
+        } else if (failedDriver != null) {
+            notice = "The last start with \"" + failedDriver + "\" did not reach the game."
+                + (failedDriver.equals(GpuDriverStore.SYSTEM_DRIVER_NAME) ? ""
+                                                                   : " The system driver is selected again.");
+        }
+        if (notice != null) {
+            TextView warning = text(notice, 14f, true);
             warning.setTextColor(Color.rgb(255, 196, 80));
             page.addView(warning);
         }
@@ -170,7 +204,7 @@ public final class GpuDriverActivity extends Activity {
         boolean pendingExists = pendingSelection.isEmpty();
         for (GpuDriverStore.Installed driver : installed) pendingExists |= driver.id().equals(pendingSelection);
         if (!pendingExists) pendingSelection = GpuDriverStore.SYSTEM_DRIVER;
-        addChoice(GpuDriverStore.SYSTEM_DRIVER, "System GPU driver",
+        addChoice(GpuDriverStore.SYSTEM_DRIVER, GpuDriverStore.SYSTEM_DRIVER_NAME,
             "The Vulkan driver shipped with this device", null);
         for (GpuDriverStore.Installed driver : installed) {
             addChoice(driver.id(), driver.metadata.name, driver.metadata.summary(), driver);

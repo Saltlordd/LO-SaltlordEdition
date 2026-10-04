@@ -17,6 +17,8 @@ public final class RuntimeActivity extends SDLActivity {
     private static final long BOOT_SETTLED_MS = 15000;
 
     private TouchControlsView touchControls;
+    /** Why the renderer could not start with the selected driver; set from native code. */
+    private volatile String graphicsFailure;
     private final Handler bootHandler = new Handler(Looper.getMainLooper());
     private final Runnable bootSettled = () -> {
         GpuDriverStore.clearBootPending(this);
@@ -40,6 +42,15 @@ public final class RuntimeActivity extends SDLActivity {
                 RelativeLayout.LayoutParams.MATCH_PARENT));
             nativeSetTouchInput(0, 0, 0, 0, 0, 0, 0);
         }
+    }
+
+    /**
+     * Called by the native runtime before its main returns when no Vulkan
+     * device the renderer can use was created (video.cpp).
+     */
+    @SuppressWarnings("unused")
+    void reportGraphicsFailure(String reason) {
+        graphicsFailure = reason;
     }
 
     /** Opens the GPU driver page over the game (CTRL dialog). */
@@ -90,6 +101,17 @@ public final class RuntimeActivity extends SDLActivity {
         // since the native runtime runs only once per process.
         if (isFinishing() && getIntent().getBooleanExtra(EXTRA_IMPORT, false)) {
             Intent intent = new Intent(this, GameFolderActivity.class);
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            Runtime.getRuntime().exit(0);
+        }
+        // The same driver would fail again on the next start, and the launcher
+        // goes straight to the game once a driver was chosen: show the GPU
+        // driver page with the reason instead (#185). Devices without custom
+        // drivers get the reason in a dialog.
+        if (isFinishing() && graphicsFailure != null) {
+            Intent intent = new Intent(this, GpuDriverActivity.class);
+            intent.putExtra(GpuDriverActivity.EXTRA_GRAPHICS_FAILURE, graphicsFailure);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
             Runtime.getRuntime().exit(0);

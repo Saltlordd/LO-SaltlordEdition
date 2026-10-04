@@ -50,6 +50,8 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 
 2026-09-27 Issue #70 状态缓存改动：Plume 的 D3D12 graphics/compute root signature 与 root descriptor table 去重，以及 descriptor heap、原生 root signature 变化、native `Reset`/`Close` 和外部状态失效路径已同步到本项目补丁。runtime、NGX/FSR D3D12 fixture、AF measurement fixture 和 root binding fixture 验证通过；独立临时 index 从固定干净 Plume 基线应用补丁并与本地依赖修改一致。未进行补丁发布或目标游戏性能验收。
 
+2026-10-03 队列族传输位（#185）：Vulkan 规范规定图形和计算队列都支持传输操作，但单独声明 `VK_QUEUE_TRANSFER_BIT` 是可选的；高通 Adreno 专有驱动只声明图形和计算位，`pickFamilyQueue` 因此找不到队列族并报 "Required Vulkan queue family unavailable."。补丁在挑选队列族之前，为声明了图形或计算位的队列族补上传输位。新补丁在固定 HEAD `d890ac8` 的干净副本上先应用原补丁（重新生成与原补丁逐字节一致）再修改后生成，`plume-android.patch` 与 `plume-macos.patch` 仍可叠加应用。
+
 ## macOS: plume Metal patch
 
 `plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes `plume_metal.cpp`, `plume_metal.h`, `plume_apple.h`, `plume_apple.mm` and plume's `CMakeLists.txt` (the Apple files and the CMake change come with HDR output, PR #145):
