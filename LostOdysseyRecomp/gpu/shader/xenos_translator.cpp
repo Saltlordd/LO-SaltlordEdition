@@ -15,11 +15,15 @@
 
 #include <fmt/format.h>
 #include <algorithm>
+#include <array>
 #include <cassert>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <map>
 #include <set>
+#include <string_view>
+#include <vector>
 
 namespace xenos
 {
@@ -32,6 +36,88 @@ namespace xenos
         const char* const kVertexSampleMacro = "#define XE_SAMPLE(t, s, uv) t.SampleLevel(s, uv, 0.0)\n";
 
         const char* const kCommonHlsl = kShaderCommonHlsl;
+
+        // Matches one generated HLSL line against a template in which each '%'
+        // captures an identifier ([A-Za-z0-9_]+).
+        bool MatchLine(std::string_view line, std::string_view pattern, std::vector<std::string_view>& captures)
+        {
+            size_t i = 0;
+            for (const char p : pattern)
+            {
+                if (p == '%')
+                {
+                    const size_t start = i;
+                    while (i < line.size() && (std::isalnum(static_cast<unsigned char>(line[i])) || line[i] == '_'))
+                        ++i;
+                    if (i == start) return false;
+                    captures.push_back(line.substr(start, i - start));
+                }
+                else if (i >= line.size() || line[i++] != p)
+                    return false;
+            }
+            return i == line.size();
+        }
+
+        // Unreal Engine 3 deferred shadow projection finds its pixel from an
+        // interpolated clip position (ScreenPosition.xy / ScreenPosition.w),
+        // maps it with ScreenPositionScaleBias to a scene-depth UV, point-samples
+        // the depth and reconstructs the receiver from the same NDC. Host
+        // interpolation over its large, camera-crossing volumes is not exact: on
+        // AMD drivers the result is several texels off near the camera and
+        // changes with every frame's volume, so the depth texel and the receiver
+        // move and shadows (self-shadows most) jitter. Rebuild that NDC from
+        // SV_Position, which is exact. The pass covers the scene target whose
+        // pixels match the scene-depth texture; a pixel outside the texture, or
+        // an interpolated UV more than 1/16 of the screen away (a different
+        // target/texture mapping, not interpolation error), keeps the original.
+        void RebuildScreenPositionFromPixel(std::string& hlsl)
+        {
+            constexpr std::string_view prologueEnd = "\tfloat4 oDepthVec = 0.0;\n";
+            size_t at = hlsl.find(prologueEnd);
+            if (at == std::string::npos) return;
+            at += prologueEnd.size();
+            while (at < hlsl.size() && hlsl[at] == '\n') ++at;
+            const std::string_view text = hlsl;
+            std::array<std::string_view, 7> lines{};
+            size_t cursor = at, insertAt = 0;
+            for (size_t i = 0; i < lines.size(); ++i)
+            {
+                const size_t end = text.find('\n', cursor);
+                if (end == std::string_view::npos) return;
+                lines[i] = text.substr(cursor, end - cursor);
+                cursor = end + 1;
+                if (i == 3) insertAt = cursor;
+            }
+            std::vector<std::string_view> c;
+            if (!MatchLine(lines[0], "\tps = clamp(rcp(%.w), FLT_MIN, FLT_MAX);", c) ||
+                !MatchLine(lines[1], "\t%.x = ps;", c) ||
+                !MatchLine(lines[2], "\txePV.yz = %.xx * %.xy;", c) ||
+                !MatchLine(lines[3], "\t%.yz = xePV.yz;", c) ||
+                !MatchLine(lines[4], "\txePV.xw = %.zy * XeConst(%).yx + XeConst(%).zw;", c) ||
+                !MatchLine(lines[5], "\t%.xw = xePV.xw;", c) ||
+                !MatchLine(lines[6], "\t%.x = XeTextureResult(XeTex2D(tex2D_%, XeSampler(%), %.wx, float2(0, 0), %, false), %).x;", c))
+                return;
+            // c: 0 position, 1-2 reciprocal temp, 3-5 position, 6-7 scale/bias
+            // constant, 8 position, 9 depth destination, 10 texture slot,
+            // 11/13/14 the same slot as "<n>u", 12 position.
+            const std::string_view position = c[0];
+            const std::string slot = std::string(c[10]) + "u";
+            if (c[1] != c[2] || c[3] != position || c[4] != position || c[5] != position || c[8] != position ||
+                c[12] != position || c[6] != c[7] || c[11] != slot || c[13] != slot || c[14] != slot)
+                return;
+            const std::string reg(position), scaleBias = fmt::format("XeConst({})", c[6]);
+            hlsl.insert(insertAt, fmt::format(
+                "\t{{\n"
+                "\t\tuint2 xeScreenDims;\n"
+                "\t\ttex2D_{1}.GetDimensions(xeScreenDims.x, xeScreenDims.y);\n"
+                "\t\tfloat2 xeScreenUv = iPos.xy / float2(xeScreenDims);\n"
+                "\t\tif (all(iPos.xy < float2(xeScreenDims)) && all(abs({0}.yz * {2}.xy + {2}.wz - xeScreenUv) <= 0.0625))\n"
+                "\t\t{{\n"
+                "\t\t\t{0}.yz = (xeScreenUv - {2}.wz) / {2}.xy;\n"
+                "\t\t\txePV.yz = {0}.yz;\n"
+                "\t\t}}\n"
+                "\t}}\n", reg, c[10], scaleBias));
+        }
 
         struct Translator
         {
@@ -1281,6 +1367,7 @@ namespace xenos
                     size_t pos = out.find("cbuffer XeConstants : register(b0, space0)");
                     if (pos != std::string::npos)
                         out.replace(pos, strlen("cbuffer XeConstants : register(b0, space0)"), "cbuffer XeConstants : register(b2, space0)");
+                    RebuildScreenPositionFromPixel(out);
                 }
                 result.hlsl = std::move(out);
                 return std::move(result);

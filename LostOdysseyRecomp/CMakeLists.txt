@@ -495,6 +495,16 @@ if(WIN32 OR APPLE)
     target_compile_features(LoRenderResolutionShaderTest PRIVATE cxx_std_20)
     target_compile_definitions(LoRenderResolutionShaderTest PRIVATE NOMINMAX)
     target_link_libraries(LoRenderResolutionShaderTest PRIVATE fmt::fmt)
+
+    add_executable(LoShadowProjectionShaderTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/shadow_projection_shader_test.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/xenos_translator.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+    target_include_directories(LoShadowProjectionShaderTest PRIVATE ${LO_RUNTIME_ROOT}
+        ${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/inc)
+    target_compile_features(LoShadowProjectionShaderTest PRIVATE cxx_std_20)
+    target_compile_definitions(LoShadowProjectionShaderTest PRIVATE NOMINMAX)
+    target_link_libraries(LoShadowProjectionShaderTest PRIVATE fmt::fmt)
 endif()
 
 # Tests packed mip block origins without game assets.
