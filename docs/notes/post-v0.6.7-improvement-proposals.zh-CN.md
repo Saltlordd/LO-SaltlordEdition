@@ -134,6 +134,8 @@ NGX controller 继续由 GPU 线程拥有。CPU planner 与 UI 都只接收小�
 
 复用不能跨越尚未完成的提交；分辨率、格式、模式切换仍需正确失效。目标是减少已测得的分配开销，本轮没有 FPS 提升结论。
 
+更新（2026-10-04）：这一项已由 [PR #189](https://github.com/freefrank/LostOdysseyRecomp/pull/189) 实现，起因是 [#172](https://github.com/freefrank/LostOdysseyRecomp/issues/172) 的报告：已完成的 promoted、scratch、composite 图像回到渲染器池，按格式、尺寸和用法复用。该修复已合并，尚未进入已发布版本。上文“没有 FPS 提升结论”描述的是 2026-09-22 的审计时点；实现后的验证范围和限制见[项目状态](../STATUS.md#delivered-behavior-and-validation-scope)。
+
 ### SDK 路径与打包保持一个来源
 
 `cmake/LoDlss.cmake` 支持自定义 `LO_DLSS_SDK_ROOT`，但两个 packager 只在两个固定目录寻找许可证。对自定义 SDK 目录的本地构建，运行库已经生成后仍可能在打包阶段失败。建议让 packager 接收同一个 SDK 路径或构建导出的必要元数据，并给 Windows batch 中带空格的 SDK 路径正确引用。

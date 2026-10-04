@@ -86,8 +86,9 @@ UI on top. The renderer detects that full-scene copy and *promotes* it:
    `temporal::TemporalFrameInputs` (`temporal_frame_inputs.h`).
 2. `frame_plan.h` picks the consumer (`DlssSr` or `FsrSr`) and the render extent
    from a per-provider sizing query (`upscaling::SizingCache`).
-3. At the scene copy, `PrepareSceneCopyDestination` allocates output-size
-   promoted, scratch and composite targets. `RecordSceneCopyDlssUsing`
+3. At the scene copy, `PrepareSceneCopyDestination` takes output-size
+   promoted, scratch and composite targets from a reuse pool, allocating only
+   on a miss (PR #189). `RecordSceneCopyDlssUsing`
    (`renderer.cpp`) closes the current command list (prefix), records the
    provider into a separate isolated list (`srIsolated`), and continues in a
    third list (`srContinuation`). The composite pass writes the upscaled RGB into
