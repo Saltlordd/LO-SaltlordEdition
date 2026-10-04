@@ -54,15 +54,15 @@
 
 ## Start playing
 
-Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.8.15**.
+Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.8.21**.
 
 | Platform | Package | First launch |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.15.zip` | Extract the whole ZIP to a writable folder and run `LostOdysseyRecomp.exe`. Needs a CPU with AVX. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.15.AppImage` | Make it executable with `chmod +x`, then run it. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.15.flatpak` | Install the Freedesktop 26.08 runtime, then the bundle ([commands](docs/INSTALLING.md#flatpak)). |
-| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.8.15.dmg` | Drag `LostOdysseyRecomp.app` to Applications. Needs an Apple Silicon Mac with macOS 15 or later. See [macOS](#macos-experimental) for the first launch. |
-| Android arm64 (experimental) | `LostOdysseyRecomp-android-arm64-v0.8.15.apk` | Install the APK and open it once. Needs a 64-bit Android 8.0+ device with Vulkan. See [Android](#android-experimental). |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.21.zip` | Extract the whole ZIP to a writable folder and run `LostOdysseyRecomp.exe`. Needs a CPU with AVX. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.21.AppImage` | Make it executable with `chmod +x`, then run it. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.21.flatpak` | Install the Freedesktop 26.08 runtime, then the bundle ([commands](docs/INSTALLING.md#flatpak)). |
+| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.8.21.dmg` | Drag `LostOdysseyRecomp.app` to Applications. Needs an Apple Silicon Mac with macOS 15 or later. See [macOS](#macos-experimental) for the first launch. |
+| Android arm64 (experimental) | `LostOdysseyRecomp-android-arm64-v0.8.21.apk` | Install the APK and open it once. Needs a 64-bit Android 8.0+ device with Vulkan. See [Android](#android-experimental). |
 
 1. **Import your game data.** The importer opens when no game is found. Use **Files** or **Folder** to select an extracted game folder, `default.xex`, an ISO or GOD data.
 2. **Choose the languages and graphics options.** On the first start the game offers to download precompiled shaders for your renderer; if you skip, it compiles them on your PC once.
@@ -90,7 +90,7 @@ Turn on **HDR** in Graphics and save; it switches right away (with frame generat
 
 ### Latest changes
 
-[v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) fixes flickering self-shadows on characters and objects in cutscenes when TAA or upscaling is on (#183). [v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) fixed shadows shaking and flickering on AMD GPUs, including the Steam Deck (#176), and FSR/DLSS frame rate (#172). Earlier releases are in the [changelog](CHANGELOG.md).
+[v0.8.21](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21) adds a **Brightness / Gamma** page in Graphics, applies the game's display gamma so blacks match Xenia (#78, #179), and switches HDR on and off without a restart. It also fixes sky flicker in Sea of Baus battles (#203), Turnip on Adreno 6xx GPUs (#185) and the game closing when loading a save with TAA on AMD GPUs under Proton (#200). [v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) fixed flickering self-shadows in cutscenes (#183). Earlier releases are in the [changelog](CHANGELOG.md).
 
 ## Current features
 
@@ -209,7 +209,7 @@ Write `--game <path>` as two arguments; `--game=<path>` is ignored. The program 
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.8.15.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.8.21.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
 
