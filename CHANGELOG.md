@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- Fixed flickering self-shadows on characters and objects in cutscenes when TAA or upscaling is on (#183).
+
+### 简体中文
+
+- 修复开启 TAA 或超分辨率时，过场动画中角色和物体自阴影闪烁的问题（#183）。
+
 ## [v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) — 2026-10-04
 
 ### English

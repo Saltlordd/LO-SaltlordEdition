@@ -2272,6 +2272,16 @@ int main(int argc,char** argv)
             Check(std::equal(base.begin()+16, base.begin()+32, shadow.begin()), "shadow raster samples the same jittered camera");
             Check(std::equal(ps.begin(), ps.begin()+16, originalPs.begin()) &&
                 std::equal(ps.begin()+20, ps.end(), originalPs.begin()+20), "shadow compensation touches only c4");
+            // The modulated character shadow (67b1) and the adaptive PCF filter
+            // (a195) share d55's c0-c5 reconstruction.
+            for (const uint64_t variant : {0x67b10ad6a0e3d811ull, 0xa195c4db25859691ull})
+            {
+                auto variantVp = bank(0), variantPs = originalPs;
+                const auto variantResult = ApplyDrawJitter(0x99c2b4b0960a9ccdull, variant, frame, true, true,
+                    &anchor, 37, extent, variantVp.data(), variantPs.data(), &sceneDepth, &sceneDepth);
+                Check(variantResult.shadowCompensated && variantVp == shadow && variantPs == ps,
+                    "shadow projection variants receive the same reconstruction correction");
+            }
             for (double depth : {.002, .006, .03})
                 for (const auto xy : {std::array<double,2>{-.2,-.3}, std::array<double,2>{.5,.7}})
                 {
