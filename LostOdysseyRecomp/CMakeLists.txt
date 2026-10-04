@@ -621,11 +621,12 @@ if(WIN32)
         add_executable(LoTemporalAATest EXCLUDE_FROM_ALL
             ${CMAKE_SOURCE_DIR}/tools/tests/temporal_aa_test.cpp
             ${LO_RUNTIME_ROOT}/gpu/temporal_aa.cpp
-            ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+            ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp
+            ${CMAKE_SOURCE_DIR}/tools/tests/motion_replay/platform_stub.cpp)
         target_include_directories(LoTemporalAATest PRIVATE ${LO_RUNTIME_ROOT} ${CMAKE_SOURCE_DIR}/thirdparty/plume)
         target_compile_features(LoTemporalAATest PRIVATE cxx_std_20)
         target_compile_definitions(LoTemporalAATest PRIVATE LO_GPU_PLUME NOMINMAX)
-        target_link_libraries(LoTemporalAATest PRIVATE plume d3d12 dxgi)
+        target_link_libraries(LoTemporalAATest PRIVATE plume d3d12 dxgi fmt::fmt)
         add_executable(LoAmbientOcclusionGpuTest EXCLUDE_FROM_ALL
             ${CMAKE_SOURCE_DIR}/tools/tests/ambient_occlusion_gpu_test.cpp
             ${LO_RUNTIME_ROOT}/gpu/ambient_occlusion.cpp

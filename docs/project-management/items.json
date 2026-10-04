@@ -6413,12 +6413,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Temporal rendering",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
         "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "Maintainer report on psvita (Radeon 8060S, RADV, GE-Proton10-34, D3D12 via vkd3d-proton): with TAA (antialiasing=3, no upscaler) the game exits without a log entry while loading a save; AA off or FSR works. Leading suspect (unverified): TAA's deferred first-frame init compiles shaders and creates PSOs on the 1 MiB GPU worker thread stack, and a stack overflow also defeats the crash handler. Next: record the exit code and try LO_MV_ENABLE=0, LO_DISABLE_BLOOM_PREFILTER=1, Vulkan with TAA and an empty shader cache."
+        "Evidence": "Maintainer report on psvita (Radeon 8060S, RADV, GE-Proton10-34, D3D12 via vkd3d-proton): with TAA the game exited with code 3 when the TAA pipeline was created. Cause: vkd3d-proton's dxil-spirv converted one block of the TAA motion path (a branch that returned twice around the inlined stationary-support helpers) into SPIR-V with an unstructured selection exit; Mesa's parser failed, RADV crashed on the null result in radv_shader_spirv_to_nir, and winevulkan's assert aborted the process past the game's crash handlers. PR #207 gives the block one exit (output unchanged). Verified on psvita: the game loads the map and runs 60 s with TAA, LoTemporalAATest passes under Proton, and the converted SPIR-V passes spirv-val. Not released."
       }
     },
     {
