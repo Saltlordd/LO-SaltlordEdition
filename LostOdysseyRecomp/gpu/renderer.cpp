@@ -9899,7 +9899,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (trackTemporalScene)
                 {
                     if(temporalDrawAnchor)temporalScene.ObserveCamera(*temporalDrawAnchor);
-                    else if (!temporalExperiment && key.vs == 0xb7557072899a63a1ull && key.ps == 0x9f4dfdd86211a018ull &&
+                    // Only the jitter viewport may anchor the frame. Cutscenes draw a
+                    // 720x720 character pass with this pair first; anchoring on its
+                    // camera left every non-depth-writing scene pass (shadow volumes,
+                    // projections, lights) unjittered against jittered depth (#183).
+                    else if (!temporalExperiment && temporalViewport && key.vs == 0xb7557072899a63a1ull && key.ps == 0x9f4dfdd86211a018ull &&
                         depth && (depthControl & 4) && shared.vtxFmt == 4 &&
                         shared.ndcScale[2] == -1.0f && shared.ndcOffset[2] == 1.0f &&
                         shared.ndcScale[0] == 1.0f && shared.ndcOffset[0] == 0.0f && shared.ndcOffset[1] == 0.0f)
