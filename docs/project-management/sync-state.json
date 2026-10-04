@@ -3303,9 +3303,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result.",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer.",
         "Source key": "issue-114-container-enemy-softlock"
       }
     },
@@ -3581,7 +3581,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Temporal rendering",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Implemented",
         "Evidence": "Maintainer report on psvita (Radeon 8060S, RADV, GE-Proton10-34, D3D12 via vkd3d-proton): with TAA the game exited with code 3 when the TAA pipeline was created. Cause: vkd3d-proton's dxil-spirv converted one block of the TAA motion path (a branch that returned twice around the inlined stationary-support helpers) into SPIR-V with an unstructured selection exit; Mesa's parser failed, RADV crashed on the null result in radv_shader_spirv_to_nir, and winevulkan's assert aborted the process past the game's crash handlers. PR #207 gives the block one exit (output unchanged). Verified on psvita: the game loads the map and runs 60 s with TAA, LoTemporalAATest passes under Proton, and the converted SPIR-V passes spirv-val. Not released.",
         "Source key": "issue-200-taa-proton-silent-exit"
@@ -3592,9 +3592,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Graphics presentation",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Evidence": "SDR whites look blown out compared with Xenia Canary (RX 6600, borderless, v0.8.0). The SDR path ignores paper white and peak brightness. A Mac run of main 80d2ae9 with gamma-register logging (2026-10-04) showed the game writing one identity 256-entry gamma ramp on the first frame and no other ramp in the next 2,485 frames, so the ignored display gamma ramp does not explain the report at default settings; an in-game brightness change was not tested. Remaining suspects: Expanded RGB range (clips values above 235 to white), Windows Auto HDR or driver color features. Next: ask for settings.ini, the Auto HDR state and a Vulkan screenshot.",
+        "Status": "Done",
+        "Delivery": "Implemented",
+        "Evidence": "Cause: VdGetCurrentDisplayGamma reported sRGB (type 1), so D3D wrote an identity display gamma ramp, and presentation never applied DC_LUT ramps. Xenia reports BT.709 (type 2) and applies the ramp the game then writes (sRGB decode, BT.709 encode); the #78 screenshots match that ramp applied to our output. Expanded RGB range, the #78 workaround, clipped everything above 235 (#179). PR #209 reports type 2 and applies the ramp at presentation (D3D12, Vulkan, Metal checked; psvita screenshot equals the old one through the ramp per pixel). Expanded RGB range stays as an option. Not released.",
         "Source key": "issue-179-sdr-white-levels"
       }
     }
