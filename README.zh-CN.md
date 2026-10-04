@@ -21,15 +21,15 @@ Windows x64 · Linux x64 · macOS arm64（实验性） · Android arm64（实验
 
 ## 开始游戏
 
-从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.8.10**。
+从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.8.15**。
 
 | 平台 | 安装包 | 首次启动 |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.10.zip` | 把整个 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.10.AppImage` | 用 `chmod +x` 加上执行权限后运行。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.10.flatpak` | 先安装 Freedesktop 26.08 运行时，再安装这个 bundle（[安装命令](docs/INSTALLING.zh-CN.md#flatpak)）。 |
-| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.8.10.dmg` | 把 `LostOdysseyRecomp.app` 拖到“应用程序”。需要 macOS 15 或更高版本的 Apple Silicon Mac。首次启动见 [macOS](#macos实验性)。 |
-| Android arm64（实验性） | `LostOdysseyRecomp-android-arm64-v0.8.10.apk` | 安装 APK 后先打开一次。需要支持 Vulkan 的 64 位 Android 8.0 及以上设备。见 [Android](#android实验性)。 |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.15.zip` | 把整个 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.15.AppImage` | 用 `chmod +x` 加上执行权限后运行。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.15.flatpak` | 先安装 Freedesktop 26.08 运行时，再安装这个 bundle（[安装命令](docs/INSTALLING.zh-CN.md#flatpak)）。 |
+| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.8.15.dmg` | 把 `LostOdysseyRecomp.app` 拖到“应用程序”。需要 macOS 15 或更高版本的 Apple Silicon Mac。首次启动见 [macOS](#macos实验性)。 |
+| Android arm64（实验性） | `LostOdysseyRecomp-android-arm64-v0.8.15.apk` | 安装 APK 后先打开一次。需要支持 Vulkan 的 64 位 Android 8.0 及以上设备。见 [Android](#android实验性)。 |
 
 1. **导入游戏数据。** 找不到游戏时会打开导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、ISO 或 GOD 数据。
 2. **选择语言和图形设置。** 首次启动时游戏会询问是否下载所选渲染器的预编译着色器；选择跳过则在本机编译一次。
@@ -57,7 +57,7 @@ Windows x64 · Linux x64 · macOS arm64（实验性） · Android arm64（实验
 
 ### 最新更新
 
-[v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) 修复 AMD 显卡（包括 Steam Deck）上角色和物体阴影抖动、闪烁的问题（#176）；更新后第一次启动会提示下载新的着色器包。FSR 和 DLSS 不再每帧重新创建工作图像而拉低帧率（#172）；GPU 驱动无法运行游戏时，Android 版会说明原因，不再直接退出（#185）。更早的版本见[更新日志](CHANGELOG.md)。
+[v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) 修复开启 TAA 或超分辨率时，过场动画中角色和物体自阴影闪烁的问题（#183）。[v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) 修复了 AMD 显卡（包括 Steam Deck）上阴影抖动、闪烁的问题（#176）和 FSR/DLSS 帧率问题（#172）。更早的版本见[更新日志](CHANGELOG.md)。
 
 ## 当前功能
 
@@ -176,7 +176,7 @@ Windows ZIP 是**便携式**的，所有文件都留在解压目录里。AppImag
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.8.10.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.8.15.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
 

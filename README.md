@@ -21,15 +21,15 @@ Windows x64 · Linux x64 · macOS arm64 (experimental) · Android arm64 (experim
 
 ## Start playing
 
-Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.8.10**.
+Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.8.15**.
 
 | Platform | Package | First launch |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.10.zip` | Extract the whole ZIP to a writable folder and run `LostOdysseyRecomp.exe`. Needs a CPU with AVX. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.10.AppImage` | Make it executable with `chmod +x`, then run it. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.10.flatpak` | Install the Freedesktop 26.08 runtime, then the bundle ([commands](docs/INSTALLING.md#flatpak)). |
-| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.8.10.dmg` | Drag `LostOdysseyRecomp.app` to Applications. Needs an Apple Silicon Mac with macOS 15 or later. See [macOS](#macos-experimental) for the first launch. |
-| Android arm64 (experimental) | `LostOdysseyRecomp-android-arm64-v0.8.10.apk` | Install the APK and open it once. Needs a 64-bit Android 8.0+ device with Vulkan. See [Android](#android-experimental). |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.15.zip` | Extract the whole ZIP to a writable folder and run `LostOdysseyRecomp.exe`. Needs a CPU with AVX. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.15.AppImage` | Make it executable with `chmod +x`, then run it. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.15.flatpak` | Install the Freedesktop 26.08 runtime, then the bundle ([commands](docs/INSTALLING.md#flatpak)). |
+| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.8.15.dmg` | Drag `LostOdysseyRecomp.app` to Applications. Needs an Apple Silicon Mac with macOS 15 or later. See [macOS](#macos-experimental) for the first launch. |
+| Android arm64 (experimental) | `LostOdysseyRecomp-android-arm64-v0.8.15.apk` | Install the APK and open it once. Needs a 64-bit Android 8.0+ device with Vulkan. See [Android](#android-experimental). |
 
 1. **Import your game data.** The importer opens when no game is found. Use **Files** or **Folder** to select an extracted game folder, `default.xex`, an ISO or GOD data.
 2. **Choose the languages and graphics options.** On the first start the game offers to download precompiled shaders for your renderer; if you skip, it compiles them on your PC once.
@@ -57,7 +57,7 @@ Turn on **HDR** in Graphics, save and restart. **HDR peak brightness** opens a c
 
 ### Latest changes
 
-[v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) fixes character and object shadows shaking and flickering on AMD GPUs, including the Steam Deck (#176); the first start after updating offers new shader packs. FSR and DLSS no longer lower the frame rate by recreating their working images every frame (#172), and Android shows why a GPU driver cannot run the game instead of closing (#185). Earlier releases are in the [changelog](CHANGELOG.md).
+[v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) fixes flickering self-shadows on characters and objects in cutscenes when TAA or upscaling is on (#183). [v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) fixed shadows shaking and flickering on AMD GPUs, including the Steam Deck (#176), and FSR/DLSS frame rate (#172). Earlier releases are in the [changelog](CHANGELOG.md).
 
 ## Current features
 
@@ -176,7 +176,7 @@ Write `--game <path>` as two arguments; `--game=<path>` is ignored. The program 
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.8.10.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.8.15.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
 
