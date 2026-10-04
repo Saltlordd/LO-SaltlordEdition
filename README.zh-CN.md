@@ -6,11 +6,23 @@
 
 **《失落的奥德赛》Xbox 360 版的实验性原生 PC 移植。**
 
-Windows x64 · Linux x64 · macOS arm64（实验性） · Android arm64（实验性） · Direct3D 12 · Vulkan · Metal
+[![最新版本](https://img.shields.io/github/v/release/freefrank/LostOdysseyRecomp?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)
+[![下载量](https://img.shields.io/github/downloads/freefrank/LostOdysseyRecomp/total?label=%E4%B8%8B%E8%BD%BD%E9%87%8F)](https://github.com/freefrank/LostOdysseyRecomp/releases)
+[![Star](https://img.shields.io/github/stars/freefrank/LostOdysseyRecomp?style=flat)](https://github.com/freefrank/LostOdysseyRecomp/stargazers)
+[![许可证：GPL-3.0](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-GPL--3.0-blue)](LICENSE)
+[![最近提交](https://img.shields.io/github/last-commit/freefrank/LostOdysseyRecomp?label=%E6%9C%80%E8%BF%91%E6%8F%90%E4%BA%A4)](https://github.com/freefrank/LostOdysseyRecomp/commits/main)
+[![未关闭的问题](https://img.shields.io/github/issues/freefrank/LostOdysseyRecomp?label=%E9%97%AE%E9%A2%98)](https://github.com/freefrank/LostOdysseyRecomp/issues)
+[![Ko-fi 赞助](https://img.shields.io/badge/Ko--fi-%E8%B5%9E%E5%8A%A9-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/dotslash)
+
+![Windows x64](https://img.shields.io/badge/Windows-x64-0078D6)
+![Linux x64](https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=black)
+![macOS arm64（实验性）](https://img.shields.io/badge/macOS-arm64%EF%BC%88%E5%AE%9E%E9%AA%8C%E6%80%A7%EF%BC%89-000000?logo=apple&logoColor=white)
+![Android arm64（实验性）](https://img.shields.io/badge/Android-arm64%EF%BC%88%E5%AE%9E%E9%AA%8C%E6%80%A7%EF%BC%89-3DDC84?logo=android&logoColor=white)
+![Direct3D 12](https://img.shields.io/badge/Direct3D-12-5E5E5E)
+![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)
+![Metal](https://img.shields.io/badge/Metal-147EFB)
 
 ### [下载](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [安装指南](docs/INSTALLING.zh-CN.md) · [English](README.md)
-
-[功能](#当前功能) · [操作按键](#操作按键) · [调试菜单](#调试菜单)
 
 [更新日志](CHANGELOG.md) · [反馈问题](https://github.com/freefrank/LostOdysseyRecomp/issues) · [项目看板](https://github.com/users/freefrank/projects/3) · [从源码构建](docs/BUILDING.md)
 
@@ -18,6 +30,27 @@ Windows x64 · Linux x64 · macOS arm64（实验性） · Android arm64（实验
 
 > [!IMPORTANT]
 > **本项目仍处于早期测试阶段。** 已测试开场区域和部分场景，尚未完整通关。渲染和稳定性仍有问题。请自行提供受支持版本的游戏文件。
+
+## 目录
+
+- [开始游戏](#开始游戏)
+  - [macOS（实验性）](#macos实验性)
+  - [Android（实验性）](#android实验性)
+  - [HDR（实验性）](#hdr实验性)
+  - [最新更新](#最新更新)
+- [当前功能](#当前功能)
+- [操作按键](#操作按键)
+- [调试菜单](#调试菜单)
+  - [Overview：捕获与游戏操作](#overview捕获与游戏操作)
+  - [Teleport：当前地图内移动](#teleport当前地图内移动)
+  - [Cheats：快进与游戏数据工具](#cheats快进与游戏数据工具)
+- [文件与目录](#文件与目录)
+- [命令行参数](#命令行参数)
+- [反馈问题](#反馈问题)
+- [实机画面](#实机画面)
+- [开发导航](#开发导航)
+- [赞助者](#赞助者)
+- [致谢与游戏数据](#致谢与游戏数据)
 
 ## 开始游戏
 
