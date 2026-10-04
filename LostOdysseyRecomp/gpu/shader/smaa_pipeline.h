@@ -89,7 +89,9 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
             sets[i]=set.create(d);sets[i]->setSampler(3,linear);sets[i]->setSampler(4,point.get());
         }
         RenderDescriptorSetBuilder crop;
-        crop.begin();crop.addTexture(0);crop.addSampler(vulkan?1:0);crop.addTexture(vulkan?2:1);crop.end();
+        // Same set as Presentation's layout, including its display gamma ramp buffer.
+        crop.begin();crop.addTexture(0);crop.addSampler(vulkan?1:0);crop.addTexture(vulkan?2:1);
+        crop.addConstantBuffer(vulkan?3:1);crop.end();
         cropSet=crop.create(d);cropSet->setSampler(1,linear);
         auto lookup=[&](uint32_t w,uint32_t h,uint32_t bpp,RenderFormat format,const unsigned char *data,
             std::unique_ptr<RenderTexture> &tex,std::unique_ptr<RenderBuffer> &upload) {
@@ -107,7 +109,8 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
     // hdr: the source is an extended-gamma FP16 scene and cropPipeline renders
     // to FP16; the returned texture is FP16. Otherwise unchanged RGBA8 SDR.
     plume::RenderTexture *Draw(plume::RenderCommandList *c,plume::RenderTexture *source,uint32_t w,uint32_t h,
-        plume::RenderPipelineLayout *cropLayout,plume::RenderPipeline *cropPipeline,bool hdr=false)
+        plume::RenderPipelineLayout *cropLayout,plume::RenderPipeline *cropPipeline,bool hdr,
+        plume::RenderBuffer *ramp,uint64_t rampBytes)
     {
         using namespace plume;
         // Owner must wait its presentation fence between calls, including resize.
@@ -147,6 +150,7 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
         c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(cropped,RenderTextureLayout::COLOR_WRITE));
         c->setFramebuffer(croppedFb);cropSet->setTexture(0,source,RenderTextureLayout::SHADER_READ);
         cropSet->setTexture(2,source,RenderTextureLayout::SHADER_READ);
+        cropSet->setBuffer(3,ramp,rampBytes);
         // Match Presentation's complete 64-byte push-constant range. Cropping
         // keeps the source encoding; the final pass owns output conversion.
         struct { float x,y,w,h,sw,sh;uint32_t aa,filter,expandRange,outputFlags;float outputScale,peakRatio;float calibrationRect[4]; }

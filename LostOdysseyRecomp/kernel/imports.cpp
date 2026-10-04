@@ -1358,7 +1358,10 @@ static void VdGetCurrentDisplayInformation(uint32_t* info)
 
 static void VdGetCurrentDisplayGamma(be<uint32_t>* type, be<float>* power)
 {
-    if (type) *type = 1;
+    // 2 = BT.709 TV, Xenia's default: D3D then writes a display gamma ramp
+    // (sRGB decode, BT.709 encode) that presentation applies, as an Xbox 360
+    // on an HDTV does. Type 1 (sRGB) gets an identity ramp (#78, #179).
+    if (type) *type = 2;
     if (power) *power = 2.22222233f;
 }
 

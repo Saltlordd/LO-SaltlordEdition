@@ -2,6 +2,7 @@
 #include "command_processor.h"
 #include "movie_clear.h"
 #include "frame_plan.h"
+#include "display_gamma.h"
 #include "video.h"
 #include "renderer.h"
 #include "frame_pacer.h"
@@ -442,6 +443,8 @@ namespace gpu
         }
         if (index >= REGISTER_COUNT)
             return;
+        if (index >= display_gamma::RegisterFirst && index <= display_gamma::RegisterLast)
+            display_gamma::OnRegisterWrite(index, value);
 
         // Read-only status registers: the interrupt handler acknowledges the
         // vblank by writing here, but Xenia's ReadRegister always reports the
