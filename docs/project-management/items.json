@@ -6383,12 +6383,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Paused",
+        "Delivery": "Deferred",
         "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result."
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer."
       }
     },
     {
@@ -6413,7 +6413,7 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Temporal rendering",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Implemented",
         "Release": null,
         "Start date": null,
@@ -6428,12 +6428,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Graphics presentation",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Done",
+        "Delivery": "Implemented",
         "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "SDR whites look blown out compared with Xenia Canary (RX 6600, borderless, v0.8.0). The SDR path ignores paper white and peak brightness. A Mac run of main 80d2ae9 with gamma-register logging (2026-10-04) showed the game writing one identity 256-entry gamma ramp on the first frame and no other ramp in the next 2,485 frames, so the ignored display gamma ramp does not explain the report at default settings; an in-game brightness change was not tested. Remaining suspects: Expanded RGB range (clips values above 235 to white), Windows Auto HDR or driver color features. Next: ask for settings.ini, the Auto HDR state and a Vulkan screenshot."
+        "Evidence": "Cause: VdGetCurrentDisplayGamma reported sRGB (type 1), so D3D wrote an identity display gamma ramp, and presentation never applied DC_LUT ramps. Xenia reports BT.709 (type 2) and applies the ramp the game then writes (sRGB decode, BT.709 encode); the #78 screenshots match that ramp applied to our output. Expanded RGB range, the #78 workaround, clipped everything above 235 (#179). PR #209 reports type 2 and applies the ramp at presentation (D3D12, Vulkan, Metal checked; psvita screenshot equals the old one through the ramp per pixel). Expanded RGB range stays as an option. Not released."
       }
     },
     {
