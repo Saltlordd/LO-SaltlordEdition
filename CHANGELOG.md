@@ -10,13 +10,13 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 - Fixed character and object shadows shaking and flickering on AMD GPUs, including the Steam Deck, most visible in towns and cutscenes (#176).
 - The shader packs change with this fix; the first start after updating offers to download the new packs.
-- Android on Qualcomm devices no longer closes on every start when the selected GPU driver cannot run the game, such as the Adreno 650's own driver in the Retroid Pocket 5: the GPU driver page opens with the reason, and a Turnip driver can be picked there. Qualcomm drivers are also no longer turned down over a missing queue flag (#185).
+- Android on Qualcomm devices no longer closes on every start when the selected GPU driver cannot run the game, such as the Adreno 650's own driver in the Retroid Pocket 5: the GPU driver page opens with the reason, and a Turnip driver can be picked there. Other devices show the reason instead of closing silently. Qualcomm drivers are also no longer turned down over a missing queue flag (#185).
 
 ### 简体中文
 
 - 修复 AMD 显卡（包括 Steam Deck）上角色和物体阴影抖动、闪烁的问题，在城镇和过场动画中最明显（#176）。
 - 着色器包随此修复更新，更新后第一次启动会提示下载新的着色器包。
-- 高通设备上所选 GPU 驱动无法运行游戏时（例如 Retroid Pocket 5 中 Adreno 650 自带的驱动），Android 版不再每次启动都直接退出，而是打开 GPU driver 页面并说明原因，可在那里改选 Turnip 驱动；高通驱动也不再因为缺少一个队列标志而被拒绝（#185）。
+- 高通设备上所选 GPU 驱动无法运行游戏时（例如 Retroid Pocket 5 中 Adreno 650 自带的驱动），Android 版不再每次启动都直接退出，而是打开 GPU driver 页面并说明原因，可在那里改选 Turnip 驱动；其他设备也会显示原因，不再无提示地关闭；高通驱动也不再因为缺少一个队列标志而被拒绝（#185）。
 
 ## [v0.8.7](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) — 2026-10-03
 
