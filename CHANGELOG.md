@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased
+
+### English
+
+- Fixed sky flicker in Sea of Baus battles with TAA, FSR or DLSS (#203).
+
+### 简体中文
+
+- 修复 Sea of Baus 战斗中开启 TAA、FSR 或 DLSS 时天空闪烁（#203）。
+
 ## [v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) — 2026-10-04
 
 ### English

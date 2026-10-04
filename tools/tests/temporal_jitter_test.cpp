@@ -16,6 +16,7 @@
 #include "f3449_sky_jitter_capture.h"
 #include "f1800_sky_jitter_capture.h"
 #include "issue121_sky_ge1_jitter_capture.h"
+#include "issue203_sky_jitter_capture.h"
 #include "f12139_sky_jitter_capture.h"
 #include "f25276_cave_jitter_capture.h"
 #include "tour_sky_20261001_capture.h"
@@ -1801,6 +1802,17 @@ static void CapturedTour8d66()
     CapturedMaterialOverDepth({"tour 8d66/9e1c",0x8d6658641e3b780dull,0x9e1cd4d452f7380dull,0xb030ab4e17a20783ull,
         draws[1].draw,draws[1].depthDraw},draws[1]);
 }
+// Sea of Baus battle (#203): the #67 sky VS with PS fd46 over b030 depth, from the
+// player's v0.8.10 and v0.8.15 logs. fd46 reads only i1.w and samples at mesh UVs.
+// This sky world sits 1,607 units above the battle camera, so the default points
+// land far off screen; these synthetic points project on screen at W 3,000-20,000.
+static void CapturedIssue203Sky()
+{
+    const auto& draw=issue203_sky::draws[0];
+    CapturedSky({"#203 sea battle",0xbda41a11626a545cull,0xfd46e0190f5f6c50ull,0xb030ab4e17a20783ull,
+        draw.draw,draw.depthDraw,true,0x4013372b6413788full,
+        {{{3000,200,-1400,1},{8000,-1500,-2500,1},{20000,4000,1000,1}}}},draw);
+}
 // Opening battle 2026-10-01: depth writers 7def (HLSL 534-543) and c511 (540-549)
 // end with oPos = P.x*c11 + P.w*c10 + P.z*c9 + P.y*c8 for a position P built from
 // the vertex, the world rows and the c12 eye. No depth companion draws the same
@@ -2168,6 +2180,7 @@ static const NamedCase namedCases[]{
     {"--captured-tour-sky",CapturedTourSky,true},
     {"--captured-tour-batch2",CapturedTourBatch2,true},
     {"--captured-tour-8d66",CapturedTour8d66,true},
+    {"--captured-issue203-sky",CapturedIssue203Sky,true},
     {"--captured-battle-depth",CapturedBattleDepthWriters,true},
     {"--suspect-tracker",SuspectLocator,true},
     {"--feedback-mapping-batch",FeedbackMappingBatch,true},
