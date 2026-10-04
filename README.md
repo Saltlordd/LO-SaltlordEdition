@@ -86,7 +86,7 @@ Only one tablet has been tested so far. [Step-by-step guide](docs/INSTALLING.md#
 
 ### HDR (experimental)
 
-Turn on **HDR** in Graphics, save and restart. **HDR peak brightness** opens a calibration page: an SDR preview on the left, HDR on the right, and **LB / RB** switch between the game scene and a test pattern. **Auto** uses the brightness your display reports, or 1000 nits if it reports none. HDR works with every anti-aliasing mode and upscaler; with frame generation it stays on only for DLSS on Vulkan. Available on Windows (Direct3D 12 and Vulkan), Linux and macOS.
+Turn on **HDR** in Graphics and save; it switches right away (with frame generation on, after a restart). **HDR peak brightness** opens a calibration page: an SDR preview on the left, HDR on the right, and **LB / RB** switch between the game scene and a test pattern. **Auto** uses the brightness your display reports, or 1000 nits if it reports none. HDR works with every anti-aliasing mode and upscaler; with frame generation it stays on only for DLSS on Vulkan. Available on Windows (Direct3D 12 and Vulkan), Linux and macOS.
 
 ### Latest changes
 

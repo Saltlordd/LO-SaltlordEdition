@@ -46,6 +46,10 @@
 #include <kernel/memory.h>
 #include <os/main_thread.h>
 #include <os/platform.h>
+#if LO_PLATFORM_MACOS
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 #include <os/runtime_libraries.h>
 #include <os/shader_log.h>
 #include <os/user_paths.h>
@@ -498,6 +502,9 @@ namespace gpu::video
 #if !defined(LO_VIDEO_SUBMISSION_UNIT)
         std::unique_ptr<Presentation> g_presentation;
         bool g_hdrSwapchain = false;
+        // An HDR choice whose swap chain could not be created; cleared when the
+        // setting changes.
+        std::optional<bool> g_hdrSwapchainRefused;
         bool g_hdrSceneEnabled = false;
         float g_hdrPaperWhiteNits = 203.0f, g_hdrPeakNits = 1000.0f;
         hdr::OutputTransform g_hdrOutput;
@@ -883,6 +890,24 @@ namespace gpu::video
         bool HdrConfigurationCompatible()
         {
             return HdrFrameGenerationCompatible();
+        }
+
+        // The swap chain for the current HDR choice: FP16 linear output when
+        // g_hdrSwapchain, which plume presents as scRGB, HDR10 or EDR.
+        plume::RenderSwapChainDesc SwapChainDescription()
+        {
+#ifdef _WIN32
+            plume::RenderSwapChainDesc desc(g_nativeWindow, kSwapChainFormat, kSwapChainBuffers);
+#elif LO_PLATFORM_MACOS
+            plume::RenderSwapChainDesc desc(plume::RenderWindow{ g_cocoaWindow, g_metalLayer }, kSwapChainFormat, kSwapChainBuffers);
+#else
+            plume::RenderSwapChainDesc desc(g_window, kSwapChainFormat, kSwapChainBuffers);
+#endif
+            if (g_hdrSwapchain) {
+                desc.format = plume::RenderFormat::R16G16B16A16_FLOAT;
+                desc.outputMode = plume::RenderOutputMode::HDR_LINEAR;
+            }
+            return desc;
         }
 
         void UpdateHdrOutput(bool refreshDisplay = false)
@@ -1735,6 +1760,7 @@ namespace gpu::video
         g_fgPresent = FgPresentBridge{}; g_fgPresentSerial = 0;
         g_presentation.reset();
         g_hdrSwapchain = g_hdrSceneEnabled = false;
+        g_hdrSwapchainRefused.reset();
         g_hdrOutput = {};
         g_presentationFormat = plume::RenderFormat::UNKNOWN;
         settings::SetHdrDisplayInfo({});
@@ -2129,30 +2155,21 @@ namespace gpu::video
 #if defined(__ANDROID__)
             const auto initialSurfaceSerial = g_androidSurfaceChangeSerial.load();
 #endif
-#ifdef _WIN32
-            plume::RenderSwapChainDesc swapDescription(g_nativeWindow, kSwapChainFormat, kSwapChainBuffers);
-#elif LO_PLATFORM_MACOS
-            plume::RenderSwapChainDesc swapDescription(plume::RenderWindow{ g_cocoaWindow, g_metalLayer }, kSwapChainFormat, kSwapChainBuffers);
-#else
-            plume::RenderSwapChainDesc swapDescription(g_window, kSwapChainFormat, kSwapChainBuffers);
-#endif
             const auto hdrConfig = settings::GetConfig();
             // Vulkan keeps the HDR swap chain while AA/upscaling pause the
-            // scene per frame. D3D12 and Metal still decide at startup: their
-            // frame generation reconcile replaces the swap chain in SDR and
-            // skips entirely while an HDR swap chain exists.
+            // scene per frame. D3D12 and Metal frame generation replace the
+            // swap chain in SDR and skip entirely while an HDR one exists.
+            // Without frame generation, ReconcileHdrSwapchain follows the
+            // setting later on.
             g_hdrSwapchain = hdrConfig.hdr && (g_vulkan ? HdrFrameGenerationCompatible() : HdrConfigurationCompatible());
             g_hdrPaperWhiteNits = float(hdrConfig.hdrPaperWhiteNits);
             g_hdrPeakNits = float(hdrConfig.hdrPeakNits);
-            if (g_hdrSwapchain) {
-                swapDescription.format = plume::RenderFormat::R16G16B16A16_FLOAT;
-                swapDescription.outputMode = plume::RenderOutputMode::HDR_LINEAR;
-            } else if (hdrConfig.hdr && g_vulkan) {
+            if (!g_hdrSwapchain && hdrConfig.hdr && g_vulkan) {
                 LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain here (FSR FG, or DLSS-G with LO_HDR_FG=0)");
-            } else if (hdrConfig.hdr) {
-                LOG_WARNING("HDR: SDR swap chain retained; requires AA off, upscaling off, frame generation off and a non-MetalFX scaling filter on this backend");
+            } else if (!g_hdrSwapchain && hdrConfig.hdr) {
+                LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain on this backend");
             }
-            g_swapChain = g_queue->createSwapChain(swapDescription);
+            g_swapChain = g_queue->createSwapChain(SwapChainDescription());
             if (!g_swapChain || g_swapChain->isEmpty()) return "window surface/swapchain initialization failed";
 #if defined(__ANDROID__)
             g_androidAppliedSurfaceChangeSerial = initialSurfaceSerial;
@@ -2495,8 +2512,8 @@ namespace gpu::video
         g_presentSemaphores.clear();
         g_hasPresentedImage = false;
         g_lastPresentedImage = 0;
-        g_swapChain = g_queue->createSwapChain(
-            plume::RenderSwapChainDesc(g_window, kSwapChainFormat, kSwapChainBuffers));
+        // Same HDR choice as before the surface went away.
+        g_swapChain = g_queue->createSwapChain(SwapChainDescription());
         if (!g_swapChain || g_swapChain->isEmpty()) {
             g_swapChain.reset();
             if (!g_androidSurfaceRebuildFailureLogged)
@@ -3215,6 +3232,114 @@ namespace gpu::video
     }
 #endif
 
+#if LO_PLATFORM_MACOS
+    // plume's HDR_LINEAR chain puts the CAMetalLayer in EDR with an extended
+    // linear sRGB colorspace; an SDR chain on the same layer needs both back to
+    // the defaults a fresh SDR start has. AppKit layers change on the main thread.
+    static void ResetMetalLayerToSdr()
+    {
+        void* layer = g_metalLayer;
+        if (!layer) return;
+        os::main_thread::Run([layer] {
+            auto object = static_cast<id>(layer);
+            reinterpret_cast<void (*)(id, SEL, void*)>(objc_msgSend)(object, sel_registerName("setColorspace:"), nullptr);
+            reinterpret_cast<void (*)(id, SEL, BOOL)>(objc_msgSend)(object,
+                sel_registerName("setWantsExtendedDynamicRangeContent:"), NO);
+        });
+    }
+#endif
+
+    // HDR follows the setting without a restart: the swap chain is replaced in
+    // the other format, and the resize in PreparePresentation rebuilds the
+    // presentation pipelines for it. Frame generation owns or hooks the swap
+    // chain, so while it is selected, or once a session started in this
+    // process, the HDR choice waits for a restart as before.
+    static bool ReconcileHdrSwapchain()
+    {
+        const bool desired = settings::GetConfig().hdr;
+        if (desired == g_hdrSwapchain || !g_queue || !g_swapChain) {
+            g_hdrSwapchainRefused.reset();
+            return true;
+        }
+        if (g_hdrSwapchainRefused == desired) return true;
+        const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
+            g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
+            settings::GetConfig(), std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+            std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        bool session = false;
+#if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
+        session |= bool(g_d3dFg);
+#endif
+#if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
+        session |= bool(g_fgSession);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        session |= bool(g_fsrVulkanFg);
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        session |= bool(g_metalFg);
+#endif
+#if (defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
+        {
+            std::lock_guard lock(g_fgSettingsMutex);
+            session |= g_fgSessionProvider != framegen::Provider::Off;
+        }
+#endif
+        if (fg.Enabled() || session) return true;
+        if (!renderer::DrainForFrameGenerationReconfigure() || !WaitForPresentGpu()) {
+            LOG_ERROR("HDR: could not drain renderer/presentation for swap chain replacement");
+            return false;
+        }
+        g_fgPresent.CancelAll(frame_generation::HandoffCancel::DisplayChange);
+        renderer::CancelFgHandoffs();
+        g_captureRetained.clear();
+        g_captureCopy = {};
+        g_presentedSnapshot.reset();
+        g_snapshotWidth = g_snapshotHeight = 0;
+        g_snapshotFormat = plume::RenderFormat::UNKNOWN;
+        // The frozen scene copies keep the format they were made in.
+        g_hdrCalibrationCache = {};
+        settings::SetHdrCalibrationSceneAvailable(false);
+#ifdef _WIN32
+        if (!g_vulkan) {
+            auto* oldSwap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
+            if (oldSwap->d3d) oldSwap->d3d->SetFullscreenState(FALSE, nullptr);
+        }
+#endif
+        g_swapChain.reset();
+        g_presentSemaphores.clear();
+        g_hdrSwapchain = desired;
+#if LO_PLATFORM_MACOS
+        if (!g_hdrSwapchain) ResetMetalLayerToSdr();
+#endif
+        g_swapChain = g_queue->createSwapChain(SwapChainDescription());
+        if (!g_swapChain && g_hdrSwapchain) {
+            // Keep presenting in SDR and stop retrying until the setting changes.
+            LOG_ERROR("HDR: HDR swap chain creation failed; SDR retained until the setting changes");
+            g_hdrSwapchainRefused = desired;
+            g_hdrSwapchain = false;
+#if LO_PLATFORM_MACOS
+            ResetMetalLayerToSdr();
+#endif
+            g_swapChain = g_queue->createSwapChain(SwapChainDescription());
+        }
+        if (!g_swapChain) {
+            LOG_ERROR("HDR: swap chain replacement failed");
+            StopGpuWork(-1);
+            return false;
+        }
+        // As after a frame generation swap chain replacement: re-apply the
+        // display mode and vsync policy, and resize before the next acquire.
+        g_presentationDisplay = {};
+        g_forceSwapResize = true;
+        g_hasPresentedImage = false;
+        g_lastPresentedImage = 0;
+        g_fgPresentSerial = 0;
+        g_hdrReportedActive.reset();
+        LOG_INFO("HDR: swap chain replaced hdr={} format={}", g_hdrSwapchain, uint32_t(g_swapChain->getFormat()));
+        return true;
+    }
+
     // Sole presentation-thread entry for mode changes and swap-chain recovery.
     // Both guest frames and host-only frames call this BEFORE reading dimensions
     // or rasterizing UI. The returned ticket belongs to these prepared operations.
@@ -3241,6 +3366,7 @@ namespace gpu::video
 #endif
         if (!g_swapChain) return false;
         UpdateHdrOutput();
+        if (!ReconcileHdrSwapchain()) return false;
         // Shared by real game frames and paused host overlays. Saving a new
         // cap applies here before any swapchain acquire, even while paused.
         gpu::SetFrameRateTarget(settings::GetConfig().frameRate);

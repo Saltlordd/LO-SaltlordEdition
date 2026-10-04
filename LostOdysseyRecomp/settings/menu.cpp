@@ -899,8 +899,8 @@ void Publish(uint8_t *base, uint32_t config)
         }
         case GraphicsRow::Hdr:
             next.help = graphics_menu::HdrAvailable(edit.graphicsBackend)
-                ? Tr(L"Requires an HDR display and restart. Works with every AA mode, upscaler and scaling filter; frame generation stays SDR except DLSS on Vulkan.",
-                     L"需要 HDR 螢幕並重新啟動。可搭配任一抗鋸齒、超解析度與縮放濾鏡；影格生成僅 Vulkan 的 DLSS 可與 HDR 同時開啟。")
+                ? Tr(L"Requires an HDR display. Applies after saving; with frame generation on, after a restart. Works with every AA mode, upscaler and scaling filter; frame generation stays SDR except DLSS on Vulkan.",
+                     L"需要 HDR 螢幕。儲存後套用；開啟影格生成時需重新啟動。可搭配任一抗鋸齒、超解析度與縮放濾鏡；影格生成僅 Vulkan 的 DLSS 可與 HDR 同時開啟。")
                 : Tr(L"HDR output is unavailable for this graphics backend.",
                      L"目前圖形後端無法使用 HDR 輸出。");
             break;
@@ -1762,7 +1762,11 @@ PPC_FUNC(sub_822F19B0)
              running.sessionProvider == framegen::Provider::Dlss)) ||
             (edit.graphicsBackend == GraphicsBackend::Vulkan &&
              running.phase == gpu::video::FrameGenerationPhase::RestartRequired));
-        if (restart::Required(previousDisplay, edit) || restartForFgProvider)
+        // HDR switches live unless a frame generation session, which owns the
+        // swap chain, already runs in this process (even with FG now Off).
+        const bool hdrNeedsRestart = edit.hdr != previousDisplay.hdr &&
+            running.sessionProvider != framegen::Provider::Off;
+        if (restart::Required(previousDisplay, edit) || restartForFgProvider || hdrNeedsRestart)
         {
             restartPrompt = savedRestartPrompt = true;
             restartSaveFailed = false;
