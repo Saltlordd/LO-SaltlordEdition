@@ -97,6 +97,7 @@
 
 | 文档 | 类型 |
 |---|---|
+| [Display gamma ramp (#78, #179) — 2026-10-04](display-gamma-179-2026-10-04.md) | 历史 |
 | [Radeon 8060S 偏黑画面调试交接](amd-8060s-dark-render-handoff.md) | 调查 |
 | [AMD resolve initialization](amd-resolve-initialization.md) | 历史 |
 | [Live anisotropic filtering](anisotropic-filtering.md) | 参考 |

@@ -1,4 +1,5 @@
 #include "presentation.h"
+#include "display_gamma.h"
 #include "shader/dxc_compiler.h"
 #include "shader/target_format.h"
 #include <os/logger.h>
@@ -43,8 +44,37 @@ struct Presentation::Impl
     };
     std::vector<Pass> passes[2];
     Pass gainPass;
+    // Final-pass lookup table (#179): the guest's display gamma ramp. Three
+    // 4 KB constant buffers rotate when the guest writes a new table, so a
+    // frame still in flight keeps the copy it was recorded with.
+    static constexpr uint32_t kRampBytes = 256 * 16;
+    std::unique_ptr<RenderBuffer> rampBuffers[3];
+    uint32_t rampIndex = 0, rampGeneration = UINT32_MAX;
+    bool rampActive = false;
+    RenderBuffer *UpdateGammaRamp();
     bool EnsureUiPipelines();
 };
+RenderBuffer *Presentation::Impl::UpdateGammaRamp()
+{
+    const uint32_t generation = display_gamma::Generation();
+    if (generation != rampGeneration) {
+        rampGeneration = generation;
+        const auto ramp = display_gamma::Snapshot();
+        const uint32_t next = (rampIndex + 1) % 3;
+        if (auto *mapped = static_cast<float *>(rampBuffers[next]->map())) {
+            for (uint32_t i = 0; i < 256; ++i) {
+                mapped[4 * i + 0] = ramp.values[3 * i + 0];
+                mapped[4 * i + 1] = ramp.values[3 * i + 1];
+                mapped[4 * i + 2] = ramp.values[3 * i + 2];
+                mapped[4 * i + 3] = 0;
+            }
+            rampBuffers[next]->unmap();
+            rampIndex = next;
+            rampActive = !ramp.identity;
+        }
+    }
+    return rampBuffers[rampIndex].get();
+}
 struct Presentation::UiCompositionLease
 {
     std::unique_ptr<RenderDescriptorSet> descriptors;
@@ -102,6 +132,21 @@ struct PresentationParameters { float2 origin; float2 extent; float2 imageSize; 
 #else
 cbuffer Parameters : register(b0) { float2 origin; float2 extent; float2 imageSize; uint aa; uint filter; uint expandRange; uint outputFlags; float outputScale; float peakRatio; float4 calibrationRect; };
 #endif
+// Display gamma ramp, one normalized RGB output per 8-bit input (outputFlags 64;
+// 128 for the frozen calibration scene).
+#ifdef __spirv__
+[[vk::binding(3,0)]]
+#endif
+cbuffer GammaRamp : register(b1) { float4 gammaRamp[256]; };
+float3 applyGammaRamp(float3 color) {
+    float3 f=saturate(color)*255.0;
+    uint3 i=min(uint3(f),254u);
+    float3 t=f-float3(i);
+    float3 lo=float3(gammaRamp[i.r].r,gammaRamp[i.g].g,gammaRamp[i.b].b);
+    float3 hi=float3(gammaRamp[i.r+1].r,gammaRamp[i.g+1].g,gammaRamp[i.b+1].b);
+    // An extended-gamma scene keeps its part above white; the ramp ends at 1.
+    return lerp(lo,hi,t)+max(color-1.0,0.0);
+}
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 uv = float2((id << 1) & 2, id & 2);
     return float4(uv * float2(2,-2) + float2(-1,1),0,1);
@@ -172,6 +217,9 @@ float3 mapHighlights(float3 color, float peak) {
     return color;
 }
 float4 finishFrame(float3 color) {
+    // Scanout order: the guest's ramp, then the optional RGB range expansion,
+    // then our HDR output conversion of that SDR signal.
+    if ((outputFlags & 64) != 0) color=applyGammaRamp(color);
     if (expandRange != 0) {
         color=max((color-16.0/255.0)*(255.0/219.0),0);
         if ((outputFlags & 2) == 0) color=min(color,1);
@@ -206,6 +254,7 @@ float4 pixel(float4 position : SV_Position) : SV_Target {
             tile=(tile-0.5)*float2(max(tileAspect/sceneAspect,1),max(sceneAspect/tileAspect,1))+0.5;
             if (any(tile<0) || any(tile>1)) return float4(0,0,0,1);
             float3 color=calibrationScene.SampleLevel(linearClamp,tile,0).rgb;
+            if ((outputFlags & 128) != 0) color=applyGammaRamp(color);
             if ((outputFlags & 32) != 0) color=max((color-16.0/255.0)*(255.0/219.0),0);
             color=pow(max(color,0),2.2);
             color=peak ? mapHighlights(color,peakRatio) : saturate(color);
@@ -263,7 +312,21 @@ float4 gainPixel(float4 position : SV_Position) : SV_Target {
     set.addTexture(0);
     set.addSampler(p.vulkan ? 1 : 0);
     set.addTexture(p.vulkan ? 2 : 1);
+    set.addConstantBuffer(p.vulkan ? 3 : 1);
     set.end();
+    for (auto &buffer : p.rampBuffers) {
+        buffer = device->createBuffer(RenderBufferDesc::UploadBuffer(Impl::kRampBytes, RenderBufferFlag::CONSTANT));
+        auto *mapped = buffer ? static_cast<float *>(buffer->map()) : nullptr;
+        if (!mapped) return false;
+        for (uint32_t i = 0; i < 256; ++i) {
+            mapped[4 * i + 0] = mapped[4 * i + 1] = mapped[4 * i + 2] = i / 255.0f;
+            mapped[4 * i + 3] = 0;
+        }
+        buffer->unmap();
+    }
+    p.rampIndex = 0;
+    p.rampGeneration = UINT32_MAX;
+    p.rampActive = false;
     RenderPipelineLayoutBuilder layout;
     layout.begin(false, false);
     layout.addPushConstant(0, 0, 64, RenderShaderStageFlag::PIXEL);
@@ -398,11 +461,13 @@ RenderTexture* Presentation::ComposeHdrGain(RenderCommandList *commands, RenderT
     auto &pass = p.gainPass;
     if (!pass.descriptors) {
         RenderDescriptorSetBuilder set;
-        set.begin(); set.addTexture(0); set.addSampler(p.vulkan ? 1 : 0); set.addTexture(p.vulkan ? 2 : 1); set.end();
+        set.begin(); set.addTexture(0); set.addSampler(p.vulkan ? 1 : 0); set.addTexture(p.vulkan ? 2 : 1);
+        set.addConstantBuffer(p.vulkan ? 3 : 1); set.end();
         pass.descriptors = set.create(p.device);
         if (!pass.descriptors) return nullptr;
         pass.descriptors->setSampler(1, p.sampler.get());
     }
+    pass.descriptors->setBuffer(3, p.rampBuffers[p.rampIndex].get(), Impl::kRampBytes);
     if (pass.width != width || pass.height != height || !pass.texture) {
         pass.framebuffer.reset();
         pass.texture = p.device->createTexture(RenderTextureDesc::Texture2D(width, height, 1,
@@ -476,10 +541,11 @@ std::shared_ptr<Presentation::UiCompositionLease> Presentation::DrawSeparatedUi(
 }
 void Presentation::DrawComposited(RenderCommandList *commands, RenderTexture *source, RenderTexture *target,
                                   uint32_t sw, uint32_t sh, uint32_t ow, uint32_t oh, ScalingFilter scalingFilter,
-                                  bool expandRgbRange)
+                                  bool expandRgbRange, bool displayGammaRamp)
 {
-    Draw(commands, source, target, sw, sh, ow, oh,
-         PresentationOptions{Antialiasing::Off, scalingFilter, expandRgbRange});
+    PresentationOptions options{Antialiasing::Off, scalingFilter, expandRgbRange};
+    options.displayGammaRamp = displayGammaRamp;
+    Draw(commands, source, target, sw, sh, ow, oh, options);
 }
 void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, RenderTexture *target, uint32_t sw,
                         uint32_t sh, uint32_t ow, uint32_t oh, bool antialias)
@@ -509,17 +575,20 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
     const float y = scale == 1.0f ? std::floor((oh-height)*0.5f) : (oh-height)*0.5f;
     size_t passIndex=0;
     auto &passes=p.passes[hdrScene ? 1 : 0];
+    RenderBuffer *ramp=p.UpdateGammaRamp();
     auto render=[&](RenderTexture *input,RenderTexture *output,uint32_t iw,uint32_t ih,
                     uint32_t tw,uint32_t th,float ox,float oy,float ew,float eh,uint32_t aa,uint32_t filter,
-                    uint32_t expandRange,
+                    uint32_t expandRange,bool gammaRamp,
                     RenderPipeline *pipe) {
         if(passIndex==passes.size()) passes.emplace_back();
         auto &pass=passes[passIndex++];
         if(!pass.descriptors) {
             RenderDescriptorSetBuilder set;
-            set.begin();set.addTexture(0);set.addSampler(p.vulkan ? 1 : 0);set.addTexture(p.vulkan ? 2 : 1);set.end();
+            set.begin();set.addTexture(0);set.addSampler(p.vulkan ? 1 : 0);set.addTexture(p.vulkan ? 2 : 1);
+            set.addConstantBuffer(p.vulkan ? 3 : 1);set.end();
             pass.descriptors=set.create(p.device);pass.descriptors->setSampler(1,p.sampler.get());
         }
+        pass.descriptors->setBuffer(3,ramp,Impl::kRampBytes);
         // Each recorded pass has distinct descriptors/framebuffers. They and the
         // cached intermediate allocations remain owned until the next present fence.
         if(!output) {
@@ -550,7 +619,9 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
                 (linearOutput && p.output.active && options.hdrCalibration ? 4u : 0u) |
                 (linearOutput && p.output.pq ? 8u : 0u) |
                 (linearOutput && p.output.active && options.hdrCalibration && options.calibrationScene ? 16u : 0u) |
-                (options.calibrationExpandRgbRange ? 32u : 0u),
+                (options.calibrationExpandRgbRange ? 32u : 0u) |
+                (gammaRamp && p.rampActive ? 64u : 0u) |
+                (options.calibrationDisplayGammaRamp && p.rampActive ? 128u : 0u),
                 p.output.scale,p.output.peakRatio,
                 {options.calibrationRect[0],options.calibrationRect[1],options.calibrationRect[2],options.calibrationRect[3]}};
         commands->setGraphicsPipelineLayout(p.layout.get());commands->setPipeline(pipe);
@@ -561,9 +632,10 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
     // AA is evaluated once at actual source resolution, independent of scaling.
     // An HDR scene runs the same passes with FP16 intermediates.
     if(options.antialiasing==Antialiasing::SMAA)
-        source=p.smaa[hdrScene ? 1 : 0].Draw(commands,source,sw,sh,p.layout.get(),intermediatePipeline,hdrScene);
+        source=p.smaa[hdrScene ? 1 : 0].Draw(commands,source,sw,sh,p.layout.get(),intermediatePipeline,hdrScene,
+            ramp,Impl::kRampBytes);
     else if(options.antialiasing==Antialiasing::FXAA)
-        source=render(source,nullptr,sw,sh,sw,sh,0,0,float(sw),float(sh),1,0,0,intermediatePipeline);
+        source=render(source,nullptr,sw,sh,sw,sh,0,0,float(sw),float(sh),1,0,0,false,intermediatePipeline);
     // Large reductions use full coverage at each stage. No tap count truncation,
     // and no artificial reduced input presented as a game rendering speedup.
     const uint32_t desiredW=std::max(1u,uint32_t(std::ceil(width)));
@@ -572,11 +644,11 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         uint32_t nw=std::min(sw,std::max(desiredW,(sw+3)/4));
         uint32_t nh=std::min(sh,std::max(desiredH,(sh+3)/4));
         if(nw==sw && nh==sh) break;
-        source=render(source,nullptr,sw,sh,nw,nh,0,0,float(nw),float(nh),0,0,0,intermediatePipeline);
+        source=render(source,nullptr,sw,sh,nw,nh,0,0,float(nw),float(nh),0,0,0,false,intermediatePipeline);
         sw=nw;sh=nh;
     }
     render(source,target,sw,sh,ow,oh,x,y,width,height,0,uint32_t(options.scalingFilter),
-           options.expandRgbRange ? 1u : 0u,
+           options.expandRgbRange ? 1u : 0u,options.displayGammaRamp,
            toSwapchain ? p.presentPipeline.get() : intermediatePipeline);
     commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(original,RenderTextureLayout::COPY_SOURCE));
 }
@@ -616,7 +688,7 @@ plume::RenderTexture* Presentation::ComposeHdrGain(plume::RenderCommandList *, p
     return nullptr;
 }
 void Presentation::DrawComposited(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *,
-                                  uint32_t, uint32_t, uint32_t, uint32_t, ScalingFilter, bool)
+                                  uint32_t, uint32_t, uint32_t, uint32_t, ScalingFilter, bool, bool)
 {
 }
 void Presentation::Draw(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *, uint32_t, uint32_t,

@@ -29,6 +29,12 @@ struct PresentationOptions
     // preview; right uses the same highlight mapping as normal HDR gameplay.
     plume::RenderTexture* calibrationScene = nullptr;
     bool calibrationExpandRgbRange = false;
+    // Apply the guest's display gamma ramp at the final pass, before the RGB
+    // range expansion and any HDR output conversion (#179). Last, so positional
+    // initializers of the fields above keep their meaning.
+    bool displayGammaRamp = false;
+    // The frozen calibration scene gets the same ramp as gameplay.
+    bool calibrationDisplayGammaRamp = false;
 };
 // Owned by the presentation thread. Resources stay alive until the present fence.
 class Presentation
@@ -88,7 +94,7 @@ class Presentation
     void DrawComposited(plume::RenderCommandList *commands, plume::RenderTexture *source,
                         plume::RenderTexture *target, uint32_t sourceWidth, uint32_t sourceHeight,
                         uint32_t outputWidth, uint32_t outputHeight, ScalingFilter scalingFilter,
-                        bool expandRgbRange = false);
+                        bool expandRgbRange = false, bool displayGammaRamp = false);
     void Draw(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *,
               uint32_t, uint32_t, uint32_t, uint32_t, const PresentationOptions &, bool toSwapchain = true);
     void Draw(plume::RenderCommandList *, plume::RenderTexture *, plume::RenderTexture *,

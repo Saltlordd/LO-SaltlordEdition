@@ -3555,6 +3555,7 @@ namespace gpu::video
                 if (calibration.scenePreview && calibration.sceneAvailable && g_hdrCalibrationCache.ready) {
                     options.calibrationScene = g_hdrCalibrationCache.scene.get();
                     options.calibrationExpandRgbRange = settings::GetConfig().expandRgbRange;
+                    options.calibrationDisplayGammaRamp = true;
                 }
             }
             g_presentation->Draw(g_commandList.get(),g_cpuFrame.get(),backBuffer,width,height,
@@ -3641,10 +3642,13 @@ namespace gpu::video
         ServicePendingDlssSizing();
         renderer::SetOutputSize(menuWidth, menuHeight);
         const auto presentationConfig = settings::GetConfig();
-        const PresentationOptions presentationOptions{
+        PresentationOptions presentationOptions{
             presentationConfig.antialiasing == 3 ? Antialiasing::SMAA : static_cast<Antialiasing>(presentationConfig.antialiasing),
             presentationConfig.scalingQuality ? ScalingFilter::Bicubic : ScalingFilter::Bilinear,
             presentationConfig.expandRgbRange};
+        // Guest frames get the display gamma ramp the game wrote (#179); host
+        // menus and status screens use the default options without it.
+        presentationOptions.displayGammaRamp = true;
         // Debug / test trigger: auto-open overlay after N frames if LO_AUTO_OVERLAY is set
         static int s_autoOverlayCountdown = []() {
             const char* env = getenv("LO_AUTO_OVERLAY");
@@ -3897,14 +3901,15 @@ namespace gpu::video
                         uint32_t(presentationOptions.scalingFilter));
                     // Scene AA already applied: the HDR path takes Draw (not
                     // DrawComposited) and must not run the pass a second time.
-                    const PresentationOptions sourceOptions{decision.bypassAA ? Antialiasing::Off :
+                    PresentationOptions sourceOptions{decision.bypassAA ? Antialiasing::Off :
                         decision.requestedAA == 3 ? Antialiasing::SMAA : static_cast<Antialiasing>(decision.requestedAA),
                         decision.scalingQuality ? ScalingFilter::Bicubic : ScalingFilter::Bilinear,
                         presentationOptions.expandRgbRange, hdrScene};
+                    sourceOptions.displayGammaRamp = presentationOptions.displayGammaRamp;
                     if(decision.bypassAA && !hdrScene)
                         g_presentation->DrawComposited(g_commandList.get(),source,backBuffer,sourceWidth,sourceHeight,
                             g_swapChain->getWidth(),g_swapChain->getHeight(),sourceOptions.scalingFilter,
-                            sourceOptions.expandRgbRange);
+                            sourceOptions.expandRgbRange,sourceOptions.displayGammaRamp);
                     else g_presentation->Draw(g_commandList.get(),source,backBuffer,sourceWidth,sourceHeight,
                         g_swapChain->getWidth(),g_swapChain->getHeight(),sourceOptions);
                 }
