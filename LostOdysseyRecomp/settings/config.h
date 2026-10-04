@@ -65,6 +65,11 @@ struct Config
     uint32_t hdrPeakNits = 1000; // Manual peak retained independently of automatic mode.
     uint32_t scalingQuality = 1; // 0 bilinear, 1 bicubic spatial resampling, ScalingMetalFx (macOS).
     bool expandRgbRange = false; // Expand game image RGB 16-235 to 0-255 at presentation.
+    // Player picture adjustment, applied to the game image after Expanded RGB
+    // range: black level (-20..20, 0 = unchanged) and gamma in hundredths
+    // (50..150, 100 = unchanged; higher is brighter midtones).
+    int displayBrightness = 0;
+    uint32_t displayGamma = 100;
     uint32_t anisotropicFiltering = 0; // 0 Off, otherwise 2/4/8/16x. Applied live by the renderer.
     gpu::upscaling::Upscaler upscaler = gpu::upscaling::Upscaler::Off;
     gpu::upscaling::DlssQuality dlssQuality = gpu::upscaling::DlssQuality::Quality;

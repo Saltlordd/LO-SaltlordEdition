@@ -12,6 +12,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android: Adreno 6xx GPUs with the Turnip driver no longer stop at "descriptor/push-constant limits below renderer layout" (#185).
 - Fixed the game closing without an error when loading a save with TAA on AMD GPUs under Proton (Direct3D 12) (#200).
 - The game's display gamma adjustment for HDTVs is now applied, so blacks and contrast match Xenia without Expanded RGB range (#78, #179).
+- New **Brightness / Gamma** page in Graphics: compare the game's default picture with your setting on the last game scene or a test pattern. The original calibration screen is a button on that page.
+- The HDR calibration page switches between scene and test pattern with LB / RB, and shows the last game scene when opened from the game's menu.
 
 ### 简体中文
 
@@ -19,6 +21,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android：Adreno 6xx GPU 使用 Turnip 驱动时不再因“descriptor/push-constant limits below renderer layout”无法启动（#185）。
 - 修复 AMD 显卡在 Proton 下（Direct3D 12）开启 TAA 读档时游戏无提示退出的问题（#200）。
 - 现在会应用游戏针对高清电视的显示 gamma 调整，黑位和对比度与 Xenia 一致，无需开启“扩展 RGB 范围”（#78、#179）。
+- 图像设置新增**亮度 / Gamma** 页面：在最后的游戏场景或测试图案上对照游戏默认画面和你的设置。原版亮度校准画面作为页面上的一个按钮保留。
+- HDR 校准页改用 LB / RB 切换场景和测试图案，从游戏菜单进入时也会显示最后的游戏场景。
 
 ## [v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) — 2026-10-04
 

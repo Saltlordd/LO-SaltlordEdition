@@ -426,6 +426,67 @@ bool settings::RasterizeMenu(const MenuSnapshot &current, uint32_t width, uint32
         else text(x, y, 24, 24, std::wstring(1, letter), 15, ink, true, 1, outline, 12);
     };
 
+    if (current.brightness.open)
+    {
+        // Same frame as the HDR page: presentation paints the comparison in
+        // the transparent center rectangle.
+        pixels.assign(size_t(width) * height, 0u);
+        const auto &page = current.brightness;
+        const bool scene = page.scenePreview && page.sceneAvailable;
+        const uint32_t backdrop = MakeColor(255, 27, 31, 35);
+        fill(0, 0, 1280, 150, backdrop);
+        fill(0, 470, 1280, 250, backdrop);
+        fill(0, 150, 160, 320, backdrop);
+        fill(1120, 150, 160, 320, backdrop);
+        text(160, 30, 610, 48, Translate(current.language, L"Brightness / Gamma", L"亮度 / Gamma"),
+             31, ink, false, 1, outline, 19);
+        cell(800, 34, 140, 44, scene);
+        cell(940, 34, 180, 44, !scene);
+        text(806, 34, 128, 44, Translate(current.language, L"Scene", L"場景"),
+             18, page.sceneAvailable ? ink : muted, false, 1, outline, 13);
+        text(946, 34, 168, 44, Translate(current.language, L"Test pattern", L"測試圖案"),
+             18, ink, false, 1, outline, 13);
+        text(160, 97, 460, 36, Translate(current.language, L"Game default", L"遊戲預設"),
+             20, ink, false, 0, outline, 14);
+        text(640, 97, 480, 36, Translate(current.language, L"Adjusted", L"調整後"),
+             20, ink, false, 0, outline, 14);
+        text(160, 478, 960, 31,
+             scene ? Translate(current.language, L"Left: game default. Right: your setting. Changes apply after saving.",
+                         L"左：遊戲預設；右：目前設定。儲存後套用。")
+                   : Translate(current.language, L"Raise brightness until the dark patches are just visible. Gamma changes the grey steps in between.",
+                         L"調高亮度直到暗色方塊剛好可見；Gamma 調整中間的灰階。"),
+             18, ink, false, 1, outline, 13);
+        auto slider = [&](int y, int focus, const wchar_t *en, const wchar_t *zh, float fraction, const std::wstring &value) {
+            text(160, y - 6, 210, 32, Translate(current.language, en, zh), 19, ink, false, 0, outline, 14);
+            cell(380, y, 620, 20, page.focus == focus);
+            const int marker = int(std::lround(380.0 + 620.0 * std::clamp(fraction, 0.0f, 1.0f)));
+            fill(689, y + 3, 2, 14, MakeColor(255, 120, 124, 126));
+            fill(384, y + 6, std::max(0, marker - 384), 8, MakeColor(255, 167, 200, 214));
+            fill(marker - 4, y - 6, 8, 32, MakeColor(255, 234, 238, 234));
+            text(1010, y - 6, 110, 32, value, 19, ink, false, 2, outline, 14);
+        };
+        slider(526, 0, L"Brightness", L"亮度", (page.brightness + 20) / 40.0f,
+               page.brightness > 0 ? L"+" + std::to_wstring(page.brightness) : std::to_wstring(page.brightness));
+        const std::wstring hundredths = std::to_wstring(page.gamma % 100);
+        slider(568, 1, L"Gamma", L"Gamma", (int(page.gamma) - 50) / 100.0f,
+               std::to_wstring(page.gamma / 100) + L"." + (hundredths.size() < 2 ? L"0" : L"") + hundredths);
+        const struct { int x, w; const wchar_t *label; } buttons[] = {
+            {160, 240, Translate(current.language, L"Default", L"預設值")},
+            {420, 300, Translate(current.language, L"Original pattern", L"原版參考圖")},
+            {740, 190, Translate(current.language, L"Done", L"完成")},
+            {950, 170, Translate(current.language, L"Cancel", L"取消")},
+        };
+        for (int i = 0; i < 4; ++i)
+        {
+            cell(buttons[i].x, 610, buttons[i].w, 40, page.focus == i + 2);
+            text(buttons[i].x + 8, 610, buttons[i].w - 16, 40, buttons[i].label, 19, ink, false, 1, outline, 14);
+        }
+        text(160, 666, 960, 32,
+             Translate(current.language, L"D-pad: select / adjust · A: choose · B: back · LB / RB: scene / pattern",
+                 L"方向鍵：選擇／調整 · A：確認 · B：返回 · LB / RB：場景／圖案"),
+             16, ink, false, 1, outline, 13);
+        return true;
+    }
     if (current.calibration.open)
     {
         // The presentation pass paints the real HDR comparison inside the
@@ -508,8 +569,8 @@ bool settings::RasterizeMenu(const MenuSnapshot &current, uint32_t width, uint32
                  19, ink, false, 1, outline, 14);
         }
         text(160, 666, 960, 32,
-             Translate(current.language, L"D-pad: adjust · A: choose · B: back · X: scene / pattern · type digits for exact value",
-                 L"方向鍵：調整 · A：確認 · B：返回 · X：場景／圖案 · 鍵盤輸入精確數值"),
+             Translate(current.language, L"D-pad: adjust · A: choose · B: back · LB / RB: scene / pattern · type digits for exact value",
+                 L"方向鍵：調整 · A：確認 · B：返回 · LB / RB：場景／圖案 · 鍵盤輸入精確數值"),
              16, ink, false, 1, outline, 13);
         return true;
     }

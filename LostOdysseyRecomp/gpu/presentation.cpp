@@ -44,33 +44,45 @@ struct Presentation::Impl
     };
     std::vector<Pass> passes[2];
     Pass gainPass;
-    // Final-pass lookup table (#179): the guest's display gamma ramp. Three
-    // 4 KB constant buffers rotate when the guest writes a new table, so a
-    // frame still in flight keeps the copy it was recorded with.
+    // Final-pass lookup tables: the guest's display gamma ramp in .rgb (#179)
+    // and the player's brightness/gamma curve in .w. Three 4 KB constant
+    // buffers rotate when either changes, so a frame still in flight keeps
+    // the copy it was recorded with.
     static constexpr uint32_t kRampBytes = 256 * 16;
     std::unique_ptr<RenderBuffer> rampBuffers[3];
     uint32_t rampIndex = 0, rampGeneration = UINT32_MAX;
-    bool rampActive = false;
-    RenderBuffer *UpdateGammaRamp();
+    int curveBrightness = 0;
+    uint32_t curveGamma = 100;
+    bool rampActive = false, curveActive = false;
+    // Null keeps the current curve.
+    RenderBuffer *UpdateGammaRamp(const PresentationOptions *curve);
     bool EnsureUiPipelines();
 };
-RenderBuffer *Presentation::Impl::UpdateGammaRamp()
+RenderBuffer *Presentation::Impl::UpdateGammaRamp(const PresentationOptions *curve)
 {
     const uint32_t generation = display_gamma::Generation();
-    if (generation != rampGeneration) {
-        rampGeneration = generation;
+    const int brightness = curve ? curve->displayBrightness : curveBrightness;
+    const uint32_t gamma = curve ? std::max(curve->displayGamma, 1u) : curveGamma;
+    if (generation != rampGeneration || brightness != curveBrightness || gamma != curveGamma) {
         const auto ramp = display_gamma::Snapshot();
         const uint32_t next = (rampIndex + 1) % 3;
         if (auto *mapped = static_cast<float *>(rampBuffers[next]->map())) {
+            // Brightness moves the black point (positive lifts black, white
+            // stays at 1); gamma then bends the midtones.
+            const float black = float(-brightness) / 200.0f, exponent = 100.0f / float(gamma);
             for (uint32_t i = 0; i < 256; ++i) {
                 mapped[4 * i + 0] = ramp.values[3 * i + 0];
                 mapped[4 * i + 1] = ramp.values[3 * i + 1];
                 mapped[4 * i + 2] = ramp.values[3 * i + 2];
-                mapped[4 * i + 3] = 0;
+                mapped[4 * i + 3] = std::pow(std::clamp((float(i) / 255.0f - black) / (1.0f - black), 0.0f, 1.0f), exponent);
             }
             rampBuffers[next]->unmap();
             rampIndex = next;
+            rampGeneration = generation;
+            curveBrightness = brightness;
+            curveGamma = gamma;
             rampActive = !ramp.identity;
+            curveActive = brightness != 0 || gamma != 100;
         }
     }
     return rampBuffers[rampIndex].get();
@@ -133,7 +145,7 @@ struct PresentationParameters { float2 origin; float2 extent; float2 imageSize; 
 cbuffer Parameters : register(b0) { float2 origin; float2 extent; float2 imageSize; uint aa; uint filter; uint expandRange; uint outputFlags; float outputScale; float peakRatio; float4 calibrationRect; };
 #endif
 // Display gamma ramp, one normalized RGB output per 8-bit input (outputFlags 64;
-// 128 for the frozen calibration scene).
+// 128 for the frozen calibration scene). .w holds the player's curve.
 #ifdef __spirv__
 [[vk::binding(3,0)]]
 #endif
@@ -146,6 +158,30 @@ float3 applyGammaRamp(float3 color) {
     float3 hi=float3(gammaRamp[i.r+1].r,gammaRamp[i.g+1].g,gammaRamp[i.b+1].b);
     // An extended-gamma scene keeps its part above white; the ramp ends at 1.
     return lerp(lo,hi,t)+max(color-1.0,0.0);
+}
+// The player's brightness/gamma curve, the same table's .w (outputFlags 256 at
+// the final pass; 4096 for the calibration and brightness previews).
+float3 applyUserCurve(float3 color) {
+    float3 f=saturate(color)*255.0;
+    uint3 i=min(uint3(f),254u);
+    float3 t=f-float3(i);
+    float3 lo=float3(gammaRamp[i.r].w,gammaRamp[i.g].w,gammaRamp[i.b].w);
+    float3 hi=float3(gammaRamp[i.r+1].w,gammaRamp[i.g+1].w,gammaRamp[i.b+1].w);
+    return lerp(lo,hi,t)+max(color-1.0,0.0);
+}
+// Brightness test pattern in display signal values: a smooth ramp, ten grey
+// steps and eight near-black patches on black.
+float3 brightnessPattern(float2 tile) {
+    float x=(tile.x-0.05)/0.9;
+    if (x<0 || x>=1) return 0;
+    if (tile.y>=0.06 && tile.y<0.30) return x.xxx;
+    if (tile.y>=0.38 && tile.y<0.62) return ((floor(x*10)+1)/10).xxx;
+    if (tile.y>=0.70 && tile.y<0.94) {
+        float cell=x*8;
+        if (frac(cell)<0.12 || frac(cell)>0.88) return 0;
+        return ((floor(cell)+1)*2.5/255.0).xxx;
+    }
+    return 0;
 }
 float4 vertex(uint id : SV_VertexID) : SV_Position {
     float2 uv = float2((id << 1) & 2, id & 2);
@@ -216,17 +252,11 @@ float3 mapHighlights(float3 color, float peak) {
     }
     return color;
 }
-float4 finishFrame(float3 color) {
-    // Scanout order: the guest's ramp, then the optional RGB range expansion,
-    // then our HDR output conversion of that SDR signal.
-    if ((outputFlags & 64) != 0) color=applyGammaRamp(color);
-    if (expandRange != 0) {
-        color=max((color-16.0/255.0)*(255.0/219.0),0);
-        if ((outputFlags & 2) == 0) color=min(color,1);
-    }
+// Our HDR output conversion of a display signal; extended keeps values above 1.
+float4 outputSignal(float3 color, bool extended) {
     if ((outputFlags & 1) != 0) {
         color=max(color,0);
-        if ((outputFlags & 2) != 0) {
+        if (extended) {
             color=mapHighlights(pow(color,2.2),peakRatio);
         } else {
             // Inactive linear output: the compositor re-encodes with the sRGB
@@ -237,25 +267,60 @@ float4 finishFrame(float3 color) {
     }
     return float4(encodeOutput(color),1);
 }
+float4 finishFrame(float3 color) {
+    // Scanout order: the guest's ramp, then the optional RGB range expansion,
+    // then the player's brightness/gamma, then the HDR output conversion.
+    if ((outputFlags & 64) != 0) color=applyGammaRamp(color);
+    if (expandRange != 0) {
+        color=max((color-16.0/255.0)*(255.0/219.0),0);
+        if ((outputFlags & 2) == 0) color=min(color,1);
+    }
+    if ((outputFlags & 256) != 0) color=applyUserCurve(color);
+    return outputSignal(color,(outputFlags & 2) != 0);
+}
+// Fit the full frozen scene into one half of calibrationRect without
+// stretching or showing padded rows. Both halves sample exactly the same frame.
+float2 fitScene(float2 tile) {
+    uint sceneWidth,sceneHeight;
+    calibrationScene.GetDimensions(sceneWidth,sceneHeight);
+    float sceneAspect=float(sceneWidth)/float(sceneHeight);
+    float2 tileSize=(calibrationRect.zw-calibrationRect.xy)*imageSize*float2(0.5,1);
+    float tileAspect=tileSize.x/tileSize.y;
+    return (tile-0.5)*float2(max(tileAspect/sceneAspect,1),max(sceneAspect/tileAspect,1))+0.5;
+}
 float4 pixel(float4 position : SV_Position) : SV_Target {
     float2 uv=(position.xy-origin)/extent;
+    if ((outputFlags & 512) != 0 && all(uv>=calibrationRect.xy) && all(uv<calibrationRect.zw)) {
+        // Brightness preview: the game image on the left, the player's curve on
+        // the right, each through the same output conversion as gameplay.
+        float2 local=(uv-calibrationRect.xy)/(calibrationRect.zw-calibrationRect.xy);
+        float2 tile=float2(frac(local.x*2),local.y);
+        bool extended=(outputFlags & 2048) != 0;
+        float3 color;
+        if ((outputFlags & 1024) != 0) {
+            tile=fitScene(tile);
+            if (any(tile<0) || any(tile>1)) return float4(0,0,0,1);
+            color=calibrationScene.SampleLevel(linearClamp,tile,0).rgb;
+            if ((outputFlags & 128) != 0) color=applyGammaRamp(color);
+            if ((outputFlags & 32) != 0) {
+                color=max((color-16.0/255.0)*(255.0/219.0),0);
+                if (!extended) color=min(color,1);
+            }
+        } else color=brightnessPattern(tile);
+        if (local.x>=0.5 && (outputFlags & 4096) != 0) color=applyUserCurve(color);
+        return outputSignal(color,extended);
+    }
     if ((outputFlags & 4) != 0 && all(uv>=calibrationRect.xy) && all(uv<calibrationRect.zw)) {
         float2 local=(uv-calibrationRect.xy)/(calibrationRect.zw-calibrationRect.xy);
         bool peak=local.x>=0.5;
         float2 tile=float2(frac(local.x*2),local.y);
         if ((outputFlags & 16) != 0) {
-            uint sceneWidth,sceneHeight;
-            calibrationScene.GetDimensions(sceneWidth,sceneHeight);
-            float sceneAspect=float(sceneWidth)/float(sceneHeight);
-            float2 tileSize=(calibrationRect.zw-calibrationRect.xy)*imageSize*float2(0.5,1);
-            float tileAspect=tileSize.x/tileSize.y;
-            // Fit the full frozen scene into each half without stretching or
-            // showing padded rows. Both halves sample exactly the same frame.
-            tile=(tile-0.5)*float2(max(tileAspect/sceneAspect,1),max(sceneAspect/tileAspect,1))+0.5;
+            tile=fitScene(tile);
             if (any(tile<0) || any(tile>1)) return float4(0,0,0,1);
             float3 color=calibrationScene.SampleLevel(linearClamp,tile,0).rgb;
             if ((outputFlags & 128) != 0) color=applyGammaRamp(color);
             if ((outputFlags & 32) != 0) color=max((color-16.0/255.0)*(255.0/219.0),0);
+            if ((outputFlags & 4096) != 0) color=applyUserCurve(color);
             color=pow(max(color,0),2.2);
             color=peak ? mapHighlights(color,peakRatio) : saturate(color);
             return float4(encodeOutput(color*outputScale),1);
@@ -318,15 +383,15 @@ float4 gainPixel(float4 position : SV_Position) : SV_Target {
         buffer = device->createBuffer(RenderBufferDesc::UploadBuffer(Impl::kRampBytes, RenderBufferFlag::CONSTANT));
         auto *mapped = buffer ? static_cast<float *>(buffer->map()) : nullptr;
         if (!mapped) return false;
-        for (uint32_t i = 0; i < 256; ++i) {
-            mapped[4 * i + 0] = mapped[4 * i + 1] = mapped[4 * i + 2] = i / 255.0f;
-            mapped[4 * i + 3] = 0;
-        }
+        for (uint32_t i = 0; i < 256; ++i)
+            mapped[4 * i + 0] = mapped[4 * i + 1] = mapped[4 * i + 2] = mapped[4 * i + 3] = i / 255.0f;
         buffer->unmap();
     }
     p.rampIndex = 0;
     p.rampGeneration = UINT32_MAX;
-    p.rampActive = false;
+    p.curveBrightness = 0;
+    p.curveGamma = 100;
+    p.rampActive = p.curveActive = false;
     RenderPipelineLayoutBuilder layout;
     layout.begin(false, false);
     layout.addPushConstant(0, 0, 64, RenderShaderStageFlag::PIXEL);
@@ -575,10 +640,11 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
     const float y = scale == 1.0f ? std::floor((oh-height)*0.5f) : (oh-height)*0.5f;
     size_t passIndex=0;
     auto &passes=p.passes[hdrScene ? 1 : 0];
-    RenderBuffer *ramp=p.UpdateGammaRamp();
+    RenderBuffer *ramp=p.UpdateGammaRamp(options.displayAdjust || options.brightnessPreview || options.hdrCalibration
+        ? &options : nullptr);
     auto render=[&](RenderTexture *input,RenderTexture *output,uint32_t iw,uint32_t ih,
                     uint32_t tw,uint32_t th,float ox,float oy,float ew,float eh,uint32_t aa,uint32_t filter,
-                    uint32_t expandRange,bool gammaRamp,
+                    uint32_t expandRange,bool finalPass,
                     RenderPipeline *pipe) {
         if(passIndex==passes.size()) passes.emplace_back();
         auto &pass=passes[passIndex++];
@@ -620,8 +686,13 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
                 (linearOutput && p.output.pq ? 8u : 0u) |
                 (linearOutput && p.output.active && options.hdrCalibration && options.calibrationScene ? 16u : 0u) |
                 (options.calibrationExpandRgbRange ? 32u : 0u) |
-                (gammaRamp && p.rampActive ? 64u : 0u) |
-                (options.calibrationDisplayGammaRamp && p.rampActive ? 128u : 0u),
+                (finalPass && options.displayGammaRamp && p.rampActive ? 64u : 0u) |
+                (options.calibrationDisplayGammaRamp && p.rampActive ? 128u : 0u) |
+                (finalPass && options.displayAdjust && p.curveActive ? 256u : 0u) |
+                (finalPass && options.brightnessPreview ? 512u : 0u) |
+                (finalPass && options.brightnessPreview && options.calibrationScene ? 1024u : 0u) |
+                (options.calibrationSceneExtended ? 2048u : 0u) |
+                ((options.brightnessPreview || options.hdrCalibration) && p.curveActive ? 4096u : 0u),
                 p.output.scale,p.output.peakRatio,
                 {options.calibrationRect[0],options.calibrationRect[1],options.calibrationRect[2],options.calibrationRect[3]}};
         commands->setGraphicsPipelineLayout(p.layout.get());commands->setPipeline(pipe);
@@ -648,7 +719,7 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         sw=nw;sh=nh;
     }
     render(source,target,sw,sh,ow,oh,x,y,width,height,0,uint32_t(options.scalingFilter),
-           options.expandRgbRange ? 1u : 0u,options.displayGammaRamp,
+           options.expandRgbRange ? 1u : 0u,true,
            toSwapchain ? p.presentPipeline.get() : intermediatePipeline);
     commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(original,RenderTextureLayout::COPY_SOURCE));
 }

@@ -820,15 +820,23 @@ int main(int argc, char** argv)
         Tick(base); Poll(0, true); Poll(0x1000, false);
         PPC_STORE_U32(Menu + 4, 4); Tick(base); Poll(0, true);
         settings::pending = 0x1000; Tick(base);
+        Require(settings::brightnessOpen && settings::active && !settings::bypass, "A opens the brightness page");
+        const int savedBrightness = settings::edit.displayBrightness;
+        settings::pending = 8; Tick(base);
+        Require(settings::edit.displayBrightness == savedBrightness + 1, "page edits brightness");
+        settings::brightnessFocus = 3; // Original pattern.
+        settings::pending = 0x1000; Tick(base);
         Require(settings::bypass && !settings::active && settings::cancelPolls == 6, "explicit calibration handoff");
         settings::cancelPolls = 0; // The native input/calibration boundary is simulated below.
         PPC_STORE_U32(Menu + 4, 6); Tick(base);
         PPC_STORE_U32(Menu + 4, 4); Tick(base);
-        Require(settings::active && !settings::bypass, "calibration returns to replacement");
+        Require(settings::active && !settings::bypass && settings::brightnessOpen &&
+                settings::edit.displayBrightness == savedBrightness + 1, "calibration returns to the page with its edit");
         settings::bypass = true; settings::sawModal = false;
         PPC_STORE_U32(Menu + 4, 1); Tick(base);
         PPC_STORE_U32(Menu + 4, 4); Tick(base);
-        Require(settings::active && !settings::bypass, "idle address reuse clears stale handoff");
+        Require(settings::active && !settings::bypass && !settings::brightnessOpen &&
+                settings::edit.displayBrightness == savedBrightness, "idle address reuse clears stale handoff");
         deviceReady = false;
         const auto oldTicks = ticks; Tick(base);
         Require(ticks == oldTicks + 1, "no-device retail fallback retained");
@@ -1543,8 +1551,8 @@ int main(int argc, char** argv)
             settings::SetHdrCalibrationSceneAvailable(true);
             Require(settings::GetHdrCalibration().sceneAvailable && settings::snapshot.revision > beforeScene,
                     "a captured scene refreshes the paused menu without a guest tick");
-            settings::pending = 0x4000; Tick(base);
-            Require(!settings::GetHdrCalibration().scenePreview, "X switches to the precise test pattern");
+            settings::pending = 0x200; Tick(base);
+            Require(!settings::GetHdrCalibration().scenePreview, "RB switches to the precise test pattern");
             settings::PointerClick(850, 55, false);
             settings::pending = 0; Tick(base);
             Require(settings::GetHdrCalibration().scenePreview, "Scene button selects the captured scene");

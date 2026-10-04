@@ -28,10 +28,26 @@ struct HdrCalibration
     std::wstring numericText;
     bool operator==(const HdrCalibration &) const = default;
 };
+// Brightness / gamma page. Presentation compares the game image with these
+// values applied, on the frozen scene or a test pattern.
+struct BrightnessCalibration
+{
+    bool open = false;
+    bool sceneAvailable = false;
+    bool scenePreview = true;
+    bool expandRgbRange = false;
+    int brightness = 0;
+    uint32_t gamma = 100;
+    int focus = 0;
+    bool operator==(const BrightnessCalibration &) const = default;
+};
 void SetHdrDisplayInfo(HdrDisplayInfo info);
-// Called by presentation when its owned, frozen HDR scene becomes available.
+// Called by presentation when its owned, frozen game scene (HDR or SDR)
+// becomes available.
 void SetHdrCalibrationSceneAvailable(bool available);
 HdrCalibration GetHdrCalibration();
+// Unsaved values while the settings menu is open, saved values otherwise.
+BrightnessCalibration GetBrightnessCalibration();
 // ASCII digits, Backspace (8), Enter (13), and Escape (27). Returns true when
 // the calibration page consumes this host key before game input mapping.
 bool CalibrationKey(uint32_t key);

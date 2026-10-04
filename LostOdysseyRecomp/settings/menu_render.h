@@ -45,6 +45,7 @@ struct MenuSnapshot
     int dialogSelection = 0;
     uint64_t revision = 0;
     HdrCalibration calibration;
+    BrightnessCalibration brightness;
     std::shared_ptr<const menu_assets::Assets> assets;
 };
 // Render glyphs at output resolution, fitting the existing 1280x720 logical layout.
