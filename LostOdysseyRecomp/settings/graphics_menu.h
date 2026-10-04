@@ -28,6 +28,9 @@ inline constexpr bool AndroidFsrAvailable = true;
 inline constexpr bool AndroidFsrAvailable = false;
 #endif
 inline constexpr uint32_t AaChoiceCount = AndroidFsrAvailable ? 5 : 4;
+#elif defined(_WIN32)
+// Intel XeSS is D3D12-only and therefore offered on Windows only.
+inline constexpr uint32_t AaChoiceCount = 7;
 #else
 inline constexpr uint32_t AaChoiceCount = 6;
 #endif
@@ -43,6 +46,7 @@ inline uint32_t AaChoice(const Config& config)
 #else
     if (config.upscaler == Upscaler::Dlss) return 4;
     if (config.upscaler == Upscaler::Fsr) return 5;
+    if (AaChoiceCount > 6 && config.upscaler == Upscaler::Xess) return 6;
 #endif
     return std::min(config.antialiasing, 3u);
 }
@@ -60,7 +64,7 @@ inline void SelectAa(Config& config, uint32_t choice)
 #elif LO_PLATFORM_ANDROID
         config.upscaler = Upscaler::Fsr;
 #else
-        config.upscaler = choice == 4 ? Upscaler::Dlss : Upscaler::Fsr;
+        config.upscaler = choice == 4 ? Upscaler::Dlss : choice == 5 ? Upscaler::Fsr : Upscaler::Xess;
 #endif
         // Retain legacy AA as the renderer's unsupported-scene fallback.
         // The existing frame plan selects one temporal consumer, not both.

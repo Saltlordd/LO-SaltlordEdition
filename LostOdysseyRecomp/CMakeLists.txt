@@ -234,6 +234,7 @@ if(LO_BUILD_GPU)
         target_include_directories(LoDlssFgConstantsTest PRIVATE "${LO_STREAMLINE_SDK_ROOT}/include")
     endif()
     lo_enable_fsr(LostOdysseyRecomp)
+    lo_enable_xess(LostOdysseyRecomp)
 endif()
 
 if(LO_RENDERER_P2_SELFTEST)

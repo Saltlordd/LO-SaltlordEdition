@@ -4,6 +4,7 @@
 #include "dlss_ngx.h"
 #include "fsr_upscaler.h"
 #include "fsr_projection.h"
+#include "xess_upscaler.h"
 #include <algorithm>
 #include <cfloat>
 
@@ -68,6 +69,31 @@ fsr::FrameMetadata FsrMetadata(const SrRequest& request) {
     frame.depthBias = projection->depthBias;
     return frame;
 }
+#ifdef _WIN32
+SrResultStatus Convert(xess::Status status) {
+    switch (status) {
+    case xess::Status::Ready: return SrResultStatus::Ready;
+    case xess::Status::Unavailable: return SrResultStatus::Unavailable;
+    case xess::Status::NeedsReconfigure: return SrResultStatus::NeedsReconfigure;
+    case xess::Status::Failed: return SrResultStatus::Failed;
+    case xess::Status::DeviceLost: return SrResultStatus::DeviceLost;
+    case xess::Status::InputUnavailable: return SrResultStatus::InputUnavailable;
+    }
+    return SrResultStatus::Failed;
+}
+xess::Config XessConfig(const SrRequest& request) {
+    return {request.inputs.color.width, request.inputs.color.height, request.plan.output.width,
+        request.plan.output.height, request.plan.fsrQuality, request.plan.deviceEpoch,
+        request.inputs.depthConvention == temporal::DepthConvention::Reversed};
+}
+#endif
+// XeSS is compiled for D3D12 only; other backends never acquire a use.
+SrResult XessUnavailable(const SrRequest& request) {
+    SrResult result{};
+    result.requestedProvider = request.plan.requestedUpscaler;
+    result.actualProvider = upscaling::Upscaler::Xess;
+    return result;
+}
 dlss::SrConfig DlssConfig(const SrRequest& request) {
     dlss::SrConfig config{};
     config.renderExtent = {request.inputs.color.width, request.inputs.color.height};
@@ -84,7 +110,7 @@ dlss::SrConfig DlssConfig(const SrRequest& request) {
 TemporalUpscaler::TemporalUpscaler(dlss::Controller& controller)
     : TemporalUpscaler(&controller) {}
 TemporalUpscaler::TemporalUpscaler(dlss::Controller* controller)
-    : dlss_(controller), fsr_(std::make_unique<fsr::Controller>()) {}
+    : dlss_(controller), fsr_(std::make_unique<fsr::Controller>()), xess_(std::make_unique<xess::Controller>()) {}
 TemporalUpscaler::~TemporalUpscaler() = default;
 
 upscaling::OutputSizing TemporalUpscaler::QuerySizing(const plume::VulkanInterface& api,
@@ -110,6 +136,7 @@ SrResult TemporalUpscaler::Prepare(plume::VulkanDevice& device, const SrRequest&
     SrResult result{};
     result.requestedProvider = request.plan.requestedUpscaler;
     if (!ValidSrRequest(request)) return result;
+    if (request.plan.requestedUpscaler == upscaling::Upscaler::Xess) return XessUnavailable(request);
     if (request.plan.requestedUpscaler == upscaling::Upscaler::Fsr) {
         result.actualProvider = upscaling::Upscaler::Fsr;
         result.status = FsrMetadata(request).cameraValid ? Convert(fsr_->EnsureSession(device, FsrConfig(request))) :
@@ -126,6 +153,7 @@ SrResult TemporalUpscaler::RecordIsolated(plume::VulkanCommandList& commands,
     SrResult result{};
     result.requestedProvider = request.plan.requestedUpscaler;
     if (!ValidSrRequest(request)) return result;
+    if (request.plan.requestedUpscaler == upscaling::Upscaler::Xess) return XessUnavailable(request);
     if (request.plan.requestedUpscaler == upscaling::Upscaler::Fsr) {
         const auto attempt = fsr_->RecordIsolated(commands, FsrConfig(request), request.inputs,
             FsrMetadata(request), output, capture);
@@ -152,6 +180,8 @@ SrResult TemporalUpscaler::RecordIsolated(plume::VulkanCommandList& commands,
 upscaling::OutputSizing TemporalUpscaler::QuerySizing(const plume::D3D12Device& device, const upscaling::SizingKey& key) {
     if (CanQueryNgxSizing(key) && dlss_)
         return dlss_->QueryOutputSizing(device, key);
+    if (key.provider == upscaling::Upscaler::Xess)
+        return xess_->QuerySizing(device, key);
     upscaling::OutputSizing unavailable{};
     unavailable.key = key;
     for (uint32_t i = 0; i < unavailable.modes.size(); ++i) {
@@ -171,6 +201,11 @@ SrResult TemporalUpscaler::Prepare(plume::D3D12Device& device, const SrRequest& 
     SrResult result{};
     result.requestedProvider = request.plan.requestedUpscaler;
     if (!ValidSrRequest(request)) return result;
+    if (request.plan.requestedUpscaler == upscaling::Upscaler::Xess) {
+        result.actualProvider = upscaling::Upscaler::Xess;
+        result.status = Convert(xess_->EnsureSession(device, XessConfig(request)));
+        return result;
+    }
     if (request.plan.requestedUpscaler == upscaling::Upscaler::Fsr) {
         result.actualProvider = upscaling::Upscaler::Fsr;
         result.status = FsrMetadata(request).cameraValid ? Convert(fsr_->EnsureSession(device, FsrConfig(request))) :
@@ -187,6 +222,16 @@ SrResult TemporalUpscaler::RecordIsolated(plume::D3D12CommandList& commands,
     SrResult result{};
     result.requestedProvider = request.plan.requestedUpscaler;
     if (!ValidSrRequest(request)) return result;
+    if (request.plan.requestedUpscaler == upscaling::Upscaler::Xess) {
+        const auto attempt = xess_->RecordIsolated(commands, XessConfig(request), request.inputs, output);
+        result.actualProvider = upscaling::Upscaler::Xess;
+        result.status = Convert(attempt.status);
+        result.rawResult = attempt.sdkResult;
+        result.rawVkResult = attempt.hrResult;
+        if (attempt.useId) result.token = {upscaling::Upscaler::Xess, request.plan.deviceEpoch,
+            attempt.useId, request.plan.requestSignature, request.plan.geometryEpoch};
+        return result;
+    }
     if (request.plan.requestedUpscaler == upscaling::Upscaler::Fsr) {
         const auto attempt = fsr_->RecordIsolated(commands, FsrConfig(request), request.inputs,
             FsrMetadata(request), output, capture);
@@ -291,20 +336,36 @@ SrResult TemporalUpscaler::RecordIsolated(plume::RenderCommandList& commands, co
 void TemporalUpscaler::OnSubmitted(SrUseToken token, uint64_t checkedSerial) {
     if (dlss_) RouteSubmitted(token, checkedSerial, *dlss_);
     if (token.provider == upscaling::Upscaler::Fsr && token.useId && checkedSerial) fsr_->OnBatchSubmitted(token.useId, checkedSerial);
+    if (token.provider == upscaling::Upscaler::Xess && token.useId && checkedSerial) xess_->OnBatchSubmitted(token.useId, checkedSerial);
 }
 void TemporalUpscaler::OnDiscarded(SrUseToken token) {
     if (dlss_) RouteDiscarded(token, *dlss_);
     if (token.provider == upscaling::Upscaler::Fsr && token.useId) fsr_->OnBatchDiscarded(token.useId);
+    if (token.provider == upscaling::Upscaler::Xess && token.useId) xess_->OnBatchDiscarded(token.useId);
 }
 void TemporalUpscaler::ReleaseCompleted(uint64_t serial) {
     if (!serial) return;
     if (dlss_) dlss_->ReleaseCompletedThrough(serial);
     fsr_->ReleaseCompletedThrough(serial);
+    xess_->ReleaseCompletedThrough(serial);
 }
-bool TemporalUpscaler::HasFeatureState() const { return (dlss_ && dlss_->HasFeatureState()) || fsr_->HasFeatureState(); }
-void TemporalUpscaler::ReleaseFeatureAfterGpuDrain() { if (dlss_) dlss_->ReleaseFeatureAfterGpuDrain(); fsr_->ReleaseFeatureAfterGpuDrain(); }
-void TemporalUpscaler::ShutdownAfterGpuDrain() { if (dlss_) dlss_->ShutdownAfterGpuDrain(); fsr_->ShutdownAfterGpuDrain(); }
-bool TemporalUpscaler::ShutdownComplete() const { return (!dlss_ || dlss_->ShutdownComplete()) && !fsr_->HasFeatureState(); }
-void TemporalUpscaler::AbandonAfterDeviceLoss() { if (dlss_) dlss_->AbandonUsesAfterDeviceLoss(); fsr_->AbandonUsesAfterDeviceLoss(); }
+bool TemporalUpscaler::HasFeatureState() const {
+    return (dlss_ && dlss_->HasFeatureState()) || fsr_->HasFeatureState() || xess_->HasFeatureState();
+}
+void TemporalUpscaler::ReleaseFeatureAfterGpuDrain() {
+    if (dlss_) dlss_->ReleaseFeatureAfterGpuDrain();
+    fsr_->ReleaseFeatureAfterGpuDrain(); xess_->ReleaseFeatureAfterGpuDrain();
+}
+void TemporalUpscaler::ShutdownAfterGpuDrain() {
+    if (dlss_) dlss_->ShutdownAfterGpuDrain();
+    fsr_->ShutdownAfterGpuDrain(); xess_->ShutdownAfterGpuDrain();
+}
+bool TemporalUpscaler::ShutdownComplete() const {
+    return (!dlss_ || dlss_->ShutdownComplete()) && !fsr_->HasFeatureState() && !xess_->HasFeatureState();
+}
+void TemporalUpscaler::AbandonAfterDeviceLoss() {
+    if (dlss_) dlss_->AbandonUsesAfterDeviceLoss();
+    fsr_->AbandonUsesAfterDeviceLoss(); xess_->AbandonUsesAfterDeviceLoss();
+}
 } // namespace gpu
 #endif

@@ -29,7 +29,8 @@ inline EnvironmentSelection ParseEnvironment(const char* provider, const char* m
     if (p == "dlss") out.config.provider = Provider::Dlss;
     else if (p == "fsr") out.config.provider = Provider::Fsr;
     else if (p == "metalfx") out.config.provider = Provider::MetalFx;
-    else { out.error = "LO_FG_PROVIDER must be off, dlss, fsr, or metalfx"; return out; }
+    else if (p == "xess") out.config.provider = Provider::Xess;
+    else { out.error = "LO_FG_PROVIDER must be off, dlss, fsr, metalfx, or xess"; return out; }
     const std::string_view m = mode ? mode : "fixed";
     if (m == "off") { out.config = {}; return out; }
     if (m == "fixed") out.config.mode = Mode::Fixed;
@@ -72,6 +73,10 @@ inline EnvironmentSelection ParseEnvironment(const char* provider, const char* m
     if ((out.config.provider == Provider::Fsr || out.config.provider == Provider::MetalFx) &&
         (out.config.mode != Mode::Fixed || out.config.generatedFrames != 1))
         out.error = "FSR and MetalFX FG support fixed 2x only";
+    // XeSS-FG has no dynamic mode; the session limits the multiplier to the
+    // SDK-reported maximum (one generated frame on non-Intel GPUs).
+    if (out.config.provider == Provider::Xess && out.config.mode != Mode::Fixed)
+        out.error = "XeSS FG supports fixed multipliers only";
     return out;
 }
 } // namespace framegen

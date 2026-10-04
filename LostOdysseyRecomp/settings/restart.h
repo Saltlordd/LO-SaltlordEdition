@@ -73,9 +73,11 @@ inline bool Required(const Config &before, const Config &after)
              before.frameGenerationMode != after.frameGenerationMode ||
              before.frameGenerationMultiplier != after.frameGenerationMultiplier ||
              before.frameGenerationTargetFps != after.frameGenerationTargetFps)) ||
+           // Streamline stays loaded for DLSS SR, so another FG provider needs a restart.
            (before.graphicsBackend == GraphicsBackend::D3D12 &&
             before.frameGenerationProvider == framegen::Provider::Dlss &&
-            after.frameGenerationProvider == framegen::Provider::Fsr);
+            after.frameGenerationProvider != framegen::Provider::Dlss &&
+            after.frameGenerationProvider != framegen::Provider::Off);
 }
 
 inline void Request() { state.store(State::Requested); }

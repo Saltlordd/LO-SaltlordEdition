@@ -48,12 +48,14 @@ endif()
 include(cmake/LoOptimization.cmake)
 include(cmake/LoDlss.cmake)
 include(cmake/LoStreamline.cmake)
+include(cmake/LoXess.cmake)
 include(cmake/LoFrameGeneration.cmake)
 include(cmake/LoFsr.cmake)
 # NGX and the FidelityFX SDK paths are D3D12/Vulkan only; macOS renders through
 # Metal. Upscaling there is a separate later feature (MetalFX).
-if(LO_TARGET_PLATFORM STREQUAL "macos" AND (LO_ENABLE_DLSS OR LO_ENABLE_FSR OR LO_ENABLE_STREAMLINE_FG))
-    message(FATAL_ERROR "DLSS, FSR and DLSS frame generation are not available on macOS")
+if(LO_TARGET_PLATFORM STREQUAL "macos" AND (LO_ENABLE_DLSS OR LO_ENABLE_FSR OR LO_ENABLE_STREAMLINE_FG OR
+    LO_ENABLE_XESS OR LO_ENABLE_XESS_FG))
+    message(FATAL_ERROR "DLSS, FSR, XeSS and DLSS frame generation are not available on macOS")
 endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 

@@ -83,6 +83,14 @@ int main()
     Require(settings::restart::Required(before, after), "DLSS FG to FSR FG requires restart");
     before.frameGenerationProvider = framegen::Provider::Off;
     Require(!settings::restart::Required(before, after), "FG Off to FSR retains live switching");
+    before.frameGenerationProvider = framegen::Provider::Dlss;
+    after.frameGenerationProvider = framegen::Provider::Xess;
+    Require(settings::restart::Required(before, after), "DLSS FG to XeSS FG requires restart");
+    after.frameGenerationProvider = framegen::Provider::Off;
+    Require(!settings::restart::Required(before, after), "DLSS FG to Off retains live switching");
+    before.frameGenerationProvider = framegen::Provider::Fsr;
+    after.frameGenerationProvider = framegen::Provider::Xess;
+    Require(!settings::restart::Required(before, after), "FSR FG to XeSS FG retains live switching");
     before = settings::Config{};
     after = before;
     after.hdr = true;

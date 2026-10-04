@@ -17,6 +17,7 @@ namespace gpu::frame_plan
         case upscaling::Upscaler::Dlss: return "Dlss";
         case upscaling::Upscaler::Fsr: return "Fsr";
         case upscaling::Upscaler::MetalFx: return "MetalFx";
+        case upscaling::Upscaler::Xess: return "Xess";
         }
         return "Unknown";
     }
@@ -39,6 +40,7 @@ namespace gpu::frame_plan
         case upscaling::TemporalConsumer::DlssSr: return "DlssSr";
         case upscaling::TemporalConsumer::FsrSr: return "FsrSr";
         case upscaling::TemporalConsumer::MetalFxSr: return "MetalFxSr";
+        case upscaling::TemporalConsumer::XessSr: return "XessSr";
         }
         return "Unknown";
     }

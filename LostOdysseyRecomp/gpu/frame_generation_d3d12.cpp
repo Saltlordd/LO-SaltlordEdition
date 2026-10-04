@@ -43,13 +43,19 @@ bool D3D12Bridge::Initialize(plume::D3D12Device& device, const framegen::Config&
 #else
         reason = "FSR FG was not compiled";
 #endif
-    }
+    } else if (config.provider == framegen::Provider::Xess) {
+#ifdef FRAMEGEN_WITH_XESS
+        session_ = framegen::CreateXessD3D12(device.d3d, device.renderInterface->dxgiFactory, config, runtime, reason);
+#else
+        reason = "XeSS FG was not compiled";
+#endif
+    } else reason = "provider has no D3D12 FG adapter";
     if (!session_) return false;
     device_ = &device;
     config_ = config;
     device.presentationHooks = {session_.get(), CreateQueue, CreateSwapchain};
     LOG_INFO("D3D12 FG: provider={} mode={} generated_frames={} target_fps={} input_capture=on sr_dependency=none",
-        config.provider == framegen::Provider::Fsr ? "fsr" : "dlss",
+        framegen::ProviderName(config.provider),
         config.mode == framegen::Mode::Dynamic ? "dynamic" : "fixed",
         config.generatedFrames, config.targetFrameRate);
     return true;
