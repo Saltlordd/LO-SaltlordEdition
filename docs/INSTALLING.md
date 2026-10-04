@@ -160,7 +160,7 @@ Press **F1** or **LB+RB** to open the Debug Menu; opening it pauses the game. It
 Release packages carry no precompiled shaders. When none matching the selected renderer (Direct3D 12, Vulkan or Metal) is installed and one is published for your version, the game offers to download it at startup, after the update check and before it prepares shaders. The window, titled Shader bundle, shows the download size.
 
 - **Download (A)** fetches the pack from the `shader-packs` release on GitHub and shows progress; **Cancel (B)** stops it. The game uses the file only if its size and SHA-256 match the published list and it fits the game; otherwise it compiles the shaders on your PC. Accepting avoids several minutes of shader compilation.
-- **Skip (B)** compiles the shaders on your PC. The choice is remembered until the shaders change, in `declined-downloads.txt` in the `shaders/` folder (see the [README's file list](../README.md#files-and-folders)). Closing the window without choosing asks again at the next start.
+- **Skip (B)** compiles the shaders on your PC. The choice is remembered until the shaders change, in `declined-downloads.txt` in the `shaders/` folder (see [file locations](#file-locations)). Closing the window without choosing asks again at the next start.
 
 Since v0.8.0, Vulkan (Windows, Linux) and Metal (macOS) read one pack, `portable_vk.lospv`, and DirectX 12 keeps `portable_dx12.lospd`. The new shader contract needs the new packs, so the first start after updating offers the download.
 
@@ -176,11 +176,54 @@ When you are offline, or no pack is published for your version, the game compile
 | macOS `.app` (experimental) | Saves, profiles, cache, game data, settings and game path: `~/Library/Application Support/LostOdysseyRecomp/`. Logs: `~/Library/Logs/LostOdysseyRecomp/logs/`. |
 | Android APK (experimental) | Game data: `Android/data/io.github.freefrank.lostodyssey/files/game/` on the internal storage or an SD card (the app creates the `game` folder with a `README.txt`; `disc1`–`disc4` are copied in by hand). App-private storage `files/`: settings in `config/`, saves, profiles, shader pack and cache beside them, GPU driver packages in `gpu_driver/`. Logs: `Android/data/io.github.freefrank.lostodyssey/files/logs/`. |
 
-F1 render captures go to `captures/` and mods to `mods/`. In a portable layout both sit beside the executable. Otherwise captures use the settings folder and mods the data folder. The [README](../README.md#files-and-folders) lists every file and folder and the [command-line options](../README.md#command-line-options).
+F1 render captures go to `captures/` and mods to `mods/`. In a portable layout both sit beside the executable. Otherwise captures use the settings folder and mods the data folder. The [README](../README.md#files-and-folders) has a short list of the files; all launch options are under [command-line options](#command-line-options).
 
 In Flatpak, the host's `data/` folder appears as `/var/data` inside the sandbox; the default game directory is `/var/data/game`. This program's shader cache uses `data/cache/`. The host paths follow [Flatpak's XDG directory conventions](https://docs.flatpak.org/en/latest/conventions.html#xdg-base-directories).
 
 Linux uses portable storage when the actual ELF directory is writable. Otherwise it uses the XDG directories above; custom `XDG_CONFIG_HOME`, `XDG_DATA_HOME` or `XDG_STATE_HOME` values change their roots. For portable Windows or native ELF launches with explicit `--game`, relative user-data paths follow the calling working directory, so launch from the same directory to keep using the same saves. `--game` selects the game source and does not change a non-portable installation's data layout; only F1 captures then follow the working directory.
+
+## Command-line options
+
+| Option | Effect |
+| :--- | :--- |
+| `--game <path>` | Uses this game: a folder that contains `default.xex` or `disc1/`, or the `default.xex` file itself. Skips `game-path.txt`, the search and the automatic importer, and exits with an error if no `default.xex` is found. |
+| `--install` | Opens the importer even when a game is already set up, then exits: 0 after a successful import, 1 if cancelled or failed. **Gameplay → Import discs & DLC** relaunches with this option. |
+| `--setup` | Runs the first-launch setup again, then starts the game. On Windows this is the setup dialog. Linux and macOS have no setup screen yet, so it only saves the current settings. |
+| `--setup-only` | Like `--setup`, then exits. |
+| `--prepare-shaders-only` | Loads the game data, prepares shaders and pipelines, then exits without starting the game: 0 on success, 1 on failure. Use it to warm the shader cache. |
+| `--quiet-kernel` | Leaves kernel trace lines out of the log. |
+
+Options must be spelled exactly. Write `--game <path>` as two arguments; `--game=<path>` is ignored, along with any other unknown argument. There is no `--help` or `--version`. The updater and restart logic use internal arguments (`--apply-plan`, `--wait-process`, `--restart-ready`, `--restart-parent-fd`, `--restart-ready-fd`); do not pass them yourself. `LostOdysseyRecomp.exe` is a GUI program and prints nothing to a console; check the log instead.
+
+```bash
+LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
+./LostOdysseyRecomp-linux-x64-v0.8.10.AppImage --game ~/Games/LostOdyssey
+flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
+LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdyssey
+```
+
+Environment variables give more launch options. Each one overrides the saved setting for that run.
+
+| Variable | Effect |
+| :--- | :--- |
+| `LO_GRAPHICS_API` | `d3d12` or `vulkan` on Windows. Linux always uses Vulkan and macOS always uses Metal. |
+| `LO_FPS` | Frame-rate cap from 0 to 1000; `0` means uncapped. |
+| `LO_FG_PROVIDER`, `LO_FG_MODE`, `LO_FG_MULTIPLIER`, `LO_FG_TARGET_FPS` | Frame generation on Windows: `off`/`dlss`/`fsr`; `off`/`fixed`/`dynamic`; 2–6; target FPS. Since v0.7.35, Vulkan accepts DLSS fixed 2–6 and, in builds with `LO_ENABLE_VULKAN_FSR_FG`, FSR fixed 2; macOS accepts `metalfx` (fixed 2, experimental). Dynamic mode is D3D12 DLSS only. [Details](notes/vulkan-fg-fsr4-metalfx.md). |
+| `LO_OPTISCALER_PATH` | Experimental Windows OptiScaler loading: absolute path to your `OptiScaler.dll`. Requires DLSS/NGX in the build and `LO_FG_PROVIDER=off`; select DLSS in-game. [Setup and limits](notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows). |
+| `LO_NO_UPDATE` | Any value other than `0` skips the update check. |
+| `LO_PROFILE_DIR`, `LO_SHADER_CACHE_DIR`, `LO_MODS_DIR` | Use another profile, shader cache or mods folder. An empty `LO_SHADER_CACHE_DIR` disables the shader cache. |
+| `LO_MODS` | `0` or `false` disables mods. |
+| `LO_LOG_FILE` | Write the log to this path, or `0` for no log file. |
+| `LO_AUDIO_MUTE`, `LO_CONTROLLER_RUMBLE` | `LO_AUDIO_MUTE=1` mutes audio; `LO_CONTROLLER_RUMBLE=0` turns rumble off. |
+
+### How the game is found
+
+When `--game` is not given:
+
+1. The program reads `game-path.txt`.
+2. If that file is absent, it looks for `default.xex` in the data folder's `game/` (per-user packages only).
+3. Then it checks `game/`, the program folder and `../game` next to the program.
+4. If nothing is found, the importer opens.
 
 ## Updating and keeping user data
 

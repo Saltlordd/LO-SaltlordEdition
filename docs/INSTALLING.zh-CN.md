@@ -162,7 +162,7 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 发布包不附带预编译着色器。如果没有装好与所选渲染器（Direct3D 12、Vulkan 或 Metal）匹配的包，并且已为你的版本发布了对应的包，游戏会在启动时询问是否下载，时机在更新检查之后、准备着色器之前。窗口标题为“着色器包”，会显示下载大小。
 
 - **下载 (A)** 从 GitHub 的 `shader-packs` 发布页下载并显示进度，**取消 (B)** 可中止。只有文件的大小和 SHA-256 与发布清单一致、并且与游戏匹配时才会使用，否则游戏改为在本机编译着色器。选择下载可以省去数分钟的着色器编译。
-- **跳过 (B)** 在本机编译着色器。这个选择会一直记到着色器更新为止，记录在 `shaders/` 目录的 `declined-downloads.txt` 中（见 [README 的文件列表](../README.zh-CN.md#文件与目录)）。不做选择直接关闭窗口，下次启动会再次询问。
+- **跳过 (B)** 在本机编译着色器。这个选择会一直记到着色器更新为止，记录在 `shaders/` 目录的 `declined-downloads.txt` 中（见[文件位置](#file-locations)）。不做选择直接关闭窗口，下次启动会再次询问。
 
 自 v0.8.0 起，Vulkan（Windows、Linux）和 Metal（macOS）共用一个包 `portable_vk.lospv`，DirectX 12 仍用 `portable_dx12.lospd`。着色器 contract 变了，需要新的包，所以更新后第一次启动会提示下载。
 
@@ -180,11 +180,54 @@ Windows 上，首次设置页面会在游戏初始化前保存界面语言、游
 | macOS `.app`（实验性） | 存档、档案、缓存、游戏数据、设置与游戏路径：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
 | Android APK（实验性） | 游戏数据：内部存储或 SD 卡上的 `Android/data/io.github.freefrank.lostodyssey/files/game/`（`game` 目录和 `README.txt` 由应用建好，`disc1`–`disc4` 手动复制进去）。应用私有存储 `files/`：设置在 `config/`，存档、档案、着色器包和缓存在旁边，GPU 驱动包在 `gpu_driver/`。日志在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`。 |
 
-F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 列出了全部文件、目录和[命令行参数](../README.zh-CN.md#命令行参数)。
+F1 渲染捕获保存在 `captures/`，Mod 放在 `mods/`。便携方式下两者都在可执行文件旁；否则捕获在设置目录，Mod 在数据目录。[README](../README.zh-CN.md#文件与目录) 有简要的文件列表；全部启动选项见[命令行参数](#命令行参数)。
 
 Flatpak 的主机 `data/` 目录在沙盒内显示为 `/var/data`，因此默认游戏目录是 `/var/data/game`。本程序的着色器缓存使用 `data/cache/`。主机路径遵循 [Flatpak 的 XDG 目录约定](https://docs.flatpak.org/en/latest/conventions.html#xdg-base-directories)。
 
 Linux 根据实际 ELF 所在目录是否可写来选择便携存储，否则使用上方 XDG 目录；自定义 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 或 `XDG_STATE_HOME` 会改变对应根目录。便携 Windows 或原生 ELF 显式使用 `--game` 启动时，相对用户数据路径按调用者的工作目录计算；请保持启动目录一致，以免读到另一套存档。`--game` 只选择游戏来源，不改变非便携安装的数据布局；此时只有 F1 捕获会跟随工作目录。
+
+## 命令行参数
+
+| 参数 | 作用 |
+| :--- | :--- |
+| `--game <路径>` | 使用指定的游戏：包含 `default.xex` 或 `disc1/` 的文件夹，或 `default.xex` 文件本身。跳过 `game-path.txt`、自动查找和自动导入；找不到 `default.xex` 时报错退出。 |
+| `--install` | 即使已经设置好游戏也打开导入器，完成后退出：导入成功返回 0，取消或失败返回 1。**Gameplay → Import discs & DLC** 就是用这个参数重新启动的。 |
+| `--setup` | 重新运行首次启动设置，然后进入游戏。Windows 上是设置对话框；Linux 和 macOS 还没有设置界面，只会保存当前设置。 |
+| `--setup-only` | 同 `--setup`，完成后退出。 |
+| `--prepare-shaders-only` | 加载游戏数据并准备着色器和管线，然后不启动游戏直接退出：成功返回 0，失败返回 1。可用于预热着色器缓存。 |
+| `--quiet-kernel` | 日志中不记录内核跟踪行。 |
+
+参数必须完全一致：`--game <路径>` 要写成两个参数，`--game=<路径>` 和其他无法识别的参数都会被忽略。没有 `--help` 或 `--version`。更新程序和重启逻辑会使用内部参数（`--apply-plan`、`--wait-process`、`--restart-ready`、`--restart-parent-fd`、`--restart-ready-fd`），请不要手动传入。`LostOdysseyRecomp.exe` 是图形界面程序，不会向控制台输出内容，请查看日志。
+
+```bash
+LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
+./LostOdysseyRecomp-linux-x64-v0.8.10.AppImage --game ~/Games/LostOdyssey
+flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
+LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdyssey
+```
+
+环境变量提供更多启动选项，每个变量都只在本次运行中覆盖已保存的设置。
+
+| 变量 | 作用 |
+| :--- | :--- |
+| `LO_GRAPHICS_API` | Windows 上为 `d3d12` 或 `vulkan`。Linux 始终使用 Vulkan，macOS 始终使用 Metal。 |
+| `LO_FPS` | 帧率上限，0 到 1000；`0` 表示不限制。 |
+| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | Windows 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率。自 v0.7.35 起，Vulkan 支持 DLSS 固定 2–6 倍，用 `LO_ENABLE_VULKAN_FSR_FG` 构建时还支持 FSR 固定 2×；macOS 支持 `metalfx`（固定 2×，实验性）。动态模式仅限 D3D12 的 DLSS。[详情](notes/vulkan-fg-fsr4-metalfx.md)。 |
+| `LO_OPTISCALER_PATH` | 实验性 Windows OptiScaler 接入：填写自备 `OptiScaler.dll` 的绝对路径。构建须包含 DLSS/NGX，并设置 `LO_FG_PROVIDER=off`；游戏内选择 DLSS。[配置方法与限制](notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows)。 |
+| `LO_NO_UPDATE` | 设为 `0` 以外的任何值即跳过更新检查。 |
+| `LO_PROFILE_DIR`、`LO_SHADER_CACHE_DIR`、`LO_MODS_DIR` | 使用其他个人配置、着色器缓存或 Mod 目录。`LO_SHADER_CACHE_DIR` 设为空值会关闭着色器缓存。 |
+| `LO_MODS` | `0` 或 `false` 关闭 Mod。 |
+| `LO_LOG_FILE` | 把日志写到指定路径；设为 `0` 则不写日志文件。 |
+| `LO_AUDIO_MUTE`、`LO_CONTROLLER_RUMBLE` | `LO_AUDIO_MUTE=1` 静音；`LO_CONTROLLER_RUMBLE=0` 关闭震动。 |
+
+### 游戏目录的查找顺序
+
+未指定 `--game` 时：
+
+1. 读取 `game-path.txt`。
+2. 没有这个文件时，在数据目录的 `game/` 中查找 `default.xex`（仅限按用户目录存放的安装包）。
+3. 再依次检查程序旁的 `game/`、程序所在目录和上一级的 `../game`。
+4. 都找不到时打开导入器。
 
 ## 更新和保留个人数据
 
