@@ -6,11 +6,23 @@
 
 **An experimental native PC port of Lost Odyssey for Xbox 360.**
 
-Windows x64 · Linux x64 · macOS arm64 (experimental) · Android arm64 (experimental) · Direct3D 12 · Vulkan · Metal
+[![Latest release](https://img.shields.io/github/v/release/freefrank/LostOdysseyRecomp?label=release)](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/freefrank/LostOdysseyRecomp/total?label=downloads)](https://github.com/freefrank/LostOdysseyRecomp/releases)
+[![Stars](https://img.shields.io/github/stars/freefrank/LostOdysseyRecomp?style=flat)](https://github.com/freefrank/LostOdysseyRecomp/stargazers)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Last commit](https://img.shields.io/github/last-commit/freefrank/LostOdysseyRecomp?label=last%20commit)](https://github.com/freefrank/LostOdysseyRecomp/commits/main)
+[![Open issues](https://img.shields.io/github/issues/freefrank/LostOdysseyRecomp?label=issues)](https://github.com/freefrank/LostOdysseyRecomp/issues)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/dotslash)
+
+![Windows x64](https://img.shields.io/badge/Windows-x64-0078D6)
+![Linux x64](https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=black)
+![macOS arm64 (experimental)](https://img.shields.io/badge/macOS-arm64%20%28experimental%29-000000?logo=apple&logoColor=white)
+![Android arm64 (experimental)](https://img.shields.io/badge/Android-arm64%20%28experimental%29-3DDC84?logo=android&logoColor=white)
+![Direct3D 12](https://img.shields.io/badge/Direct3D-12-5E5E5E)
+![Vulkan](https://img.shields.io/badge/Vulkan-AC162C?logo=vulkan&logoColor=white)
+![Metal](https://img.shields.io/badge/Metal-147EFB)
 
 ### [Download](https://github.com/freefrank/LostOdysseyRecomp/releases/latest) · [Installation guide](docs/INSTALLING.md) · [简体中文](README.zh-CN.md)
-
-[Features](#current-features) · [Controls](#controls) · [Debug Menu](#debug-menu)
 
 [Changelog](CHANGELOG.md) · [Report an issue](https://github.com/freefrank/LostOdysseyRecomp/issues) · [Project board](https://github.com/users/freefrank/projects/3) · [Build from source](docs/BUILDING.md)
 
@@ -18,6 +30,27 @@ Windows x64 · Linux x64 · macOS arm64 (experimental) · Android arm64 (experim
 
 > [!IMPORTANT]
 > **The port is still in early testing.** Opening areas and selected scenes have been tested; a complete playthrough has not. Rendering and stability issues remain. Supply your own supported game files.
+
+## Contents
+
+- [Start playing](#start-playing)
+  - [macOS (experimental)](#macos-experimental)
+  - [Android (experimental)](#android-experimental)
+  - [HDR (experimental)](#hdr-experimental)
+  - [Latest changes](#latest-changes)
+- [Current features](#current-features)
+- [Controls](#controls)
+- [Debug menu](#debug-menu)
+  - [Overview: captures and game actions](#overview-captures-and-game-actions)
+  - [Teleport: positions within the current map](#teleport-positions-within-the-current-map)
+  - [Cheats: speed and game-data tools](#cheats-speed-and-game-data-tools)
+- [Files and folders](#files-and-folders)
+- [Command-line options](#command-line-options)
+- [Reporting a problem](#reporting-a-problem)
+- [In-game screenshots](#in-game-screenshots)
+- [Development](#development)
+- [Sponsors](#sponsors)
+- [Credits and game data](#credits-and-game-data)
 
 ## Start playing
 
