@@ -232,6 +232,9 @@ inline constexpr ScreenLightPair ScreenLightPairs[]{
     {0xd9732b36fcc9dc49ull, 0x08678429d24ed0efull}, {0xda5bafb8e0f5ea2dull, 0x921f6bf1ab35afd7ull},
     {0xdd4737cd63de5942ull, 0x8901785286fadee6ull}, {0xef71c9c08352b01aull, 0x4098c2df329dc2b1ull},
     {0xf1833d2ba6fbb269ull, 0xa60815deff98d748ull}, {0xf7fff3419840491eull, 0x55bf9fedd9777eddull},
+    // RT_183B: lights over the 66fe depth writer in ReviewedPairs, left behind it
+    // once 66fe was jittered.
+    {0x3fc19a69242fafedull, 0x638386a1e1151b03ull}, {0xc559554e1745f863ull, 0x6c26c0428188562dull},
 };
 inline bool IsScreenLightPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : ScreenLightPairs)
