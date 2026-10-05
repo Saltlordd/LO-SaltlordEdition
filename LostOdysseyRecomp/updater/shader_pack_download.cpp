@@ -10,6 +10,7 @@
 #include <hid/android_touch.h>
 #endif
 #include <host_ui/widgets.h>
+#include <os/stale_files.h>
 
 #include <algorithm>
 #include <atomic>
@@ -412,6 +413,9 @@ std::string PrepareAtStartup(const StartupRequest &request)
         return "check skipped: developer shader settings";
     const auto flavor = ExpectedFlavor(request.configuredBackend);
     if (!flavor) return "check skipped: invalid renderer request";
+    // A download interrupted by a killed process leaves "<pack>.download-<pid>".
+    for (const auto each : {pack::Flavor::Vulkan, pack::Flavor::D3D12})
+        os::RemoveStaleSiblings(pack::InstallDirectory() / pack::FileNameOf(each), L".download-");
     const auto name = std::string(pack::FlavorName(*flavor));
     pack::Digest contract{};
     try
