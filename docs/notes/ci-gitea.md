@@ -269,6 +269,26 @@ too. No game run with the packages is recorded; see
 [STATUS](../STATUS.md#v0821-published--2026-10-04). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
+Tenth release, 2026-10-05: v0.8.30 (tag commit `f1ebdc05`) was built and published
+by [run 295](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/295)
+(API id 687), started when the tag was pushed at about 20:32Z. All six jobs
+succeeded (UTC): create draft 20:32:14-20:32:25, Android APK 20:32:25-20:38:45,
+FSR inputs 20:32:13-20:43:29, Windows build and ZIP 20:43:32-20:51:10, Linux
+AppImage and Flatpak 20:43:30-20:53:09 and publish 20:53:10-20:54:13, which
+published at 2026-10-05T20:54:12Z. About 22 minutes passed from the tag to the
+public release. The macOS disk image was built on the Mac from the tag and
+uploaded to the draft by hand (GitHub dates the asset 20:33:41Z) while the
+Windows and Linux jobs were building. This is the first release whose Windows ZIP
+carries the Intel XeSS libraries (PR #236, which downloads the pinned XeSS SDK
+3.0.2 in release builds); the ZIP is 150,316,921 bytes against 77,157,364 for
+v0.8.21 and its contents were not inspected for this record. No shader pack was
+published: `publish_shader_packs.py --check` passed against the existing index
+before the tag was pushed (see the
+[pack reference](../PORTABLE_SHADER_PACK.md#update-2026-10-05-no-new-packs-for-v0830)).
+No game run with the packages is recorded; see
+[STATUS](../STATUS.md#v0830-published--2026-10-05). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the
