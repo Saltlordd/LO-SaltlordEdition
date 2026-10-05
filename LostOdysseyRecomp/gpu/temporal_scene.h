@@ -195,12 +195,32 @@ inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
         if (pair.vs == vs && pair.ps == ps) return &pair;
     return nullptr;
 }
-// e810 has eleven observed PS partners. Only this independently reviewed pair
-// may use the slot-7 path, and only with a constant single-texel screen sample.
+// Reviewed per-light passes drawn over the geometry of a jittered slot-7 scene
+// draw without writing depth. Their c7-c10 feed only oPos and the o4 copy; the
+// PS samples tex0 at o4.xy/w (light attenuation at ScreenPosition, like the
+// f6131 2078/4013 floor light), so the lookup follows the raster jitter.
+struct ScreenLightPair { uint64_t vs, ps; };
+inline constexpr ScreenLightPair ScreenLightPairs[]{
+    // Old Sorceress' Mansion battle (#212): both over the 4053 floor draw with
+    // the same world and camera; unjittered, the GEQUAL depth test made the
+    // floor lighting flicker. 9bde is e810 with an extra fetch94 scalar.
+    {0xe810cfacc107fd3cull, 0xc44ebbbc0207b5a9ull},
+    {0x9bdef27080ca3ab4ull, 0xd122f0139a58bdacull},
+    // The same floor light in a battle entered from the Entrance Hall.
+    {0xe810cfacc107fd3cull, 0xa800980dfc9e4efeull},
+};
+inline bool IsScreenLightPair(uint64_t vs, uint64_t ps) {
+    for (const auto& pair : ScreenLightPairs)
+        if (pair.vs == vs && pair.ps == ps) return true;
+    return false;
+}
+// e810 has eleven observed PS partners. Only the reviewed pairs may use the
+// slot-7 path; fe31 only with a constant single-texel screen sample.
 // Keep it out of the VS-wide table so other consumers cannot self-anchor it.
 inline int DrawPositionVPSlot(uint64_t vs, uint64_t ps, bool constantScreenSample = false) {
     if (FindSkyMaterialPair(vs, ps)) return 7;
     if (vs == 0xe810cfacc107fd3cull && ps == 0xfe31f3d6588fde95ull && constantScreenSample) return 7;
+    if (IsScreenLightPair(vs, ps)) return 7;
     return PositionVPSlot(vs);
 }
 // Sky pairs jitter only against a scene camera observed before them; they
@@ -236,6 +256,7 @@ public:
     void ObserveCamera(const SceneAnchor& anchor)
     {
         ++draws_;
+        RememberCamera(anchor);
         if (draws_ == 1)
         {
             anchor_ = anchor;
@@ -250,6 +271,7 @@ public:
     }
     void ObserveDepth(uint64_t sourceAllocation, const SceneResolve& resolve)
     {
+        RememberDepth(sourceAllocation, resolve);
         // Shadow/other view resolves cannot substitute for the selected allocation.
         if (!draws_ || sourceAllocation != anchor_.depthAllocation) return;
         if (depth_.ordinal) { Reject(Rejection::RepeatedDepth); return; }
@@ -276,7 +298,37 @@ public:
     const SceneAnchor& Anchor() const { return anchor_; }
     const SceneResolve& Depth() const { return depth_; }
     const SceneResolve& Color() const { return color_; }
+    // Some cutscene shots draw a second full scene view with another camera
+    // (#212). Draws without their own anchor (shadow volumes, projections,
+    // lights) jitter with the observed camera they use, and a projection may
+    // sample that view's depth resolve; the first camera stays the frame's.
+    const SceneAnchor& AnchorFor(const uint32_t* vp) const
+    {
+        for (uint32_t i = 0; i < cameraCount_; ++i)
+            if (std::equal(cameras_[i].vpBits.begin(), cameras_[i].vpBits.end(), vp)) return cameras_[i];
+        return anchor_;
+    }
+    const SceneResolve& DepthFor(const SceneResolve* sampled) const
+    {
+        for (uint32_t i = 0; sampled && i < depthCount_; ++i)
+            if (depths_[i].ordinal == sampled->ordinal && depths_[i].address == sampled->address) return depths_[i];
+        return depth_;
+    }
 private:
+    void RememberCamera(const SceneAnchor& anchor)
+    {
+        for (uint32_t i = 0; i < cameraCount_; ++i)
+            if (cameras_[i].vpBits == anchor.vpBits && cameras_[i].depthAllocation == anchor.depthAllocation &&
+                SameViewport(cameras_[i].viewport, anchor.viewport)) return;
+        if (cameraCount_ < cameras_.size()) cameras_[cameraCount_++] = anchor;
+    }
+    void RememberDepth(uint64_t sourceAllocation, const SceneResolve& resolve)
+    {
+        if (resolve.frame != frame_ || !resolve.ordinal || !resolve.fullExtent || depthCount_ == depths_.size()) return;
+        for (uint32_t i = 0; i < cameraCount_; ++i)
+            if (cameras_[i].depthAllocation == sourceAllocation && resolve.width == cameras_[i].viewport.width &&
+                resolve.height == cameras_[i].viewport.height) { depths_[depthCount_++] = resolve; return; }
+    }
     static bool SameViewport(const Viewport& a, const Viewport& b)
     {
         return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height &&
@@ -288,5 +340,8 @@ private:
     Rejection rejection_ = Rejection::None;
     SceneAnchor anchor_{};
     SceneResolve depth_{}, color_{};
+    std::array<SceneAnchor, 4> cameras_{};
+    std::array<SceneResolve, 8> depths_{};
+    uint32_t cameraCount_ = 0, depthCount_ = 0;
 };
 }

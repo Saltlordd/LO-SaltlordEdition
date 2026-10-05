@@ -6987,7 +6987,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalDrawAnchor=anchor;
                 }
                 const auto* jitterAnchor = temporalDrawAnchor ? &*temporalDrawAnchor :
-                    (temporalScene.Draws() ? &temporalScene.Anchor() : nullptr);
+                    !temporalScene.Draws() ? nullptr : temporalSlot >= 0 && temporalSlot <= 252 ?
+                    &temporalScene.AnchorFor(vsConstants + temporalSlot * 4) : &temporalScene.Anchor();
                 std::optional<temporal::SceneResolve> jitterSampledDepth;
                 const bool jitterShadowPair = temporal::IsShadowProjectionPair(key.vs, key.ps);
                 if (temporalActive && temporalJitter && jitterShadowPair)
@@ -7078,7 +7079,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalActive && temporalJitter && !diagnosticMaterialBypass, temporalViewport, jitterAnchor,
                     depth ? depth->allocationSerial : 0,
                     {rasterViewport.x, rasterViewport.y, rasterViewport.width, rasterViewport.height},
-                    vsConstants, psConstants, &temporalScene.Depth(), jitterSampledDepth ? &*jitterSampledDepth : nullptr,
+                    vsConstants, psConstants, &temporalScene.DepthFor(jitterSampledDepth ? &*jitterSampledDepth : nullptr),
+                    jitterSampledDepth ? &*jitterSampledDepth : nullptr,
                     ActiveTaaOptions().jitter_scale, dlssSrRequested ? &frameRasterJitter : nullptr,
                     constantScreenSample);
                 // Jitter writes the draw's constant copy; the next draw restores it.
