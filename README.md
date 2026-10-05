@@ -184,7 +184,7 @@ The Windows ZIP is **portable**: everything stays in the folder you extracted it
 
 | What | Where | Notes |
 | :--- | :--- | :--- |
-| Saves | `save/` | Keep when updating. |
+| Saves | `save/` | Keep when updating. Xenia and Xbox 360 saves can be [imported](docs/INSTALLING.md#importing-saves). |
 | Profiles | `profile/` | Keep when updating. |
 | Settings | `settings.ini` | Delete it to start over with default settings. |
 | Imported game | `game/` with `disc1/`–`disc4/` and `dlc/` | The importer's default location; `game-path.txt` remembers another one. |

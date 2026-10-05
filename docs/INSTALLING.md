@@ -4,6 +4,27 @@
 
 Download the package for your platform, import the game from your own discs, and keep your saves when you update. The downloads contain no game files; disc 1 is required to start.
 
+## Contents
+
+- [Windows quick start](#windows-quick-start)
+- [Importing game data](#automatic-content-import)
+- [Adding or replacing discs and DLC](#adding-or-replacing-discs-and-dlc)
+- [Linux packages](#running-on-linux)
+  - [AppImage](#appimage)
+  - [Flatpak](#flatpak)
+- [macOS (Apple Silicon, experimental)](#macos)
+- [Android (experimental)](#android)
+- [First launch and settings](#first-launch-and-settings)
+  - [Shader preparation](#shader-preparation)
+- [File locations](#file-locations)
+- [Importing saves from Xenia or an Xbox 360](#importing-saves)
+  - [From Xenia](#xenia-saves)
+  - [From an Xbox 360 (RGH)](#console-saves)
+- [Command-line options](#command-line-options)
+  - [How the game is found](#how-the-game-is-found)
+- [Updating and keeping user data](#updating-and-keeping-user-data)
+- [Reporting a startup or rendering failure](#reporting-a-startup-or-rendering-failure)
+
 ## Windows quick start
 
 You need Windows x64 and a CPU with AVX. The game uses Direct3D 12 by default; Vulkan can be chosen in the settings.
@@ -153,6 +174,37 @@ After an update that changes the shaders, the first start offers the download ag
 Render captures go to `captures/` and mods to `mods/`: beside the program for the Windows ZIP, otherwise captures in the settings folder and mods in the data folder. Downloaded shaders go to `shaders/` in the same place as mods.
 
 On Linux, `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` move the AppImage folders. A Linux build in a writable folder keeps everything beside the program, like the Windows ZIP. When you start the Windows ZIP with `--game`, saves and settings follow the folder you start from, so always start from the same folder.
+
+<a id="importing-saves"></a>
+
+## Importing saves from Xenia or an Xbox 360
+
+Each save slot is a folder in `save/`, for example `save/user00/save.bin`; see [file locations](#file-locations) for where `save/` is. Close the game and back up `save/` first. The copied saves then appear in the game's load list. Android keeps saves inside the app, so it cannot import them yet.
+
+<a id="xenia-saves"></a>
+
+### From Xenia
+
+Xenia saves have the same format and need no conversion.
+
+1. Find Xenia's `content` folder: beside the Xenia program for a portable Xenia, otherwise `Documents\Xenia\content`. Xenia Canary is portable by default, and Xenia Manager installs it that way, so look in the Xenia folder first.
+2. In it, open `4D5307FA\00000001`. Xenia Canary puts a 16-digit profile folder in between: `content\<profile ID>\4D5307FA\00000001`.
+3. Each `userNN` folder there is one save. Copy the ones you want into `save/`.
+
+A folder with the same name replaces that slot. To keep both, rename the copy to an unused number, such as `user07`.
+
+<a id="console-saves"></a>
+
+### From an Xbox 360 (RGH)
+
+On the console, each save is one file, usually `user00`, in `Content\<profile ID>\4D5307FA\00000001\` on the hard drive. Copy it to your computer, for example over FTP.
+
+1. Open the [save converter](https://freefrank.github.io/LostOdysseyRecomp/) in a browser. It converts on your computer and uploads nothing.
+2. Choose the save file, or a ZIP that contains it, and an empty destination slot.
+3. Select **Convert save** and download the ZIP.
+4. On Windows, extract the ZIP beside `LostOdysseyRecomp.exe`. Elsewhere, copy the `userNN` folder from the ZIP's `save` folder into your `save/`.
+
+Saves cannot be moved back to a console.
 
 ## Command-line options
 

@@ -9,10 +9,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 ### English
 
 - Fixed flickering floor lighting in Old Sorceress' Mansion battles and block shadows in the cutscene where Tolten becomes king, with TAA or upscaling (#212).
+- The installation guide now has a table of contents and explains how to import Xenia and Xbox 360 (RGH) saves.
 
 ### 简体中文
 
 - 修复开启 TAA 或超分辨率时，Old Sorceress' Mansion 战斗中地面光照闪烁，以及 Tolten 即位过场中出现块状阴影的问题（#212）。
+- 安装指南新增目录，并说明如何导入 Xenia 和 Xbox 360（RGH）存档。
 
 ## [v0.8.21](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21) — 2026-10-04
 

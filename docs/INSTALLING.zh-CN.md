@@ -4,6 +4,27 @@
 
 下载对应平台的安装包，从自己的光盘导入游戏，更新时保留存档。下载包不含游戏文件；启动需要 Disc 1。
 
+## 目录
+
+- [Windows 快速开始](#windows-快速开始)
+- [导入游戏数据](#automatic-content-import)
+- [追加或替换光盘和 DLC](#追加或替换光盘和-dlc)
+- [Linux 安装包](#running-on-linux)
+  - [AppImage](#appimage)
+  - [Flatpak](#flatpak)
+- [macOS（Apple Silicon，实验性）](#macos)
+- [Android（实验性）](#android)
+- [首次设置和普通设置](#首次设置和普通设置)
+  - [着色器准备](#shader-preparation)
+- [文件位置](#file-locations)
+- [导入 Xenia 或 Xbox 360 存档](#importing-saves)
+  - [从 Xenia 导入](#xenia-saves)
+  - [从 Xbox 360（RGH）导入](#console-saves)
+- [命令行参数](#命令行参数)
+  - [游戏目录的查找顺序](#游戏目录的查找顺序)
+- [更新和保留个人数据](#更新和保留个人数据)
+- [报告启动或画面问题](#报告启动或画面问题)
+
 ## Windows 快速开始
 
 需要 Windows x64 和支持 AVX 的 CPU。默认使用 Direct3D 12，也可以在设置中改用 Vulkan。
@@ -157,6 +178,37 @@ Windows 上，首次设置页面用来选择界面语言、游戏语言和图形
 渲染捕获保存在 `captures/`，Mod 放在 `mods/`：Windows ZIP 都在程序旁边；其他安装包的捕获在设置目录，Mod 在数据目录。下载的着色器放在 `shaders/`，位置和 Mod 相同。
 
 Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 和 `XDG_STATE_HOME` 改变 AppImage 的目录。放在可写目录里的 Linux 构建会像 Windows ZIP 一样把所有文件放在程序旁边。用 `--game` 启动 Windows ZIP 时，存档和设置跟随启动时所在的目录，请始终从同一个目录启动。
+
+<a id="importing-saves"></a>
+
+## 导入 Xenia 或 Xbox 360 存档
+
+每个存档位是 `save/` 里的一个文件夹，例如 `save/user00/save.bin`；`save/` 的位置见[文件位置](#file-locations)。先关闭游戏并备份 `save/`。复制进去的存档会出现在游戏的读档列表里。Android 的存档保存在应用内部，暂时无法导入。
+
+<a id="xenia-saves"></a>
+
+### 从 Xenia 导入
+
+Xenia 的存档格式相同，不需要转换。
+
+1. 找到 Xenia 的 `content` 文件夹：便携版 Xenia 在程序旁边，否则在 `Documents\Xenia\content`。Xenia Canary 默认是便携版，Xenia Manager 也这样安装，所以先在 Xenia 文件夹里找。
+2. 在里面打开 `4D5307FA\00000001`。Xenia Canary 中间还有一层 16 位的个人档案文件夹：`content\<个人档案 ID>\4D5307FA\00000001`。
+3. 其中每个 `userNN` 文件夹是一个存档，把需要的复制到 `save/`。
+
+同名文件夹会替换那个存档位。要两个都保留，把复制过来的文件夹改成没用过的编号，例如 `user07`。
+
+<a id="console-saves"></a>
+
+### 从 Xbox 360（RGH）导入
+
+主机上每个存档是一个文件，通常叫 `user00`，位于硬盘的 `Content\<个人档案 ID>\4D5307FA\00000001\`。先把它复制到电脑上，例如通过 FTP。
+
+1. 用浏览器打开[存档转换器](https://freefrank.github.io/LostOdysseyRecomp/)。转换在本机完成，不会上传任何文件。
+2. 选择存档文件或包含它的 ZIP，再选一个空的目标存档位。
+3. 点击 **转换存档**（Convert save），下载生成的 ZIP。
+4. Windows 上把 ZIP 解压到 `LostOdysseyRecomp.exe` 旁边。其他系统把 ZIP 里 `save` 文件夹中的 `userNN` 文件夹复制到你的 `save/`。
+
+存档不能再转回主机。
 
 ## 命令行参数
 
