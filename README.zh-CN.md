@@ -250,9 +250,11 @@ flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 
 ## 赞助者
 
-感谢 **Cristian** 和 **Whitesun** 在 Ko-fi 上支持本项目。
+感谢 **Frenzy Fresh**、**José Antonio Martínez Godoy**、**C_BAR**、**Arakon**、**Efren V**、**Torresmo**、**doc_haz**、**Whitesun** 和 **Cristian** 在 [Ko-fi](https://ko-fi.com/dotslash) 上支持本项目。
 
 ## 致谢与游戏数据
+
+感谢所有提交过 PR 和补丁的人：[MikeRavenelle](https://github.com/MikeRavenelle)、[dj5927](https://github.com/dj5927)、[Xarishark](https://github.com/Xarishark)、[navjack](https://github.com/navjack)、[frankzzz](https://github.com/frankzzz) 和 [cngjd](https://github.com/cngjd)。macOS 版本最初来自 MikeRavenelle 在 Apple Silicon 上的工作。
 
 本项目参考 [UnleashedRecomp](https://github.com/hedge-dev/UnleashedRecomp)、[re:Blue](https://github.com/zolaware/reblue)、[XenonRecomp](https://github.com/hedge-dev/XenonRecomp)、[XenosRecomp](https://github.com/hedge-dev/XenosRecomp)、[plume](https://github.com/renderbag/plume) 和 [Xenia](https://github.com/xenia-project/xenia)。音频采用 [Xenia FFmpeg 分支](https://github.com/xenia-project/FFmpeg)（[许可证](thirdparty/ffmpeg-LICENSE.txt)）。Android 上的 Turnip GPU 驱动来自 [Eden](https://git.eden-emu.dev/eden-emu/eden) 模拟器的驱动列表，通过 [libadrenotools](https://github.com/bylaws/libadrenotools) 加载。
 
