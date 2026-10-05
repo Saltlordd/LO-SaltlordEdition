@@ -13,6 +13,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android: **CTRL → Saves** exports your saves to a ZIP file and imports saves from a PC, Xenia or the RGH save converter (#194).
 - Android: the on-screen **LT** now starts fast-forward, like a controller's LT (#194).
 - Steadier lighting and character edges in many cutscenes and some battles with TAA or upscaling.
+- Enemies now fade in when you switch targets in battle instead of popping in (#219).
 
 ### 简体中文
 
@@ -21,6 +22,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android：**CTRL → Saves** 可以把存档导出成 ZIP，也能导入来自电脑、Xenia 或 RGH 存档转换器的存档（#194）。
 - Android：屏幕上的 **LT** 现在也能开启快进，和手柄的 LT 一样（#194）。
 - 开启 TAA 或超分辨率时，许多过场和部分战斗中的光照与角色边缘更稳定。
+- 战斗中切换目标时，敌人现在会淡入，不再突然出现（#219）。
 
 ## [v0.8.21](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21) — 2026-10-04
 
