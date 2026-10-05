@@ -167,7 +167,7 @@ To report a rendering problem, select **Capture render state**, confirm, then **
 | **Party** | Experimental party members, rows and field character. Some changes need a reload. |
 | **Developer** | Experimental access to the original **EDIT MENU**: enable it, close F1, press **LT+RT**. Turn it off afterwards. |
 
-**Fast-forward** needs a controller: hold **LT** (**Hold**) or press it to toggle (**Toggle**), at 2×–8×. It pauses while a menu is open.
+**Fast-forward** needs a controller or Android's on-screen controls: hold **LT** (**Hold**) or press it to toggle (**Toggle**), at 2×–8×. It pauses while a menu is open.
 
 **Memory edits** are off by default. Back up your save first and stand somewhere you can move, outside battle. Turn on **Allow memory edits**, choose an action, confirm **Yes**, then close F1 so it runs. Edited values can end up in your normal saves.
 

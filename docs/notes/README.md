@@ -73,6 +73,7 @@
 
 | 文档 | 类型 |
 |---|---|
+| [Cutscene tour and 45 reviewed jitter pairs — 2026-10-04](jitter-cutscene-tour-2026-10-04.md) | 历史 |
 | [Mansion battle lights and a two-view cutscene (#212) — 2026-10-04](jitter-212-2026-10-04.md) | 历史 |
 | [TAA exit under Proton on AMD (#200) — 2026-10-04](taa-proton-exit-200-2026-10-04.md) | 历史 |
 | [Sea of Baus battle sky jitter (#203) — 2026-10-04](jitter-sky-203-2026-10-04.md) | 历史 |
