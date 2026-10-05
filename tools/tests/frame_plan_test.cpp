@@ -96,7 +96,7 @@ int main()
         Require(Decode(wire::EncodePlan(candidate)) == candidate, "v3 MetalFX consumer/quality roundtrip");
     }
     for (auto provider : {gpu::upscaling::Upscaler::Off, gpu::upscaling::Upscaler::Dlss,
-             gpu::upscaling::Upscaler::Fsr, gpu::upscaling::Upscaler::MetalFx}) {
+             gpu::upscaling::Upscaler::Fsr, gpu::upscaling::Upscaler::MetalFx, gpu::upscaling::Upscaler::Xess}) {
         auto candidate = full;
         candidate.requestedUpscaler = provider;
         candidate.consumer = gpu::upscaling::TemporalConsumer::FsrSr;
@@ -104,7 +104,20 @@ int main()
         Require(Decode(wire::EncodePlan(candidate)) == candidate,
             "v3 FSR consumer bit cannot alias legacy AA for any provider");
     }
-    auto malformed = words; malformed[1] = 4;
+    for (auto quality : {gpu::upscaling::FsrQuality::Quality, gpu::upscaling::FsrQuality::NativeAA}) {
+        auto candidate = full;
+        candidate.requestedUpscaler = gpu::upscaling::Upscaler::Xess;
+        candidate.consumer = gpu::upscaling::TemporalConsumer::XessSr;
+        candidate.fsrQuality = quality;
+        candidate.legacyAA = 0;
+        Require(Decode(wire::EncodePlan(candidate)) == candidate, "v4 XeSS provider/consumer/quality roundtrip");
+        auto v3 = wire::EncodePlan(candidate); v3[1] = 3;
+        const auto old = Decode(v3);
+        Require(!old || old->requestedUpscaler != gpu::upscaling::Upscaler::Xess, "v3 plans cannot carry XeSS");
+    }
+    auto v3 = words; v3[1] = 3;
+    Require(Decode(v3) == full, "known v3 full packet still decodes");
+    auto malformed = words; malformed[1] = 5;
     Require(!Decode(malformed), "unknown version rejected");
     // The two-bit provider field is full: 3 is MetalFX.
     malformed = words; malformed[22] = (malformed[22] & ~3u) | 3u;
@@ -114,8 +127,12 @@ int main()
     Require(!Decode(malformed), "v2 plans cannot carry MetalFX");
     malformed = words; malformed[22] |= (3u << 4) | (1u << 21);
     Require(!Decode(malformed), "unknown consumer rejected");
-    malformed = words; malformed[22] |= 1u << 25;
+    malformed = words; malformed[22] |= 1u << 26;
     Require(!Decode(malformed), "unknown flag rejected");
+    malformed = words; malformed[22] |= (1u << 25) | 3u;
+    Require(!Decode(malformed), "unknown provider 7 rejected");
+    malformed = v3; malformed[22] |= 1u << 25;
+    Require(!Decode(malformed), "v4 provider bit cannot be interpreted in v3");
     malformed = v2; malformed[22] |= 1u << 21;
     Require(!Decode(malformed), "new v3 bits cannot be interpreted as v2 legacy AA");
     malformed = v2; malformed[22] = (malformed[22] & ~3u) | 2u;

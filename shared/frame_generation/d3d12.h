@@ -86,5 +86,8 @@ std::unique_ptr<D3D12Session> CreateDlssD3D12(ID3D12Device*,IDXGIFactory4*,const
     const std::filesystem::path& runtimeDirectory,std::string&);
 std::unique_ptr<D3D12Session> CreateFsrD3D12(ID3D12Device*,IDXGIFactory4*,const Config&,
     const std::filesystem::path& runtimeFile,std::string&);
+// runtimeDirectory contains libxess_fg.dll and libxell.dll.
+std::unique_ptr<D3D12Session> CreateXessD3D12(ID3D12Device*,IDXGIFactory4*,const Config&,
+    const std::filesystem::path& runtimeDirectory,std::string&);
 } // namespace framegen
 #endif

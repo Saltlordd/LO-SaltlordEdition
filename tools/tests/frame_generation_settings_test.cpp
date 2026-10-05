@@ -34,6 +34,19 @@ int main() {
         "individual switches override saved values");
     selected = gpu::frame_generation::ResolveD3D12Selection(saved,"fsr","dynamic",nullptr,nullptr,nullptr);
     Check(!selected.Enabled() && selected.error, "unsupported FSR dynamic request fails closed");
+    selected = gpu::frame_generation::ResolveD3D12Selection(saved,"xess","dynamic",nullptr,nullptr,nullptr);
+    Check(!selected.Enabled() && selected.error, "unsupported XeSS dynamic request fails closed");
+    auto savedXess = saved;
+    savedXess.frameGenerationProvider = framegen::Provider::Xess;
+    savedXess.frameGenerationMode = framegen::Mode::Fixed;
+    savedXess.frameGenerationMultiplier = 3;
+    selected = gpu::frame_generation::ResolveD3D12Selection(savedXess,nullptr,nullptr,nullptr,nullptr,nullptr);
+#if defined(_WIN32) && defined(FRAMEGEN_WITH_XESS)
+    Check(selected.Enabled() && selected.config.provider == framegen::Provider::Xess &&
+          selected.config.generatedFrames == 2, "persisted XeSS request keeps its fixed multiplier");
+#else
+    Check(!selected.Enabled() && selected.error, "uncompiled XeSS FG fails closed");
+#endif
 #ifdef _WIN32
     Check(gpu::frame_generation::D3D12CompiledProvider(framegen::Provider::Dlss) &&
           gpu::frame_generation::D3D12CompiledProvider(framegen::Provider::Fsr), "test build exposes both compiled providers");

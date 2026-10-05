@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <limits>
 #include <cstdlib>
+#include <string_view>
 static unsigned checks = 0;
 #define CHECK(x) do { ++checks; if (!(x)) { std::fprintf(stderr,"FAIL %u line %d: %s\n",checks,__LINE__,#x); return EXIT_FAILURE; } } while(false)
 int main() {
@@ -30,6 +31,15 @@ int main() {
     CHECK(ParseEnvironment("dlss","fixed","7",nullptr).error != nullptr);
     CHECK(ParseEnvironment("dlss","fixed","16",nullptr).error != nullptr);
     CHECK(ParseEnvironment("dlss","fixed","1",nullptr).error != nullptr);
+    // XeSS FG: fixed multipliers limited by the SDK maximum, never dynamic.
+    const auto xess=ParseEnvironment("xess","fixed","3",nullptr);
+    CHECK(xess.Enabled() && xess.config.provider == Provider::Xess && xess.config.generatedFrames == 2);
+    CHECK(ParseEnvironment("xess","dynamic",nullptr,nullptr).error != nullptr);
+    CHECK(Select(xess.config,{true,2,false}).Enabled());
+    CHECK(Select(xess.config,{true,1,false}).rejection == Rejection::Multiplier);
+    CHECK(ParseEnvironment("bogus",nullptr,nullptr,nullptr).error != nullptr);
+    CHECK(std::string_view(ProviderName(Provider::Xess)) == "xess" && KnownProvider(Provider::Xess) &&
+        !KnownProvider(Provider(uint8_t(Provider::Xess) + 1)));
     Config fsr{Provider::Fsr,Mode::Fixed,1,0};
     CHECK(Select(fsr,{true,1,false}).Enabled());
     fsr.mode=Mode::Dynamic;

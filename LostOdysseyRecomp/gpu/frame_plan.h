@@ -606,7 +606,9 @@ namespace gpu::frame_plan
         // Keep both older packet layouts readable at this same register base.
         constexpr uint32_t Magic = 0x4C4F4650; // "LOFP"
         constexpr uint32_t PlanMagic = 0x4C4F4632; // "LOF2"
-        constexpr uint32_t Version = 3;
+        // v3 added the third consumer bit and FSR quality; v4 adds the third
+        // provider bit (XeSS). Older versions stay readable.
+        constexpr uint32_t Version = 4;
         constexpr uint32_t PlanWordCount = 24;
         constexpr uint32_t PlanWordCapacity = CatalogBase - PlanBase;
         static_assert(PlanWordCount <= PlanWordCapacity);
@@ -614,29 +616,30 @@ namespace gpu::frame_plan
         constexpr uint32_t CatalogMagic = 0x4C4F4341; // "LOCA"
         constexpr uint32_t PackFlags(const FramePlan& plan)
         {
-            return uint32_t(plan.requestedUpscaler) | (uint32_t(plan.dlssQuality) << 2) |
+            return (uint32_t(plan.requestedUpscaler) & 0x3u) | (uint32_t(plan.dlssQuality) << 2) |
                 ((uint32_t(plan.consumer) & 0x3u) << 4) | ((plan.legacyAA & 0xFu) << 6) |
                 ((plan.effectiveAA & 0xFu) << 10) | ((plan.scalingQuality & 0xFu) << 14) |
                 (uint32_t(plan.requiresReadback) << 18) | (uint32_t(plan.inputProbe) << 19) |
                 (uint32_t(plan.failed) << 20) |
                 ((uint32_t(plan.consumer) & 4u) << 19) |
-                (uint32_t(plan.fsrQuality) << 22) | (uint32_t(plan.frameGeneration) << 24);
+                (uint32_t(plan.fsrQuality) << 22) | (uint32_t(plan.frameGeneration) << 24) |
+                ((uint32_t(plan.requestedUpscaler) & 4u) << 23);
         }
         constexpr bool UnpackFlags(FramePlan& plan, uint32_t flags, uint32_t version)
         {
-            if (version != 2 && version != Version) return false;
-            if (flags & (version == 2 ? ~0x1FFFFFu : ~0x1FFFFFFu)) return false;
-            plan.requestedUpscaler = upscaling::Upscaler(flags & 0x3u);
+            if (version < 2 || version > Version) return false;
+            if (flags & (version == 2 ? ~0x1FFFFFu : version == 3 ? ~0x1FFFFFFu : ~0x3FFFFFFu)) return false;
+            plan.requestedUpscaler = upscaling::Upscaler((flags & 0x3u) | (version >= 4 ? ((flags >> 23) & 4u) : 0u));
             plan.dlssQuality = upscaling::DlssQuality((flags >> 2) & 0x3u);
             plan.consumer = upscaling::TemporalConsumer(((flags >> 4) & 0x3u) |
-                (version == Version ? ((flags >> 19) & 4u) : 0u));
+                (version >= 3 ? ((flags >> 19) & 4u) : 0u));
             plan.legacyAA = (flags >> 6) & 0xFu;
             plan.effectiveAA = (flags >> 10) & 0xFu;
             plan.scalingQuality = (flags >> 14) & 0xFu;
             plan.requiresReadback = (flags & (1u << 18)) != 0;
             plan.inputProbe = (flags & (1u << 19)) != 0;
             plan.failed = (flags & (1u << 20)) != 0;
-            if (version == Version) {
+            if (version >= 3) {
                 plan.fsrQuality = upscaling::FsrQuality((flags >> 22) & 0x3u);
                 plan.frameGeneration = upscaling::FrameGeneration((flags >> 24) & 1u);
             }
@@ -669,7 +672,7 @@ namespace gpu::frame_plan
                     version = 0; flagsValid = false; plan = {}; return std::nullopt; }
                 if (!active || index < PlanBase || index >= PlanBase + PlanWordCount) return std::nullopt;
                 if (!legacy && index == PlanBase + 1) {
-                    if (value != 2 && value != Version) { active = false; return std::nullopt; }
+                    if (value < 2 || value > Version) { active = false; return std::nullopt; }
                     version = value;
                 }
                 if (legacy && index > PlanBase + 7) return std::nullopt;

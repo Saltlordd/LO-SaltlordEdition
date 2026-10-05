@@ -81,6 +81,36 @@ shader generation belongs to the build pipeline; it is not a player runtime
 step. Linux continues to use the Vulkan FSR path and does not require these
 D3D12 directories.
 
+### Windows Direct3D 12 Intel XeSS development path
+
+XeSS Super Resolution (`LO_ENABLE_XESS`) and XeSS frame generation with Xe Low
+Latency (`LO_ENABLE_XESS_FG`) are optional Direct3D 12 providers. Point
+`LO_XESS_SDK_ROOT` at an extracted [Intel XeSS SDK](https://github.com/intel/xess)
+3.x release (checked with 3.0.2) containing `inc/`, `bin/` and `LICENSE.txt`. The
+FG adapter uses the multi-frame XeSS-FG API, which 2.x does not have. No shaders are generated
+and no import library is linked: the build stages `libxess.dll` (SR) or
+`libxess_fg.dll` and `libxell.dll` (FG) beside the executable together with
+`licenses/LICENSE-XeSS.txt`, and the runtime loads them on demand.
+
+```powershell
+cmake -S . -B out/build/d3d12-upscalers -G Ninja `
+  -DLO_ENABLE_XESS=ON -DLO_ENABLE_XESS_FG=ON `
+  -DLO_XESS_SDK_ROOT='C:\path\to\xess-sdk'
+```
+
+`tools/build_release.bat` forwards the same three variables from the
+environment. XeSS SR appears as *XeSS* under *Anti-aliasing / Upscaling* and
+uses the FSR quality IDs mapped to the same-named XeSS presets (Quality 1.7×,
+Balanced 2.0×, Performance 2.3×, Native AA). XeSS frame generation appears as
+*XeSS* under *Frame generation*; it supports fixed multipliers up to the SDK
+maximum, which is 2× on non-Intel GPUs. Both require the D3D12 backend; on
+Vulkan, or without the DLLs, the menu reports XeSS as unavailable and normal
+rendering is kept. `LO_XESS_RUNTIME_PATH` (a `libxess.dll` path) and
+`LO_XESS_FG_RUNTIME_PATH` (a directory) override the DLL lookup;
+`LO_XESS_JITTER_SCALE=x,y` and `LO_XESS_MV_SCALE=x,y` feed the SDK's jitter and
+motion-vector scale for on-hardware convention checks; `LO_FG_PROVIDER=xess`
+selects XeSS FG like the other providers.
+
 ## Building on Linux
 
 Building the native Linux ELF works on Linux distributions (such as Ubuntu or Manjaro) or under WSL2.

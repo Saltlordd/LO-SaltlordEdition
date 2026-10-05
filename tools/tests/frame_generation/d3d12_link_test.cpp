@@ -10,5 +10,9 @@ int main() {
     config.provider=framegen::Provider::Fsr;
     if (framegen::CreateFsrD3D12(nullptr,nullptr,config,L"missing-runtime.dll",reason)) return 2;
 #endif
+#ifdef FRAMEGEN_WITH_XESS
+    config.provider=framegen::Provider::Xess;
+    if (framegen::CreateXessD3D12(nullptr,nullptr,config,L"missing-runtime",reason)) return 3;
+#endif
     std::puts("D3D12 adapter link/invalid-device smoke passed (no GPU or SDK runtime execution)");
 }

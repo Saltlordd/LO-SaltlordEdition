@@ -14,6 +14,9 @@ inline constexpr bool D3D12CompiledProvider(framegen::Provider provider) {
 #ifdef FRAMEGEN_WITH_FSR
     if (provider == framegen::Provider::Fsr) return true;
 #endif
+#ifdef FRAMEGEN_WITH_XESS
+    if (provider == framegen::Provider::Xess) return true;
+#endif
 #endif
     (void)provider;
     return false;
@@ -57,9 +60,8 @@ inline framegen::EnvironmentSelection ResolveSelection(settings::GraphicsBackend
     const char* provider, const char* mode, const char* multiplier,
     const char* targetFps, const char* legacyDlss, uint32_t refreshHz = 0) {
     const bool providerOverride = provider || legacyDlss;
-    const char* savedProvider = saved.frameGenerationProvider == framegen::Provider::Dlss ? "dlss" :
-        saved.frameGenerationProvider == framegen::Provider::Fsr ? "fsr" :
-        saved.frameGenerationProvider == framegen::Provider::MetalFx ? "metalfx" : "off";
+    const char* savedProvider = framegen::KnownProvider(saved.frameGenerationProvider) ?
+        framegen::ProviderName(saved.frameGenerationProvider) : "off";
     const char* savedMode = saved.frameGenerationMode == framegen::Mode::Off ? "off" :
         saved.frameGenerationMode == framegen::Mode::Dynamic ? "dynamic" : "fixed";
     const auto savedMultiplier = std::to_string(saved.frameGenerationMultiplier);

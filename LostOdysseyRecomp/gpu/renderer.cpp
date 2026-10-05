@@ -2415,10 +2415,12 @@ namespace gpu::renderer
             {
                 // Provider output has no guest pitch padding. FSR's encoded
                 // output is R8 even when the SDR guest destination uses FP16;
-                // the RGB-only composite samples it into that original format.
+                // XeSS writes the RGBA8 input format. The RGB-only composite
+                // samples either into that original format.
                 auto scratch = std::make_unique<HostTexture>();
                 scratch->allocationSerial = ++nextTargetAllocation;
-                scratch->format = activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ?
+                scratch->format = activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ||
+                    activePlan.requestedUpscaler == upscaling::Upscaler::Xess ?
                     RenderFormat::R8G8B8A8_UNORM : source.format;
                 scratch->guestWidth = scratch->width = std::max(1u, output.width);
                 scratch->guestHeight = scratch->height = std::max(1u, output.height);
@@ -11880,6 +11882,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     else if (r.activePlan.inputProbe) page.fallbackReason = "input_probe_only";
                     else if (r.activePlan.consumer == upscaling::TemporalConsumer::FsrSr)
                         page.fallbackReason = "fsr_sr_no_dispatch_this_frame";
+                    else if (r.activePlan.consumer == upscaling::TemporalConsumer::XessSr)
+                        page.fallbackReason = "xess_sr_no_dispatch_this_frame";
                     else if (r.activePlan.consumer != upscaling::TemporalConsumer::DlssSr)
                         page.fallbackReason = "dlss_sr_plan_unavailable_this_frame";
                     else if (!page.entries.empty() && !page.entries.back()->reason.empty())
