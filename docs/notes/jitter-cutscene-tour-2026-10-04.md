@@ -20,7 +20,7 @@ After #212 the maintainer asked for a tour of every real-time cutscene to look f
 
 `triage_suspect.py` and three parallel reviews of the HLSL (oPos slot, outputs that carry the camera matrix, PS use of clip X/Y) found every pair safe:
 
-- **Clip W or no clip copy (11 pairs).** Nine depth writers and materials read only clip W, or have no clip copy: `1c00/3073` (slot 8), `4cca/e3a4`, `66fe/0fed`, `bd4c/f7ff`, `e275/0715` (slot 7), `a8d2/00af` (slot 4), and `ac32/dfdf`, `eb5f/38b9` (slot 0). Two more are sky pairs with their VS's existing policies: `bda4/6426` (the depth pass under the `2496/42b1` light) and `db23/1693`.
+- **Clip W or no clip copy (10 pairs).** Eight depth writers and materials read only clip W, or have no clip copy: `1c00/3073` (slot 8), `4cca/e3a4`, `66fe/0fed`, `bd4c/f7ff`, `e275/0715` (slot 7), `a8d2/00af` (slot 4), and `ac32/dfdf`, `eb5f/38b9` (slot 0). Two more are sky pairs with their VS's existing policies: `bda4/6426` (the depth pass under the `2496/42b1` light) and `db23/1693`.
 - **Per-light passes (30 pairs).** Each samples tex0, the light attenuation, at ScreenPosition and multiplies it into the light, as `e810/c44e` from #212 does. Eleven are further `e810` partners, including `fe31`, which no longer needs the constant-sample gate. Eighteen use other vertex formats at slot 7, and `cabb/b1d4` is at slot 8 (its c7 is a UV transform).
 - **Cutscene characters (5 pairs).** `2580/957d`, `2580/8724`, `6261/aab1`, `6261/0aa1` and the depth writer `6960/c468` blend bones in branches. After the blend they multiply by c233–c236 outside every branch, like `3148`/`118a`. Their only clip copy is `o3` or `o0`.
 
