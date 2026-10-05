@@ -99,10 +99,10 @@
 | :--- | :--- |
 | 导入 | 支持文件夹、XEX、ISO、GOD、DLC 和替换光盘。原始文件保持不变。 |
 | 语言 | 菜单提供英语、日语、韩语、繁体中文和简体中文。游戏语言取决于你的版本。 |
-| 显示 | 16:9 和 21:9 分辨率；16:10、4:3 等更高的屏幕会被 3D 画面铺满。Off／FXAA／SMAA／TAA（实验性），DLSS、FSR 3.1 或 MetalFX 超分，以及 [HDR](#hdr实验性)。图像设置中的**亮度 / Gamma** 可以对照游戏默认画面调整，参考画面是最后的游戏场景或测试图案。 |
+| 显示 | 16:9 和 21:9 分辨率；16:10、4:3 等更高的屏幕会被 3D 画面铺满。Off／FXAA／SMAA／TAA（实验性），DLSS、FSR 3.1、XeSS（Windows Direct3D 12）或 MetalFX 超分，以及 [HDR](#hdr实验性)。图像设置中的**亮度 / Gamma** 可以对照游戏默认画面调整，参考画面是最后的游戏场景或测试图案。 |
 | 阴影与环境光遮蔽 | 阴影分辨率 1×／2×／4×，实验性 SSAO／GTAO。 |
 | 帧率 | 30／60／90／120 FPS 目标，以及 FreeSync／G-SYNC Compatible VRR。 |
-| 插帧 | Windows Direct3D 12：DLSS（显卡支持的倍率）或 FSR 2×。Windows Vulkan：DLSS 2×–6×。切换插帧方案可能需要重启。 |
+| 插帧 | Windows Direct3D 12：DLSS（显卡支持的倍率）、FSR 2× 或 XeSS 2×。Windows Vulkan：DLSS 2×–6×。切换插帧方案可能需要重启。 |
 | 着色器 | 首次启动可下载预编译着色器；否则在本机编译一次并缓存。 |
 | Mod | 纹理、菜单和字体替换，以及 PlayStation 按键提示。见 [Mod 指南](docs/wiki/Modding.md)。 |
 | 输入 | 手柄、键盘和震动；Android 上有触摸按键。 |

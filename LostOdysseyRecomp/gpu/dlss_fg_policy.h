@@ -25,7 +25,7 @@ inline bool SameHistoryConfiguration(const frame_plan::FramePlan& a,
         a.consumer == b.consumer && a.width == b.width && a.height == b.height &&
         a.output == b.output &&
         (a.requestedUpscaler != upscaling::Upscaler::Dlss || a.dlssQuality == b.dlssQuality) &&
-        (a.requestedUpscaler != upscaling::Upscaler::Fsr || a.fsrQuality == b.fsrQuality);
+        (!upscaling::UsesFsrQuality(a.requestedUpscaler) || a.fsrQuality == b.fsrQuality);
 }
 enum class Interruption : uint8_t { None, NoInputs, InvalidInputs, SdkFailure, ResourceBoundary, Canceled };
 inline const char* Name(Interruption reason) {

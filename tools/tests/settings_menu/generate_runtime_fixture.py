@@ -135,14 +135,21 @@ int main(int argc, char** argv) {
     settings::tab=2;settings::row=int(GraphicsRow::AntiAliasing);settings::edit={};
     settings::edit.dlssQuality=gpu::upscaling::DlssQuality::Dlaa;
     settings::edit.fsrQuality=gpu::upscaling::FsrQuality::Balanced;
-    for(unsigned i=1;i<=6;++i){
-        tick(8);Check(settings::graphics_menu::AaChoice(settings::edit)==i%6,"unified AA/provider cycle");
-        Check(settings::snapshot.rows[int(GraphicsRow::AntiAliasing)].selectedChoice==int(i%6),"published combined choice");
+    // Windows adds XeSS as a seventh choice after FSR.
+    const unsigned aaChoices=settings::graphics_menu::AaChoiceCount;
+    for(unsigned i=1;i<=aaChoices;++i){
+        tick(8);Check(settings::graphics_menu::AaChoice(settings::edit)==i%aaChoices,"unified AA/provider cycle");
+        Check(settings::snapshot.rows[int(GraphicsRow::AntiAliasing)].selectedChoice==int(i%aaChoices),"published combined choice");
         Check(settings::snapshot.rows.back().name==L"Save graphics settings","Save is last");
-        Check(settings::snapshot.rows[int(GraphicsRow::DlssQuality)].hidden==(i%6<4),"quality visibility");
-        Check(settings::snapshot.rows[int(GraphicsRow::FsrSharpness)].hidden==(i%6!=5),"FSR sharpness visibility");
+        Check(settings::snapshot.rows[int(GraphicsRow::DlssQuality)].hidden==(i%aaChoices<4),"quality visibility");
+        Check(settings::snapshot.rows[int(GraphicsRow::FsrSharpness)].hidden==(i%aaChoices!=5),"FSR sharpness visibility");
     }
-    tick(4);Check(settings::edit.upscaler==Upscaler::Fsr,"left from Off selects FSR");
+    tick(4);Check(settings::edit.upscaler==(aaChoices>6?Upscaler::Xess:Upscaler::Fsr),"left from Off selects the last provider");
+    if(aaChoices>6){
+        Check(!settings::snapshot.rows[int(GraphicsRow::DlssQuality)].hidden &&
+              settings::snapshot.rows[int(GraphicsRow::FsrSharpness)].hidden,"XeSS shows quality without FSR sharpening");
+        tick(4);Check(settings::edit.upscaler==Upscaler::Fsr,"left from XeSS selects FSR");
+    }
     Check(settings::edit.dlssQuality==gpu::upscaling::DlssQuality::Dlaa &&
           settings::edit.fsrQuality==gpu::upscaling::FsrQuality::Balanced,"provider-specific qualities preserved");
     // The scroll origin depends on the rows a platform shows; moving from

@@ -11,6 +11,7 @@ namespace plume { struct VulkanInterface; struct VulkanDevice; struct VulkanComm
     struct RenderDevice; struct RenderCommandList; struct RenderTexture; }
 namespace gpu::dlss { class Controller; struct EvaluateCapture; }
 namespace gpu::fsr { class Controller; }
+namespace gpu::xess { class Controller; }
 
 namespace gpu {
 // Captured at record time. Queue completion/discard must never consult the
@@ -80,8 +81,9 @@ inline bool ValidSrRequest(const SrRequest& request) {
         upscaling::UsesFsrQuality(plan.requestedUpscaler) && upscaling::KnownFsrQuality(plan.fsrQuality);
 }
 
-// Borrows the NGX controller and owns the FSR adapter. Both use the caller's queue.
-// On Metal there is no NGX controller; MetalFX is recorded through plume.
+// Borrows the NGX controller and owns the FSR and XeSS adapters. All use the
+// caller's queue. XeSS is D3D12-only. On Metal there is no NGX controller;
+// MetalFX is recorded through plume.
 class TemporalUpscaler {
 public:
     explicit TemporalUpscaler(dlss::Controller& controller);
@@ -116,6 +118,7 @@ public:
 private:
     dlss::Controller* dlss_;
     std::unique_ptr<fsr::Controller> fsr_;
+    std::unique_ptr<xess::Controller> xess_;
     uint64_t metalFxLastFrame_ = 0; // Render frame of the last MetalFX dispatch; a gap resets history.
 };
 } // namespace gpu

@@ -77,6 +77,7 @@ Parallel tracks:
 ## v0.9.0 deferred plan
 
 - [ ] **Character shadows:** shadows on character models, especially faces and bodies, move unnaturally and look translucent (reported by the maintainer on 2026-10-01 with a screenshot of Kaim). Not investigated yet; the first step is an F1 capture where it shows. The maintainer deferred it to v0.9.0 on 2026-10-02.
+- [ ] **First-use pipeline stalls (all platforms):** the first visit to a map, the first battle with a new enemy or the first view of a cutscene stalls while new pipelines are created, up to about 1.3 s on the TB321FU tablet; recorded recipes never cover all VS/PS pairs. Plan: [first-use pipeline stalls](notes/pipeline-first-use-stalls.md). [ ] P0 runtime miss log. [ ] P1 persistent driver caches (`VkPipelineCache`, `ID3D12PipelineLibrary`, `MTLBinaryArchive`, Mesa cache directory on Android) and saving recipes on every exit. [ ] P2 Vulkan graphics pipeline library. [ ] P3 recipe corpus with a battle tour and per-scene prefetch. [ ] P4 parallel creation of remaining misses. Not started; the maintainer scheduled it for v0.9.0 on 2026-10-05.
 
 ## v1.0.0 deferred plan
 

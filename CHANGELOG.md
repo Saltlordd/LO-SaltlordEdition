@@ -17,6 +17,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - New **Depth of field** (Off to 100%) and **Bloom** settings in Graphics; lowering depth of field keeps distant scenery sharp (#30, thanks @cngjd).
 - The README now explains how to hide the minimap: hold **Back** (#85).
 - Windows: the Vulkan backend no longer loads the Direct3D 12 runtime (#49).
+- Windows (Direct3D 12): new **XeSS** upscaling option and **XeSS** frame generation (2×) (#192, thanks @frankzzz).
 - Closing the game during shader preparation or a shader pack download no longer leaves large temporary files behind; leftovers from older versions are removed at startup.
 
 ### 简体中文
@@ -30,6 +31,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - 图形设置新增**景深**（关闭到 100%）和**泛光**选项；调低景深后远景不再模糊（#30，感谢 @cngjd）。
 - README 新增隐藏小地图的说明：按住 **Back**（#85）。
 - Windows：使用 Vulkan 后端时不再加载 Direct3D 12 运行库（#49）。
+- Windows（Direct3D 12）：新增 **XeSS** 超分选项和 **XeSS** 插帧（2×）（#192，感谢 @frankzzz）。
 - 在准备着色器或下载着色器包时关闭游戏，不再留下大型临时文件；旧版本留下的这类文件会在启动时清理。
 
 ## [v0.8.21](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21) — 2026-10-04

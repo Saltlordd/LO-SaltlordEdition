@@ -131,6 +131,16 @@ def main():
                      licenses / 'Unifont-OFL-1.1.txt')
         for dll in ('dxcompiler.dll', 'dxil.dll'):
             shutil.copy2(runtime.parent / dll, package / dll)
+        # Intel XeSS SR/FG runtimes, staged by the build when XeSS is enabled.
+        xess_runtime = [dll for dll in ('libxess.dll', 'libxess_fg.dll', 'libxell.dll')
+                        if (runtime.parent / dll).is_file()]
+        if xess_runtime:
+            xess_license = runtime.parent / 'licenses/LICENSE-XeSS.txt'
+            if not xess_license.is_file():
+                raise SystemExit('XeSS runtime is packaged but its license is missing.')
+            shutil.copy2(xess_license, licenses / xess_license.name)
+            for dll in xess_runtime:
+                shutil.copy2(runtime.parent / dll, package / dll)
         dlss_runtime = runtime.parent / 'nvngx_dlss.dll'
         if dlss_runtime.is_file():
             shutil.copy2(dlss_runtime, package / 'nvngx_dlss.dll')

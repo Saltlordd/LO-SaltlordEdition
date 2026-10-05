@@ -153,8 +153,8 @@ namespace gpu::frame_plan
     {
         if (observation.actualProvider == upscaling::Upscaler::Dlss) { ReportDlssExecution(observation); return; }
         if (!planner.ReportUpscalerExecution(observation) || !ExecutionLogChanged(observation)) return;
-        LOG_INFO("FSR: frame={} outcome={} input={}x{} output={}x{} quality={} serial={} reason={}",
-            observation.renderFrame, observation.outcome == DlssExecutionOutcome::Submitted ? "submitted" : "fallback",
+        LOG_INFO("{}: frame={} outcome={} input={}x{} output={}x{} quality={} serial={} reason={}",
+            UpscalerName(observation.plan.requestedUpscaler), observation.renderFrame, observation.outcome == DlssExecutionOutcome::Submitted ? "submitted" : "fallback",
             observation.plan.width, observation.plan.height, observation.plan.output.width, observation.plan.output.height,
             uint32_t(observation.plan.fsrQuality), observation.submissionSerial, DlssEffectReasonName(observation.reason));
     }
