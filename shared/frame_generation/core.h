@@ -7,7 +7,19 @@
 #include <utility>
 
 namespace framegen {
-enum class Provider : uint8_t { Off, Dlss, Fsr, MetalFx };
+// Persisted IDs. Append, never renumber.
+enum class Provider : uint8_t { Off, Dlss, Fsr, MetalFx, Xess };
+inline constexpr bool KnownProvider(Provider provider) { return uint8_t(provider) <= uint8_t(Provider::Xess); }
+inline constexpr const char* ProviderName(Provider provider) {
+    switch (provider) {
+    case Provider::Off: return "off";
+    case Provider::Dlss: return "dlss";
+    case Provider::Fsr: return "fsr";
+    case Provider::MetalFx: return "metalfx";
+    case Provider::Xess: return "xess";
+    }
+    return "unknown";
+}
 enum class Mode : uint8_t { Off, Fixed, Dynamic };
 enum class Api : uint8_t { D3D12, Vulkan, Metal };
 struct Config {
@@ -34,7 +46,7 @@ struct Selection {
 };
 inline Selection Select(Config request, Capabilities caps) {
     if (request.provider == Provider::Off || request.mode == Mode::Off) return {};
-    if ((request.provider != Provider::Dlss && request.provider != Provider::Fsr && request.provider != Provider::MetalFx) ||
+    if (!KnownProvider(request.provider) ||
         (request.mode != Mode::Fixed && request.mode != Mode::Dynamic) ||
         !std::isfinite(request.targetFrameRate) || request.targetFrameRate < 0 ||
         !request.generatedFrames)

@@ -312,6 +312,14 @@ const wchar_t *BackendPendingSentence(gpu::backend::Backend backend)
     return Tr(L"Graphics backend change is not applied. DLSS is checked after restart.",
               L"圖形後端變更尚未套用。DLSS 會在重新啟動後再確認。");
 }
+// XeSS shares the FSR status sentences and their translations; only the
+// provider name differs.
+std::wstring WithProvider(std::wstring text, std::wstring_view name)
+{
+    for (size_t at = text.find(L"FSR"); at != std::wstring::npos; at = text.find(L"FSR", at + name.size()))
+        text.replace(at, 3, name);
+    return text;
+}
 const wchar_t* FsrFallbackSentence(gpu::frame_plan::DlssEffectReason reason)
 {
     using gpu::frame_plan::DlssEffectReason;
@@ -374,12 +382,14 @@ std::wstring DlssNotice()
             text += Tr(L" The selected upscaler is not applied yet.", L" 選取的縮放技術尚未套用。");
         return text;
     }
-    if (GetConfig().upscaler == gpu::upscaling::Upscaler::Fsr ||
-        (execution && execution->actualProvider == gpu::upscaling::Upscaler::Fsr)) {
+    for (const auto provider : {gpu::upscaling::Upscaler::Fsr, gpu::upscaling::Upscaler::Xess}) {
+        if (GetConfig().upscaler != provider && !(execution && execution->actualProvider == provider)) continue;
+        const bool xess = provider == gpu::upscaling::Upscaler::Xess;
+        const std::wstring_view name = xess ? L"XeSS" : L"FSR";
         std::wstring fsrText;
-        const bool matchingRequest = running.hasPlan && running.plannedRequest == gpu::upscaling::Upscaler::Fsr;
+        const bool matchingRequest = running.hasPlan && running.plannedRequest == provider;
         const bool matchingExecution = matchingRequest && execution &&
-            execution->actualProvider == gpu::upscaling::Upscaler::Fsr &&
+            execution->actualProvider == provider &&
             execution->plan.deviceEpoch == running.device.deviceEpoch &&
             execution->plan.requestSignature == running.requestSignature &&
             execution->plan.geometryEpoch == running.geometryEpoch;
@@ -387,17 +397,19 @@ std::wstring DlssNotice()
             fsrText = FsrFallbackSentence(gpu::frame_plan::DlssEffectReason::GpuWorkStopped);
         else if (!running.device.deviceReady)
             fsrText = Tr(L"FSR: graphics device is not ready.", L"FSR：圖形裝置尚未就緒。");
-        else if (!running.device.fsrAvailable)
+        else if (xess && !running.device.xessAvailable)
+            fsrText = Tr(L"XeSS needs Direct3D 12 and an XeSS-enabled build.", L"XeSS 需要 Direct3D 12 與包含 XeSS 的版本。");
+        else if (!xess && !running.device.fsrAvailable)
             fsrText = Tr(L"FSR is unavailable on this device or build.", L"目前的裝置或版本無法使用 FSR。");
         else if (matchingRequest && running.failure)
             fsrText = FsrFallbackSentence(gpu::frame_plan::DlssEffectReason::RequestFailure);
         else if (matchingExecution && execution->submissionSerial &&
-            execution->plan.consumer == gpu::upscaling::TemporalConsumer::FsrSr &&
+            execution->plan.consumer == gpu::upscaling::FsrQualityConsumer(provider) &&
             execution->outcome == gpu::frame_plan::DlssExecutionOutcome::Submitted) {
             const wchar_t* modes[] = {Tr(L"Quality", L"品質"), Tr(L"Balanced", L"平衡"), Tr(L"Performance", L"效能"), L"Native AA"};
             fsrText = std::wstring(L"FSR ") + modes[uint32_t(gpu::upscaling::NormalizeFsrQuality(execution->plan.fsrQuality))] +
                 Tr(L" output submitted.", L" 輸出已提交。") + ExecutionSizeSuffix(execution->plan);
-            if (edit.upscaler == gpu::upscaling::Upscaler::Fsr && edit.fsrQuality != execution->plan.fsrQuality)
+            if (edit.upscaler == provider && edit.fsrQuality != execution->plan.fsrQuality)
                 fsrText += Tr(L" The selected FSR quality is not applied yet.", L" 選取的 FSR 品質尚未套用。");
         } else {
             fsrText = FsrFallbackSentence(matchingExecution ? execution->reason :
@@ -405,9 +417,9 @@ std::wstring DlssNotice()
         }
         if (edit.graphicsBackend != running.device.backend)
             fsrText += Tr(L" The selected graphics backend applies after restart.", L" 選取的圖形後端會在重新啟動後套用。");
-        if (edit.upscaler != gpu::upscaling::Upscaler::Fsr)
+        if (edit.upscaler != provider)
             fsrText += Tr(L" The selected upscaler is not applied yet.", L" 選取的縮放技術尚未套用。");
-        return fsrText;
+        return xess ? WithProvider(std::move(fsrText), name) : fsrText;
     }
     std::wstring text;
     if (running.phase == gpu::frame_plan::DlssEffectPhase::Active && running.execution)
@@ -429,7 +441,9 @@ std::wstring DlssNotice()
     else if (runningDlss)
         appliedQuality = gpu::upscaling::NormalizeDlssQuality(running.plannedQuality);
     if (runningDlss && edit.upscaler != gpu::upscaling::Upscaler::Dlss)
-        text += std::wstring(L" ") + (edit.upscaler == gpu::upscaling::Upscaler::Fsr ? Tr(L"The FSR choice is not applied yet.", L"FSR 選項尚未套用。") : Tr(L"The Off choice is not applied yet.", L"關閉選項尚未套用。"));
+        text += std::wstring(L" ") + (edit.upscaler == gpu::upscaling::Upscaler::Fsr ? Tr(L"The FSR choice is not applied yet.", L"FSR 選項尚未套用。") :
+            edit.upscaler == gpu::upscaling::Upscaler::Xess ? WithProvider(Tr(L"The FSR choice is not applied yet.", L"FSR 選項尚未套用。"), L"XeSS") :
+            Tr(L"The Off choice is not applied yet.", L"關閉選項尚未套用。"));
     else if (!runningDlss && edit.upscaler == gpu::upscaling::Upscaler::Dlss && !backendPending)
         text += std::wstring(L" ") + Tr(L"The DLSS choice is not applied yet.", L"DLSS 選項尚未套用。");
     else if (runningDlss && edit.upscaler == gpu::upscaling::Upscaler::Dlss && appliedQuality &&
@@ -459,7 +473,7 @@ bool GraphicsRowHidden(int r)
 std::vector<framegen::Provider> FgProviders()
 {
     std::vector<framegen::Provider> providers{framegen::Provider::Off};
-    for (auto provider : {framegen::Provider::Dlss, framegen::Provider::Fsr, framegen::Provider::MetalFx})
+    for (auto provider : {framegen::Provider::Dlss, framegen::Provider::Fsr, framegen::Provider::MetalFx, framegen::Provider::Xess})
         if (gpu::frame_generation::CompiledProvider(edit.graphicsBackend, provider) || edit.frameGenerationProvider == provider)
             providers.push_back(provider);
     return providers;
@@ -469,9 +483,10 @@ std::wstring FgNotice()
     const auto running = gpu::video::GetFrameGenerationStatus();
     if (gpu::video::SelectedBackend() == GraphicsBackend::D3D12 &&
         running.sessionProvider == framegen::Provider::Dlss &&
-        running.requested == framegen::Provider::Fsr)
-        return Tr(L"FSR FG requires a restart after DLSS FG. Frame generation is off until then.",
-                  L"從 DLSS 影格生成切換到 FSR 影格生成需要重新啟動；在此之前影格生成會關閉。");
+        (running.requested == framegen::Provider::Fsr || running.requested == framegen::Provider::Xess))
+        return WithProvider(Tr(L"FSR FG requires a restart after DLSS FG. Frame generation is off until then.",
+                  L"從 DLSS 影格生成切換到 FSR 影格生成需要重新啟動；在此之前影格生成會關閉。"),
+            running.requested == framegen::Provider::Xess ? L"XeSS" : L"FSR");
     std::wstring text;
     using gpu::video::FrameGenerationPhase;
     switch (running.phase) {
@@ -481,7 +496,8 @@ std::wstring FgNotice()
         text = Tr(L"Applying FG settings…", L"正在套用影格生成設定……"); break;
     case FrameGenerationPhase::Ready:
         text = running.applied == framegen::Provider::Dlss ? L"DLSS" :
-            running.applied == framegen::Provider::MetalFx ? L"MetalFX" : L"FSR";
+            running.applied == framegen::Provider::MetalFx ? L"MetalFX" :
+            running.applied == framegen::Provider::Xess ? L"XeSS" : L"FSR";
         text += Tr(L" FG ready. Generation depends on the current scene.", L" 影格生成已就緒，是否補幀取決於目前場景。"); break;
     case FrameGenerationPhase::Unavailable:
         text = Tr(L"FG is unavailable for this request. Normal rendering is in use.",
@@ -624,7 +640,7 @@ void Publish(uint8_t *base, uint32_t config)
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）")};
         if (graphics_menu::AndroidFsrAvailable) aaChoices.emplace_back(L"FSR 3.1");
 #else
-        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1"};
+        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1", L"XeSS"};
 #endif
         aaChoices.resize(graphics_menu::AaChoiceCount);
         placeGraphics(GraphicsRow::AntiAliasing, makeChoices(L"Anti-aliasing / Upscaling", L"抗鋸齒 / 超解析度",
@@ -634,8 +650,9 @@ void Publish(uint8_t *base, uint32_t config)
         // FSR and MetalFX share the FSR quality ratios and IDs.
         const bool savedFsr = gpu::upscaling::UsesFsrQuality(edit.upscaler);
         const bool savedMetalFx = edit.upscaler == gpu::upscaling::Upscaler::MetalFx;
-        auto dlssQuality = makeChoices(savedMetalFx ? L"MetalFX quality" : savedFsr ? L"FSR quality" : L"DLSS quality",
-                   savedMetalFx ? L"MetalFX 品質" : savedFsr ? L"FSR 品質" : L"DLSS 品質",
+        const bool savedXess = edit.upscaler == gpu::upscaling::Upscaler::Xess;
+        auto dlssQuality = makeChoices(savedMetalFx ? L"MetalFX quality" : savedXess ? L"XeSS quality" : savedFsr ? L"FSR quality" : L"DLSS quality",
+                   savedMetalFx ? L"MetalFX 品質" : savedXess ? L"XeSS 品質" : savedFsr ? L"FSR 品質" : L"DLSS 品質",
                    {Tr(L"Performance", L"效能"), Tr(L"Balanced", L"平衡"), Tr(L"Quality", L"品質"), savedFsr ? L"Native AA" : L"DLAA"},
                    QualityMenuIndex(savedFsr ? uint32_t(edit.fsrQuality) : uint32_t(edit.dlssQuality)));
         // Hidden instead of removed so this logical id stays stable for input, drawing and hit-testing.
@@ -693,7 +710,8 @@ void Publish(uint8_t *base, uint32_t config)
         for (auto provider : FgProviders()) {
             if (provider == edit.frameGenerationProvider) selected = uint32_t(providers.size());
             providers.emplace_back(provider == framegen::Provider::Off ? Tr(L"Off", L"關") :
-                provider == framegen::Provider::Dlss ? L"DLSS" : provider == framegen::Provider::MetalFx ? L"MetalFX" : L"FSR");
+                provider == framegen::Provider::Dlss ? L"DLSS" : provider == framegen::Provider::MetalFx ? L"MetalFX" :
+                provider == framegen::Provider::Xess ? L"XeSS" : L"FSR");
         }
         auto frameGeneration = makeChoices(L"Frame generation", L"影格生成", std::move(providers), selected);
         frameGeneration.hidden = GraphicsRowHidden(int(GraphicsRow::FrameGeneration));
@@ -814,6 +832,9 @@ void Publish(uint8_t *base, uint32_t config)
             else if (edit.upscaler == gpu::upscaling::Upscaler::Fsr)
                 next.help = Tr(L"FSR 3.1 needs D3D12 or Vulkan and an FSR-enabled build. Unsupported scenes use normal rendering.",
                               L"FSR 3.1 需要 D3D12 或 Vulkan 與包含 FSR 的版本。不支援的場景使用常規渲染。");
+            else if (edit.upscaler == gpu::upscaling::Upscaler::Xess)
+                next.help = Tr(L"Intel XeSS needs Direct3D 12 and an XeSS-enabled build. Unsupported scenes use normal rendering.",
+                              L"Intel XeSS 需要 Direct3D 12 與包含 XeSS 的版本。不支援的場景使用常規渲染。");
             else if (edit.upscaler == gpu::upscaling::Upscaler::Dlss)
                 next.help = Tr(L"Saves the DLSS preference. The status line shows the latest DLSS result.",
                               L"儲存 DLSS 偏好。狀態列顯示最新的 DLSS 結果。");
@@ -884,9 +905,11 @@ void Publish(uint8_t *base, uint32_t config)
             };
             const bool dlss = compiled(edit.graphicsBackend, framegen::Provider::Dlss);
             const bool fsr = compiled(edit.graphicsBackend, framegen::Provider::Fsr);
+            const bool xess = compiled(edit.graphicsBackend, framegen::Provider::Xess);
             const bool d3d12 = compiled(GraphicsBackend::D3D12, framegen::Provider::Dlss) ||
-                compiled(GraphicsBackend::D3D12, framegen::Provider::Fsr);
-            if (!dlss && !fsr && !compiled(edit.graphicsBackend, framegen::Provider::MetalFx))
+                compiled(GraphicsBackend::D3D12, framegen::Provider::Fsr) ||
+                compiled(GraphicsBackend::D3D12, framegen::Provider::Xess);
+            if (!dlss && !fsr && !xess && !compiled(edit.graphicsBackend, framegen::Provider::MetalFx))
                 next.help = edit.graphicsBackend != GraphicsBackend::D3D12 && d3d12
                     ? Tr(L"FG requires Direct3D 12. Change the graphics backend and restart first.",
                          L"影格生成需要 Direct3D 12。請先變更圖形後端並重新啟動。")
@@ -906,6 +929,9 @@ void Publish(uint8_t *base, uint32_t config)
                          L"Vulkan 支援 DLSS 固定倍數。啟用或切換影格生成提供者需重新啟動。")
                     : Tr(L"Vulkan supports FSR 2×. Enabling or changing the FG provider requires a restart.",
                          L"Vulkan 支援 FSR 2×。啟用或切換影格生成提供者需重新啟動。");
+            else if (edit.frameGenerationProvider == framegen::Provider::Xess)
+                next.help = Tr(L"FG works independently of upscaling. XeSS uses a fixed 2× multiplier.",
+                               L"影格生成可獨立於超解析度使用。XeSS 固定為 2×。");
             else
                 next.help = Tr(L"FG works independently of upscaling. FSR uses a fixed 2× multiplier.",
                                L"影格生成可獨立於超解析度使用。FSR 固定為 2×。");
@@ -1771,7 +1797,7 @@ PPC_FUNC(sub_822F19B0)
             edit.frameGenerationMode != previousDisplay.frameGenerationMode ||
             edit.frameGenerationMultiplier != previousDisplay.frameGenerationMultiplier;
         restartForFgProvider = fgChanged && ((edit.graphicsBackend == GraphicsBackend::D3D12 &&
-            edit.frameGenerationProvider == framegen::Provider::Fsr &&
+            (edit.frameGenerationProvider == framegen::Provider::Fsr || edit.frameGenerationProvider == framegen::Provider::Xess) &&
             (previousDisplay.frameGenerationProvider == framegen::Provider::Dlss ||
              running.sessionProvider == framegen::Provider::Dlss)) ||
             (edit.graphicsBackend == GraphicsBackend::Vulkan &&

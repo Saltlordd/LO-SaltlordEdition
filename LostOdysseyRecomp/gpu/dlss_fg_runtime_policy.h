@@ -27,7 +27,7 @@ inline FeatureKey MakeFeatureKey(const frame_plan::FramePlan& plan,
     uint32_t inputWidth, uint32_t inputHeight, uint32_t outputWidth,
     uint32_t outputHeight, uint32_t buffers, uint32_t format) {
     const auto quality = plan.requestedUpscaler == upscaling::Upscaler::Dlss ? uint32_t(plan.dlssQuality) :
-        plan.requestedUpscaler == upscaling::Upscaler::Fsr ? uint32_t(plan.fsrQuality) : 0u;
+        upscaling::UsesFsrQuality(plan.requestedUpscaler) ? uint32_t(plan.fsrQuality) : 0u;
     return {plan.deviceEpoch, plan.requestSignature, uint32_t(plan.requestedUpscaler), quality,
         inputWidth, inputHeight, plan.output.x, plan.output.y, outputWidth, outputHeight, buffers, format};
 }

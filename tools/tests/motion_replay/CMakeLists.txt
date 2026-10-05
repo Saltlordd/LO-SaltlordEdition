@@ -188,6 +188,7 @@ if((UNIX AND NOT APPLE) OR WIN32)
    "${ROOT}/LostOdysseyRecomp/gpu/temporal_upscaler.cpp"
    "${ROOT}/LostOdysseyRecomp/gpu/fsr_upscaler.cpp"
    "${ROOT}/LostOdysseyRecomp/gpu/fsr_upscaler_d3d12.cpp"
+   "${ROOT}/LostOdysseyRecomp/gpu/xess_upscaler.cpp"
    "${ROOT}/LostOdysseyRecomp/gpu/upscaling_plan.cpp"
    "${ROOT}/LostOdysseyRecomp/gpu/dlss_ngx.cpp" platform_stub.cpp)
   if(WIN32)

@@ -852,6 +852,23 @@ namespace gpu::video
             const char* override = std::getenv(overrideVariable);
             return override && *override ? std::filesystem::path(override) : RuntimeDirectory(library) / library;
         }
+        // Directory with libxess_fg.dll and libxell.dll; LO_XESS_FG_RUNTIME_PATH overrides.
+        [[maybe_unused]] std::filesystem::path XessFgRuntimeDirectory()
+        {
+            // Like XeSS SR, independent of LO_DLSS_RUNTIME_PATH.
+            const char* override = std::getenv("LO_XESS_FG_RUNTIME_PATH");
+            if (override && *override) return std::filesystem::path(override);
+            std::error_code error;
+            return os::runtime_libraries::Find("libxess_fg.dll", os::user_paths::ExecutableDir(),
+                std::filesystem::current_path(error));
+        }
+        // Each D3D12 FG adapter's runtime: a file for FidelityFX, a directory otherwise.
+        [[maybe_unused]] std::filesystem::path D3D12FgRuntime(framegen::Provider provider)
+        {
+            if (provider == framegen::Provider::Fsr) return FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll");
+            if (provider == framegen::Provider::Xess) return XessFgRuntimeDirectory();
+            return StreamlineRuntimePath();
+        }
 
         // One parser for every Vulkan FG decision, so device features, SDK
         // sessions, reconciliation and status always see the same request.
@@ -1309,6 +1326,10 @@ namespace gpu::video
                 g_dlssController->Report().state == dlss::ProbeState::Available;
             snapshot.fsrAvailable = snapshot.deviceReady &&
                 (vulkan ? LO_HAS_FSR : LO_HAS_FSR_D3D12);
+#if defined(_WIN32) && defined(LO_HAS_XESS) && LO_HAS_XESS
+            // libxess.dll and adapter support are checked by the sizing query.
+            snapshot.xessAvailable = snapshot.deviceReady && !vulkan;
+#endif
 #if LO_PLATFORM_MACOS
             snapshot.fsrAvailable = false;
             snapshot.metalFxAvailable = snapshot.deviceReady && g_temporalUpscaler &&
@@ -2109,9 +2130,7 @@ namespace gpu::video
                 if (fg.error) LOG_ERROR("D3D12 FG: {}", fg.error);
                 if (fg.Enabled()) {
                     auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
-                    const auto runtime = fg.config.provider == framegen::Provider::Fsr
-                        ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll")
-                        : StreamlineRuntimePath();
+                    const auto runtime = D3D12FgRuntime(fg.config.provider);
                     std::string reason;
                     if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), fg.config, runtime, reason)) {
                         g_d3dFg = std::move(bridge);
@@ -3066,7 +3085,8 @@ namespace gpu::video
             std::lock_guard lock(g_fgSettingsMutex);
             g_fgAppliedConfig = {};
             g_fgFailedRequest = request.config;
-            LOG_WARNING("D3D12 FG: switch from DLSS to FSR requires restart while Streamline is retained for DLSS SR");
+            LOG_WARNING("D3D12 FG: switch from DLSS to {} requires restart while Streamline is retained for DLSS SR",
+                framegen::ProviderName(desired.provider));
             return true;
         }
         if (g_d3dFg && desired.provider == g_d3dFg->Provider()) {
@@ -3082,7 +3102,7 @@ namespace gpu::video
             g_fgFailedRequest.reset();
             renderer::SetFrameGenerationInputCaptureEnabled(true);
             LOG_INFO("D3D12 FG: enabled provider={} multiplier={} without swapchain replacement",
-                desired.provider == framegen::Provider::Dlss ? "dlss" : "fsr", desired.generatedFrames + 1);
+                framegen::ProviderName(desired.provider), desired.generatedFrames + 1);
             return true;
         }
 
@@ -3106,9 +3126,7 @@ namespace gpu::video
         std::string reason;
         if (desired.provider != framegen::Provider::Off) {
             auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
-            const auto runtime = desired.provider == framegen::Provider::Fsr
-                ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll")
-                : StreamlineRuntimePath();
+            const auto runtime = D3D12FgRuntime(desired.provider);
             if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), desired, runtime, reason))
                 g_d3dFg = std::move(bridge);
             else LOG_ERROR("D3D12 FG: provider switch unavailable: {}", reason);
@@ -3157,8 +3175,7 @@ namespace gpu::video
                 ? std::optional(request.config) : std::nullopt;
         }
         LOG_INFO("D3D12 FG: provider switch requested={} applied={} multiplier={} swapchain_replaced=1",
-            desired.provider == framegen::Provider::Dlss ? "dlss" : desired.provider == framegen::Provider::Fsr ? "fsr" : "off",
-            g_d3dFg ? (desired.provider == framegen::Provider::Dlss ? "dlss" : "fsr") : "off",
+            framegen::ProviderName(desired.provider), g_d3dFg ? framegen::ProviderName(desired.provider) : "off",
             desired.generatedFrames + 1);
         return true;
     }
