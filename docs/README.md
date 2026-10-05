@@ -12,6 +12,7 @@
 | Read delivered changes | [Changelog](../CHANGELOG.md) |
 | Find outstanding work | [Roadmap](ROADMAP.md) / [简体中文](ROADMAP.zh-CN.md), with the [Maintainer Project](https://github.com/users/freefrank/projects/3) |
 | Find a subsystem investigation | [Complete notes index](notes/README.md), grouped by topic and document role |
+| See every cutscene played on three machines | [Cutscene tour](CUTSCENE_TOUR.md) / [过场巡游](CUTSCENE_TOUR.zh-CN.md) |
 | Find development, analysis or test commands | [Tool catalog](../tools/README.md) / [Test catalog](../tools/tests/README.md) |
 | Understand diagnostics and consent | [Privacy](../PRIVACY.md) / [隐私说明](../PRIVACY.zh-CN.md) |
 | Create a mod | [Modding guide](wiki/Modding.md) |
