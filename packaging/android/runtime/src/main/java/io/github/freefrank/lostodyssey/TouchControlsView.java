@@ -370,6 +370,10 @@ final class TouchControlsView extends View {
             driverButton.setAllCaps(false);
             content.addView(driverButton);
         }
+        Button savesButton = new Button(activity);
+        savesButton.setText("Saves: export / import …");
+        savesButton.setAllCaps(false);
+        content.addView(savesButton);
         Button folderButton = new Button(activity);
         folderButton.setText("Game folder …");
         folderButton.setAllCaps(false);
@@ -399,6 +403,10 @@ final class TouchControlsView extends View {
                 activity.openGpuDriverPage();
             });
         }
+        savesButton.setOnClickListener(v -> {
+            settingsDialog.dismiss();
+            activity.openSavesPage();
+        });
         folderButton.setOnClickListener(v -> {
             settingsDialog.dismiss();
             activity.openGameFolderPage();

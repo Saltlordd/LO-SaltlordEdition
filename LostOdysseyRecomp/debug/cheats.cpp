@@ -6,6 +6,7 @@
 #include <kernel/xex_loader.h>
 #include <settings/menu.h>
 #include <host_ui/host_ui.h>
+#include <hid/android_touch.h>
 #include <SDL.h>
 #include <optional>
 
@@ -120,6 +121,15 @@ void PollHostControls() {
             rt = std::max(rt, trigger(SDL_CONTROLLER_AXIS_TRIGGERRIGHT));
         }
     }
+#if LO_PLATFORM_ANDROID
+    // The on-screen LT/RT count as a controller, as they do for the game (#194).
+    if (allowed) {
+        const auto touch = hid::android_touch::Snapshot();
+        lt = std::max(lt, touch.leftTrigger);
+        rt = std::max(rt, touch.rightTrigger);
+        connected = true;
+    }
+#endif
     // A newly connected controller must not inherit a prior device's armed LT.
     if (devices != previousDevices) { fast_forward::Release(); previousDevices = devices; }
     fast_forward::Sample(lt, rt, allowed && connected);

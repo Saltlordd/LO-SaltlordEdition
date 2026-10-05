@@ -80,6 +80,7 @@ The app is not notarized, so macOS blocks the first launch. Try to open it once,
 - **Qualcomm devices:** the **GPU driver** page opens before the first start, because the phone's own driver draws some menu text invisible. Download a Turnip driver there. If a driver cannot run the game, the page tells you why.
 - **Controls:** a controller hides the touch controls automatically. **CTRL** opens their size, opacity and layout settings.
 - **Updates:** the app checks for updates at startup; a new APK installs over the old one and keeps your saves.
+- **Saves:** **CTRL → Saves** exports them to a ZIP and imports ZIPs from a PC, Xenia or the RGH save converter.
 - **Bug reports:** attach the files from `Android/data/io.github.freefrank.lostodyssey/files/logs/` ([how](docs/INSTALLING.md#android-logs)).
 
 Only one tablet has been tested so far. [Step-by-step guide](docs/INSTALLING.md#android).
@@ -166,7 +167,7 @@ To report a rendering problem, select **Capture render state**, confirm, then **
 | **Party** | Experimental party members, rows and field character. Some changes need a reload. |
 | **Developer** | Experimental access to the original **EDIT MENU**: enable it, close F1, press **LT+RT**. Turn it off afterwards. |
 
-**Fast-forward** needs a controller: hold **LT** (**Hold**) or press it to toggle (**Toggle**), at 2×–8×. It pauses while a menu is open.
+**Fast-forward** needs a controller or Android's on-screen controls: hold **LT** (**Hold**) or press it to toggle (**Toggle**), at 2×–8×. It pauses while a menu is open.
 
 **Memory edits** are off by default. Back up your save first and stand somewhere you can move, outside battle. Turn on **Allow memory edits**, choose an action, confirm **Yes**, then close F1 so it runs. Edited values can end up in your normal saves.
 

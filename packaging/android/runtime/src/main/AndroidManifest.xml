@@ -36,6 +36,10 @@
             android:exported="false"
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation" />
+        <activity android:name=".SaveTransferActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation" />
         <!-- Exported so `adb shell am start -n …/.RuntimeActivity` still skips the driver page. -->
         <activity android:name=".RuntimeActivity"
             android:exported="true"
