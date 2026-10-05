@@ -36,6 +36,33 @@ python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8
   accepts the four packages built by CI (Windows ZIP, AppImage, Flatpak and the
   Android APK) and, at most, this one disk image beside them.
 
+### v0.8.21 image
+
+The v0.8.21 release was published at 2026-10-04T22:02:56Z ([release
+record](STATUS.md#v0821-published--2026-10-04)). The image was built on the
+maintainer's M1 Max from tag `v0.8.21` (`37ffd02`) and uploaded to the draft
+release by hand before publication (GitHub dates the asset 2026-10-04T21:43:41Z).
+GitHub lists `LostOdysseyRecomp-macos-arm64-v0.8.21.dmg` at 60,489,102 bytes with
+SHA-256 `99fb4d1ab10165533f523a34d78a4e4ded0c937586e1c7af205f5e39fba92555`, which
+equals the SHA-256 computed on the Mac. Checks on the built file:
+
+- `codesign --verify` passes on the app. The signature is ad hoc.
+- The `Info.plist` version is `0.8.21`.
+
+Limits: no game run was made with this image, and no `hdiutil verify` or
+Gatekeeper check is recorded here.
+
+### v0.8.15 image
+
+The v0.8.15 release was published at 2026-10-04T11:52:16Z ([release
+record](STATUS.md#v0815-published--2026-10-04)). Its disk image was uploaded to
+the draft release by hand before publication (GitHub dates the asset
+2026-10-04T11:32:29Z, 13 seconds after the draft job ended). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.15.dmg` at 60,451,359 bytes with SHA-256
+`798e2f434e3d39cfc2c7d8b45dd7cd7a3b82e471f605a432d3a418eec30016da`. No build
+record, no `hdiutil` or `codesign` check of this image and no comparison with a
+hash computed on the Mac is recorded here, and no game run is recorded with it.
+
 ### v0.8.10 image
 
 The v0.8.10 release was published at 2026-10-04T05:39:20Z ([release
