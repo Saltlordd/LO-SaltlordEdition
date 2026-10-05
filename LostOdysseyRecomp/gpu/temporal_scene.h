@@ -189,6 +189,11 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Sea of Baus battle (#203): the #67 VS over b030 depth with PS fd46, which
     // reads only the clip W copy and samples at mesh UVs. Same fallback as #67.
     {0xbda41a11626a545cull, 0xfd46e0190f5f6c50ull, true},
+    // Cutscene tour 2026-10-04: bda4 with PS 6426 is the depth-writing base pass
+    // under the 2496/42b1 light; it reads only clip W. db23 with PS 1693 (xx4)
+    // reads only W of the o1 copy. Same policies as their VS's other pairs.
+    {0xbda41a11626a545cull, 0x642665c9452ccafbull, true},
+    {0xdb23a2ad4493bbb4ull, 0x1693d368b809e65dull, false},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)
@@ -208,19 +213,62 @@ inline constexpr ScreenLightPair ScreenLightPairs[]{
     {0x9bdef27080ca3ab4ull, 0xd122f0139a58bdacull},
     // The same floor light in a battle entered from the Entrance Hall.
     {0xe810cfacc107fd3cull, 0xa800980dfc9e4efeull},
+    // Cutscene tour 2026-10-04: the other e810 partners, each the same i4
+    // attenuation fetch multiplied into the light (a5c3/dba6 add a spot cone).
+    {0xe810cfacc107fd3cull, 0x3b45f8f248182356ull}, {0xe810cfacc107fd3cull, 0x5b11f88a8bb293dfull},
+    {0xe810cfacc107fd3cull, 0x78a5c96b2d7eaa91ull}, {0xe810cfacc107fd3cull, 0x7e18a8faa49f6a35ull},
+    {0xe810cfacc107fd3cull, 0x827f18c3f617e562ull}, {0xe810cfacc107fd3cull, 0x8bc0c849ae1ec109ull},
+    {0xe810cfacc107fd3cull, 0xa5c326bc64cc266aull}, {0xe810cfacc107fd3cull, 0xab5e0c09e5a377f5ull},
+    {0xe810cfacc107fd3cull, 0xd0d7801796e1ca87ull}, {0xe810cfacc107fd3cull, 0xdba6015f3b42f468ull},
+    {0xe810cfacc107fd3cull, 0xfe31f3d6588fde95ull},
+    // Cutscene tour: per-light passes of other vertex formats, same structure
+    // (world via c0-c3, camera c7-c10 to oPos and one clip copy, tex0 at it).
+    {0x00e3a3a34ae36a53ull, 0xaa4c50854f436570ull}, {0x00e3a3a34ae36a53ull, 0xb08ab38de8f5b470ull},
+    {0x2214874b92125316ull, 0x4a2275404b5560b2ull}, {0x2496cf2dd8440be6ull, 0x42b12599b7f6a94eull},
+    {0x2ec5f87f29727f06ull, 0xc0894ed7e71f3199ull}, {0x3fbb7967479aa2faull, 0xe2b7e7e5d683411bull},
+    {0x6c057b35ec257977ull, 0x6d97859b109fcdebull}, {0x6c057b35ec257977ull, 0xdbb8f8521845fcc5ull},
+    {0x83f8d16827cb5fb3ull, 0x3745a935e66fb8b9ull}, {0x83f8d16827cb5fb3ull, 0xb38356d8e0623584ull},
+    {0xc2eec5754e89870dull, 0xb598060d9a65ea8bull}, {0xc2eec5754e89870dull, 0xcea9fc0081567198ull},
+    {0xd9732b36fcc9dc49ull, 0x08678429d24ed0efull}, {0xda5bafb8e0f5ea2dull, 0x921f6bf1ab35afd7ull},
+    {0xdd4737cd63de5942ull, 0x8901785286fadee6ull}, {0xef71c9c08352b01aull, 0x4098c2df329dc2b1ull},
+    {0xf1833d2ba6fbb269ull, 0xa60815deff98d748ull}, {0xf7fff3419840491eull, 0x55bf9fedd9777eddull},
 };
 inline bool IsScreenLightPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : ScreenLightPairs)
         if (pair.vs == vs && pair.ps == ps) return true;
     return false;
 }
-// e810 has eleven observed PS partners. Only the reviewed pairs may use the
-// slot-7 path; fe31 only with a constant single-texel screen sample.
-// Keep it out of the VS-wide table so other consumers cannot self-anchor it.
+// Other reviewed exact pairs from the 2026-10-04 cutscene tour, with the slot
+// the runtime found the scene camera in. Each VS feeds that matrix only to oPos
+// and plain clip copies; each PS reads at most clip W or samples a same-frame
+// buffer at the pixel. Notes: docs/notes/jitter-cutscene-tour-2026-10-04.md.
+struct ReviewedPair { uint64_t vs, ps; int slot; };
+inline constexpr ReviewedPair ReviewedPairs[]{
+    // Depth writers and materials that read only clip W (or no clip copy).
+    {0x1c0053e696cb6770ull, 0x30731f7aad7cb542ull, 8}, {0x4cca1cb1d14cad0cull, 0xe3a453ca3a9f399bull, 7},
+    {0x66fe184a69d65dc5ull, 0x0fed3017c576229dull, 7}, {0xa8d2318208e7c3a0ull, 0x00afc8726e2a884aull, 4},
+    {0xac328a81ee03a7c8ull, 0xdfdf2b514e15f620ull, 0}, {0xbd4c84ecc2898862ull, 0xf7ff3169953b3a36ull, 7},
+    {0xe275fec97d4e7cfbull, 0x07153d2546a589ebull, 7}, {0xeb5f611c4321708eull, 0x38b953b91dcfd9ceull, 0},
+    // Slot-8 per-light pass (c7 is its UV transform).
+    {0xcabb0b7ea3077c96ull, 0xb1d4594c12ff35d4ull, 8},
+    // Cutscene characters: skinned light/depth passes like 3148/118a (camera
+    // c233-c236 after the bone blend); one tex0 attenuation fetch at the clip copy.
+    {0x258051387347ab2full, 0x957d8f92546fe31aull, 233}, {0x258051387347ab2full, 0x8724d5f1834d7842ull, 233},
+    {0x6261e0eb6b69ec62ull, 0xaab158a074b29bcfull, 233}, {0x6261e0eb6b69ec62ull, 0x0aa1c2c4ec7933c1ull, 233},
+    {0x69605181e9299128ull, 0xc4689958cc72c568ull, 233},
+};
+inline int ReviewedPairSlot(uint64_t vs, uint64_t ps) {
+    for (const auto& pair : ReviewedPairs)
+        if (pair.vs == vs && pair.ps == ps) return pair.slot;
+    return -1;
+}
+// e810 stays out of the VS-wide table: only its reviewed PS partners may use
+// the slot-7 path, so an unreviewed consumer cannot self-anchor it.
 inline int DrawPositionVPSlot(uint64_t vs, uint64_t ps, bool constantScreenSample = false) {
     if (FindSkyMaterialPair(vs, ps)) return 7;
     if (vs == 0xe810cfacc107fd3cull && ps == 0xfe31f3d6588fde95ull && constantScreenSample) return 7;
     if (IsScreenLightPair(vs, ps)) return 7;
+    if (const int slot = ReviewedPairSlot(vs, ps); slot >= 0) return slot;
     return PositionVPSlot(vs);
 }
 // Sky pairs jitter only against a scene camera observed before them; they
