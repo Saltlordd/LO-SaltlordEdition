@@ -2024,6 +2024,14 @@ namespace gpu::video
                 g_interface = plume::CreateVulkanInterface(g_dlssController->ExtensionHooks());
 #endif
             } else {
+                // d3d12.dll and dxgi.dll are delay-loaded. A missing DLL or export would
+                // raise an SEH fault on first call, which Select cannot catch.
+                const HMODULE d3d12 = LoadLibraryW(L"d3d12.dll");
+                const HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
+                if (!d3d12 || !GetProcAddress(d3d12, "D3D12CreateDevice") ||
+                    !GetProcAddress(d3d12, "D3D12SerializeRootSignature"))
+                    return "d3d12.dll unavailable";
+                if (!dxgi || !GetProcAddress(dxgi, "CreateDXGIFactory2")) return "dxgi.dll unavailable";
                 g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
                 g_temporalUpscaler = std::make_unique<TemporalUpscaler>(*g_dlssController);
                 g_interface = plume::CreateD3D12Interface();
