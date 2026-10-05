@@ -19,7 +19,7 @@
 
 ## 常用专题入口
 
-[FG 接入参考](reusable-fg-game-integration.md) · [Gate 1 验收依据](gate1-host-repair-20260927.md) · [设置菜单](settings-menu.md) · [渲染捕获](render-state-capture.md) · [Shader 准备](shader-preparation.md) · [CPU 优化指南](cpu-performance-optimization-guide.md) · [发布打包](release-packaging.md) · [随时存档限制](issue-74-save-anywhere-party-split.md)
+[FG 接入参考](reusable-fg-game-integration.md) · [Gate 1 验收依据](gate1-host-repair-20260927.md) · [设置菜单](settings-menu.md) · [渲染捕获](render-state-capture.md) · [Shader 准备](shader-preparation.md) · [首次使用管线卡顿方案](pipeline-first-use-stalls.md) · [CPU 优化指南](cpu-performance-optimization-guide.md) · [发布打包](release-packaging.md) · [随时存档限制](issue-74-save-anywhere-party-split.md)
 
 ## 帧生成与 SDK 接入
 
