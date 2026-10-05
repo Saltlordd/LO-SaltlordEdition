@@ -978,6 +978,11 @@ namespace gpu::renderer
             std::unique_ptr<ao::AmbientOcclusion> ambientOcclusion;
             uint32_t aoMode = 0;
             bool aoActive = false, aoInitFailed = false;
+            // The game fades the scene with a full-screen colour quad before tone
+            // mapping; AO lands on the finished scene copy and would shade the fade
+            // colour by the hidden geometry (#237). Fraction of the scene left.
+            uint32_t sceneFadeFrame = ~0u;
+            float sceneFadeTransmittance = 1;
 #if defined(LO_GPU_PLUME)
             dlss::Controller* dlssController = nullptr;
             TemporalUpscaler* temporalUpscaler = nullptr;
@@ -7326,15 +7331,16 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 bool fullSceneCopy = false;
                 {
                     render_batch::CpuTimer<> sceneCopyTimer(cpuTimingEnabled);
-                    fullSceneCopy = [&]() {
+                    // The fade quad (PS 234e writes c0) is depth tested against the scene.
+                    const auto fullScreenQuad = [&](uint64_t pixelShader, RenderBlend source, RenderBlend destination, uint32_t depthMask) {
                     auto reject=[&](uint32_t why){fullCopyReason=why;return false;};
-                    if(key.vs!=0x8bbd4da701845d16ull||key.ps!=0xcda578aef1724fdcull||
+                    if(key.vs!=0x8bbd4da701845d16ull||key.ps!=pixelShader||
                        info.primitiveType!=4||!info.indexed||info.indexCount!=6||info.indexBufferWords<6||
                        viewport.x!=0||viewport.y!=0||viewport.width<=0||viewport.height<=0||viewport.width>pitch||viewport.height>rtHeight||
-                       key.colorMask!=15||(depthControl&3)||shared.vtxFmt!=4||
+                       key.colorMask!=15||(depthControl&depthMask)||shared.vtxFmt!=4||
                        (key.modeCull&3)|| (Reg(REG_RB_COLORCONTROL)&8))return reject(1);
                     const uint32_t blend=key.blend;
-                    if(BlendFactor(blend&31)!=RenderBlend::ONE||BlendFactor((blend>>8)&31)!=RenderBlend::ZERO||
+                    if(BlendFactor(blend&31)!=source||BlendFactor((blend>>8)&31)!=destination||
                        BlendOp((blend>>5)&7)!=RenderBlendOperation::ADD)return reject(2);
                     int l=scissorTl&0x3fff,t=(scissorTl>>16)&0x3fff,r=scissorBr&0x3fff,b=(scissorBr>>16)&0x3fff;
                     const uint32_t window=Reg(REG_PA_SC_WINDOW_OFFSET);
@@ -7366,7 +7372,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     fullCopyVertices+=fmt::format(" bounds=({:g},{:g},{:g},{:g}) masks={}/{}",xmin,ymin,xmax,ymax,masks[0],masks[1]);
                     unsigned common=masks[0]&masks[1];fullCopyReason=10;return std::popcount(masks[0])==3&&std::popcount(masks[1])==3&&
                         (masks[0]|masks[1])==15&&(common==9||common==6);
-                }();
+                };
+                    fullSceneCopy = fullScreenQuad(0xcda578aef1724fdcull, RenderBlend::ONE, RenderBlend::ZERO, 3);
+                    if (aoActive && key.ps == 0x234ee3faaf1ba953ull && temporalScene.Frame() == frame && temporalScene.Draws() &&
+                        rasterViewport.width == temporalScene.Anchor().viewport.width && rasterViewport.height == temporalScene.Anchor().viewport.height &&
+                        fullScreenQuad(key.ps, RenderBlend::SRC_ALPHA, RenderBlend::INV_SRC_ALPHA, 5)) {
+                        if (sceneFadeFrame != frame) { sceneFadeFrame = frame; sceneFadeTransmittance = 1; }
+                        const float alpha = std::bit_cast<float>(psConstants[3]);
+                        sceneFadeTransmittance *= 1 - (alpha > 0 ? std::min(alpha, 1.0f) : 0.0f);
+                        static uint32_t fadeLogs = 0;
+                        if (fadeLogs++ < 4) LOG_INFO("renderer: AO scene fade frame={} alpha={} left={}", frame, alpha, sceneFadeTransmittance);
+                    }
                 if(key.vs==0x8bbd4da701845d16ull&&key.ps==0xcda578aef1724fdcull) {
                     static const uint64_t start=getenv("LO_SCENE_AA_LOG_START_FRAME")?strtoull(getenv("LO_SCENE_AA_LOG_START_FRAME"),nullptr,10):~0ull;
                     if(frame>=start&&frame-start<128)SHADER_LOG_INFO("scene-aa", None, "renderer scene AA guard f{} full={} reason={} mode={} jitter={} blend={:#x} mask={} vtx={} prim={} n={} cull={:#x} ctl={:#x} vp=({},{},{},{}) extent={}x{} fetch95={:08x},{:08x} quad={} ",frame,fullSceneCopy,fullCopyReason,sceneAAMode,temporalJitter,key.blend,key.colorMask,shared.vtxFmt,info.primitiveType,info.indexCount,key.modeCull,Reg(REG_RB_COLORCONTROL),viewport.x,viewport.y,viewport.width,viewport.height,pitch,rtHeight,Reg(REG_FETCH_CONSTANTS+190),Reg(REG_FETCH_CONSTANTS+191),fullCopyVertices);
@@ -7614,7 +7630,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                            rasterViewport.width==temporalScene.Anchor().viewport.width && rasterViewport.height==temporalScene.Anchor().viewport.height) {
                             render_batch::CpuTimer<> taaResolve(cpuTimingEnabled);
                             temporalScene.ObserveColor(*temporalSceneCopy);
-                            if (aoActive && ambientOcclusion && temporalScene.Ready() && tex->format == RenderFormat::R8G8B8A8_UNORM) {
+                            const float aoVisible = sceneFadeFrame == frame ? sceneFadeTransmittance : 1;
+                            if (aoActive && ambientOcclusion && aoVisible > 0 && temporalScene.Ready() && tex->format == RenderFormat::R8G8B8A8_UNORM) {
                                 const auto& observedDepth = temporalScene.Depth();
                                 // SceneObservation stores a resolve format, including
                                 // kDepthResolveTag; FindResolved expects a guest fetch
@@ -7651,6 +7668,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         inputs.color=tex->texture.get();inputs.depth=sourceDepth->tex->texture.get();
                                         inputs.camera=&*camera;inputs.width=tex->width;inputs.height=tex->height;
                                         inputs.mode=static_cast<ao::Mode>(aoMode);
+                                        inputs.strength*=aoVisible;
                                         if (actualRasterJitterCaptured) {inputs.jitterX=actualRasterJitter.pixelX;inputs.jitterY=actualRasterJitter.pixelY;}
                                         static const char* aoDebug=std::getenv("LO_AO_DEBUG");
                                         if (aoDebug) {
