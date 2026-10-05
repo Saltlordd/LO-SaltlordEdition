@@ -152,7 +152,7 @@ index 1384fe9..32a2032 100644
          auto updateBlock = ^{
              NSWindow *nsWindow = (__bridge NSWindow *)windowHandle;
 diff --git a/plume_metal.cpp b/plume_metal.cpp
-index 373c87e..0d08645 100644
+index 373c87e..9cb8dd0 100644
 --- a/plume_metal.cpp
 +++ b/plume_metal.cpp
 @@ -8,16 +8,25 @@
@@ -542,7 +542,21 @@ index 373c87e..0d08645 100644
          MetalAutoreleasePool releasePool;
          endOtherEncoders(EncoderType::Render);
          endActiveRenderEncoder();
-@@ -2775,6 +2988,13 @@ namespace plume {
+@@ -2757,6 +2970,13 @@ namespace plume {
+         dirtyGraphicsState.depthBias = 1;
+     }
+ 
++    void MetalCommandList::setBlendConstants(const float constants[4]) {
++        for (uint32_t i = 0; i < 4; i++) {
++            blendConstants[i] = constants[i];
++        }
++        dirtyGraphicsState.blendConstants = 1;
++    }
++
+     void MetalCommandList::setCommonClearState() const {
+         activeRenderEncoder->setViewport({ 0, 0, static_cast<float>(targetFramebuffer->width), static_cast<float>(targetFramebuffer->height), 0.0f, 1.0f });
+         activeRenderEncoder->setScissorRect(clampScissorRectIfNecessary({ 0, 0, static_cast<int32_t>(targetFramebuffer->width), static_cast<int32_t>(targetFramebuffer->height) }, targetFramebuffer));
+@@ -2775,6 +2995,13 @@ namespace plume {
      }
  
      void MetalCommandList::clearColor(const uint32_t attachmentIndex, RenderColor colorValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -556,7 +570,7 @@ index 373c87e..0d08645 100644
          assert(targetFramebuffer != nullptr);
          assert(attachmentIndex < targetFramebuffer->colorAttachments.size());
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -2864,6 +3084,12 @@ namespace plume {
+@@ -2864,6 +3091,12 @@ namespace plume {
      }
  
      void MetalCommandList::clearDepthStencil(const bool clearDepth, const bool clearStencil, const float depthValue, const uint32_t stencilValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -569,7 +583,7 @@ index 373c87e..0d08645 100644
          assert(targetFramebuffer != nullptr);
          assert(targetFramebuffer->depthAttachment.format != RenderFormat::UNKNOWN);
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -3022,6 +3248,44 @@ namespace plume {
+@@ -3022,6 +3255,44 @@ namespace plume {
                  dstOrigin
              );
              activeBlitEncoder->popDebugGroup();
@@ -614,7 +628,20 @@ index 373c87e..0d08645 100644
          } else {
              assert(dstTexture != nullptr);
              assert(srcTexture != nullptr);
-@@ -3818,6 +4082,10 @@ namespace plume {
+@@ -3460,6 +3731,12 @@ namespace plume {
+             dirtyGraphicsState.depthBias = 0;
+         }
+ 
++        // Blend constants
++        if (dirtyGraphicsState.blendConstants) {
++            activeRenderEncoder->setBlendColor(blendConstants[0], blendConstants[1], blendConstants[2], blendConstants[3]);
++            dirtyGraphicsState.blendConstants = 0;
++        }
++
+         // Viewports
+         if (dirtyGraphicsState.viewports) {
+             if (!viewportVector.empty() && viewportVector != stateCache.lastViewports) {
+@@ -3818,6 +4095,10 @@ namespace plume {
          // TODO: Support Raytracing.
          // capabilities.raytracing = mtl->supportsRaytracing();
          capabilities.maxTextureSize = mtl->supportsFamily(MTL::GPUFamilyApple3) ? 16384 : 8192;
@@ -625,7 +652,7 @@ index 373c87e..0d08645 100644
          capabilities.sampleLocations = mtl->programmableSamplePositionsSupported();
          capabilities.resolveRegion = true;
          capabilities.resolveModes = false;
-@@ -3885,7 +4153,13 @@ namespace plume {
+@@ -3885,7 +4166,13 @@ namespace plume {
      }
  
      std::unique_ptr<RenderShader> MetalDevice::createShader(const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format) {
@@ -640,7 +667,7 @@ index 373c87e..0d08645 100644
      }
  
      std::unique_ptr<RenderSampler> MetalDevice::createSampler(const RenderSamplerDesc &desc) {
-@@ -4222,6 +4496,212 @@ namespace plume {
+@@ -4222,6 +4509,212 @@ namespace plume {
  
      // Global creation function.
  
@@ -854,7 +881,7 @@ index 373c87e..0d08645 100644
          std::unique_ptr<MetalInterface> createdInterface = std::make_unique<MetalInterface>();
          return createdInterface->isValid() ? std::move(createdInterface) : nullptr;
 diff --git a/plume_metal.h b/plume_metal.h
-index 59ae129..e5886a6 100644
+index 59ae129..cc7efe9 100644
 --- a/plume_metal.h
 +++ b/plume_metal.h
 @@ -7,6 +7,8 @@
@@ -866,7 +893,24 @@ index 59ae129..e5886a6 100644
  #include <set>
  #include <unordered_set>
  
-@@ -232,6 +234,7 @@ namespace plume {
+@@ -118,6 +120,7 @@ namespace plume {
+                 uint32_t depthBias : 1;
+                 uint32_t depthStencil : 1;
+                 uint32_t rasterizer : 1;
++                uint32_t blendConstants : 1;
+             };
+             uint32_t value;
+         };
+@@ -129,7 +132,7 @@ namespace plume {
+         uint32_t vertexBufferSlots;
+ 
+         void setAll() {
+-            value = 0x1FF; // All 9 bits set
++            value = 0x3FF; // All 10 bits set
+             descriptorSetDirtyIndex = 0;
+             vertexBufferSlots = (1U << MAX_VERTEX_BUFFER_BINDINGS) - 1;
+         }
+@@ -232,6 +235,7 @@ namespace plume {
      struct MetalSwapChain : RenderSwapChain {
          RenderSwapChainDesc desc;
          CA::MetalLayer *layer = nullptr;
@@ -874,7 +918,7 @@ index 59ae129..e5886a6 100644
          MetalCommandQueue *commandQueue = nullptr;
          uint32_t width = 0;
          uint32_t height = 0;
-@@ -242,12 +245,22 @@ namespace plume {
+@@ -242,12 +246,22 @@ namespace plume {
  
          // Present wait
          uint64_t currentPresentId = 0;
@@ -900,7 +944,7 @@ index 59ae129..e5886a6 100644
          bool present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) override;
          void wait() override;
          bool resize() override;
-@@ -256,6 +269,8 @@ namespace plume {
+@@ -256,6 +270,8 @@ namespace plume {
          bool isVsyncEnabled() const override;
          uint32_t getWidth() const override;
          uint32_t getHeight() const override;
@@ -909,7 +953,24 @@ index 59ae129..e5886a6 100644
          RenderTexture *getTexture(uint32_t textureIndex) override;
          uint32_t getTextureCount() const override;
          bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) override;
-@@ -635,6 +650,8 @@ namespace plume {
+@@ -428,6 +444,8 @@ namespace plume {
+             float slopeScaledDepthBias;
+         } dynamicDepthBias;
+ 
++        float blendConstants[4] = {};
++
+         struct {
+             uint32_t updateDirtyBits = ~0;
+             int update[MetalBarrierStage::COUNT] = {};
+@@ -481,6 +499,7 @@ namespace plume {
+         void setScissors(const RenderRect *scissorRects, uint32_t count) override;
+         void setFramebuffer(const RenderFramebuffer *framebuffer) override;
+         void setDepthBias(float depthBias, float depthBiasClamp, float slopeScaledDepthBias) override;
++        void setBlendConstants(const float constants[4]) override;
+         void clearColor(uint32_t attachmentIndex, RenderColor colorValue, const RenderRect *clearRects, uint32_t clearRectsCount) override;
+         void clearDepthStencil(bool clearDepth, bool clearStencil, float depthValue, uint32_t stencilValue, const RenderRect *clearRects, uint32_t clearRectsCount) override;
+         void copyBufferRegion(RenderBufferReference dstBuffer, RenderBufferReference srcBuffer, uint64_t size) override;
+@@ -635,6 +654,8 @@ namespace plume {
          RenderShaderFormat format = RenderShaderFormat::UNKNOWN;
          MTL::Library *library = nullptr;
          NS::String *debugName = nullptr;

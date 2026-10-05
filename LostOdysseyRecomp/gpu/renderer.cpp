@@ -227,6 +227,7 @@ namespace gpu::renderer
         constexpr uint32_t REG_PA_SC_WINDOW_SCISSOR_BR = 0x2082;
         constexpr uint32_t REG_VGT_INDX_OFFSET = 0x2102;
         constexpr uint32_t REG_RB_COLOR_MASK = 0x2104;
+        constexpr uint32_t REG_RB_BLEND_RED = 0x2105;   // GREEN, BLUE, ALPHA follow
         constexpr uint32_t REG_RB_ALPHA_REF = 0x210E;
         constexpr uint32_t REG_RB_STENCILREFMASK_BF = 0x210C;
         constexpr uint32_t REG_RB_STENCILREFMASK = 0x210D;
@@ -6152,6 +6153,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
             }
 
+            // Factors 12-15 read the RB_BLEND_RED..ALPHA constant (enemy fade-in, #219).
+            static bool UsesBlendConstant(uint32_t blend)
+            {
+                for (uint32_t shift : { 0u, 8u, 16u, 24u })
+                    if (const uint32_t f = (blend >> shift) & 0x1F; f >= 12 && f <= 15)
+                        return true;
+                return false;
+            }
+
             static RenderBlendOperation BlendOp(uint32_t op)
             {
                 switch (op)
@@ -6270,6 +6280,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 static const bool noBlend = getenv("LO_NO_BLEND") != nullptr; // debugging
                 if (noBlend)
                     rt.blendEnabled = false;
+                desc.dynamicBlendConstantsEnabled = rt.blendEnabled && UsesBlendConstant(blend);
                 rt.renderTargetWriteMask = uint8_t(key.colorMask & 0xF);
                 desc.renderTargetFormat[0] = rtFormat;
                 desc.renderTargetCount = rtFormat != RenderFormat::UNKNOWN ? 1 : 0;
@@ -8447,6 +8458,29 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 set0 = vulkan ? staticSet0.get() : samplerVersion->descriptors.get();
                 RenderDescriptorSet* set4 = vulkan ? samplerVersion->descriptors.get() : nullptr;
                 commandList->setPipeline(pipeline);
+                // The command list keeps the constant for later rebinds of this
+                // pipeline, e.g. after the motion-vector replay.
+                if (UsesBlendConstant(key.blend))
+                {
+                    float constants[4];
+                    for (uint32_t i = 0; i < 4; i++)
+                        constants[i] = RegF(REG_RB_BLEND_RED + i);
+                    // The host colour factor reads RGB. Constant-alpha factors (14/15)
+                    // match it when no constant-colour factor (12/13) needs RGB.
+                    const uint32_t srcColor = key.blend & 0x1F, dstColor = (key.blend >> 8) & 0x1F;
+                    if (srcColor != 12 && srcColor != 13 && dstColor != 12 && dstColor != 13)
+                        constants[0] = constants[1] = constants[2] = constants[3];
+                    commandList->setBlendConstants(constants);
+                    static float logged[4] = {};
+                    static uint32_t blendConstantLogs = 0;
+                    if (blendConstantLogs < 16 && std::memcmp(logged, constants, sizeof(logged)) != 0)
+                    {
+                        ++blendConstantLogs;
+                        std::memcpy(logged, constants, sizeof(logged));
+                        LOG_INFO("renderer: blend constant f{} blend={:#x} vs={:016x} ps={:016x} rgba=({:g},{:g},{:g},{:g})",
+                            frame, key.blend, key.vs, key.ps, constants[0], constants[1], constants[2], constants[3]);
+                    }
+                }
                 commandList->setGraphicsPipelineLayout(pipelineLayout.get());
                 if (vulkan) {
                     const uint64_t base = uploadRing->getDeviceAddress();
