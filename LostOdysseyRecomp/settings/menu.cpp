@@ -656,6 +656,12 @@ void Publish(uint8_t *base, uint32_t config)
                                   edit.anisotropicFiltering == 4 ? 2 : edit.anisotropicFiltering == 2 ? 1 : 0;
         placeGraphics(GraphicsRow::AnisotropicFiltering, makeChoices(L"Anisotropic filtering", L"各向異性過濾",
                    {Tr(L"Off", L"關"), L"2×", L"4×", L"8×", L"16×"}, afChoice));
+        std::vector<std::wstring> dofChoices{Tr(L"Off", L"關")};
+        for (uint32_t percent = 10; percent <= 100; percent += 10)
+            dofChoices.push_back(std::to_wstring(percent) + L"%");
+        placeGraphics(GraphicsRow::DepthOfField, makeChoices(L"Depth of field", L"景深", std::move(dofChoices),
+                   (std::min(edit.depthOfFieldPercent, 100u) + 5) / 10));
+        placeGraphics(GraphicsRow::Bloom, makeChoices(L"Bloom", L"光暈", onOff(), edit.bloom ? 0 : 1));
 #if LO_PLATFORM_MACOS
         placeGraphics(GraphicsRow::ScalingQuality, makeChoices(L"Scaling filter", L"縮放濾鏡",
                    {Tr(L"Standard", L"標準"), Tr(L"High", L"高"), L"MetalFX"},
@@ -832,6 +838,14 @@ void Publish(uint8_t *base, uint32_t config)
         case GraphicsRow::AnisotropicFiltering:
             next.help = Tr(L"Improves texture clarity at oblique viewing angles. Changes apply immediately after saving.",
                            L"提升斜角觀看時的紋理清晰度。儲存後立即套用。");
+            break;
+        case GraphicsRow::DepthOfField:
+            next.help = Tr(L"Strength of the game's depth-of-field blur. 100% is the original look; Off keeps distant scenery sharp. Applies immediately after saving.",
+                           L"遊戲景深模糊的強度。100% 為原版效果；關閉後遠景保持清晰。儲存後立即套用。");
+            break;
+        case GraphicsRow::Bloom:
+            next.help = Tr(L"The game's glow around bright areas. Off removes it and the image gets slightly darker. Applies immediately after saving.",
+                           L"遊戲中亮部周圍的光暈。關閉後光暈消失，畫面會稍暗。儲存後立即套用。");
             break;
         case GraphicsRow::ScalingQuality:
 #if LO_PLATFORM_MACOS
@@ -1948,6 +1962,12 @@ PPC_FUNC(sub_822F19B0)
                 edit.anisotropicFiltering = levels[cycle(index, 5)];
                 break;
             }
+            case GraphicsRow::DepthOfField:
+                edit.depthOfFieldPercent = cycle((std::min(edit.depthOfFieldPercent, 100u) + 5) / 10, 11) * 10;
+                break;
+            case GraphicsRow::Bloom:
+                edit.bloom = !edit.bloom;
+                break;
             case GraphicsRow::ScalingQuality:
 #if LO_PLATFORM_MACOS
                 edit.scalingQuality = cycle(edit.scalingQuality, ScalingMetalFx + 1);
