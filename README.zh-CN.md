@@ -184,7 +184,7 @@ Windows ZIP 是**便携式**的，所有文件都留在解压目录里。AppImag
 
 | 内容 | 位置 | 说明 |
 | :--- | :--- | :--- |
-| 存档 | `save/` | 更新时保留。 |
+| 存档 | `save/` | 更新时保留。可以[导入](docs/INSTALLING.zh-CN.md#importing-saves) Xenia 和 Xbox 360 存档。 |
 | 个人配置 | `profile/` | 更新时保留。 |
 | 设置 | `settings.ini` | 删除后恢复默认设置。 |
 | 导入的游戏 | `game/`，内含 `disc1/`–`disc4/` 和 `dlc/` | 导入器的默认位置；导入到别处时由 `game-path.txt` 记录。 |
