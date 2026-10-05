@@ -239,7 +239,7 @@ LostOdysseyRecomp.app/Contents/MacOS/LostOdysseyRecomp --game ~/Games/LostOdysse
 | :--- | :--- |
 | `LO_GRAPHICS_API` | Windows 上为 `d3d12` 或 `vulkan`。 |
 | `LO_FPS` | 帧率上限，0 到 1000；`0` 表示不限制。 |
-| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | 插帧：`off`/`dlss`/`fsr`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率（[详情](notes/vulkan-fg-fsr4-metalfx.md)）。 |
+| `LO_FG_PROVIDER`、`LO_FG_MODE`、`LO_FG_MULTIPLIER`、`LO_FG_TARGET_FPS` | 插帧：`off`/`dlss`/`fsr`/`xess`；`off`/`fixed`/`dynamic`；2–6 倍；目标帧率（[详情](notes/vulkan-fg-fsr4-metalfx.md)）。 |
 | `LO_OPTISCALER_PATH` | 实验性，仅 Windows：自备 `OptiScaler.dll` 的完整路径（[配置方法](notes/vulkan-fg-fsr4-metalfx.md#optional-optiscaler-loading-on-windows)）。 |
 | `LO_NO_UPDATE` | 设为 `0` 以外的任何值即跳过更新检查。 |
 | `LO_PROFILE_DIR`、`LO_SHADER_CACHE_DIR`、`LO_MODS_DIR` | 使用其他个人配置、着色器缓存或 Mod 目录。`LO_SHADER_CACHE_DIR` 设为空值会关闭着色器缓存。 |
