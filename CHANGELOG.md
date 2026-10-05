@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- Fixed geometry outlines showing through white screen fades with ambient occlusion on (#237).
+
+### 简体中文
+
+- 修复开启环境光遮蔽时，画面变白时透出几何轮廓的问题（#237）。
+
 ## [v0.8.30](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30) — 2026-10-05
 
 ### English
