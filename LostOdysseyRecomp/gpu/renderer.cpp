@@ -6733,6 +6733,23 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         constantGeneration[bank] = constantSnapshotVersion[bank];
                     }
                 }
+                // Player DoF/bloom settings edit the tone-map draw's constant copy.
+                // DoF weight w = curve^c4 * c5 (c5.x near, c5.y far) blends the
+                // sharp tap by (c255.y - w) with the blurred tap by w * c6, so
+                // scaling c5 fades the blur without darkening the sharp term.
+                // c7.x gates the additive bloom. The FSR alpha replay reads the
+                // same copy; the next draw restores it from the snapshot.
+                if (key.ps == color_qualification::kTonemapPS) {
+                    const auto post = settings::GetConfig();
+                    if (post.depthOfFieldPercent < 100) {
+                        const float scale = float(post.depthOfFieldPercent) / 100.0f;
+                        for (const unsigned component : {0u, 1u})
+                            psConstants[5 * 4 + component] = std::bit_cast<uint32_t>(
+                                std::bit_cast<float>(psConstants[5 * 4 + component]) * scale);
+                    }
+                    if (!post.bloom) psConstants[7 * 4] = 0;
+                    if (post.depthOfFieldPercent < 100 || !post.bloom) drawConstantsModified[1] = true;
+                }
                 // Diagnostic selection uses only GPU draw constants, not the CPU
                 // presented-swap counter. Shader/layout recognition is deliberately
                 // limited to the path verified in the captured Map2 scene.

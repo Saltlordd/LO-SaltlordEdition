@@ -24,6 +24,7 @@ Config Validate(Config value)
 #endif
     if (value.anisotropicFiltering != 0 && value.anisotropicFiltering != 2 && value.anisotropicFiltering != 4 &&
         value.anisotropicFiltering != 8 && value.anisotropicFiltering != 16) value.anisotropicFiltering = 0;
+    value.depthOfFieldPercent = std::min(value.depthOfFieldPercent, 100u);
     value.hdrPaperWhiteNits = std::clamp(value.hdrPaperWhiteNits, 80u, 400u);
     value.hdrPeakNits = std::clamp(value.hdrPeakNits, 80u, 10000u);
     value.hdrPeakNits = std::max(value.hdrPeakNits, value.hdrPaperWhiteNits);
@@ -144,6 +145,10 @@ Config Read()
             value.displayGamma = number;
         else if (key == "anisotropic_filtering")
             value.anisotropicFiltering = number;
+        else if (key == "depth_of_field")
+            value.depthOfFieldPercent = number;
+        else if (key == "bloom" && number <= 1)
+            value.bloom = number == 1;
         else if (key == "upscaler")
             value.upscaler = gpu::upscaling::Upscaler(number);
         else if (key == "dlss_quality")
@@ -277,6 +282,8 @@ static bool WriteConfig(const Config &value)
            << "\ndisplay_brightness=" << value.displayBrightness
            << "\ndisplay_gamma=" << value.displayGamma
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
+           << "\ndepth_of_field=" << value.depthOfFieldPercent
+           << "\nbloom=" << (value.bloom ? 1 : 0)
            << "\nupscaler=" << uint32_t(value.upscaler) << "\ndlss_quality=" << uint32_t(value.dlssQuality)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)
            << "\nfsr_sharpness=" << value.fsrSharpnessPercent
