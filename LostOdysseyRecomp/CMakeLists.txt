@@ -222,7 +222,10 @@ if(LO_BUILD_GPU)
         target_include_directories(LostOdysseyRecomp PRIVATE ${CMAKE_SOURCE_DIR}/thirdparty/plume/contrib/metal-cpp)
     endif()
     if(WIN32)
-        target_link_libraries(LostOdysseyRecomp PRIVATE d3d12 dxgi)
+        # Vulkan runs never load the D3D12 runtime; video.cpp probes both DLLs
+        # before the D3D12 attempt so a missing one falls back instead of faulting.
+        target_link_libraries(LostOdysseyRecomp PRIVATE d3d12 dxgi delayimp)
+        target_link_options(LostOdysseyRecomp PRIVATE /DELAYLOAD:d3d12.dll /DELAYLOAD:dxgi.dll)
     endif()
     lo_enable_dlss(LostOdysseyRecomp)
     lo_enable_streamline_fg(LostOdysseyRecomp)
