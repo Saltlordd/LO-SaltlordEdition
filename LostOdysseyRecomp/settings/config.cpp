@@ -41,13 +41,9 @@ Config Validate(Config value)
     if (value.frameGenerationMultiplier < 2 || value.frameGenerationMultiplier > framegen::kMaxMultiplier)
         value.frameGenerationMultiplier = 2;
     if (value.frameGenerationTargetFps > 1000) value.frameGenerationTargetFps = 0;
-    // XeSS keeps its fixed multiplier; the SDK maximum is checked at session start.
-    if (value.frameGenerationProvider == framegen::Provider::Xess)
-    {
-        value.frameGenerationMode = framegen::Mode::Fixed;
-        value.frameGenerationTargetFps = 0;
-    }
-    if (value.frameGenerationProvider == framegen::Provider::Fsr || value.frameGenerationProvider == framegen::Provider::MetalFx)
+    // XeSS-FG offers more than 2x only on Intel GPUs; like FSR it is fixed at 2x here.
+    if (value.frameGenerationProvider == framegen::Provider::Fsr || value.frameGenerationProvider == framegen::Provider::MetalFx ||
+        value.frameGenerationProvider == framegen::Provider::Xess)
     {
         value.frameGenerationMode = framegen::Mode::Fixed;
         value.frameGenerationMultiplier = 2;

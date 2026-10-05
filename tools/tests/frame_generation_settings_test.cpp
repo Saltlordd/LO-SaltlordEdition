@@ -39,11 +39,11 @@ int main() {
     auto savedXess = saved;
     savedXess.frameGenerationProvider = framegen::Provider::Xess;
     savedXess.frameGenerationMode = framegen::Mode::Fixed;
-    savedXess.frameGenerationMultiplier = 3;
+    savedXess.frameGenerationMultiplier = 2;
     selected = gpu::frame_generation::ResolveD3D12Selection(savedXess,nullptr,nullptr,nullptr,nullptr,nullptr);
 #if defined(_WIN32) && defined(FRAMEGEN_WITH_XESS)
     Check(selected.Enabled() && selected.config.provider == framegen::Provider::Xess &&
-          selected.config.generatedFrames == 2, "persisted XeSS request keeps its fixed multiplier");
+          selected.config.generatedFrames == 1, "persisted XeSS request uses fixed 2x");
 #else
     Check(!selected.Enabled() && selected.error, "uncompiled XeSS FG fails closed");
 #endif

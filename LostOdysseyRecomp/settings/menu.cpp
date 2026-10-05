@@ -468,8 +468,7 @@ bool GraphicsRowHidden(int r)
 #endif
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
-           (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss &&
-            edit.frameGenerationProvider != framegen::Provider::Xess);
+           (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
 }
 std::vector<framegen::Provider> FgProviders()
 {
@@ -931,8 +930,8 @@ void Publish(uint8_t *base, uint32_t config)
                     : Tr(L"Vulkan supports FSR 2×. Enabling or changing the FG provider requires a restart.",
                          L"Vulkan 支援 FSR 2×。啟用或切換影格生成提供者需重新啟動。");
             else if (edit.frameGenerationProvider == framegen::Provider::Xess)
-                next.help = Tr(L"XeSS FG works independently of upscaling. Multipliers above 2× need an Intel GPU.",
-                               L"XeSS 影格生成可獨立於超解析度使用。2× 以上的倍數需要 Intel 顯示卡。");
+                next.help = Tr(L"FG works independently of upscaling. XeSS uses a fixed 2× multiplier.",
+                               L"影格生成可獨立於超解析度使用。XeSS 固定為 2×。");
             else
                 next.help = Tr(L"FG works independently of upscaling. FSR uses a fixed 2× multiplier.",
                                L"影格生成可獨立於超解析度使用。FSR 固定為 2×。");

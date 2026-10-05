@@ -28,8 +28,8 @@ inline constexpr bool AndroidFsrAvailable = true;
 inline constexpr bool AndroidFsrAvailable = false;
 #endif
 inline constexpr uint32_t AaChoiceCount = AndroidFsrAvailable ? 5 : 4;
-#elif defined(_WIN32)
-// Intel XeSS is D3D12-only and therefore offered on Windows only.
+#elif defined(_WIN32) && defined(LO_HAS_XESS) && LO_HAS_XESS
+// Intel XeSS is D3D12-only; only XeSS-enabled Windows builds offer it.
 inline constexpr uint32_t AaChoiceCount = 7;
 #else
 inline constexpr uint32_t AaChoiceCount = 6;

@@ -226,7 +226,8 @@ Status Controller::EnsureSession(plume::D3D12Device& device, const Config& confi
     // Scene color is display-encoded RGBA8 (ColorEncoding::Sdr), motion is
     // low-res, unjittered, previous-minus-current in pixels.
     params.initFlags = XESS_INIT_FLAG_LDR_INPUT_COLOR | (config.depthInverted ? XESS_INIT_FLAG_INVERTED_DEPTH : 0u);
-    // Blocking: first use may compile pipelines. The renderer falls back meanwhile.
+    // Blocks the render thread: about 40 ms with a warm driver cache, about
+    // 0.5 s the first time a driver compiles the XeSS kernels.
     result = impl_->init(impl_->context, &params);
     if (result < XESS_RESULT_SUCCESS) {
         LOG_WARNING("XeSS: xessD3D12Init {}x{} quality={} result={}", config.outputWidth, config.outputHeight,

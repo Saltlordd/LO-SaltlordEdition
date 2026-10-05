@@ -855,8 +855,12 @@ namespace gpu::video
         // Directory with libxess_fg.dll and libxell.dll; LO_XESS_FG_RUNTIME_PATH overrides.
         [[maybe_unused]] std::filesystem::path XessFgRuntimeDirectory()
         {
+            // Like XeSS SR, independent of LO_DLSS_RUNTIME_PATH.
             const char* override = std::getenv("LO_XESS_FG_RUNTIME_PATH");
-            return override && *override ? std::filesystem::path(override) : RuntimeDirectory("libxess_fg.dll");
+            if (override && *override) return std::filesystem::path(override);
+            std::error_code error;
+            return os::runtime_libraries::Find("libxess_fg.dll", os::user_paths::ExecutableDir(),
+                std::filesystem::current_path(error));
         }
         // Each D3D12 FG adapter's runtime: a file for FidelityFX, a directory otherwise.
         [[maybe_unused]] std::filesystem::path D3D12FgRuntime(framegen::Provider provider)

@@ -102,8 +102,7 @@ cmake -S . -B out/build/d3d12-upscalers -G Ninja `
 environment. XeSS SR appears as *XeSS* under *Anti-aliasing / Upscaling* and
 uses the FSR quality IDs mapped to the same-named XeSS presets (Quality 1.7×,
 Balanced 2.0×, Performance 2.3×, Native AA). XeSS frame generation appears as
-*XeSS* under *Frame generation*; it supports fixed multipliers up to the SDK
-maximum, which is 2× on non-Intel GPUs. Both require the D3D12 backend; on
+*XeSS* under *Frame generation* with a fixed 2× multiplier, like FSR. Both require the D3D12 backend; on
 Vulkan, or without the DLLs, the menu reports XeSS as unavailable and normal
 rendering is kept. `LO_XESS_RUNTIME_PATH` (a `libxess.dll` path) and
 `LO_XESS_FG_RUNTIME_PATH` (a directory) override the DLL lookup;
