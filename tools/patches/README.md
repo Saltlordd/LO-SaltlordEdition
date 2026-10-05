@@ -52,6 +52,8 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 
 2026-10-03 队列族传输位（#185）：Vulkan 规范规定图形和计算队列都支持传输操作，但单独声明 `VK_QUEUE_TRANSFER_BIT` 是可选的；高通 Adreno 专有驱动只声明图形和计算位，`pickFamilyQueue` 因此找不到队列族并报 "Required Vulkan queue family unavailable."。补丁在挑选队列族之前，为声明了图形或计算位的队列族补上传输位。新补丁在固定 HEAD `d890ac8` 的干净副本上先应用原补丁（重新生成与原补丁逐字节一致）再修改后生成，`plume-android.patch` 与 `plume-macos.patch` 仍可叠加应用。
 
+2026-10-05 混合常量（#219）：`RenderCommandList::setBlendConstants` 设置 `BLEND_FACTOR`／`INV_BLEND_FACTOR` 读取的 RGBA 值，带默认空实现。D3D12 使用 `OMSetBlendFactor`；Vulkan 只在以 `dynamicBlendConstantsEnabled` 创建的管线上声明 `VK_DYNAMIC_STATE_BLEND_CONSTANTS`，命令列表记住该值，并在绑定这类管线时重新设置，因此中途绑定静态常量管线后也不会失效（D3D12 和 Metal 本来就跨管线保留）。新补丁在固定 HEAD `d890ac8` 的干净副本上生成，`plume-android.patch` 与 `plume-macos.patch` 仍可叠加应用。
+
 ## macOS: plume Metal patch
 
 `plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes `plume_metal.cpp`, `plume_metal.h`, `plume_apple.h`, `plume_apple.mm` and plume's `CMakeLists.txt` (the Apple files and the CMake change come with HDR output, PR #145):
@@ -64,6 +66,7 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 - `setFramebuffer` keeps the active render pass when the framebuffer is unchanged, as `plume-lostodyssey.patch` already does for Vulkan. The renderer rebinds its target between draws, and on Apple's tile-based GPUs every pass break stores and reloads the attachments.
 - Clears with more than `MAX_CLEAR_RECTS` rectangles are split into batches, matching the D3D12 and Vulkan changes in `plume-lostodyssey.patch`; the quad clear otherwise overruns fixed-size arrays.
 - `plume::SetMetalMinimumPresentDuration` makes the swap chain present each drawable with `presentAfterMinimumDuration`, so ProMotion displays follow the game's frame rate (the runtime's "Adaptive sync (ProMotion)" setting and targets above 60 FPS).
+- `setBlendConstants` stores the value and applies it with `setBlendColor` before the next draw, again on every new render encoder.
 - `plume::EncodeMetalFxSpatialScale` encodes MetalFX's spatial scaler into the command list's buffer (the "MetalFX" scaling filter). The runtime links `MetalFX.framework` to plume in `thirdparty/CMakeLists.txt`.
 - Drawable slots advance only in `acquireTexture`, on the presentation thread, instead of in present completion handlers.
 - Present completion is recorded in state shared with the handlers, so a handler that runs after teardown never touches the swap chain. `resize()` and the destructor wait up to 10 seconds for outstanding presents, because their command buffers wait on the caller's events without retaining them. A present command buffer that completes with an error is logged through `plume_log.h` and does not fail later resizes or teardown.
