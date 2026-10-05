@@ -149,6 +149,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Official Streamline SDK download failed.' }
           python tools/release/prepare_streamline_sdk.py --archive out/deps/streamline-sdk-v2.14.1.zip --dest out/deps/streamline
           if ($LASTEXITCODE -ne 0) { throw 'Pinned Streamline SDK verification failed.' }
+      - name: Fetch pinned Intel XeSS SDK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download v3.0.2 --repo intel/xess --pattern XeSS_SDK_3.0.2.zip --dir out/deps
+          if ($LASTEXITCODE -ne 0) { throw 'Official XeSS SDK download failed.' }
+          python tools/release/prepare_xess_sdk.py --archive out/deps/XeSS_SDK_3.0.2.zip --dest out/deps/xess
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned XeSS SDK verification failed.' }
       - name: Generate game code
         shell: cmd
         run: |
@@ -173,12 +181,15 @@ jobs:
           LO_FSR_SHADER_DIR: ${{ github.workspace }}/out/fsr-shaders-vk
           LO_FSR_DX12_SHADER_DIR: ${{ github.workspace }}/out/fsr-shaders-dx12
           LO_FSR_DX12_ADAPTER_DIR: ${{ github.workspace }}/out/fsr-adapter-dx12
+          LO_ENABLE_XESS: 'ON'
+          LO_ENABLE_XESS_FG: 'ON'
+          LO_XESS_SDK_ROOT: ${{ github.workspace }}/out/deps/xess
         run: call tools\build_release.bat
       - name: Stage FG runtime dependencies
         run: |
           $runtime = 'out/build/release/LostOdysseyRecomp'
           Copy-Item -LiteralPath out/deps/streamline/bin/x64/NvLowLatencyVk.dll -Destination $runtime
-          foreach ($dll in @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll', 'NvLowLatencyVk.dll', 'amd_fidelityfx_dx12.dll')) {
+          foreach ($dll in @('sl.interposer.dll', 'sl.common.dll', 'sl.dlss_g.dll', 'sl.reflex.dll', 'sl.pcl.dll', 'nvngx_dlssg.dll', 'NvLowLatencyVk.dll', 'amd_fidelityfx_dx12.dll', 'libxess.dll', 'libxess_fg.dll', 'libxell.dll')) {
             if (-not (Test-Path -LiteralPath (Join-Path $runtime $dll) -PathType Leaf)) { throw "FG runtime missing after build: $dll" }
           }
           $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'

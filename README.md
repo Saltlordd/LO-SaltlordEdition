@@ -99,10 +99,10 @@ Turn on **HDR** in Graphics and save; it switches right away (with frame generat
 | :--- | :--- |
 | Import | Folder, XEX, ISO and GOD sources, DLC and disc replacement. Your original files are not changed. |
 | Languages | English, Japanese, Korean, Traditional Chinese and Simplified Chinese menus. Game languages depend on your edition. |
-| Display | 16:9 and 21:9 resolutions; taller screens such as 16:10 and 4:3 are filled with the 3D scene. Off/FXAA/SMAA/TAA (experimental), DLSS, FSR 3.1 or MetalFX upscaling, and [HDR](#hdr-experimental). **Brightness / Gamma** in Graphics adjusts the picture next to the game's default, on the last game scene or a test pattern. |
+| Display | 16:9 and 21:9 resolutions; taller screens such as 16:10 and 4:3 are filled with the 3D scene. Off/FXAA/SMAA/TAA (experimental), DLSS, FSR 3.1, XeSS (Windows Direct3D 12) or MetalFX upscaling, and [HDR](#hdr-experimental). **Brightness / Gamma** in Graphics adjusts the picture next to the game's default, on the last game scene or a test pattern. |
 | Shadows and AO | Shadow resolution 1×/2×/4× and experimental SSAO/GTAO. |
 | Frame rate | 30/60/90/120 FPS targets and FreeSync / G-SYNC Compatible VRR. |
-| Frame generation | Windows Direct3D 12: DLSS (the multipliers your GPU supports) or FSR 2×. Windows Vulkan: DLSS 2×–6×. Changing the provider may need a restart. |
+| Frame generation | Windows Direct3D 12: DLSS (the multipliers your GPU supports), FSR 2× or XeSS 2×. Windows Vulkan: DLSS 2×–6×. Changing the provider may need a restart. |
 | Shaders | Precompiled shader download on first start; otherwise compiled once and cached. |
 | Mods | Texture, menu and font replacements and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md). |
 | Input | Controllers, keyboard and rumble; touch controls on Android. |
