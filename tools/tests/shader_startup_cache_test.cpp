@@ -1,5 +1,6 @@
 #include "gpu/shader/startup_cache.h"
 #include "gpu/shader/dxc_compiler.h"
+#include <os/stale_files.h>
 #include <cassert>
 #include <cstdio>
 #include <map>
@@ -76,6 +77,13 @@ int main(int argc,char** argv) {
     }
     // Abandoned write cannot replace the last complete cache.
     {sc::Writer writer(file,common);writer.Add(record);}
+    // A killed writer's temporary file is removed at the next start.
+    const auto stale=std::filesystem::path(file.wstring()+L".tmp-1-0");
+    const auto kept=std::filesystem::path(file.wstring()+L".tmp-2-0"),unrelated=std::filesystem::path(file.wstring()+L".keep");
+    Write(stale,sc::Bytes("partial"));Write(kept,sc::Bytes("live"));Write(unrelated,sc::Bytes("other"));
+    os::RemoveStaleSiblings(file,L".tmp-",kept);
+    assert(!fs::exists(stale) && fs::exists(kept) && fs::exists(unrelated) && fs::exists(file));
+    fs::remove(kept);fs::remove(unrelated);
     assert(Read(file)==original);
     const auto failFile=root/"shader.failed";
     const auto key=sc::FailureKey(info.hlsl,"compiler-a",true,false);

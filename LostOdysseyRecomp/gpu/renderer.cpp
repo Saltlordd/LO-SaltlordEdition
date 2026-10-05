@@ -75,6 +75,7 @@
 #include <kernel/xex_loader.h>
 #include <os/logger.h>
 #include <os/shader_log.h>
+#include <os/stale_files.h>
 #include "color_qualification.h"
 #include "render_timing.h"
 #include "render_batch_policy.h"
@@ -4551,6 +4552,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             void PrepareKnownShaders()
             {
                 video::ResetShaderPreparationSkip();
+                // A process killed while writing a startup bundle leaves its temporary file.
+                if (!shaderCacheDir.empty())
+                    for (const char* bundle : {"startup_vk12_v1.bundle", "startup_dxil_v1.bundle"})
+                        os::RemoveStaleSiblings(std::filesystem::path(shaderCacheDir) / bundle, L".tmp-");
                 try {
                 // The local startup bundle keys on this prefix as bound in guest memory.
                 const auto xex = std::span<const uint8_t>(static_cast<const uint8_t*>(g_memory.Translate(XexLoader::s_imageBase)), xenos::portable_pack::RuntimeXexBytes);
