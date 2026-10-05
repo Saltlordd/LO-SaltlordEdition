@@ -67,6 +67,13 @@ public final class RuntimeActivity extends SDLActivity {
         startActivity(intent);
     }
 
+    /** Opens the saves page (export and import) over the game (CTRL dialog). */
+    void openSavesPage() {
+        Intent intent = new Intent(this, SaveTransferActivity.class);
+        intent.putExtra(SaveTransferActivity.EXTRA_FROM_GAME, true);
+        startActivity(intent);
+    }
+
     @Override
     protected void onPause() {
         if (touchControls != null) touchControls.onHostPause();

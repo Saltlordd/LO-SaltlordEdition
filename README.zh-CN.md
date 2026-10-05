@@ -80,6 +80,7 @@
 - **高通设备：** 首次启动前会打开 **GPU driver** 页面，因为手机自带的驱动会让部分菜单文字不可见。在那里下载 Turnip 驱动。如果某个驱动无法运行游戏，页面会说明原因。
 - **操作：** 连接手柄后触摸按键会自动隐藏。**CTRL** 可以调整触摸按键的大小、透明度和布局。
 - **更新：** 应用启动时检查更新；新 APK 直接覆盖安装，存档保留。
+- **存档：** **CTRL → Saves** 可以把存档导出成 ZIP，也能导入来自电脑、Xenia 或 RGH 存档转换器的 ZIP。
 - **反馈问题：** 附上 `Android/data/io.github.freefrank.lostodyssey/files/logs/` 里的文件（[方法](docs/INSTALLING.zh-CN.md#android-logs)）。
 
 目前只在一台平板上测试过。[详细步骤](docs/INSTALLING.zh-CN.md#android)。
