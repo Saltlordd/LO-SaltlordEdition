@@ -8458,8 +8458,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 set0 = vulkan ? staticSet0.get() : samplerVersion->descriptors.get();
                 RenderDescriptorSet* set4 = vulkan ? samplerVersion->descriptors.get() : nullptr;
                 commandList->setPipeline(pipeline);
-                // Dynamic state of this pipeline. The replays after the draw take
-                // only copy/alpha blends, so no later rebind needs it again.
+                // The command list keeps the constant for later rebinds of this
+                // pipeline, e.g. after the motion-vector replay.
                 if (UsesBlendConstant(key.blend))
                 {
                     float constants[4];

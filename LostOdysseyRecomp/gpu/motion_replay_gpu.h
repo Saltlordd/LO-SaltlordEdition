@@ -386,6 +386,7 @@ public:
         desc.renderTargetFormat[1] = plume::RenderFormat::R32G32_FLOAT;
         desc.renderTargetFormat[2] = plume::RenderFormat::R32_UINT;
         for (unsigned i = 0; i < 3; ++i) desc.renderTargetBlend[i] = plume::RenderBlendDesc::Copy();
+        desc.dynamicBlendConstantsEnabled = false; // Copy blends never read it.
         auto pipeline = device_->createGraphicsPipeline(desc);
         auto* result = pipeline.get();
         if (!result) { ++failedDraws_; resourceFailedThisFrame_ = true; error_ = "MV pipeline allocation failed"; setStatus(PipelinePrepareStatus::Failed); return nullptr; }
