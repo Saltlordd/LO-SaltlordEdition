@@ -135,9 +135,12 @@ flatpak run io.github.freefrank.LostOdysseyRecomp
 3. 打开应用。高通设备会先显示 **GPU driver** 页面，因为手机自带的驱动会让部分菜单文字不可见：在这里下载 Turnip 驱动（页面会显示推荐给你机型的版本），然后按 **Start game**。之后可从 **CTRL → GPU driver** 再进入。如果某个驱动无法运行游戏，游戏会回到这个页面并说明原因。
 4. 用屏幕上的 **A** 键接受着色器下载。**B** 跳过并在设备上编译，需要几分钟。
 
-游戏画面上有触摸按键。**CTRL** 可以调整触摸按键的大小、透明度和布局，也能进入 Game folder 和 GPU driver 页面。连接 USB 或蓝牙手柄后触摸按键自动隐藏。设置在游戏内的设置页面修改。
+游戏画面上有触摸按键。**CTRL** 可以调整触摸按键的大小、透明度和布局，也能进入 Saves、Game folder 和 GPU driver 页面。连接 USB 或蓝牙手柄后触摸按键自动隐藏。设置在游戏内的设置页面修改。
 
 开启 **Automatic updates（自动更新）** 时，应用启动会检查新版本并提供 APK 下载。新 APK 直接覆盖安装，存档和设置保留。如果装过自己构建的 APK，需要先卸载。卸载应用会删除存档和 `Android/data` 里的游戏数据。
+
+<a id="android-saves"></a>
+**存档**保存在应用内部，文件管理器访问不到。**CTRL → Saves** 可以把所有存档位导出成一个 ZIP，保存到你选的位置（例如 Download），也可以导入包含存档文件夹的 ZIP：这里或电脑上导出的、打包 Xenia `userNN` 文件夹得到的，或者 [RGH 存档转换器](#console-saves)下载的 ZIP。卸载应用前请先导出存档。
 
 <a id="android-logs"></a>
 **日志**在 `Android/data/io.github.freefrank.lostodyssey/files/logs/`：`runtime-*.log`、`native-stderr.log`，应用本身出错时还有 `java-crash-*.txt`。游戏闪退或一直黑屏时，先再打开一次应用，然后用 USB 把这些文件复制到电脑，附到报告里。使用 adb 时，`adb logcat -s LostOdyssey` 可以实时看到同样的内容。
@@ -173,7 +176,7 @@ Windows 上，首次设置页面用来选择界面语言、游戏语言和图形
 | Linux AppImage | 存档、个人配置、缓存和游戏：`~/.local/share/lost-odyssey-recomp/`。设置：`~/.config/lost-odyssey-recomp/`。日志：`~/.local/state/lost-odyssey-recomp/logs/`。 |
 | Linux Flatpak | 在 `~/.var/app/io.github.freefrank.LostOdysseyRecomp/` 下：存档、个人配置、缓存和游戏在 `data/`（沙盒内为 `/var/data`）；设置在 `config/lost-odyssey-recomp/`；日志在 `.local/state/lost-odyssey-recomp/logs/`。 |
 | macOS（实验性） | 存档、个人配置、缓存、游戏和设置：`~/Library/Application Support/LostOdysseyRecomp/`。日志：`~/Library/Logs/LostOdysseyRecomp/logs/`。 |
-| Android（实验性） | 游戏：`Android/data/io.github.freefrank.lostodyssey/files/game/`（或在 **Game folder** 页面选择的文件夹）。日志：`Android/data/io.github.freefrank.lostodyssey/files/logs/`。存档和设置保存在应用内部。 |
+| Android（实验性） | 游戏：`Android/data/io.github.freefrank.lostodyssey/files/game/`（或在 **Game folder** 页面选择的文件夹）。日志：`Android/data/io.github.freefrank.lostodyssey/files/logs/`。存档和设置保存在应用内部；用 **CTRL → Saves** 导出和导入存档。 |
 
 渲染捕获保存在 `captures/`，Mod 放在 `mods/`：Windows ZIP 都在程序旁边；其他安装包的捕获在设置目录，Mod 在数据目录。下载的着色器放在 `shaders/`，位置和 Mod 相同。
 
@@ -183,7 +186,7 @@ Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 和 `XDG_STATE_HOME` 改�
 
 ## 导入 Xenia 或 Xbox 360 存档
 
-每个存档位是 `save/` 里的一个文件夹，例如 `save/user00/save.bin`；`save/` 的位置见[文件位置](#file-locations)。先关闭游戏并备份 `save/`。复制进去的存档会出现在游戏的读档列表里。Android 的存档保存在应用内部，暂时无法导入。
+每个存档位是 `save/` 里的一个文件夹，例如 `save/user00/save.bin`；`save/` 的位置见[文件位置](#file-locations)。先关闭游戏并备份 `save/`。复制进去的存档会出现在游戏的读档列表里。Android 上改用 **CTRL → Saves** 导入包含存档文件夹的 ZIP（[详见](#android-saves)）。
 
 <a id="xenia-saves"></a>
 
