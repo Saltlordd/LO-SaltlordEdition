@@ -191,8 +191,8 @@ Linux 上可以用 `XDG_CONFIG_HOME`、`XDG_DATA_HOME` 和 `XDG_STATE_HOME` 改�
 
 Xenia 的存档格式相同，不需要转换。
 
-1. 找到 Xenia 的 `content` 文件夹：便携版 Xenia 在程序旁边，否则在 `Documents\Xenia\content`。Xenia Manager 放在它安装的 Xenia 文件夹里。
-2. 在里面打开 `4D5307FA\00000001`。较新的 Xenia Canary 中间还有一层个人档案文件夹：`content\<个人档案 ID>\4D5307FA\00000001`。
+1. 找到 Xenia 的 `content` 文件夹：便携版 Xenia 在程序旁边，否则在 `Documents\Xenia\content`。Xenia Canary 默认是便携版，Xenia Manager 也这样安装，所以先在 Xenia 文件夹里找。
+2. 在里面打开 `4D5307FA\00000001`。Xenia Canary 中间还有一层 16 位的个人档案文件夹：`content\<个人档案 ID>\4D5307FA\00000001`。
 3. 其中每个 `userNN` 文件夹是一个存档，把需要的复制到 `save/`。
 
 同名文件夹会替换那个存档位。要两个都保留，把复制过来的文件夹改成没用过的编号，例如 `user07`。

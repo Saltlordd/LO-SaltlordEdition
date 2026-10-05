@@ -187,8 +187,8 @@ Each save slot is a folder in `save/`, for example `save/user00/save.bin`; see [
 
 Xenia saves have the same format and need no conversion.
 
-1. Find Xenia's `content` folder: beside the Xenia program for a portable Xenia, otherwise `Documents\Xenia\content`. Xenia Manager keeps it in the Xenia folder it installed.
-2. In it, open `4D5307FA\00000001`. Newer Xenia Canary builds put a profile folder in between: `content\<profile ID>\4D5307FA\00000001`.
+1. Find Xenia's `content` folder: beside the Xenia program for a portable Xenia, otherwise `Documents\Xenia\content`. Xenia Canary is portable by default, and Xenia Manager installs it that way, so look in the Xenia folder first.
+2. In it, open `4D5307FA\00000001`. Xenia Canary puts a 16-digit profile folder in between: `content\<profile ID>\4D5307FA\00000001`.
 3. Each `userNN` folder there is one save. Copy the ones you want into `save/`.
 
 A folder with the same name replaces that slot. To keep both, rename the copy to an unused number, such as `user07`.
