@@ -107,7 +107,7 @@ Turn on **HDR** in Graphics and save; it switches right away (with frame generat
 | Shaders | Precompiled shader download on first start; otherwise compiled once and cached. |
 | Mods | Texture, menu and font replacements and PlayStation button prompts. See the [modding guide](docs/wiki/Modding.md). |
 | Input | Controllers, keyboard and rumble; touch controls on Android. |
-| Debug Menu | Render captures, Save Anywhere, No Random Encounters, teleport, fast-forward and cheats. See [Debug menu](#debug-menu). |
+| Debug Menu | Render captures, Save Anywhere, No Random Encounters, Encounter Every Step, teleport, fast-forward and cheats. See [Debug menu](#debug-menu). |
 
 Full playthroughs, later discs, Linux and macOS hardware, fullscreen and mixed-DPI setups still need testing. Planned work is in the [roadmap](docs/ROADMAP.md).
 
@@ -144,13 +144,15 @@ Press **F1**, or **LB+RB** on a controller (**L1+R1** on PlayStation layouts), t
 
 ### Overview: captures and game actions
 
-**Overview** shows the current map and has the menu language, **Capture render state**, **Save Anywhere**, **No Random Encounters**, and an action that wins the current battle.
+**Overview** shows the current map and has the menu language, **Capture render state**, **Save Anywhere**, **No Random Encounters**, **Encounter Every Step**, and an action that wins the current battle.
 
 To report a rendering problem, select **Capture render state**, confirm, then **close the menu** so rendering can continue. The capture saves an archive in `captures/` and shows its path. It contains screenshots, rendering data and logs; look through it before sharing.
 
 **Save Anywhere** turns on the game's own **System → Save**. Close the Debug Menu, then open the System menu to save.
 
 **No Random Encounters** stops random battles in the field. Story battles still happen.
+
+**Encounter Every Step**, next to it, starts a random battle on every step in areas that have random battles. It turns off when you restart the game, and turning one of these two switches on turns the other off.
 
 > [!WARNING]
 > **Keep a normal save too.** Loading a Save Anywhere save made while the party is split can lose RB character switching ([#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)). Save Anywhere now stays off while the party is split, and **Force RB Party Switch** in the F1 menu repairs an older save of this kind.

@@ -32,6 +32,7 @@ struct MockServices
     bool saveAnywhere = false;
     int partySwitchRequests = 0;
     bool noEncounters = false;
+    bool everyStep = false;
     bool allowVictory = true;
     bool victoryRequested = false;
     bool victoryCancelled = false;
@@ -86,6 +87,8 @@ void SetSaveAnywhereEnabled(bool enabled) { g_mock.saveAnywhere = enabled; }
 void RequestPartySwitch() { ++g_mock.partySwitchRequests; }
 bool NoEncountersEnabled() { return g_mock.noEncounters; }
 void SetNoEncountersEnabled(bool enabled) { g_mock.noEncounters = enabled; }
+bool EncounterEveryStepEnabled() { return g_mock.everyStep; }
+void SetEncounterEveryStepEnabled(bool enabled) { g_mock.everyStep = enabled; }
 
 bool RequestVictory()
 {
@@ -187,7 +190,14 @@ int main()
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(!g_mock.noEncounters, "No random encounters was not disabled");
 
-    // Row 5: Win Battle (Success and Rejection)
+    // Row 5: Encounter Every Step toggles both ways
+    debug_menu::HandleInput(debug_menu::InputAction::Down);
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm);
+    Require(g_mock.everyStep, "Encounter every step was not enabled");
+    debug_menu::HandleInput(debug_menu::InputAction::Confirm);
+    Require(!g_mock.everyStep, "Encounter every step was not disabled");
+
+    // Row 6: Win Battle (Success and Rejection)
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.victoryRequested, "Victory request not registered");
@@ -195,7 +205,7 @@ int main()
     g_mock.allowVictory = false;
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
 
-    // Row 6: Cancel Victory, the last Overview row
+    // Row 7: Cancel Victory, the last Overview row
     debug_menu::HandleInput(debug_menu::InputAction::Down);
     debug_menu::HandleInput(debug_menu::InputAction::Confirm);
     Require(g_mock.victoryCancelled, "Cancel victory was not called");

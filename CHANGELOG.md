@@ -8,6 +8,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### English
 
+- Debug menu (F1): new **Encounter Every Step** switch next to No Random Encounters.
 - Fixed geometry outlines showing through white screen fades with ambient occlusion on (#237).
 - CGI movies, including the title intro, now play in the selected voice language instead of Japanese (#220, #54).
 - Android: the game now hides the status and navigation bars and draws under the display cutout (#199).
@@ -16,6 +17,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 ### 简体中文
 
+- 调试菜单（F1）：不遇敌旁新增**一步一遇敌**开关。
 - 修复开启环境光遮蔽时，画面变白时透出几何轮廓的问题（#237）。
 - CG 动画（包括标题画面的开场动画）现在按所选语音语言播放，不再固定为日语（#220、#54）。
 - Android：游戏现在会隐藏状态栏和导航栏，并延伸到屏幕挖孔区域（#199）。
