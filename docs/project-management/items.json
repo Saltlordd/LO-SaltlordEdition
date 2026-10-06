@@ -5817,17 +5817,17 @@
     {
       "key": "issue-54-japanese-cutscene-language",
       "title": "[Bug] USA/Europe English: one cutscene after the second boss plays in Japanese, reverts at the Cages scene",
-      "body": "<!-- lo-project:issue-54-japanese-cutscene-language -->\n\n## Current reconciliation — 2026-09-26\n\nLive Issue #54 is CLOSED and the maintainer Project Status is Done (2026-09-26 readback). Respect tracker closure. PR #66/ab24e0b adds late XMA diagnostics, not a proven cutscene-language root-cause repair; prior Disc 3 CGI language reports remain historical evidence, with no new reporter acceptance inferred.\n\n## Historical scope and evidence (current state above supersedes old status wording)\n\nOpen Issue #54 reports cutscenes playing in Japanese during English USA/Europe playthrough.\n\n## Status and verification boundary\n\n- Invalid voice-menu selection handling fix was packaged in v0.6.3 with optional language tracing.\n- Retained open: recent player feedback indicates cutscene language still reverts to Japanese on Disc 3 and other scenes, beyond the initial voice menu selection fix.\n- Under active monitoring.\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/54\n",
+      "body": "<!-- lo-project:issue-54-japanese-cutscene-language -->\n\n## Current reconciliation — 2026-09-26\n\nLive Issue #54 is CLOSED and the maintainer Project Status is Done (2026-09-26 readback). Respect tracker closure. PR #66/ab24e0b adds late XMA diagnostics, not a proven cutscene-language root-cause repair; prior Disc 3 CGI language reports remain historical evidence, with no new reporter acceptance inferred.\n\n## Update — 2026-10-06\n\nThe Japanese CGI track in English builds was caused by an upper-case voice code returned by the host language hook (found with Issue #220). PR #242 fixed it and shipped in v0.8.37; the check was a unit fixture and a voice-id trace, with no listening test and no reporter confirmation. The Issue stays closed.\n\n## Historical scope and evidence (current state above supersedes old status wording)\n\nOpen Issue #54 reports cutscenes playing in Japanese during English USA/Europe playthrough.\n\n## Status and verification boundary\n\n- Invalid voice-menu selection handling fix was packaged in v0.6.3 with optional language tracing.\n- Retained open: recent player feedback indicates cutscene language still reverts to Japanese on Disc 3 and other scenes, beyond the initial voice menu selection fix.\n- Under active monitoring.\n\n## Sources\n\n- https://github.com/freefrank/LostOdysseyRecomp/issues/54\n",
       "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/54",
       "fields": {
         "Kind": "Bug",
         "Area": "Audio and language",
         "Status": "Done",
-        "Delivery": "Awaiting validation",
-        "Release": "v0.6.3",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
         "Start date": "2026-09-24",
         "Target date": null,
-        "Evidence": "Live Issue #54 is CLOSED and the maintainer Project Status is Done (2026-09-26 readback). Respect tracker closure. PR #66/ab24e0b adds late XMA diagnostics, not a proven cutscene-language root-cause repair; prior Disc 3 CGI language reports remain historical evidence, with no new reporter acceptance inferred."
+        "Evidence": "Live Issue #54 is CLOSED and the maintainer Project Status is Done (2026-09-26 readback). Respect tracker closure. PR #66/ab24e0b adds late XMA diagnostics, not a proven cutscene-language root-cause repair; prior Disc 3 CGI language reports remain historical evidence, with no new reporter acceptance inferred. Update, 2026-10-06: the cause of the Japanese CGI audio track was found with #220: the host language hook returned an upper-case voice code that never matched the game's lower-case language registry, so the movie player picked ID 0, the Japanese track. PR #242 (merged 06:46:52Z) returns the registry's own record; it shipped in v0.8.37 (published 07:46:23Z, not accepted). Checked with a unit fixture and a psvita voice-id trace (0 before, 1 after); nobody listened to the audio, the #54 scenes were not replayed, and no reporter confirmation is recorded. The Issue stays closed (since 2026-09-26)."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/issues/54"
@@ -6387,11 +6387,11 @@
         "Kind": "Bug",
         "Area": "Field interaction",
         "Status": "Awaiting validation",
-        "Delivery": "Implemented",
-        "Release": "Next release",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
         "Start date": null,
         "Target date": null,
-        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer. Update, 2026-10-06: PR #243 (merged b40ed68b) holds a random encounter while a field event has player control, so the battle starts after the item message instead of unloading the field under the box script; the C1 touch query is untouched. Decision-table test only (32 checks); no in-game run of the fix. Ships in the next release; reporter confirmation pending."
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock (reporter confirmed 2026-10-02) but caused #171, so v0.8.6 (058d8ffd) removed it and the Issue was reopened on 2026-10-03. Update, 2026-10-06: PR #243 (merged b40ed68b) holds a random encounter while a field event has player control, so the battle starts after the item message instead of unloading the field under the box script; the C1 touch query is untouched. Decision-table test only (32 checks); no in-game run. Released in v0.8.37 (published 07:46:23Z, not accepted). The maintainer closed the Issue at 07:11:17Z, before publication; closure is not reporter confirmation. Neither the #114 scenario nor the #171 Lunar Palace scenario was run in game with the fix."
       }
     },
     {
@@ -6813,6 +6813,31 @@
       "record_type": "backlog"
     },
     {
+      "key": "release-v0-8-37",
+      "title": "Publish the Android, language, encounter and AO fixes in v0.8.37",
+      "body": "<!-- lo-project:release-v0-8-37 -->\n\nv0.8.37 于 2026-10-06T07:46:23Z 发布。它不是草稿或预发布版本，是当前最新的正式版本，包含 v0.8.30 之后合并到 `main` 的全部工作。发布不等于验收，维护者尚未验收 v0.8.37。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.37`（tag 对象 `13ba4312`）指向 `main` 上的提交 `bfa6c824`（`docs: prepare v0.8.37 release notes`；前一个提交 `2149c67e` 把源码版本号改为 0.8.37）\n- [x] Gitea Actions [run 318](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/710)（API id 710）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功（UTC：FSR 输入 07:23:58–07:35:17，创建草稿 07:25:35–07:25:45，Android 07:29:18–07:35:42，Windows 07:35:21–07:42:45，Linux 07:35:44–07:45:09，发布 07:45:11–07:46:24），从推送 tag 到公开约 23 分钟\n- [x] 在维护者的 M1 Max 上用 `validation/mac-release-build.sh v0.8.37 v0.8.37 tag` 从 tag 构建 macOS 磁盘映像（DMG）：`hdiutil verify` 有效，`codesign --verify --strict --deep` 通过（ad hoc 签名），`CFBundleShortVersionString` 为 0.8.37；手工上传到草稿发布页（GitHub 记录 07:26:12Z），不是 CI 产物\n- [x] 着色器包没有变化：Linux job 的包检查通过，Mac 上的包列表显示与 v0.8.30 相同的两个契约，没有发布新包\n- [ ] 取得 #214、#199、#220、#54、#114 和 #237 报告者对 v0.8.37 的确认\n- [ ] 维护者验收 v0.8.37\n\n## Delivery verification\n\n发布页 [v0.8.37](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.37) 的五个附件（大小和 SHA-256 为 GitHub API 在 2026-10-06 读取的值）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.37.zip` | 150,315,665 | `e020486bf141902a39e2afc8ac4a128eb7e6166016f1dc92a07a07fa2705fbde` |\n| `LostOdysseyRecomp-linux-x64-v0.8.37.AppImage` | 76,368,376 | `d1def1993f2b6bdba08ab1cafc9b01c1aa7776f7d9601e9b878dd0f01b793aa4` |\n| `LostOdysseyRecomp-linux-x64-v0.8.37.flatpak` | 54,094,696 | `57dd74218a1d04f1a32696508fb643b99b7e07a4c2e11b7f6f1137e0b45bd552` |\n| `LostOdysseyRecomp-android-arm64-v0.8.37.apk` | 45,234,574 | `ecca5931e312cfd421a76c2f04cf6db63e9ddfbb0b263d246ed20360553d1fc5` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.37.dmg` | 60,497,783 | `065b5bfb20e2e0ea7808c4b0ad6b23c73833235427df06dcb980417860b2a0a1` |\n\nDMG 的 SHA-256 与 Mac 上和 PC 上拷贝计算出的值相同。四个 CI 安装包没有下载、解包或运行过。APK 由 CI 构建，用项目的调试密钥库签名，是实验性的。发布正文与 CHANGELOG 对应章节一致（仅末尾换行不同）。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.30..v0.8.37` 中合并的 PR 和提交：\n\n- 渲染：[PR #238](https://github.com/freefrank/LostOdysseyRecomp/pull/238) 环境光遮蔽随游戏的全屏颜色淡入淡出衰减，修复画面变白时透出几何轮廓（Issue #237；用报告者存档在 RTX 5080 上检查）\n- 语言：[PR #242](https://github.com/freefrank/LostOdysseyRecomp/pull/242) CG 动画按所选语音语言播放，修复宿主语言钩子返回大写代码导致取日语音轨（Issue #220、#54；单元夹具加 psvita 上的语音 ID 跟踪，没有听音频）\n- Android：[PR #240](https://github.com/freefrank/LostOdysseyRecomp/pull/240) 隐藏状态栏和导航栏并延伸到挖孔区域（Issue #199；只在无挖孔平板上检查）；[PR #241](https://github.com/freefrank/LostOdysseyRecomp/pull/241) 在不支持 BC 压缩纹理的 GPU 上用 CPU 解码（Issue #214；从未在 Mali 设备上运行，只运行过强制解码路径）\n- 战斗：[PR #243](https://github.com/freefrank/LostOdysseyRecomp/pull/243) 玩家失去控制的场景事件期间推迟随机战斗（Issue #114；32 项决策表测试，没有进游戏运行）\n- 调试：[PR #245](https://github.com/freefrank/LostOdysseyRecomp/pull/245) F1 “一步一遇敌”开关；[PR #247](https://github.com/freefrank/LostOdysseyRecomp/pull/247) F1 “调试事件房”按钮（只构建和单元测试，没有进游戏运行）\n- CI 和文档：[PR #244](https://github.com/freefrank/LostOdysseyRecomp/pull/244)（macOS 构建跳过 Android、Linux 打包和 Gitea 改动）、[PR #246](https://github.com/freefrank/LostOdysseyRecomp/pull/246)（Project 路线记录）、`2939a864`（README 徽章）\n\n各项的验证范围和限制记录在各自的 Project 记录里和 docs/STATUS.md。\n\n## Validation and acceptance\n\n没有用 v0.8.37 安装包本身做过游戏运行，macOS 映像也没有从下载安装。#214、#199、#220、#114 在发布前由维护者留言说明修复随下个版本发布，并请报告者测试；没有任何报告者回复。#199、#220 随 PR 合并关闭，#114 由维护者在发布前 35 分钟关闭，#214 被 PR 关闭后又由维护者重新打开，仍开放。维护者尚未验收 v0.8.37；发布不是报告者确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.37 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.37)\n- [v0.8.30…v0.8.37 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.30...v0.8.37)\n- [Gitea Actions run 318](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/710)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/bfa6c82446bf6792d8e0714239eaa3cbb7a26302/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-06",
+        "Target date": "2026-10-06",
+        "Evidence": "Published v0.8.37 at 2026-10-06T07:46:23Z: latest release, annotated tag at commit bfa6c824 on main, built and published by Gitea Actions run 318 (API id 710; six jobs succeeded, about 23 minutes from the tag push). Assets: Windows ZIP 150,315,665 B (SHA-256 e020486b...), Linux AppImage 76,368,376 B (d1def199...), Flatpak 54,094,696 B (57dd7421...), Android APK 45,234,574 B (ecca5931...; CI-built) and macOS DMG 60,497,783 B (065b5bfb...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, uploaded by hand). No shader pack was published. Published, not accepted: no reporter has confirmed the fixes for #214, #199, #220, #54, #114 or #237, no game run was made with the v0.8.37 packages, and the Mali, display-cutout and in-game encounter paths are unvalidated."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.37",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.30...v0.8.37",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/710",
+        "bfa6c82446bf6792d8e0714239eaa3cbb7a26302",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
       "key": "issue-171-lunar-palace-platforms-rise",
       "title": "[Bug The great ancient ruins Disc 4, unable to go further due to a bug",
       "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/171",
@@ -6825,6 +6850,51 @@
         "Start date": null,
         "Target date": null,
         "Evidence": "In the Lunar Palace the two platforms that start with pillars on them rose by themselves after a random battle, leaving the pillars floating. The cause was the #114 touch-entry guard (PR #135, shipped in v0.7.35); it made the per-frame touch poll read false while a battle request was queued, and the platform scripts read that as no pillar on the platform. The guard was removed in v0.8.6 (commit 058d8ffd; published 2026-10-03T20:46:53Z; not accepted). The maintainer verified it with the reporter's save on a diagnostic build, not the release package: with the guard one battle broke the platform, without it the platform stayed down. Closed as completed by the maintainer at 2026-10-03T20:54:17Z after replying that v0.8.6 fixes it. The reporter has not replied, so there is no reporter confirmation. Saves made after the platform had risen keep that state. The removal re-opens the #114 softlock window."
+      }
+    },
+    {
+      "key": "issue-214-mali-black-screen",
+      "title": "[Bug] Helio G99 Black Menus",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/214",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Compatibility",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-04",
+        "Target date": null,
+        "Evidence": "Samsung SM-A075M (Helio G99, Mali-G57) showed black menus and world with tens of thousands of 'texture creation failed fmt=18/20' lines: Mali drivers do not expose textureCompressionBC, so every BC1/BC3 texture was dropped. PR #241 (merged 2026-10-06T05:38:58Z, shipped in v0.8.37, published 07:46:23Z, not accepted) reads the capability and decodes BC to RGBA8 on the CPU when it is missing. Validation: LoBcDecodeTest (81 known-answer checks) and an A/B on psvita (AMD 8060S, Proton, Direct3D 12) with LO_TEXTURE_BC=0 forcing the decode path (0 texture failures, title, field and camp menu identical). Not validated: no Mali device, so the real detection path (bc=0) never ran; the Vulkan backend was not run with the fallback; CPU cost on a phone not measured. The Issue was closed by the PR merge at 05:38:59Z and reopened by the maintainer at 06:36:06Z; it is open. The maintainer asked the reporter at 07:01 UTC to try the release and post a fresh log. No reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-199-android-fullscreen",
+      "title": "[Feature] Please Add Aspect Ratio",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/199",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Platforms",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-04",
+        "Target date": null,
+        "Evidence": "On Android the status and navigation bars stayed visible in game (the default Windowed mode never reaches SDL's immersive code). PR #240 (merged 2026-10-06T05:49:54Z, shipped in v0.8.37, published 07:46:23Z, not accepted) hides the bars with sticky-immersive behaviour and draws under the display cutout (short edges on Android 9 and 10, always on 11 and later). Validation: Java build, 31 unit tests and a debug APK in WSL; device check on a Lenovo TB321FU (no cutout, gesture navigation): status bar gone from the first frame, a swipe shows the bars transiently. Not covered: the cutout layout, three-button navigation and the reporter's Odin 2 Portal. The Issue was closed with the PR merge at 05:49:55Z; the maintainer asked the reporter to confirm on the Odin 2 Portal. No reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-220-cgi-voice-language",
+      "title": "[Bug] CGI Videos play in japanese regardles of language selected",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/220",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Audio and language",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-05",
+        "Target date": null,
+        "Evidence": "CGI movies, including the title intro, played the Japanese audio track whatever language was selected. Cause: the movie player picks the track with the registry ID of the cached voice code, the registry's codes are lower case, and the host language hook returned the executable's upper-case table entry ('INT'), so the case-sensitive lookup missed and the ID was 0 (the Japanese track). PR #242 (merged 2026-10-06T06:46:52Z, shipped in v0.8.37, published 07:46:23Z, not accepted) returns the registry's own record, and also addresses #54. Validation: tools/tests/guest_language_test.py with lower-case registry codes passes (old policy resolves ID 0, new one the registry ID, English and Italian cases) and a psvita (Proton, Direct3D 12, USA disc 1, English text) LO_TRACE_LANGUAGE trace shows voice id 0 on main and 1 on the branch. Not checked: nobody listened to the audio and only English text was traced. The Issue was closed with the PR merge at 06:46:54Z. No reporter confirmation is recorded."
       }
     }
   ]
