@@ -33,7 +33,7 @@ constexpr uint32_t WalkingEncounterReturn = 0x829E3220;
 constexpr uint32_t PlayerControlBit = 0x08000000;
 
 // Guest game thread only (controller tick, VM and loader run there).
-encounter_defer::RandomRequest random;
+encounter_defer::RandomRequest heldRequest;
 std::chrono::steady_clock::time_point holdStart;
 
 bool Address(uint32_t p) { return p >= 0x100000 && p < 0x7BFF0000 && !(p & 3); }
@@ -71,19 +71,19 @@ PPC_FUNC(sub_828278A0)
     const uint32_t id = ctx.r4.u32;
     if (caller != WalkingEncounterReturn &&
         encounter_defer::DropForScriptedRequest(static_cast<int32_t>(PPC_LOAD_U32(BattleSlot)),
-            PPC_LOAD_U32(BattleSlot + 16), random))
+            PPC_LOAD_U32(BattleSlot + 16), heldRequest))
     {
         // Clear the held slot the way the game's own cancel (sub_82826F40) does.
-        LOG_INFO("encounter defer: dropped held encounter {} for battle request {} from {:#x}", random.id, id, caller);
+        LOG_INFO("encounter defer: dropped held encounter {} for battle request {} from {:#x}", heldRequest.id, id, caller);
         const PPCContext saved = ctx;
         ctx.r3.u64 = BattleSlot;
         sub_82826E80(ctx, base);
         ctx = saved;
-        random = {};
+        heldRequest = {};
     }
     __imp__sub_828278A0(ctx, base);
     if (ctx.r3.s32 == 0)
-        random = {caller == WalkingEncounterReturn, id, 0};
+        heldRequest = {caller == WalkingEncounterReturn, id, 0};
 }
 
 // The other writer of slot 1 (stores phase 1 without the busy check). If it
@@ -94,31 +94,31 @@ PPC_FUNC(sub_82828698)
     for (int i = 0; i < 6; ++i) before[i] = PPC_LOAD_U32(BattleSlot + 4 * i);
     __imp__sub_82828698(ctx, base);
     for (int i = 0; i < 6; ++i)
-        if (PPC_LOAD_U32(BattleSlot + 4 * i) != before[i]) { random = {}; break; }
+        if (PPC_LOAD_U32(BattleSlot + 4 * i) != before[i]) { heldRequest = {}; break; }
 }
 
 PPC_FUNC(sub_8231F5E0)
 {
-    if (ctx.r3.u32 == Loader && random.active)
+    if (ctx.r3.u32 == Loader && heldRequest.active)
     {
         const auto state = ReadLoader(base);
         const auto now = std::chrono::steady_clock::now();
-        if (random.heldPicks == 0) holdStart = now;
+        if (heldRequest.heldPicks == 0) holdStart = now;
         const auto heldMs = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(now - holdStart).count());
-        if (encounter_defer::HoldPick(state, random, PlayerHasControl(base), heldMs))
+        if (encounter_defer::HoldPick(state, heldRequest, PlayerHasControl(base), heldMs))
         {
-            if (random.heldPicks++ == 1)
-                LOG_INFO("encounter defer: holding encounter {} while a field event has player control", random.id);
+            if (heldRequest.heldPicks++ == 1)
+                LOG_INFO("encounter defer: holding encounter {} while a field event has player control", heldRequest.id);
             ctx.r3.u64 = 0; // the original's result when it starts nothing
             return;
         }
         // Stop tracking once the loader takes the request or it is gone.
-        if (encounter_defer::PicksBattle(state) || state.phase[1] != 1 || state.battleId != random.id)
+        if (encounter_defer::PicksBattle(state) || state.phase[1] != 1 || state.battleId != heldRequest.id)
         {
-            if (random.heldPicks > 1 && encounter_defer::PicksBattle(state))
-                LOG_INFO("encounter defer: starting encounter {} after {} held picks ({} ms)", random.id, random.heldPicks, heldMs);
-            random.active = false;
+            if (heldRequest.heldPicks > 1 && encounter_defer::PicksBattle(state))
+                LOG_INFO("encounter defer: starting encounter {} after {} held picks ({} ms)", heldRequest.id, heldRequest.heldPicks, heldMs);
+            heldRequest.active = false;
         }
     }
     __imp__sub_8231F5E0(ctx, base);
