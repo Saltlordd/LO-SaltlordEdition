@@ -106,7 +106,7 @@
 | 着色器 | 首次启动可下载预编译着色器；否则在本机编译一次并缓存。 |
 | Mod | 纹理、菜单和字体替换，以及 PlayStation 按键提示。见 [Mod 指南](docs/wiki/Modding.md)。 |
 | 输入 | 手柄、键盘和震动；Android 上有触摸按键。 |
-| 调试菜单 | 渲染捕获、随时存档、不遇敌、传送、快进和修改。见[调试菜单](#调试菜单)。 |
+| 调试菜单 | 渲染捕获、随时存档、不遇敌、一步一遇敌、传送、快进和修改。见[调试菜单](#调试菜单)。 |
 
 完整通关、后续光盘、Linux 和 macOS 硬件、全屏和混合 DPI 显示器仍需测试。后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
@@ -143,13 +143,15 @@ Ring 操作用手柄**右扳机**或键盘 **R**。设置 `LO_CONTROLLER_RUMBLE=
 
 ### Overview：捕获与游戏操作
 
-**Overview** 显示当前地图，并提供菜单语言、**Capture render state（捕获渲染状态）**、**Save Anywhere（随时存档）**、**No Random Encounters（不遇敌）**，以及直接赢下当前战斗的操作。
+**Overview** 显示当前地图，并提供菜单语言、**Capture render state（捕获渲染状态）**、**Save Anywhere（随时存档）**、**No Random Encounters（不遇敌）**、**Encounter Every Step（一步一遇敌）**，以及直接赢下当前战斗的操作。
 
 遇到画面问题时，选择 **Capture render state** 并确认，然后**关闭菜单**让渲染继续。捕获结果会归档到 `captures/` 并显示路径，内含截图、渲染数据和日志，分享前请检查内容。
 
 **Save Anywhere** 会开放原作的 **System → Save（系统 → 存档）**。关闭调试菜单后，打开游戏的 System 菜单存档。
 
 **No Random Encounters** 会停止场景中的随机战斗。剧情战斗照常发生。
+
+旁边的 **Encounter Every Step** 会让有随机战斗的区域每走一步都遇敌。重启游戏后自动关闭；这两个开关打开其中一个时，另一个会自动关闭。
 
 > [!WARNING]
 > **请另外保留正常存档。** 分队期间用随时存档保存的存档，读档后可能丢失 RB 换人功能（[#74](https://github.com/freefrank/LostOdysseyRecomp/issues/74)）。现在分队期间随时存档保持关闭；读取以前这类存档后，可用 F1 菜单中的 **Force RB Party Switch（强制开启 RB 换人）** 恢复。

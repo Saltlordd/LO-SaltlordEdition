@@ -92,6 +92,8 @@ void SetSaveAnywhereEnabled(bool enabled) { g_saveAnywhere = enabled; }
 void RequestPartySwitch() {}
 bool NoEncountersEnabled() { return false; }
 void SetNoEncountersEnabled(bool) {}
+bool EncounterEveryStepEnabled() { return false; }
+void SetEncounterEveryStepEnabled(bool) {}
 bool RequestVictory() { return true; }
 void CancelVictory() {}
 const wchar_t* Status() { return L""; }
