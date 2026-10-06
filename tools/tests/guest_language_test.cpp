@@ -12,6 +12,7 @@ namespace {
 constexpr uint32_t Table = 0x8336A5F0, Cache = 0x83318000;
 unsigned hostLanguage = 1;
 bool overrideEnabled = true;
+bool staticRecordOnly = false;  // pre-#220 host policy, kept for the regression check
 void Require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
 }
@@ -21,14 +22,18 @@ void PutString(uint8_t* base, uint32_t address, const char* value) {
 void Initialize(uint8_t* base, unsigned host = 1) {
     hostLanguage = host;
     overrideEnabled = true;
+    staticRecordOnly = false;
     std::memset(base + Table, 0, 424);
     std::memset(base + Cache, 0, 32);
-    const char* names[] = {"JPN", "INT", "JPN", "DEU", "FRA", "ESN", "ITA"};
+    // The game's [Localization] LanguageCode list registers lower-case codes;
+    // the executable's static per-language table (0x832455F0) is upper-case.
+    const char* names[] = {"jpn", "int", "jpn", "deu", "fra", "spa", "ita"};
+    const char* statics[] = {"INT", "INT", "JPN", "DEU", "FRA", "SPA", "ITA"};
     for (unsigned id = 0; id != 7; ++id) {
         PPC_STORE_U16(Table + id * 14, id);
         PutString(base, Table + id * 14 + 2, names[id]);
         const uint32_t pointer = 0x20000 + id * 32;
-        PutString(base, pointer, names[id]);
+        PutString(base, pointer, statics[id]);
         PPC_STORE_U32(0x832455F0 + id * 4, pointer);
     }
     PPC_STORE_U8(Table + 416, 7);
@@ -51,9 +56,17 @@ unsigned Apply(uint8_t* base, unsigned index) {
 }
 }
 PPC_FUNC(sub_82481BE8) {
-    // Existing production host policy, intentionally unchanged for the audit.
+    // Mirrors the production host policy in settings/menu.cpp.
     if (overrideEnabled && settings::language::ResourceOverride(hostLanguage, ctx.r3.u32, ctx.r4.u32)) {
-        ctx.r3.u64 = PPC_LOAD_U32(0x832455F0 + hostLanguage * 4);
+        uint32_t record = 0;
+        if (!staticRecordOnly) {
+            ctx.r4.u64 = hostLanguage;
+            native_lookup(ctx, base);
+            record = ctx.r3.u32;
+        }
+        if (!settings::language::KeepRegistryRecord(record, record ? PPC_LOAD_U16(record - 2) : 0, hostLanguage))
+            record = PPC_LOAD_U32(0x832455F0 + hostLanguage * 4);
+        ctx.r3.u64 = record;
         return;
     }
     native_lookup(ctx, base);
@@ -101,6 +114,16 @@ int main() {
             for (unsigned index = 0; index != 5; ++index)
                 Require(Apply(base, index) == expected[index], "voice index and text language independence");
         }
+        // Issue #220: the FMV player indexes FMVInfo.dat by sub_82481F40's ID;
+        // ID 0 (no match) selects the Japanese track. A voice equal to the text
+        // language must resolve to its registry ID, not miss on "INT" != "int".
+        for (unsigned host : {1u, 6u}) {
+            Initialize(base, host);
+            staticRecordOnly = true;
+            Require(Apply(base, host == 1 ? 0 : 4) == 0, "static upper-case record misses the registry");
+            Initialize(base, host);
+            Require(Apply(base, host == 1 ? 0 : 4) == host, "host-language voice keeps its registry ID");
+        }
         Initialize(base);
         Require(baseline_menu::VoiceLanguage(base, 99) == 6, "baseline clamps corrupt selection to Italian");
         Require(current_menu::VoiceLanguage(base, 99) == 0, "current menu rejects corrupt selection");
@@ -120,7 +143,7 @@ int main() {
         PPC_STORE_U16(Table + 320, 5);
         PPC_STORE_U16(Table + 322, 5);
         PPC_STORE_U16(Table + 324, 1);
-        const auto spanish = PPC_LOAD_U32(0x832455F0 + 5 * 4);
+        const auto spanish = Table + 5 * 14 + 2;
         const auto alias = Call(sub_82481CD0, base, Table, spanish, 0);
         Require(Call(sub_82481C58, base, Table, alias) == 1, "voice alias maps Spanish to English");
         Require(Call(sub_82482038, base, 5) == 0, "out of range index returns null");
@@ -137,6 +160,7 @@ int main() {
         Require(Apply(base, 99) == 5, "host fallback substitutes unsupported Spanish voice");
         std::puts("PASS: extracted baseline/current menu: stale empty table, invalid index/count, native 16-slot capacity");
         std::puts("PASS: native PPC mapping, independent text/voice, alias, cached reverse ID, invalid index");
+        std::puts("PASS: #220 host-language voice resolves to its registry ID (static-record policy gave ID 0)");
         std::puts("REPRO: synthetic invalid index: native effective voice=2; existing host override effective voice=5 (unsupported)");
         std::puts("LIMIT: synthetic tables; no save, scene, playback, locale collation, or issue #54 root-cause verification");
     } catch (const std::exception& e) { std::fprintf(stderr, "FAIL: %s\n", e.what()); return 1; }
