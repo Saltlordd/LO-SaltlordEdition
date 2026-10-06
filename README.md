@@ -161,6 +161,8 @@ To report a rendering problem, select **Capture render state**, confirm, then **
 
 **Teleport** has a position bookmark, editable X/Y/Z coordinates and the map's points of interest. On the coordinate row, press **Enter** to pick X, Y or Z and **←/→** to move it. Confirm a teleport or a point of interest, then close the menu to move.
 
+**Debug Event Room**, at the bottom of the page, jumps to the game's own event-debug map (z0g_9) when you close the menu. Hold **LB** and press **Up** there to open Scenario Jump. It works only while you control a character on a map.
+
 ### Cheats: speed and game-data tools
 
 | Category | What it does |

@@ -15,6 +15,8 @@
 
 extern "C" PPC_FUNC(__imp__sub_82290B60);
 extern "C" PPC_FUNC(__imp__sub_822FA548);
+// Original RequestMapJump(engine, FString* map), as used by the Issue #12 bridge.
+extern "C" PPC_FUNC(__imp__sub_82827580);
 
 namespace
 {
@@ -35,6 +37,12 @@ Position requested{};
 uint64_t lastTick = 0;
 uint64_t nextPoiRefresh = 0, nextPoiId = 1, requestedPoi = 0;
 std::vector<debug_menu::LiveMapPoi> livePois;
+// Map jump request; independent of the SetLocation operations above.
+constexpr uint32_t EngineAddress = 0x83315FB4;
+constexpr uint32_t PendingMapAddress = 0x83263E50;
+std::string pendingMap;
+uint64_t mapRequestGeneration = 0;
+bool mapEngineReady = false, mapChangePending = false;
 
 uint64_t Now()
 {
@@ -137,7 +145,7 @@ bool Request(Operation op, Position position = {}, uint64_t poiId = 0)
 {
     std::lock_guard lock(stateMutex);
     const bool paused = host_ui::IsGamePaused();
-    if (!snapshot.available || (!paused && Now() - lastTick > 1000) || pending != Operation::None ||
+    if (!snapshot.available || (!paused && Now() - lastTick > 1000) || pending != Operation::None || !pendingMap.empty() ||
         !Finite(position) || (op == Operation::Restore && !snapshot.bookmarkAvailable)) return false;
     if (op == Operation::Poi && std::none_of(snapshot.pois.begin(), snapshot.pois.end(),
         [poiId](const auto& p) { return p.id == poiId; })) return false;
@@ -224,13 +232,18 @@ void Tick(PPCContext& ctx, uint8_t* base)
 {
     const Identity current = FindPlayer(base);
     const Position position = current.pawn ? ReadPosition(base, current.pawn) : Position{};
+    const bool engineReady = ObjectAddress(PPC_LOAD_U32(EngineAddress));
+    const bool mapPending = PPC_LOAD_U32(PendingMapAddress) != 0;
     {
         std::lock_guard lock(stateMutex);
+        mapEngineReady = engineReady;
+        mapChangePending = mapPending;
         if (current != identity || (lastTick && Now() - lastTick > 1000))
         {
             identity = current;
             ++sceneGeneration;
             pending = Operation::None;
+            pendingMap.clear();
             snapshot.bookmarkAvailable = false;
             snapshot.pois.clear();
             livePois.clear();
@@ -244,6 +257,7 @@ void Tick(PPCContext& ctx, uint8_t* base)
         if (!snapshot.available)
         {
             pending = Operation::None;
+            pendingMap.clear();
             snapshot.bookmarkAvailable = false;
             snapshot.status = L"仅可在可控制的地图中传送";
         }
@@ -385,6 +399,68 @@ void Tick(PPCContext& ctx, uint8_t* base)
     LOG_INFO("teleport native result={} pawn={:#x} target={},{},{} actual={},{},{}",
         moved, current.pawn, destination.x, destination.y, destination.z, actual.x, actual.y, actual.z);
 }
+
+bool ValidMapName(std::string_view map)
+{
+    return !map.empty() && map.size() <= 32 &&
+        map.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789_") == std::string_view::npos;
+}
+
+// Runs the queued jump once from the engine tick, re-checking every
+// precondition on the game thread before calling the original function.
+void MapJumpTick(PPCContext& ctx, uint8_t* base)
+{
+    std::string map;
+    {
+        std::lock_guard lock(stateMutex);
+        if (pendingMap.empty()) return;
+        map = std::exchange(pendingMap, {});
+        if (mapRequestGeneration != sceneGeneration)
+        {
+            snapshot.status = L"场景已变化，操作已取消";
+            return;
+        }
+    }
+    auto refuse = [&](const wchar_t* status, const char* reason) {
+        std::lock_guard lock(stateMutex);
+        snapshot.status = status;
+        LOG_INFO("debug map jump rejected target={}: {}", map, reason);
+    };
+    const auto engine = PPC_LOAD_U32(EngineAddress);
+    if (!ObjectAddress(engine)) return refuse(L"引擎未就绪，无法跳转地图", "engine");
+    if (!FindPlayer(base).pawn) return refuse(L"无可控制角色，无法跳转地图", "no player");
+    if (PPC_LOAD_U32(PendingMapAddress) != 0) return refuse(L"地图切换进行中", "map change pending");
+    // RequestMapJump's own map text constant; a mismatch means a different executable.
+    constexpr uint32_t nativeMapText = 0x821573D8;
+    constexpr char16_t expected[] = u"xxx_x_scrw";
+    for (uint32_t i = 0; i < std::size(expected); ++i)
+        if (PPC_LOAD_U16(nativeMapText + i * 2) != expected[i])
+            return refuse(L"地图跳转函数校验失败", "native map constant mismatch");
+    // Guest FString: data pointer, count and capacity (both including NUL),
+    // with the UTF-16 text stored after the header in the same allocation.
+    void* descriptorMemory = g_userHeap.Alloc(96);
+    if (!descriptorMemory) return refuse(L"无法分配地图跳转参数", "allocation");
+    const auto descriptor = g_memory.MapVirtual(descriptorMemory);
+    const auto text = descriptor + 16;
+    for (uint32_t i = 0; i < map.size(); ++i)
+        PPC_STORE_U16(text + i * 2, uint16_t(uint8_t(map[i])));
+    PPC_STORE_U16(text + uint32_t(map.size()) * 2, 0);
+    PPC_STORE_U32(descriptor, text);
+    PPC_STORE_U32(descriptor + 4, uint32_t(map.size() + 1));
+    PPC_STORE_U32(descriptor + 8, uint32_t(map.size() + 1));
+    const PPCContext saved = ctx;
+    LOG_INFO("debug map jump begin target={} engine={:#x}", map, engine);
+    ctx.r3.u64 = engine;
+    ctx.r4.u64 = descriptor;
+    __imp__sub_82827580(ctx, base);
+    const int32_t result = ctx.r3.s32;
+    ctx = saved;
+    g_userHeap.Free(descriptorMemory);
+    const auto pendingWord = PPC_LOAD_U32(PendingMapAddress);
+    LOG_INFO("debug map jump end result={} pending={}", result, pendingWord);
+    std::lock_guard lock(stateMutex);
+    snapshot.status = pendingWord ? L"地图跳转已开始" : L"游戏拒绝了地图跳转";
+}
 }
 
 debug_menu::TeleportSnapshot debug_menu::GetTeleportSnapshot()
@@ -408,6 +484,22 @@ bool debug_menu::RequestSavePosition() { return Request(Operation::Save); }
 bool debug_menu::RequestRestorePosition() { return Request(Operation::Restore); }
 bool debug_menu::RequestPoiTeleport(uint64_t id) { return Request(Operation::Poi, {}, id); }
 
+const wchar_t* debug_menu::RequestMapJump(const char* map)
+{
+    if (!map || !ValidMapName(map)) return L"地图名无效";
+    std::lock_guard lock(stateMutex);
+    // No player covers the title screen, battles, cutscenes and menus.
+    const bool stale = !host_ui::IsGamePaused() && Now() - lastTick > 1000;
+    if (stale || !mapEngineReady) return L"引擎未就绪，无法跳转地图";
+    if (!snapshot.available) return L"无可控制角色，无法跳转地图";
+    if (mapChangePending || !pendingMap.empty() || pending != Operation::None) return L"地图切换进行中";
+    pendingMap = map;
+    mapRequestGeneration = sceneGeneration;
+    snapshot.status = L"等待游戏线程执行";
+    LOG_INFO("debug map jump requested target={}", map);
+    return nullptr;
+}
+
 // Live GEngine vtable +0x108 resolves here. The prior bhHUD update only
 // runs in battle and is unsuitable for free-roaming requests.
 PPC_FUNC(sub_82290B60)
@@ -418,5 +510,5 @@ PPC_FUNC(sub_82290B60)
     const bool engine = ctx.r3.u32 == PPC_LOAD_U32(0x83315FB4);
     if (engine) { debug_menu::cheats::Tick(ctx, base); gpu::frame_plan::BeginCpuFrame(); frame_timing::EngineTick(ctx.f1.f64); }
     __imp__sub_82290B60(ctx, base);
-    if (engine) { debug_menu::UpdateMapInfo(base); debug_menu::PartySwitchTick(base); Tick(ctx, base); }
+    if (engine) { debug_menu::UpdateMapInfo(base); debug_menu::PartySwitchTick(base); Tick(ctx, base); MapJumpTick(ctx, base); }
 }
