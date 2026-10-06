@@ -123,8 +123,8 @@ int main() {
                 {invalidity.get(), RenderTextureLayout::SHADER_READ},
                 {mask.get(), RenderTextureLayout::SHADER_READ}};
             prefix->barriers(RenderBarrierStage::ALL, nullptr, 0, reads, 5);
-            prefix->barriers(RenderBarrierStage::COPY,
-                RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_DEST));
+            prefix->barriers(RenderBarrierStage::ALL,
+                RenderTextureBarrier(output.get(), RenderTextureLayout::GENERAL));
             prefix->end();
             const auto attempt = controller.RecordIsolated(*static_cast<D3D12CommandList*>(isolated.get()),
                 config, inputs, frame, *static_cast<D3D12Texture*>(output.get()));

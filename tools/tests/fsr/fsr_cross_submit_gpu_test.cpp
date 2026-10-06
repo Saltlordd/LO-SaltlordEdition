@@ -88,7 +88,8 @@ void Run(const char* resultPath) {
     auto depth = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R32_FLOAT));
     auto motion = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R16G16_FLOAT));
     auto invalidity = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R8_UNORM));
-    auto output = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R8G8B8A8_UNORM));
+    auto output = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R8G8B8A8_UNORM,
+        RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
     auto upload = device->createBuffer(RenderBufferDesc::UploadBuffer(5 * ImageBytes));
     auto readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(ImageBytes));
     Check(color && depth && motion && invalidity && output && upload && readback, "images and staging");
@@ -180,8 +181,8 @@ void Run(const char* resultPath) {
     const gpu::fsr::Config config{Side, Side, Side, Side, gpu::upscaling::FsrQuality::NativeAA, 1};
     Check(fsr.EnsureSession(native, config) == gpu::fsr::Status::Ready, "actual FSR adapter session");
     bPrefix->begin();
-    bPrefix->barriers(RenderBarrierStage::COPY,
-        RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_DEST));
+    bPrefix->barriers(RenderBarrierStage::ALL,
+        RenderTextureBarrier(output.get(), RenderTextureLayout::GENERAL));
     auto* retained = inputs.fsrMask.sceneContribution.texture;
     bPrefix->barriers(RenderBarrierStage::COPY,
         RenderTextureBarrier(retained, RenderTextureLayout::COPY_SOURCE));

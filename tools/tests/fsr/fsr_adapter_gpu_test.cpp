@@ -103,7 +103,7 @@ struct Fixture {
 
     std::unique_ptr<RenderTexture> NewOutput(uint32_t size) {
         return device->createTexture(RenderTextureDesc::Texture2D(size, size, 1,
-            RenderFormat::R8G8B8A8_UNORM));
+            RenderFormat::R8G8B8A8_UNORM, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
     }
 
     void UploadInputs(uint8_t blue = 128) {
@@ -190,8 +190,8 @@ struct Fixture {
         inputs.resetHistory = reset;
         inputs.jitter = gpu::temporal::FrameJitter(serial + 1, kRender, kRender);
         prefix->begin();
-        prefix->barriers(RenderBarrierStage::COPY,
-            RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_DEST));
+        prefix->barriers(RenderBarrierStage::ALL,
+            RenderTextureBarrier(output.get(), RenderTextureLayout::GENERAL));
         prefix->end();
         auto attempt = fsr.RecordIsolated(Isolated(), config, inputs, Metadata(reset, delta), Native(*output));
         Check(attempt.status == gpu::fsr::Status::Ready && attempt.useId, "FSR dispatch recorded");
@@ -267,8 +267,8 @@ struct Fixture {
     void DiscardAndRecreate() {
         auto disposableOutput = NewOutput(config.outputWidth); Check(bool(disposableOutput), "discard output");
         prefix->begin();
-        prefix->barriers(RenderBarrierStage::COPY,
-            RenderTextureBarrier(disposableOutput.get(), RenderTextureLayout::COPY_DEST));
+        prefix->barriers(RenderBarrierStage::ALL,
+            RenderTextureBarrier(disposableOutput.get(), RenderTextureLayout::GENERAL));
         prefix->end();
         inputs.renderFrameId = nextRenderFrame++;
         inputs.resetHistory = false;
@@ -318,7 +318,7 @@ struct Fixture {
         inputs.resetHistory = true;
         inputs.jitter = gpu::temporal::FrameJitter(1, kRender, kRender);
         prefix->begin();
-        prefix->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_DEST));
+        prefix->barriers(RenderBarrierStage::ALL, RenderTextureBarrier(output.get(), RenderTextureLayout::GENERAL));
         prefix->end();
         auto off = Metadata(true, 0.0f);
         auto attempt = fsr.RecordIsolated(Isolated(), config, inputs, off, Native(*output), &capture);
@@ -370,7 +370,7 @@ struct Fixture {
         inputs.fsrMask.sceneContribution.texture = mask.get();
         auto disposable = NewOutput(kRender); Check(bool(disposable), "discard destination");
         prefix->begin();
-        prefix->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(disposable.get(), RenderTextureLayout::COPY_DEST));
+        prefix->barriers(RenderBarrierStage::ALL, RenderTextureBarrier(disposable.get(), RenderTextureLayout::GENERAL));
         prefix->end();
         auto discarded = fsr.RecordIsolated(Isolated(), config, inputs, on, Native(*disposable));
         Check(discarded.status == gpu::fsr::Status::Ready && discarded.useId, "reactive descriptor record for discard");

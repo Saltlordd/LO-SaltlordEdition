@@ -260,7 +260,7 @@ struct Controller::Impl {
     bool poisoned = false;
     bool sharedInitialized = false;
     std::unique_ptr<plume::VulkanTexture> dilatedDepth, dilatedMotion, previousDepth;
-    std::unique_ptr<plume::VulkanTexture> linearColor, canonicalDepth, reactiveMask, sdkOutput, encodedOutput;
+    std::unique_ptr<plume::VulkanTexture> linearColor, canonicalDepth, reactiveMask, sdkOutput;
     bool reactiveScratchUnavailable = false;
     bool reactiveMaskInitialized = false;
     VkSampler sampler = VK_NULL_HANDLE;
@@ -334,7 +334,7 @@ struct Controller::Impl {
             use.timestampBits ? (uint64_t(1) << use.timestampBits) - 1 : 0;
         const double elapsed = valid ? double((data[2] - data[0]) & mask) * use.timestampPeriod / 1e6 : -1;
         std::fprintf(stderr,
-            "FSR GPU timing: provider=fsr frame=%llu use=%llu submission_serial=%llu request=0x%llx geometry_epoch=%llu device_epoch=%llu input=%ux%u output=%ux%u quality=%u sdk_reset=%u fsr_capture=%u status=%s sr_isolated_elapsed_ms=%.6f scope=prepare_sdk_encode_copy_sync\n",
+            "FSR GPU timing: provider=fsr frame=%llu use=%llu submission_serial=%llu request=0x%llx geometry_epoch=%llu device_epoch=%llu input=%ux%u output=%ux%u quality=%u sdk_reset=%u fsr_capture=%u status=%s sr_isolated_elapsed_ms=%.6f scope=prepare_sdk_encode_sync\n",
             static_cast<unsigned long long>(use.frame), static_cast<unsigned long long>(use.id),
             static_cast<unsigned long long>(use.serial), static_cast<unsigned long long>(use.request),
             static_cast<unsigned long long>(use.epoch), static_cast<unsigned long long>(use.timingConfig.deviceEpoch),
@@ -393,7 +393,7 @@ struct Controller::Impl {
         descriptorPool = VK_NULL_HANDLE;
         sampler = VK_NULL_HANDLE;
         dilatedDepth.reset(); dilatedMotion.reset(); previousDepth.reset();
-        linearColor.reset(); canonicalDepth.reset(); reactiveMask.reset(); sdkOutput.reset(); encodedOutput.reset();
+        linearColor.reset(); canonicalDepth.reset(); reactiveMask.reset(); sdkOutput.reset();
         reactiveScratchUnavailable = false;
         reactiveMaskInitialized = false;
         uses.clear();
@@ -578,9 +578,8 @@ Status Controller::EnsureSession(plume::VulkanDevice& device, const Config& conf
     impl_->linearColor = CreateTexture(device, config.renderWidth, config.renderHeight, plume::RenderFormat::R16G16B16A16_FLOAT);
     impl_->canonicalDepth = CreateTexture(device, config.renderWidth, config.renderHeight, plume::RenderFormat::R32_FLOAT);
     impl_->sdkOutput = CreateTexture(device, config.outputWidth, config.outputHeight, plume::RenderFormat::R16G16B16A16_FLOAT);
-    impl_->encodedOutput = CreateTexture(device, config.outputWidth, config.outputHeight, plume::RenderFormat::R8G8B8A8_UNORM);
     if (!impl_->dilatedDepth || !impl_->dilatedMotion || !impl_->previousDepth ||
-        !impl_->linearColor || !impl_->canonicalDepth || !impl_->sdkOutput || !impl_->encodedOutput)
+        !impl_->linearColor || !impl_->canonicalDepth || !impl_->sdkOutput)
         return impl_->Fail("VulkanDevice::createTexture(FSR shared or conversion)", 0, started);
     if (!impl_->CreatePipelines()) {
         const std::string api = impl_->diagnostics.failedApi;
@@ -660,7 +659,7 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
         color.textureLayout != plume::RenderTextureLayout::SHADER_READ ||
         depth.textureLayout != plume::RenderTextureLayout::SHADER_READ ||
         motion.textureLayout != plume::RenderTextureLayout::SHADER_READ ||
-        output.textureLayout != plume::RenderTextureLayout::COPY_DEST) {
+        output.textureLayout != plume::RenderTextureLayout::GENERAL) {
         const char* reason = !color.vk || !depth.vk || !motion.vk || !output.vk ? "missing_image" :
             color.imageFormat != VK_FORMAT_R8G8B8A8_UNORM ? "color_format" :
             depth.imageFormat != VK_FORMAT_R32_SFLOAT ? "depth_format" :
@@ -714,7 +713,8 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
     VkDescriptorImageInfo presentImages[] = {
         {impl_->sampler, impl_->sdkOutput->imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
         {impl_->sampler, color.imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {VK_NULL_HANDLE, impl_->encodedOutput->imageView, VK_IMAGE_LAYOUT_GENERAL}
+        // The encode pass writes the caller's output directly; no output-size copy.
+        {VK_NULL_HANDLE, output.imageView, VK_IMAGE_LAYOUT_GENERAL}
     };
     VkWriteDescriptorSet writes[9]{};
     for (uint32_t i = 0; i < 9; ++i) {
@@ -761,7 +761,6 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
             impl_->reactiveMaskInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL);
     Barrier(cmd, impl_->sdkOutput->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
-    Barrier(cmd, impl_->encodedOutput->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
     if (!impl_->sharedInitialized) {
         Barrier(cmd, impl_->dilatedDepth->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         Barrier(cmd, impl_->dilatedMotion->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
@@ -866,13 +865,6 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
             0, sizeof(presentParams), &presentParams);
         vkCmdDispatch(cmd, (config.outputWidth + 7) / 8, (config.outputHeight + 7) / 8, 1);
         Barrier(cmd, impl_->sdkOutput->vk, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
-        Barrier(cmd, impl_->encodedOutput->vk, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        VkImageCopy copy{};
-        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        copy.extent = {config.outputWidth, config.outputHeight, 1};
-        vkCmdCopyImage(cmd, impl_->encodedOutput->vk, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-            output.vk, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         if (impl_->uses.back().timing)
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, impl_->uses.back().timing, 1);
         if (capture) capture->AfterFsr(cmd, output);

@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- FSR, DLSS and XeSS upscaling skip one full-resolution copy and blend per frame, which makes them a little faster at high output resolutions (#172).
+
+### 简体中文
+
+- FSR、DLSS 和 XeSS 超分每帧少做一次全分辨率复制和合成，在高输出分辨率下略快一些（#172）。
+
 ## [v0.8.39](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.39) — 2026-10-06
 
 ### English
