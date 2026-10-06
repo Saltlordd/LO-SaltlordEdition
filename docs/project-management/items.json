@@ -5780,12 +5780,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Desktop windowing",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Done",
+        "Delivery": "Deferred",
         "Release": null,
         "Start date": "2026-09-24",
         "Target date": null,
-        "Evidence": "Windows 7 report (v0.5.13 legacy with a compatibility layer). SetThreadDpiAwarenessContext(PMv2) returns null, so the window thread stops before any GPU backend starts; the runtime also needs Windows 10 1803+ memory APIs (VirtualAlloc2, placeholders, MapViewOfFile3), which a DX11 backend would not remove. Moved to Todo on 2026-10-04 with the decision open: relabel as a feature or close as not planned."
+        "Evidence": "Windows 7 report (v0.5.13 legacy with a compatibility layer). SetThreadDpiAwarenessContext(PMv2) returns null, so the window thread stops before any GPU backend starts; the runtime also needs Windows 10 1803+ memory APIs (VirtualAlloc2, placeholders, MapViewOfFile3), which a DX11 backend would not remove. Moved to Todo on 2026-10-04 with the decision open: relabel as a feature or close as not planned. Closed by the maintainer on 2026-10-05 (recorded as completed): Windows 7 lacks the APIs the runtime needs and a DX11 backend would not change that; left as research after v1.0.0. PR #230 (v0.8.30) delay-loads d3d12.dll and dxgi.dll so the Vulkan backend no longer loads the Direct3D 12 runtime."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/issues/49"
@@ -5928,12 +5928,12 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Release": null,
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
         "Start date": "2026-09-14",
         "Target date": null,
-        "Evidence": "Feature request for Depth-of-Field toggle or adjustment slider due to character-relative blur appearance. Initial triage requested F1 render capture ZIP; in backlog."
+        "Evidence": "Depth of field (Off to 100%) and Bloom settings shipped in v0.8.30 (PR #228, thanks @cngjd); the Issue was closed on 2026-10-05. No reporter confirmation is recorded."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/issues/30"
@@ -5967,17 +5967,17 @@
     {
       "key": "linux-aarch64-platform",
       "title": "Establish native Linux AArch64 platform support",
-      "body": "<!-- lo-project:linux-aarch64-platform -->\n\nEstablish native Linux AArch64 platform support as a roadmap target for milestone v0.8.0.\n\n## Scope and completion criteria\n\n- [ ] Establish native Linux AArch64 build path, shader compiler (DXC/SPIRV-Cross) toolchain, and dependency distribution.\n- [ ] Account for 64KB page size / memory mapping and NEON/SIMD guest runtime alignment.\n- [ ] Deliver a reproducible build and AppImage package on Linux AArch64 when authorized.\n\n## Boundaries and evidence\n\nExperimental source-build path only. No official release packaging, CI build, maintainer hardware execution, player acceptance or publication is established.\n\n## Merged to main - 2026-10-02\n\nPR #60 (contributed by dj5927, merged as `52f33cb`, with the DXC staging fix `0d5744c`) added the cross-build path: CMake picks the bundled Linux DXC library by CPU architecture, and toolchain files with `tools/build_linux_arm64.sh` and `tools/build_dxc_linux_arm64.sh` build the runtime and an ARM64 `libdxcompiler.so` on an x86-64 host ([guide](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/LINUX_ARM64.md)). This covers the build half of criterion 1; dependency distribution, the page-size and SIMD work of criterion 2 and the package of criterion 3 are open. The ARM64 build does not run in CI and has not been run on ARM64 hardware by the maintainer.\n",
+      "body": "<!-- lo-project:linux-aarch64-platform -->\n\nEstablish native Linux AArch64 platform support as a roadmap target for milestone v0.8.0.\n\n## Scope and completion criteria\n\n- [ ] Establish native Linux AArch64 build path, shader compiler (DXC/SPIRV-Cross) toolchain, and dependency distribution.\n- [ ] Account for 64KB page size / memory mapping and NEON/SIMD guest runtime alignment.\n- [ ] Deliver a reproducible build and AppImage package on Linux AArch64 when authorized.\n\n## Boundaries and evidence\n\nExperimental source-build path only. No official release packaging, CI build, maintainer hardware execution, player acceptance or publication is established.\n\n## Merged to main - 2026-10-02\n\nPR #60 (contributed by dj5927, merged as `52f33cb`, with the DXC staging fix `0d5744c`) added the cross-build path: CMake picks the bundled Linux DXC library by CPU architecture, and toolchain files with `tools/build_linux_arm64.sh` and `tools/build_dxc_linux_arm64.sh` build the runtime and an ARM64 `libdxcompiler.so` on an x86-64 host ([guide](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/LINUX_ARM64.md)). This covers the build half of criterion 1; dependency distribution, the page-size and SIMD work of criterion 2 and the package of criterion 3 are open. The ARM64 build does not run in CI and has not been run on ARM64 hardware by the maintainer.\n\n## Deferred past v1.0.0 - 2026-10-06\n\nThe maintainer moved Linux AArch64 past v1.0.0. No ARM64 package is planned before then; the cross-build path of PR #60 stays in the source and criteria 2 and 3 remain open.\n",
       "issue_url": null,
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Release": "v0.9.0",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": "After v1.0.0",
         "Start date": null,
         "Target date": null,
-        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. The v0.8.0 lane is kept as the plan milestone and is open for the maintainer to move."
+        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. On 2026-10-03 the lane moved to v0.9.0. On 2026-10-06 the maintainer moved Linux AArch64 past v1.0.0: no ARM64 package is planned before then; the cross-build path stays in the source."
       },
       "source_refs": [
         "https://github.com/freefrank/LostOdysseyRecomp/pull/60"
@@ -6317,12 +6317,12 @@
       "fields": {
         "Kind": "Feature",
         "Area": "User interface",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Release": null,
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Maintainer called the request doable but not yet planned, suggesting a future modder path. The open Issue requests minimap visibility toggle scope; no implementation or release is recorded."
+        "Evidence": "The retail game already hides the minimap by holding Back; the README documents it since v0.8.30 (PR #229). The Issue was closed on 2026-10-05."
       }
     },
     {
@@ -6358,20 +6358,23 @@
     {
       "key": "character-shadow-flow-2026-10-01",
       "title": "Character shadows move unnaturally and look translucent",
-      "body": "<!-- lo-project:character-shadow-flow-2026-10-01 -->\n\n维护者 2026-10-01 报告：人物模型上的阴影（尤其在脸部和身体上）流动得不自然，看起来发透（附 Kaim 截图）。2026-10-02 维护者决定挂起到 v0.9.0。\n\n## Scope and completion criteria\n\n- [ ] 在出现处取一份 F1 捕获，记录渲染后端、抗锯齿／放大方式和帧率\n- [ ] 找到原因并修复，在同一位置对比修复前后\n- [ ] 与已挂起的 `amd-opening-shadow-report`（AMD 首战阴影）分开记录，除非证据表明是同一问题\n\n## Validation and acceptance\n\n尚未调查，没有根因或修复。\n\nstage_detail: Deferred to v0.9.0\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/ROADMAP.md#v090-deferred-plan) (v0.9.0 deferred plan)\n",
+      "body": "<!-- lo-project:character-shadow-flow-2026-10-01 -->\n\n维护者 2026-10-01 报告：人物模型上的阴影（尤其在脸部和身体上）流动得不自然，看起来发透（附 Kaim 截图）。2026-10-02 维护者决定挂起到 v0.9.0。\n\n## Scope and completion criteria\n\n- [ ] 在出现处取一份 F1 捕获，记录渲染后端、抗锯齿／放大方式和帧率\n- [ ] 找到原因并修复，在同一位置对比修复前后\n- [ ] 与已挂起的 `amd-opening-shadow-report`（AMD 首战阴影）分开记录，除非证据表明是同一问题\n\n## Validation and acceptance\n\n未单独调查。2026-10-06 维护者确认阴影已经修好；期间发布的 v0.8.10 到 v0.8.30 包含阴影投影修复（PR #186、#197、#218）。没有取过捕获。\n\nstage_detail: Resolved 2026-10-06, released by v0.8.30\n\n## Sources\n\n- [docs/ROADMAP.md](https://github.com/freefrank/LostOdysseyRecomp/blob/main/docs/ROADMAP.md#v090-deferred-plan) (v0.9.0 deferred plan)\n",
       "issue_url": null,
       "fields": {
         "Kind": "Bug",
         "Area": "Shadows",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Release": "v0.9.0",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
         "Start date": null,
         "Target date": null,
-        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; not investigated; deferred to v0.9.0 on 2026-10-02."
+        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; deferred to v0.9.0 on 2026-10-02 without investigation. On 2026-10-06 the maintainer reported the shadows fixed; the shadow-projection fixes of v0.8.10 to v0.8.30 (PRs #186, #197 and #218) shipped in the meantime. No capture was taken and no separate fix was made."
       },
       "source_refs": [
-        "docs/ROADMAP.md"
+        "docs/ROADMAP.md",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/186",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/197",
+        "https://github.com/freefrank/LostOdysseyRecomp/pull/218"
       ],
       "source_lines": [],
       "record_type": "backlog"
@@ -6383,12 +6386,12 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Release": null,
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Release": "Next release",
         "Start date": null,
         "Target date": null,
-        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer."
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer. Update, 2026-10-06: PR #243 (merged b40ed68b) holds a random encounter while a field event has player control, so the battle starts after the item message instead of unloading the field under the box script; the C1 touch query is untouched. Decision-table test only (32 checks); no in-game run of the fix. Ships in the next release; reporter confirmation pending."
       }
     },
     {
