@@ -938,7 +938,15 @@ ContentScan ScanContent(const std::vector<std::filesystem::path>& paths, const C
         for (size_t i = 0; i < std::min<size_t>(4, scanResult.rejected.size()); ++i)
         {
             if (!details.empty()) details += "; ";
-            details += scanResult.rejected[i].first.filename().string() + ": " + scanResult.rejected[i].second;
+            const auto& source = scanResult.rejected[i].first;
+            details += source.filename().string();
+            // The size the player sees in their file manager; a short image is
+            // the usual reason an ISO that works elsewhere is rejected (#251).
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(source, ec) && !ec)
+                if (const auto bytes = std::filesystem::file_size(source, ec); !ec)
+                    details += " (" + std::to_string(bytes) + " bytes)";
+            details += ": " + scanResult.rejected[i].second;
         }
         std::string suffix = details.empty() ? "" : (" Details: " + details);
         throw Error("No supported Lost Odyssey discs or DLC found." + suffix);

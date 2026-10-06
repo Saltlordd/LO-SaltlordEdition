@@ -361,6 +361,9 @@ InstallerResult ShowInstallerUI(const std::filesystem::path& executableDirectory
             state.reviewScrollOffset = 2;
             state.reviewSelectedIndex = 12;
         }
+        // Renders the review page with a scan error instead of the table.
+        if (const char* error = SDL_getenv("LO_IMPORTER_PREVIEW_ERROR"); error && *error)
+            state.scanError = error;
     }
 #endif
 
@@ -1476,7 +1479,38 @@ InstallerResult ShowInstallerUI(const std::filesystem::path& executableDirectory
             }
             else if (!state.scanError.empty())
             {
-                ui::DrawString(renderer, 40, bodyY + 120, "Scan Error: " + state.scanError, COLOR_RED.r, COLOR_RED.g, COLOR_RED.b, 255, 1.0f);
+                // A scan error lists up to four rejected sources with their reasons
+                // and runs well past one line; wrap it at the card width.
+                const std::string message = "Scan Error: " + state.scanError;
+                const int maxWidth = cardW - 40;
+                const int lineStep = ui::TextLineHeight(1.0f) + 6;
+                constexpr int kMaxLines = 7;
+                size_t pos = 0;
+                for (int line = 0; line < kMaxLines && pos < message.size(); ++line)
+                {
+                    const std::string_view rest = std::string_view(message).substr(pos);
+                    size_t take = rest.size();
+                    if (ui::MeasureTextWidth(rest, 1.0f) > maxWidth)
+                    {
+                        // Longest prefix that fits, broken after the last space in it.
+                        size_t fit = 0;
+                        for (size_t i = 1; i <= rest.size(); ++i)
+                        {
+                            if (i < rest.size() && (static_cast<uint8_t>(rest[i]) & 0xC0) == 0x80) continue;
+                            if (ui::MeasureTextWidth(rest.substr(0, i), 1.0f) > maxWidth) break;
+                            fit = i;
+                        }
+                        if (fit == 0) fit = 1;
+                        const size_t space = rest.substr(0, fit).rfind(' ');
+                        take = (space != std::string_view::npos && space > 0) ? space : fit;
+                    }
+                    const bool lastLine = line == kMaxLines - 1 && take < rest.size();
+                    const std::string lineText = lastLine ? ui::TruncateTextWidth(rest, maxWidth, 1.0f)
+                                                          : std::string(rest.substr(0, take));
+                    ui::DrawString(renderer, 40, bodyY + 120 + line * lineStep, lineText, COLOR_RED.r, COLOR_RED.g, COLOR_RED.b, 255, 1.0f);
+                    pos += take;
+                    while (pos < message.size() && message[pos] == ' ') ++pos;
+                }
             }
             else
             {

@@ -12,6 +12,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android: the on-screen CTRL button can be moved in the touch-layout editor and follows the opacity setting (#253).
 - Android: the CTRL button slides to the nearest screen edge when it is not used; tap the tab to bring it back.
 - The importer now says how many bytes an incomplete disc image is missing, for example one cut at 4 GB by FAT32 storage (#251).
+- Android: the status and navigation bars no longer come back after the game starts or after a swipe; they hide again on their own (#199).
+- The importer now explains an incomplete disc image: the file's size, how many bytes are missing and the likely cause, such as a copy cut at 4 GB by FAT32 storage; long scan errors wrap instead of being cut off (#251).
 
 ### 简体中文
 
@@ -19,6 +21,8 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android：屏幕上的 CTRL 按钮可以在触摸布局编辑里移动，透明度也跟随设置（#253）。
 - Android：CTRL 按钮不用时会缩到最近的屏幕边缘，点一下边缘的小块即可恢复。
 - 导入器遇到不完整的光盘镜像时会说明缺少多少字节，例如被 FAT32 存储截到 4 GB 的情况（#251）。
+- Android：状态栏和导航栏不再在游戏启动后或下滑后一直留着，会自动再次隐藏（#199）。
+- 导入器遇到不完整的光盘镜像时会说明文件大小、缺少多少字节和可能原因，例如被 FAT32 存储截到 4 GB；过长的扫描错误会自动换行，不再被截断（#251）。
 
 ## [v0.8.39](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.39) — 2026-10-06
 
