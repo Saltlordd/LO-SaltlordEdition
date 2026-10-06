@@ -11,12 +11,14 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - FSR, DLSS and XeSS upscaling skip one full-resolution copy and blend per frame, which makes them a little faster at high output resolutions (#172).
 - Android: the on-screen CTRL button can be moved in the touch-layout editor and follows the opacity setting (#253).
 - Android: the CTRL button slides to the nearest screen edge when it is not used; tap the tab to bring it back.
+- The importer now says how many bytes an incomplete disc image is missing, for example one cut at 4 GB by FAT32 storage (#251).
 
 ### 简体中文
 
 - FSR、DLSS 和 XeSS 超分每帧少做一次全分辨率复制和合成，在高输出分辨率下略快一些（#172）。
 - Android：屏幕上的 CTRL 按钮可以在触摸布局编辑里移动，透明度也跟随设置（#253）。
 - Android：CTRL 按钮不用时会缩到最近的屏幕边缘，点一下边缘的小块即可恢复。
+- 导入器遇到不完整的光盘镜像时会说明缺少多少字节，例如被 FAT32 存储截到 4 GB 的情况（#251）。
 
 ## [v0.8.39](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.39) — 2026-10-06
 
