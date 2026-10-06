@@ -219,11 +219,11 @@ std::vector<Entry> ReadXdvdfsEntries(ImageReader& reader)
                 if (fileStartOffset + fileLength > reader.GetLimit())
                 {
                     // Seen when an ISO was cut during copying (FAT32 stops at 4 GB)
-                    // or a download stopped early; the sizes let the player see it.
-                    throw Error("File extends beyond image: '" + relative + "' ends " +
-                        std::to_string(fileStartOffset + fileLength - reader.GetLimit()) +
-                        " bytes past the end of the game data (" + std::to_string(reader.GetLimit()) +
-                        " bytes); the image is incomplete, for example cut at 4 GB by FAT32 storage or an interrupted copy");
+                    // or a transfer stopped early. The caller prefixes the image's
+                    // own name and size; this names the first file past the end.
+                    const uint64_t missing = fileStartOffset + fileLength - reader.GetLimit();
+                    throw Error("the image is incomplete: its '" + relative + "' ends " +
+                        std::to_string(missing) + " bytes past the end of the file (FAT32 storage cuts copies at 4 GB; an interrupted copy also leaves a short file)");
                 }
 
                 entries.push_back({relative, fileStartOffset, fileLength});
