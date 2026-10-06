@@ -8,10 +8,16 @@ final class TouchControlLayout {
     static final int COUNT = 15;
     static final float MIN_SIZE = 0.60f, MAX_SIZE = 1.40f;
     static final float MIN_OPACITY = 0.25f, MAX_OPACITY = 1.0f;
+    /** Editor id of the CTRL button; it is not part of the pad arrays. */
+    static final int CTRL = COUNT;
+    static final float CTRL_HIT_RADIUS = .50f;
+    /** Top strip kept clear because the SDL view can extend behind the status bar. */
+    static final float TOP_SAFE = .06f;
 
     final float[] x = new float[COUNT];
     final float[] y = new float[COUNT];
     final boolean[] visible = new boolean[COUNT];
+    float ctrlX = .5f, ctrlY = .111f;
     float size = 1.0f;
     float opacity = 1.0f;
 
@@ -49,6 +55,8 @@ final class TouchControlLayout {
         System.arraycopy(x, 0, result.x, 0, COUNT);
         System.arraycopy(y, 0, result.y, 0, COUNT);
         System.arraycopy(visible, 0, result.visible, 0, COUNT);
+        result.ctrlX = ctrlX;
+        result.ctrlY = ctrlY;
         result.size = size;
         result.opacity = opacity;
         return result;
@@ -67,26 +75,44 @@ final class TouchControlLayout {
         float maxY = Math.max(margin, height - margin - toolbarSpace);
         px = Math.max(margin, Math.min(width - margin, px));
         // The SDL view can extend behind the Android status bar.
-        float minY = Math.min(maxY, margin + height * .06f);
+        float minY = Math.min(maxY, margin + height * TOP_SAFE);
         py = Math.max(minY, Math.min(maxY, py));
-        // CTRL remains reachable even if a user drags a button into its top-center area.
-        float settingsX = width * .5f, settingsY = height * .111f;
+        // CTRL remains reachable even if a user drags a button into it (or CTRL onto
+        // a button: clampAll then moves the button): take the nearest free spot
+        // beside, below or above it.
+        float settingsX = ctrlX * width, settingsY = ctrlY * height;
         float clearance = margin + unit * .52f;
         float dx = px - settingsX, dy = py - settingsY;
         if (dx * dx + dy * dy < clearance * clearance) {
-            float below = settingsY + clearance;
+            float below = settingsY + clearance, above = settingsY - clearance;
             float side = settingsX + (dx < 0f ? -clearance : clearance);
-            if (side >= margin && side <= width - margin
-                    && (below > maxY || Math.abs(side - px) < Math.abs(below - py)))
-                px = side;
-            else py = Math.min(maxY, below);
-            px = Math.max(margin, Math.min(width - margin, px));
+            float best = Float.POSITIVE_INFINITY, bestX = px, bestY = Math.min(maxY, below);
+            if (below <= maxY) { best = Math.abs(below - py); bestY = below; }
+            if (side >= margin && side <= width - margin && Math.abs(side - px) < best) {
+                best = Math.abs(side - px); bestX = side; bestY = py;
+            }
+            if (above >= minY && Math.abs(above - py) < best) { bestX = px; bestY = above; }
+            px = Math.max(margin, Math.min(width - margin, bestX));
+            py = bestY;
         }
         x[id] = px / width;
         y[id] = py / height;
     }
 
+    /** CTRL stays fully on screen, below the top strip and clear of the editor toolbar. */
+    void moveCtrl(float px, float py, int width, int height, float unit,
+                  float reservedBottom) {
+        float margin = Math.min(CTRL_HIT_RADIUS * unit, Math.min(width, height) * .45f);
+        float toolbarSpace = px + margin >= width * .327f
+            && px - margin <= width * .683f ? reservedBottom : 0f;
+        float maxY = Math.max(margin, height - margin - toolbarSpace);
+        float minY = Math.min(maxY, margin + height * TOP_SAFE);
+        ctrlX = Math.max(margin, Math.min(width - margin, px)) / width;
+        ctrlY = Math.max(minY, Math.min(maxY, py)) / height;
+    }
+
     void clampAll(int width, int height, float unit, float reservedBottom) {
+        moveCtrl(ctrlX * width, ctrlY * height, width, height, unit, reservedBottom);
         for (int id = 0; id < COUNT; ++id) {
             move(id, pixelX(id, width), pixelY(id, height), width, height,
                  unit, reservedBottom);

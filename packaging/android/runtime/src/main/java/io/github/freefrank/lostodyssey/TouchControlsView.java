@@ -9,6 +9,7 @@ import android.graphics.Paint;
 import android.hardware.input.InputManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.SparseArray;
 import android.view.InputDevice;
 import android.view.MotionEvent;
@@ -60,6 +61,10 @@ final class TouchControlsView extends View {
         @Override public void onInputDeviceRemoved(int deviceId) { refreshControllers(); }
         @Override public void onInputDeviceChanged(int deviceId) { refreshControllers(); }
     };
+    private final TouchCtrlHandle ctrl = new TouchCtrlHandle();
+    private final Runnable ctrlWake = this::invalidate;
+    private long ctrlWakeAt = -1;
+    private boolean settingsDialogOpen, settingsPointerRestores;
     private final SparseArray<Pointer> pointers = new SparseArray<>();
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private TouchControlLayout layout, draft;
@@ -79,6 +84,9 @@ final class TouchControlsView extends View {
         visibility = new TouchControllerVisibility(preferences.getBoolean("enabled", true));
         inputManager = (InputManager) activity.getSystemService(Context.INPUT_SERVICE);
         customLayout = preferences.getInt("layout_version", 0) == 1;
+        long now = SystemClock.uptimeMillis();
+        ctrl.reset(now);
+        ctrl.setEnabled(preferences.getBoolean("ctrl_auto_hide", true), now);
         setClickable(true);
         setContentDescription("Touch controller settings");
     }
@@ -136,12 +144,16 @@ final class TouchControlsView extends View {
 
     void onHostResume() {
         hostResumed = true;
+        // Back from a CTRL page or another app: show CTRL again, retract later.
+        ctrl.reset(SystemClock.uptimeMillis());
+        invalidate();
         startControllerWatch();
     }
 
     void onHostPause() {
         hostResumed = false;
         stopControllerWatch();
+        cancelCtrlWake();
         clearTouches();
     }
 
@@ -174,6 +186,10 @@ final class TouchControlsView extends View {
                 if (Float.isFinite(storedY)) fresh.y[id] = storedY;
                 fresh.visible[id] = preferences.getBoolean("visible_" + id, true);
             }
+            float ctrlX = preferences.getFloat("ctrl_x", fresh.ctrlX);
+            float ctrlY = preferences.getFloat("ctrl_y", fresh.ctrlY);
+            if (Float.isFinite(ctrlX)) fresh.ctrlX = ctrlX;
+            if (Float.isFinite(ctrlY)) fresh.ctrlY = ctrlY;
         }
         layout = fresh;
         layout.clampAll(width, height, baseUnit * layout.size, 0f);
@@ -187,8 +203,45 @@ final class TouchControlsView extends View {
     private float unit() { return baseUnit * activeLayout().size; }
     private float px(int id) { return activeLayout().pixelX(id, getWidth()); }
     private float py(int id) { return activeLayout().pixelY(id, getHeight()); }
-    private float settingX() { return getWidth() * .5f; }
-    private float settingY() { return getHeight() * .111f; }
+    private float settingX() { return activeLayout().ctrlX * getWidth(); }
+    private float settingY() { return activeLayout().ctrlY * getHeight(); }
+    private float settingRadius() { return unit() * .45f; }
+    private boolean onCtrl(float x, float y) {
+        return near(x, y, settingX(), settingY(), unit() * TouchControlLayout.CTRL_HIT_RADIUS);
+    }
+
+    /** Lays out CTRL for the current slide progress (see TouchCtrlHandle). */
+    private float layoutCtrl(long now) {
+        float progress = ctrl.progress(now);
+        ctrl.layout(settingX(), settingY(), settingRadius(), getWidth(), getHeight(),
+                    48f * getResources().getDisplayMetrics().density,
+                    getHeight() * TouchControlLayout.TOP_SAFE, progress);
+        return progress;
+    }
+
+    private void syncCtrlPin() {
+        ctrl.setPinned(editing || settingsDialogOpen || settingsPointer != -1,
+                       SystemClock.uptimeMillis());
+        invalidate();
+    }
+
+    private void cancelCtrlWake() {
+        controllerHandler.removeCallbacks(ctrlWake);
+        ctrlWakeAt = -1;
+    }
+
+    private void scheduleCtrlWake(long now) {
+        long wait = ctrl.nextWakeMs(now);
+        if (wait == 0) {
+            postInvalidateOnAnimation();
+        } else if (wait > 0 && hostResumed) {
+            long at = now + wait;
+            if (at == ctrlWakeAt) return;
+            controllerHandler.removeCallbacks(ctrlWake);
+            controllerHandler.postAtTime(ctrlWake, at);
+            ctrlWakeAt = at;
+        }
+    }
 
     private static boolean near(float x, float y, float cx, float cy, float radius) {
         float dx = x - cx, dy = y - cy;
@@ -280,7 +333,10 @@ final class TouchControlsView extends View {
 
     void clearTouches() {
         pointers.clear();
+        boolean heldCtrl = settingsPointer != -1;
         settingsPointer = dragPointer = toolbarPointer = -1;
+        settingsPointerRestores = false;
+        if (heldCtrl) syncCtrlPin();
         toolbarPressed = -1;
         publish();
     }
@@ -301,12 +357,15 @@ final class TouchControlsView extends View {
             editor.putFloat("y_" + id, layout.y[id]);
             editor.putBoolean("visible_" + id, layout.visible[id]);
         }
+        editor.putFloat("ctrl_x", layout.ctrlX).putFloat("ctrl_y", layout.ctrlY);
         editor.apply();
         customLayout = true;
     }
 
-    private void applySettings(boolean show, int sizePercent, int opacityPercent) {
+    private void applySettings(boolean show, int sizePercent, int opacityPercent,
+                               boolean ctrlAutoHide) {
         clearTouches();
+        ctrl.setEnabled(ctrlAutoHide, SystemClock.uptimeMillis());
         float size = sizePercent / 100f;
         if (!customLayout) layout = TouchControlLayout.defaults(
             getWidth(), getHeight(), baseUnit * size);
@@ -314,7 +373,8 @@ final class TouchControlsView extends View {
         layout.opacity = opacityPercent / 100f;
         layout.clampAll(getWidth(), getHeight(), baseUnit * layout.size, 0f);
         preferences.edit().putFloat("size", layout.size)
-            .putFloat("opacity", layout.opacity).apply();
+            .putFloat("opacity", layout.opacity)
+            .putBoolean("ctrl_auto_hide", ctrlAutoHide).apply();
         setControlsEnabled(show);
     }
 
@@ -360,6 +420,11 @@ final class TouchControlsView extends View {
         content.addView(opacityLabel);
         content.addView(opacity);
 
+        CheckBox ctrlAutoHide = new CheckBox(activity);
+        ctrlAutoHide.setText("Auto-hide CTRL button");
+        ctrlAutoHide.setChecked(ctrl.enabled());
+        content.addView(ctrlAutoHide);
+
         // Qualcomm devices: open the GPU driver page (download / switch Turnip).
         Button driverButton = null;
         if (GpuDriverStore.supported()) {
@@ -384,10 +449,10 @@ final class TouchControlsView extends View {
             .setView(content)
             .setPositiveButton("Apply", (dialog, which) ->
                 applySettings(toggle.isChecked(), size.getProgress() + 60,
-                              opacity.getProgress() + 25))
+                              opacity.getProgress() + 25, ctrlAutoHide.isChecked()))
             .setNeutralButton("Edit layout", (dialog, which) -> {
                 applySettings(toggle.isChecked(), size.getProgress() + 60,
-                              opacity.getProgress() + 25);
+                              opacity.getProgress() + 25, ctrlAutoHide.isChecked());
                 enterEditor();
             })
             .setNegativeButton("Cancel", null)
@@ -396,6 +461,8 @@ final class TouchControlsView extends View {
             settingsToggle = null;
             controllerHint = null;
             settingsChoiceEdited = false;
+            settingsDialogOpen = false;
+            syncCtrlPin();
         });
         if (driverButton != null) {
             driverButton.setOnClickListener(v -> {
@@ -411,6 +478,8 @@ final class TouchControlsView extends View {
             settingsDialog.dismiss();
             activity.openGameFolderPage();
         });
+        settingsDialogOpen = true;
+        syncCtrlPin();
         settingsDialog.show();
     }
 
@@ -434,6 +503,7 @@ final class TouchControlsView extends View {
                        editorReservedBottom());
         editing = true;
         selected = -1;
+        syncCtrlPin();
         publish();
     }
 
@@ -441,11 +511,13 @@ final class TouchControlsView extends View {
         clearTouches();
         if (save) {
             layout = draft.copy();
+            layout.clampAll(getWidth(), getHeight(), baseUnit * layout.size, 0f);
             saveLayout();
         }
         editing = false;
         draft = null;
         selected = -1;
+        syncCtrlPin();
         publish();
     }
 
@@ -479,8 +551,14 @@ final class TouchControlsView extends View {
                     toolbarPressed = toolbar;
                 }
             } else if (dragPointer == -1) {
-                int element = elementAt(x, y, true);
-                if (element >= 0) {
+                // CTRL wins overlaps, as it does in play (#253).
+                int element = onCtrl(x, y) ? TouchControlLayout.CTRL : elementAt(x, y, true);
+                if (element == TouchControlLayout.CTRL) {
+                    selected = element;
+                    dragPointer = id;
+                    dragOffsetX = settingX() - x;
+                    dragOffsetY = settingY() - y;
+                } else if (element >= 0) {
                     selected = element;
                     dragPointer = id;
                     dragOffsetX = px(element) - x;
@@ -496,9 +574,14 @@ final class TouchControlsView extends View {
             if (dragPointer != -1) {
                 for (int i = 0; i < event.getPointerCount(); ++i) {
                     if (event.getPointerId(i) == dragPointer) {
-                        draft.move(selected, event.getX(i) + dragOffsetX,
-                                   event.getY(i) + dragOffsetY, getWidth(), getHeight(),
-                                   unit(), editorReservedBottom());
+                        if (selected == TouchControlLayout.CTRL)
+                            draft.moveCtrl(event.getX(i) + dragOffsetX,
+                                           event.getY(i) + dragOffsetY, getWidth(),
+                                           getHeight(), unit(), editorReservedBottom());
+                        else
+                            draft.move(selected, event.getX(i) + dragOffsetX,
+                                       event.getY(i) + dragOffsetY, getWidth(), getHeight(),
+                                       unit(), editorReservedBottom());
                         invalidate();
                         break;
                     }
@@ -507,7 +590,14 @@ final class TouchControlsView extends View {
             return true;
         }
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
-            if (id == dragPointer) dragPointer = -1;
+            if (id == dragPointer) {
+                dragPointer = -1;
+                // CTRL dropped onto controls: move them clear so CTRL stays hittable.
+                if (selected == TouchControlLayout.CTRL) {
+                    draft.clampAll(getWidth(), getHeight(), unit(), editorReservedBottom());
+                    invalidate();
+                }
+            }
             if (id == toolbarPointer) {
                 int pressed = toolbarPressed;
                 toolbarPointer = toolbarPressed = -1;
@@ -515,7 +605,8 @@ final class TouchControlsView extends View {
                     if (pressed == 0) leaveEditor(true);
                     else if (pressed == 1) leaveEditor(false);
                     else if (pressed == 2) resetDraft();
-                    else if (pressed == 3 && selected >= 0) {
+                    else if (pressed == 3 && selected >= 0
+                             && selected != TouchControlLayout.CTRL) {
                         dragPointer = -1;
                         draft.visible[selected] = !draft.visible[selected];
                         invalidate();
@@ -544,8 +635,16 @@ final class TouchControlsView extends View {
         if (editing) return onEditorTouch(event, action, index, id);
         if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
             float x = event.getX(index), y = event.getY(index);
-            if (near(x, y, settingX(), settingY(), unit() * .50f)) {
+            long now = SystemClock.uptimeMillis();
+            layoutCtrl(now);
+            boolean onTab = ctrl.retracted() && ctrl.hitTab(x, y);
+            if (settingsPointer == -1 && (onTab
+                    || (!ctrl.retracted() && onCtrl(x, y)))) {
+                // A touch on the retracted tab only brings CTRL back.
                 settingsPointer = id;
+                settingsPointerRestores = onTab;
+                ctrl.activity(now);
+                syncCtrlPin();
                 return true;
             }
             if (!visibility.visible()) return action == MotionEvent.ACTION_POINTER_DOWN;
@@ -566,9 +665,12 @@ final class TouchControlsView extends View {
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
             pointers.remove(id);
             if (id == settingsPointer) {
+                boolean restoring = settingsPointerRestores;
                 settingsPointer = -1;
-                if (near(event.getX(index), event.getY(index), settingX(), settingY(),
-                         unit() * .50f)) {
+                settingsPointerRestores = false;
+                ctrl.activity(SystemClock.uptimeMillis());
+                syncCtrlPin();
+                if (!restoring && onCtrl(event.getX(index), event.getY(index))) {
                     performClick();
                     showSettings();
                     return true;
@@ -593,6 +695,7 @@ final class TouchControlsView extends View {
     @Override
     protected void onDetachedFromWindow() {
         stopControllerWatch();
+        cancelCtrlWake();
         clearTouches();
         super.onDetachedFromWindow();
     }
@@ -700,7 +803,9 @@ final class TouchControlsView extends View {
     }
 
     private void drawEditorToolbar(Canvas canvas) {
+        boolean ctrlSelected = selected == TouchControlLayout.CTRL;
         String description = selected < 0 ? "Drag a control · tap to select"
+            : ctrlSelected ? "CTRL · always shown"
             : NAMES[selected] + (draft.visible[selected] ? " · visible" : " · hidden");
         paint.setStyle(Paint.Style.FILL);
         paint.setTextAlign(Paint.Align.CENTER);
@@ -729,9 +834,9 @@ final class TouchControlsView extends View {
             paint.setTextSize(Math.max(11f * getResources().getDisplayMetrics().density,
                 Math.min(unit() * .18f, getWidth() * .019f)));
             paint.setFakeBoldText(true);
-            color(Color.WHITE, i == 3 && selected < 0 ? .45f : 1f);
+            color(Color.WHITE, i == 3 && (selected < 0 || ctrlSelected) ? .45f : 1f);
             String label = i == 0 ? "SAVE" : i == 1 ? "CANCEL" : i == 2 ? "RESET"
-                : selected >= 0 && !draft.visible[selected] ? "SHOW" : "HIDE";
+                : selected >= 0 && !ctrlSelected && !draft.visible[selected] ? "SHOW" : "HIDE";
             canvas.drawText(label, x, y - (paint.ascent() + paint.descent()) * .5f, paint);
         }
     }
@@ -743,7 +848,60 @@ final class TouchControlsView extends View {
         if (visibility.visible() || editing) {
             for (int id = 0; id < TouchControlLayout.COUNT; ++id) drawElement(canvas, id);
         }
-        if (editing) drawEditorToolbar(canvas);
-        else drawButton(canvas, settingX(), settingY(), unit() * .45f, "CTRL", false, 1f);
+        if (editing) {
+            drawEditorCtrl(canvas);
+            drawEditorToolbar(canvas);
+        } else {
+            drawCtrl(canvas);
+        }
+    }
+
+    private void drawEditorCtrl(Canvas canvas) {
+        float x = settingX(), y = settingY();
+        drawButton(canvas, x, y, settingRadius(), "CTRL", false,
+                   Math.max(.70f, draft.opacity));
+        if (selected == TouchControlLayout.CTRL) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(Math.max(3f, unit() * .025f));
+            color(Color.argb(230, 255, 195, 67), 1f);
+            canvas.drawCircle(x, y, TouchControlLayout.CTRL_HIT_RADIUS * unit() * 1.08f, paint);
+        }
+    }
+
+    private void drawCtrl(Canvas canvas) {
+        long now = SystemClock.uptimeMillis();
+        float progress = layoutCtrl(now);
+        float radius = settingRadius();
+        // Follows the layout's opacity slider (#253), fainter as a retracted tab.
+        float opacity = layout.opacity * ctrl.opacity;
+        boolean active = settingsPointer != -1 && !settingsPointerRestores;
+        // The circle slides past the edge; the screen (or, at the top, the
+        // status-bar strip) clips what is beyond it.
+        canvas.save();
+        canvas.clipRect(0f, ctrl.clipTop, getWidth(), getHeight());
+        paint.setStyle(Paint.Style.FILL);
+        color(active ? Color.argb(190, 70, 159, 214) : Color.argb(90, 0, 0, 0), opacity);
+        canvas.drawCircle(ctrl.drawX, ctrl.drawY, radius, paint);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(Math.max(2f, unit() * .015f));
+        color(Color.argb(210, 222, 239, 249), opacity);
+        canvas.drawCircle(ctrl.drawX, ctrl.drawY, radius, paint);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setTextAlign(Paint.Align.CENTER);
+        paint.setTextSize(unit() * .26f * ctrl.labelScale);
+        paint.setFakeBoldText(progress > .5f);
+        color(Color.WHITE, Math.min(1f, opacity * 1.5f));
+        float baseline = ctrl.labelY - (paint.ascent() + paint.descent()) * .5f;
+        if (ctrl.labelRotation != 0f) {
+            canvas.save();
+            canvas.rotate(ctrl.labelRotation, ctrl.labelX, ctrl.labelY);
+            canvas.drawText("CTRL", ctrl.labelX, baseline, paint);
+            canvas.restore();
+        } else {
+            canvas.drawText("CTRL", ctrl.labelX, baseline, paint);
+        }
+        canvas.restore();
+        paint.setFakeBoldText(false);
+        scheduleCtrlWake(now);
     }
 }
