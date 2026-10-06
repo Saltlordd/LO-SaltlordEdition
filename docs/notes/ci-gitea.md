@@ -307,6 +307,25 @@ are not re-read here. No game run with the packages is recorded; see
 [STATUS](../STATUS.md#v0837-published--2026-10-06). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
+Twelfth release, 2026-10-06: v0.8.39 (tag commit `fd7d82ce`) was built and
+published by [run 335](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/727)
+(API id 727; the link uses the id), started when the tag was pushed at about
+08:24Z. All six jobs succeeded (UTC): Prepare FSR Vulkan build inputs
+08:24:42-08:36:05 (11.4 min), create draft 08:27:18-08:27:28 (0.2 min), Android
+Release 08:31:25-08:37:44 (6.3 min), Windows Release 08:36:07-08:43:35 (7.5
+min), Linux Release 08:37:45-08:47:24 (9.7 min) and publish 08:47:28-08:48:27
+(1.0 min), which published at 2026-10-06T08:48:26Z. About 24 minutes passed from
+the tag push to the public release. The macOS disk image was built on the Mac
+from the tag and uploaded to the draft by hand at about 08:27:46Z (GitHub dates
+the asset 08:27:47Z), right after the draft was created and before the CI
+packages (dated 08:47:37Z). No shader pack was published: the translator
+contracts equal those of v0.8.30 and the Linux job's pack check succeeded (see the
+[pack reference](../PORTABLE_SHADER_PACK.md#update-2026-10-06-later-no-new-packs-for-v0839)).
+The job timings were read through the Gitea API by the maintainer's session and
+are not re-read here. No game run with the packages is recorded; see
+[STATUS](../STATUS.md#v0839-published--2026-10-06). A green run shows that the
+pipeline works, not that the release has been played or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the

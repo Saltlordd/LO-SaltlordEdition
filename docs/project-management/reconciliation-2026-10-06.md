@@ -40,3 +40,17 @@ No record exists yet for #237 (closed with PR #238, shipped in v0.8.37) or the e
 Plan, `python -B tools/project_management/sync.py` (plan only, `--apply` not run): 4 created, 2 updated, 258 unchanged, 0 conflicts, 43 operations. The two updates are `issue-114-container-enemy-softlock` and `issue-54-japanese-cutscene-language`; the four creations are the release record and the three Issues above. The apply and the readback are for the maintainer's session.
 
 Apply notes: the first `--apply` stopped at the #114 field batch with `Column value must be a valid value for text column`; the record's Evidence had 1,105 characters, above the Project text-field limit (1,024). The Delivery and Release values of that batch had already been written. The Evidence was shortened to 725 characters and the apply completed (4 created, 1 updated). The following plan showed one conflict: `issue-214-mali-black-screen` Status was `In Progress` on the Project (set by the Project's own workflow when the maintainer reopened #214 at 06:36 UTC) while the manifest wanted `Awaiting validation`; the tracked value was aligned to the remote and the desired value applied. A final plan showed 264 unchanged and 0 operations.
+
+## v0.8.39 release
+
+Receipt for the v0.8.39 release record (published 2026-10-06T08:48:26Z, tag commit `fd7d82ce`, not accepted). Manifest changes only; the Project was not written, no Issue, pull request or comment was touched, and no game was run. The live release state and asset digests were read with `gh release view v0.8.39` and `git ls-remote`; the PR bodies of #248 and #249 were read with `gh pr view`.
+
+| Key | Change |
+| --- | --- |
+| `release-v0-8-39` (new) | Kind Release, Done / Released / v0.8.39, 2026-10-06. Publication facts, the Gitea run (335, API id 727), the five assets with sizes and SHA-256 values, the macOS image checks, the two PRs included and the open acceptance items. The shape follows `release-v0-8-37` |
+| `shader-delivery-v080` | Status Todo → Done; Delivery In progress → Released; Release v0.9.0 → v0.8.39. The last step (cache cleanup, PR #248, merged 07:50:09Z) is checked in the body, a dated "Released" section was added and the Evidence carries the measurement (Proton Direct3D 12 only) and "not accepted" |
+| `pipeline-first-use-stalls` (new) | Feature, Graphics performance, In Progress / In progress / v0.9.0. P0 and P1 (PR #249, merged 08:24:01Z) shipped in v0.8.39 with the psvita and M1 Max numbers; P2 to P4 are open. No item for this plan existed in the manifest, so it was created. Delivery is "In progress", not "Released", because three of five phases are not started |
+
+No Issue is linked to PR #248 or #249, so no Issue record changed. #237 and the v0.8.7 to v0.8.30 release records are still not in the manifest.
+
+Plan, `python -B tools/project_management/sync.py` (plan only, `--apply` not run): 2 created, 1 updated, 263 unchanged, 0 conflicts, 24 operations. The two creations are `release-v0-8-39` and `pipeline-first-use-stalls`; the update is `shader-delivery-v080`. The apply and the readback are for the maintainer's session.

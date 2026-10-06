@@ -36,6 +36,35 @@ python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8
   accepts the four packages built by CI (Windows ZIP, AppImage, Flatpak and the
   Android APK) and, at most, this one disk image beside them.
 
+### v0.8.39 image
+
+The v0.8.39 release was published at 2026-10-06T08:48:26Z ([release
+record](STATUS.md#v0839-published--2026-10-06)). The image was built on the
+maintainer's M1 Max from tag `v0.8.39` (`fd7d82ce`) with
+`validation/mac-release-build.sh v0.8.39 v0.8.39 tag`, copied to the PC with
+`scp` (same SHA-256 on both) and uploaded to the draft release by hand with
+`gh release upload` at about 08:27:46Z, right after the draft was created and
+before the CI packages (GitHub dates the asset 2026-10-06T08:27:47Z; the four CI
+packages are dated 08:47:37Z). GitHub lists
+`LostOdysseyRecomp-macos-arm64-v0.8.39.dmg` at 60,530,342 bytes with SHA-256
+`848a9a155eb4940cb0236314669fec0802743ac49c95bae1d2ebf5e5b30c3886`, which equals
+the SHA-256 computed on the Mac and on the PC copy. Checks on the built file:
+
+- `hdiutil verify` reports the image VALID.
+- `codesign --verify --strict --deep` passes on the app. The signature is ad hoc.
+- The `Info.plist` `CFBundleShortVersionString` is `0.8.39`.
+
+`validation/mac-pack-check.sh` on the tag build listed shader packs for both
+runtime contracts (see the [pack reference](PORTABLE_SHADER_PACK.md#update-2026-10-06-later-no-new-packs-for-v0839)).
+This image contains the Metal pipeline-archive code of PR #249, which is off by
+default (`LO_METAL_BINARY_ARCHIVE=1` turns it on); the archive was measured on the
+same Mac only in prepare-only runs, not in play.
+
+Limits: no game run was made with this image, it was not installed from the
+download, and no Gatekeeper check is recorded here. These facts come from the
+maintainer's Mac session and the GitHub asset metadata; the check output was not
+re-run for this record.
+
 ### v0.8.37 image
 
 The v0.8.37 release was published at 2026-10-06T07:46:23Z ([release

@@ -3392,15 +3392,15 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Shader cache",
-        "Status": "Todo",
-        "Delivery": "In progress",
+        "Status": "Done",
+        "Delivery": "Released",
         "Start date": "2026-10-02",
-        "Evidence": "PR #141 (one-file shader store), PR #142 (startup pack download) and PR #144 (release packages without packs, plus a published-index check) are merged (2026-10-02) and shipped in v0.7.35 (published 2026-10-02T09:13:35Z, tag commit 95f2c89; not accepted). Its release run (Gitea run 135) passed the pack-contract check, and the packages carry no shader pack (Windows ZIP 77.1 MB, AppImage 76.3 MB, Flatpak 54.1 MB). The three packs are in the shader-packs prerelease; downloads worked on Windows and an M1 Max Mac; the Linux download path was not run. Local cache cleanup is not started; the maintainer deferred it out of v0.8.0 on 2026-10-03. No player confirmation.",
+        "Evidence": "PR #141 (one-file store), #142 (startup pack download) and #144 (packages without packs, plus a published-index check) shipped in v0.7.35 (2026-10-02T09:13:35Z, not accepted). The last step, the cache cleanup, is PR #248 (merged 2026-10-06T07:50:09Z, shipped in v0.8.39, published 08:48:26Z, not accepted): with a matching pack, the startup bundle and the store records the pack lists are deleted and builtin/ moves into a store. Measured on psvita (Proton Direct3D 12, Direct3D 12 pack): removing the bundle did not change a warm start (17.5-17.7 s to the first map either way); the cleanup start freed 444,939,750 B of bundle and 290,430,116 B of store records in about 0.1 s. LoShaderStoreTest (95 checks) and LoBackendCacheTest pass. Not validated: Vulkan and Metal paths, the maintainer's own 858 MB store. No player confirmation.",
         "Source key": "shader-delivery-v080",
-        "Release": "v0.9.0"
+        "Release": "v0.8.39"
       },
       "title": "Shader delivery: one-file store, startup pack download and cache cleanup (v0.8.0)",
-      "body_sha256": "f49177677dd5be66656734105c2c5615d853ec5dbc768391c24b5c89708e5e73"
+      "body_sha256": "715320d9618c4ac2c8366a39ca4a1acb864097b5df4da8d8c42817aa7a3fe7fe"
     },
     "release-v0-7-35": {
       "id": "PVTI_lAHOAAsUY84Biy1azg-GUuc",
@@ -3655,6 +3655,37 @@
         "Evidence": "CGI movies, including the title intro, played the Japanese audio track whatever language was selected. Cause: the movie player picks the track with the registry ID of the cached voice code, the registry's codes are lower case, and the host language hook returned the executable's upper-case table entry ('INT'), so the case-sensitive lookup missed and the ID was 0 (the Japanese track). PR #242 (merged 2026-10-06T06:46:52Z, shipped in v0.8.37, published 07:46:23Z, not accepted) returns the registry's own record, and also addresses #54. Validation: tools/tests/guest_language_test.py with lower-case registry codes passes (old policy resolves ID 0, new one the registry ID, English and Italian cases) and a psvita (Proton, Direct3D 12, USA disc 1, English text) LO_TRACE_LANGUAGE trace shows voice id 0 on main and 1 on the branch. Not checked: nobody listened to the audio and only English text was traced. The Issue was closed with the PR merge at 06:46:54Z. No reporter confirmation is recorded.",
         "Source key": "issue-220-cgi-voice-language"
       }
+    },
+    "release-v0-8-39": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-1cBA",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.39",
+        "Start date": "2026-10-06",
+        "Target date": "2026-10-06",
+        "Evidence": "Published v0.8.39 at 2026-10-06T08:48:26Z: latest release, annotated tag at commit fd7d82ce on main, built and published by Gitea Actions run 335 (API id 727; six jobs succeeded, about 24 minutes from the tag push). Assets: Windows ZIP 150,346,784 B (SHA-256 7be15c56...), Linux AppImage 76,339,704 B (97540065...), Flatpak 54,176,336 B (e2260548...), Android APK 45,253,470 B (449870a1...; CI-built) and macOS DMG 60,530,342 B (848a9a15...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, uploaded by hand). No shader pack was published. Published, not accepted: the release holds PR #248 (shader cache cleanup, measured on Proton Direct3D 12 only) and PR #249 (driver pipeline caches, measured on psvita only); no game run was made with the v0.8.39 packages and no in-game acceptance is recorded.",
+        "Source key": "release-v0-8-39"
+      },
+      "title": "Publish the driver pipeline caches and shader cache cleanup in v0.8.39",
+      "body_sha256": "3af89c8bdd7ec0c2d00c4a807c1807d22b0bbb45de6caa911aa9c7528e01771e"
+    },
+    "pipeline-first-use-stalls": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-1cC4",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics performance",
+        "Status": "In Progress",
+        "Delivery": "In progress",
+        "Release": "v0.9.0",
+        "Start date": "2026-10-05",
+        "Evidence": "P0 (pipeline miss log) and P1 (persistent driver pipeline caches, recipes saved on every exit) merged as PR #249 (2026-10-06T08:24:01Z) and shipped in v0.8.39 (published 08:48:26Z, not accepted). psvita only: startup prebuild of 1950 recipes 2648 ms cold, 888-908 ms warm (Proton Direct3D 12); 2124 ms, 955-1022 ms (native Linux Vulkan); entering Uhra without prebuild 3221 ms of creation cold, 50 ms warm, worst frame 1893 to 26 ms. Metal archive: no gain on the M1 Max, off by default. Not measured: native Windows NVIDIA/AMD, Android Mesa cache (tablet locked), gameplay on Mac and Linux. P2 to P4 are open. No player confirmation.",
+        "Source key": "pipeline-first-use-stalls"
+      },
+      "title": "Stop first-use pipeline stalls on all platforms (P0 to P4)",
+      "body_sha256": "ecb9976eca4e1eba50627a0cbec3638326ddb95cf1869061694c2ffb27da6eb0"
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"
