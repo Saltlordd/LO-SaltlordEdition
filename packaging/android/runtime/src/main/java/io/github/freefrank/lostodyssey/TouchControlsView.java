@@ -213,9 +213,10 @@ final class TouchControlsView extends View {
     /** Lays out CTRL for the current slide progress (see TouchCtrlHandle). */
     private float layoutCtrl(long now) {
         float progress = ctrl.progress(now);
+        // The retracted tab sits at the physical screen edge: the system bars are
+        // hidden in the game, so the layout's status-bar strip is not reserved here.
         ctrl.layout(settingX(), settingY(), settingRadius(), getWidth(), getHeight(),
-                    48f * getResources().getDisplayMetrics().density,
-                    getHeight() * TouchControlLayout.TOP_SAFE, progress);
+                    48f * getResources().getDisplayMetrics().density, 0f, progress);
         return progress;
     }
 
