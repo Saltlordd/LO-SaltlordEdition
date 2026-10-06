@@ -60,8 +60,8 @@ bool MatchesTexture(const plume::D3D12Texture& image, const temporal::TextureReg
         image.layout != layout) return false;
     if (layout == plume::RenderTextureLayout::SHADER_READ)
         return (image.resourceStates & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE) != 0;
-    if (layout == plume::RenderTextureLayout::COPY_DEST)
-        return image.resourceStates == D3D12_RESOURCE_STATE_COPY_DEST;
+    if (layout == plume::RenderTextureLayout::GENERAL)
+        return image.resourceStates == D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
     return true;
 }
 
@@ -214,7 +214,7 @@ struct D3D12Backend::Impl {
     bool contextReady = false, poisoned = false, sharedInitialized = false;
     bool reactiveScratchUnavailable = false;
     std::unique_ptr<plume::D3D12Texture> dilatedDepth, dilatedMotion, previousDepth;
-    std::unique_ptr<plume::D3D12Texture> linearColor, canonicalDepth, reactiveMask, sdkOutput, encodedOutput;
+    std::unique_ptr<plume::D3D12Texture> linearColor, canonicalDepth, reactiveMask, sdkOutput;
     ComPtr<ID3D12RootSignature> prepareSignature, presentSignature;
     ComPtr<ID3D12PipelineState> preparePipeline, presentPipeline;
     ComPtr<ID3D12CommandQueue> queue;
@@ -236,7 +236,7 @@ struct D3D12Backend::Impl {
         uses.clear(); queue.Reset();
         dilatedDepth.reset(); dilatedMotion.reset(); previousDepth.reset();
         linearColor.reset(); canonicalDepth.reset(); reactiveMask.reset();
-        sdkOutput.reset(); encodedOutput.reset();
+        sdkOutput.reset();
         preparePipeline.Reset(); presentPipeline.Reset();
         prepareSignature.Reset(); presentSignature.Reset();
         reactiveScratchUnavailable = false;
@@ -326,10 +326,8 @@ Status D3D12Backend::EnsureSession(plume::D3D12Device& device, const Config& con
         plume::RenderFormat::R32_FLOAT);
     impl_->sdkOutput = CreateTexture(device, config.outputWidth, config.outputHeight,
         plume::RenderFormat::R16G16B16A16_FLOAT);
-    impl_->encodedOutput = CreateTexture(device, config.outputWidth, config.outputHeight,
-        plume::RenderFormat::R8G8B8A8_UNORM);
     if (!impl_->dilatedDepth || !impl_->dilatedMotion || !impl_->previousDepth ||
-        !impl_->linearColor || !impl_->canonicalDepth || !impl_->sdkOutput || !impl_->encodedOutput)
+        !impl_->linearColor || !impl_->canonicalDepth || !impl_->sdkOutput)
         return impl_->Fail("D3D12Device::createTexture(FSR shared or conversion)", 0, started);
     HRESULT error = S_OK;
     if (!MakePipeline(device, 3, 3, sizeof(PrepareConstants) / 4,
@@ -392,7 +390,7 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
             plume::RenderTextureLayout::SHADER_READ) ||
         !MatchesTexture(output, {&output, {output.desc.width, output.desc.height}, 0, 0,
             output.desc.width, output.desc.height}, impl_->device, DXGI_FORMAT_R8G8B8A8_UNORM,
-            plume::RenderTextureLayout::COPY_DEST)) {
+            plume::RenderTextureLayout::GENERAL)) {
         reject("native_format_or_state"); return attempt;
     }
     if (!ValidHybridConfidence(inputs, impl_->device)) {
@@ -435,7 +433,8 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
         maskDecision.useReactive ? *impl_->reactiveMask : *impl_->canonicalDepth);
     WriteSrv(*impl_->device, use.descriptors.Get(), 6, *impl_->sdkOutput);
     WriteSrv(*impl_->device, use.descriptors.Get(), 7, color);
-    WriteUav(*impl_->device, use.descriptors.Get(), 8, *impl_->encodedOutput);
+    // The encode pass writes the caller's output directly; no output-size copy.
+    WriteUav(*impl_->device, use.descriptors.Get(), 8, output);
     use.id = impl_->nextUse++;
     use.initializedShared = !impl_->sharedInitialized;
     attempt.useId = use.id;
@@ -464,7 +463,7 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
     };
     uav(*impl_->linearColor); uav(*impl_->canonicalDepth);
     if (maskDecision.useReactive) uav(*impl_->reactiveMask);
-    uav(*impl_->sdkOutput); uav(*impl_->encodedOutput);
+    uav(*impl_->sdkOutput);
     if (!impl_->sharedInitialized) {
         uav(*impl_->dilatedDepth); uav(*impl_->dilatedMotion); uav(*impl_->previousDepth);
     }
@@ -529,13 +528,6 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
             int32_t(inputs.color.x), int32_t(inputs.color.y)};
         cmd->SetComputeRoot32BitConstants(1, sizeof(present) / 4, &present, 0);
         cmd->Dispatch((config.outputWidth + 7) / 8, (config.outputHeight + 7) / 8, 1);
-        states.Transition(cmd, *impl_->encodedOutput, D3D12_RESOURCE_STATE_COPY_SOURCE,
-            plume::RenderTextureLayout::COPY_SOURCE);
-        D3D12_TEXTURE_COPY_LOCATION source{impl_->encodedOutput->d3d,
-            D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {0}};
-        D3D12_TEXTURE_COPY_LOCATION destination{output.d3d,
-            D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, {0}};
-        cmd->CopyTextureRegion(&destination, 0, 0, 0, &source, nullptr);
     }
     const HRESULT closeResult = cmd->Close();
     attempt.vkResult = int32_t(closeResult);

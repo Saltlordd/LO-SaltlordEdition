@@ -3,6 +3,7 @@
 #include <plume_vulkan.h>
 #include <plume_render_interface_builders.h>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstdio>
@@ -97,16 +98,18 @@ public:
         vertex_ = Compile(gpu::scene_copy_promotion::VertexShader, "vs_6_0");
         rgba_ = Compile(gpu::scene_copy_promotion::RgbaShader, "ps_6_0");
         rgb_ = Compile(gpu::scene_copy_promotion::RgbShader, "ps_6_0");
-        const auto pipeline = [&](RenderShader* ps) {
+        const auto pipeline = [&](RenderShader* ps, uint8_t writeMask) {
             RenderGraphicsPipelineDesc desc;
             desc.pipelineLayout = layout_.get(); desc.vertexShader = vertex_.get(); desc.pixelShader = ps;
             desc.renderTargetCount = 1; desc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
-            desc.renderTargetBlend[0] = RenderBlendDesc::Copy(); desc.renderTargetBlend[0].renderTargetWriteMask = 0xF;
+            desc.renderTargetBlend[0] = RenderBlendDesc::Copy(); desc.renderTargetBlend[0].renderTargetWriteMask = writeMask;
             desc.depthEnabled = desc.depthWriteEnabled = false; desc.cullMode = RenderCullMode::NONE;
             desc.primitiveTopology = RenderPrimitiveTopology::TRIANGLE_LIST;
             return device_->createGraphicsPipeline(desc);
         };
-        rgbaPipeline_ = pipeline(rgba_.get()); rgbPipeline_ = pipeline(rgb_.get());
+        // Production draws the RGB composite into the promoted target with an
+        // RGB-only write mask, after the RGBA resample filled that target.
+        rgbaPipeline_ = pipeline(rgba_.get(), 0xF); rgbPipeline_ = pipeline(rgb_.get(), 0x7);
         Require(rgbaPipeline_ && rgbPipeline_, "graphics pipeline creation failed");
     }
     void Run(bool composite, uint32_t baseWidth, uint32_t baseHeight, uint32_t srWidth, uint32_t srHeight) {
@@ -141,10 +144,15 @@ public:
         cmd_->setFramebuffer(framebuffer.get()); cmd_->clearColor(0, RenderColor(1, 0, 1, 1));
         RenderViewport viewport(0, 0, Width, Height); RenderRect scissor(0, 0, Width, Height);
         cmd_->setViewports(&viewport, 1); cmd_->setScissors(&scissor, 1);
-        cmd_->setGraphicsPipelineLayout(layout_.get()); cmd_->setPipeline(composite ? rgbPipeline_.get() : rgbaPipeline_.get());
+        cmd_->setGraphicsPipelineLayout(layout_.get()); cmd_->setPipeline(rgbaPipeline_.get());
         const uint64_t addresses[] = {constants_->getDeviceAddress(), constants_->getDeviceAddress(), constants_->getDeviceAddress()};
         cmd_->setGraphicsPushConstants(0, addresses); cmd_->setGraphicsDescriptorSet(sets_[1].get(), 1);
         cmd_->drawInstanced(3, 1, 0, 0);
+        if (composite) {
+            RenderRect srScissor(0, 0, int32_t(std::min(srWidth, Width)), int32_t(std::min(srHeight, Height)));
+            cmd_->setScissors(&srScissor, 1); cmd_->setPipeline(rgbPipeline_.get());
+            cmd_->drawInstanced(3, 1, 0, 0);
+        }
         cmd_->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_SOURCE));
         cmd_->copyTextureRegion(RenderTextureCopyLocation::PlacedFootprint(readback_.get(), RenderFormat::R16G16B16A16_FLOAT,
             Width, Height, 1, RowPixels), RenderTextureCopyLocation::Subresource(output.get()));

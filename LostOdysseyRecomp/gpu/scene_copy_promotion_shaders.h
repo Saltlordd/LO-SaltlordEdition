@@ -30,18 +30,13 @@ float4 main(float4 pos : SV_Position) : SV_Target {
     return base.Load(int3(int2(pos.xy * float2(asfloat(p.x), asfloat(p.y))), 0));
 }
 )HLSL";
+// Drawn into the promoted target itself with an RGB-only write mask and a
+// scissor limited to the SR output: the guest copy's alpha and the guest tile
+// padding outside the SR output keep their values.
 inline const std::string RgbShader = std::string(Common) + R"HLSL(
 Texture2D<float4> sr : register(t1, space1);
 float4 main(float4 pos : SV_Position) : SV_Target {
-    uint4 p = xePromotion;
-    float4 b = base.Load(int3(int2(pos.xy * float2(asfloat(p.x), asfloat(p.y))), 0));
-    uint width, height;
-    sr.GetDimensions(width, height);
-    uint2 pixel = uint2(pos.xy);
-    // The promoted allocation includes guest tile padding; NGX scratch covers
-    // only the output content. Never overwrite padding with out-of-range loads.
-    if (any(pixel >= uint2(width, height))) return b;
-    return float4(sr.Load(int3(pixel, 0)).rgb, b.a);
+    return float4(sr.Load(int3(int2(pos.xy), 0)).rgb, 1.0);
 }
 )HLSL";
 } // namespace gpu::scene_copy_promotion

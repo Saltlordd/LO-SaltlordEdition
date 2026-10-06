@@ -37,5 +37,30 @@ int main() {
     }
     Require(!MustRestore(true, true, true, false, 720, 736), "padded target retains smaller viewport");
     Require(MustRestore(true, true, true, false, 768, 736), "growing extent restores parked grid");
+    // 1280x720 copy into a 1280x736 guest target promoted to 4K (3840x2208).
+    const PixelRect fullScissor{0, 0, 3840, 2208};
+    const auto covered = CoveredPixels(0, 0, 1280, 720, 3, 3, fullScissor, 3840, 2208);
+    Require(covered == PixelRect{3, 3, 3837, 2157}, "one guest pixel margin inside the quad");
+    const auto rest = UncoveredPixels(3840, 2208, covered);
+    Require(rest.count == 4 && rest.rects[0] == PixelRect{0, 0, 3840, 3} &&
+        rest.rects[1] == PixelRect{0, 2157, 3840, 2208} && rest.rects[2] == PixelRect{0, 3, 3, 2157} &&
+        rest.rects[3] == PixelRect{3837, 3, 3840, 2157}, "bands cover everything outside the copy");
+    uint64_t area = uint64_t(covered.right - covered.left) * (covered.bottom - covered.top);
+    for (uint32_t i = 0; i < rest.count; ++i)
+        area += uint64_t(rest.rects[i].right - rest.rects[i].left) * (rest.rects[i].bottom - rest.rects[i].top);
+    Require(area == 3840ull * 2208, "covered plus bands tile the target exactly");
+    Require(CoveredPixels(0, 0, 1280, 720, 1.5, 1.5, {0, 0, 1920, 1104}, 1920, 1104) == PixelRect{2, 2, 1918, 1078},
+        "fractional scales round inward");
+    Require(CoveredPixels(0.5f, 0, 1279.5f, 720, 3, 3, fullScissor, 3840, 2208) == PixelRect{5, 3, 3835, 2157},
+        "half-pixel quad bounds stay conservative");
+    Require(CoveredPixels(0, 0, 1280, 720, 3, 3, {0, 0, 1000, 2208}, 3840, 2208).right == 1000,
+        "scissor limits the covered pixels");
+    Require(CoveredPixels(0, 0, 1280, 720, 0, 3, fullScissor, 3840, 2208).Empty(), "invalid scale covers nothing");
+    Require(CoveredPixels(0, 0, 1.5, 720, 3, 3, fullScissor, 3840, 2208).Empty(), "narrow quad covers nothing");
+    const auto all = UncoveredPixels(3840, 2208, PixelRect{});
+    Require(all.count == 1 && all.rects[0] == fullScissor, "nothing covered resamples the whole target");
+    const auto clipped = UncoveredPixels(3840, 2208, PixelRect{0, 0, 3841, 2208});
+    Require(clipped.count == 1 && clipped.rects[0] == fullScissor, "out-of-range coverage resamples the whole target");
+    Require(UncoveredPixels(3840, 2208, fullScissor).count == 0, "full coverage needs no resample");
     std::cout << checks << " promotion policy checks passed\n";
 }

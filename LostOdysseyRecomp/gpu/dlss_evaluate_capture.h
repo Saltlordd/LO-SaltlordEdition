@@ -194,7 +194,7 @@ struct Entry {
     }
     void AfterFsr(VkCommandBuffer command, const plume::VulkanTexture& scratch) {
         if (!output.buffer) return;
-        CopyImage(command, scratch, output, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        CopyImage(command, scratch, output);
         output.recorded = true;
     }
     void Before(VkCommandBuffer command, const plume::VulkanTexture& color) {

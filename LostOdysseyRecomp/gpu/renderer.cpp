@@ -1054,7 +1054,6 @@ namespace gpu::renderer
                 std::unique_ptr<HostTexture> parkedLow;
                 std::unique_ptr<HostTexture> preparedPromoted;
                 std::unique_ptr<HostTexture> scratch;
-                std::unique_ptr<HostTexture> composite;
                 temporal::TemporalFrameInputs inputs{};
                 SrDispatchOptions srOptions{};
                 std::shared_ptr<fsr_alpha::MaskLease> fsrMaskLease;
@@ -1068,7 +1067,7 @@ namespace gpu::renderer
                 uint32_t hdrSourceWidth = 0, hdrSourceHeight = 0;
                 uint64_t hdrSourceFrame = ~0ull;
             } sceneCopyPromotion;
-            // Every SR frame needs three output-size images. Allocating them per
+            // Every SR frame needs two output-size images. Allocating them per
             // frame cost milliseconds of render-thread time and VRAM churn.
             std::vector<PooledTexture> promotionPool;
             static constexpr size_t kPromotionPoolLimit = 12;
@@ -2428,7 +2427,8 @@ namespace gpu::renderer
                 desc.pipelineLayout = pipelineLayout.get(); desc.vertexShader = blitVs.get(); desc.pixelShader = ps;
                 desc.depthEnabled = false; desc.depthWriteEnabled = false; desc.depthFunction = RenderComparisonFunction::ALWAYS;
                 desc.depthTargetFormat = RenderFormat::UNKNOWN; desc.renderTargetFormat[0] = format;
-                desc.renderTargetBlend[0] = RenderBlendDesc::Copy(); desc.renderTargetBlend[0].renderTargetWriteMask = 0xF;
+                desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
+                desc.renderTargetBlend[0].renderTargetWriteMask = rgb ? 0x7 : 0xF; // The RGB composite keeps alpha.
                 desc.renderTargetCount = 1; desc.cullMode = RenderCullMode::NONE; desc.primitiveTopology = RenderPrimitiveTopology::TRIANGLE_LIST;
                 auto pipeline = device->createGraphicsPipeline(desc);
                 if (!pipeline) return nullptr;
@@ -2513,14 +2513,13 @@ namespace gpu::renderer
                         kUploadRingSize, sizeof(SharedConstants))) return reject();
                 auto promoted = CreatePromotedTarget(color, output);
                 auto scratch = CreateSceneCopyScratch(color, output);
-                auto composite = CreatePromotedTarget(color, output);
                 // Unused images go back to the pool through this slot.
                 const auto rejectImages = [&] {
-                    for (auto* image : {&promoted, &scratch, &composite})
+                    for (auto* image : {&promoted, &scratch})
                         if (*image) Gpu().retiredTextures.push_back(std::move(*image));
                     return reject();
                 };
-                if (!promoted || !scratch || !composite) return rejectImages();
+                if (!promoted || !scratch) return rejectImages();
                 const auto scale = [&](const HostTexture& src) {
                     SharedConstants constants{};
                     constants.transfer[0] = std::bit_cast<uint32_t>(float(src.width) / float(promoted->width));
@@ -2535,14 +2534,16 @@ namespace gpu::renderer
                 if (!fallbackSet || !rgbSet) return rejectImages();
                 fallbackSet->setTexture(0, color.texture.get(), RenderTextureLayout::SHADER_READ);
                 fallbackSet->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
-                rgbSet->setTexture(0, promoted->texture.get(), RenderTextureLayout::SHADER_READ);
+                // The RGB composite writes into the promoted target itself, so
+                // that target is never bound as a texture here.
+                rgbSet->setTexture(0, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
                 rgbSet->setTexture(1, scratch->texture.get(), RenderTextureLayout::SHADER_READ);
-                for (auto* image : {&sceneCopyPromotion.preparedPromoted, &sceneCopyPromotion.scratch, &sceneCopyPromotion.composite})
+                for (auto* image : {&sceneCopyPromotion.preparedPromoted, &sceneCopyPromotion.scratch})
                     if (*image) Gpu().retiredTextures.push_back(std::move(*image));
                 sceneCopyPromotion = {};
                 sceneCopyPromotion.key = key; sceneCopyPromotion.frame = frame; sceneCopyPromotion.epoch = activePlan.geometryEpoch;
                 sceneCopyPromotion.sourceAllocation = color.allocationSerial;
-                sceneCopyPromotion.inputs = inputs; sceneCopyPromotion.scratch = std::move(scratch); sceneCopyPromotion.composite = std::move(composite);
+                sceneCopyPromotion.inputs = inputs; sceneCopyPromotion.scratch = std::move(scratch);
                 sceneCopyPromotion.srOptions = frameSrOptions;
                 sceneCopyPromotion.fallbackSet = fallbackSet; sceneCopyPromotion.rgbSet = rgbSet;
                 sceneCopyPromotion.fallbackConstants = fallbackConstants; sceneCopyPromotion.rgbConstants = rgbConstants;
@@ -2582,7 +2583,11 @@ namespace gpu::renderer
                 }
             }
 
-            bool DrawPromotionResample(HostTexture& destination, RenderDescriptorSet* set, uint64_t constants, bool rgb)
+            // With limitToRects, draws only inside `rects`. An empty list records
+            // no draw but still counts as a write: the guest copy that follows
+            // replaces those pixels.
+            bool DrawPromotionResample(HostTexture& destination, RenderDescriptorSet* set, uint64_t constants, bool rgb,
+                std::span<const RenderRect> rects = {}, bool limitToRects = false)
             {
                 destination.sdrProducerFrame = ~0ull;
                 auto* pipeline = GetSceneCopyPromotionPipeline(destination.format, rgb);
@@ -2590,13 +2595,18 @@ namespace gpu::renderer
                 Transition(destination, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                 commandList->setFramebuffer(GetFramebuffer(&destination, nullptr));
                 RenderViewport viewport(0.0f, 0.0f, float(destination.width), float(destination.height));
-                RenderRect scissor{0, 0, int32_t(destination.width), int32_t(destination.height)};
-                commandList->setViewports(viewport); commandList->setScissors(scissor);
+                const RenderRect full{0, 0, int32_t(destination.width), int32_t(destination.height)};
+                commandList->setViewports(viewport); commandList->setScissors(full);
                 commandList->setPipeline(pipeline); commandList->setGraphicsPipelineLayout(pipelineLayout.get());
                 SetPromotionConstants(constants); commandList->setGraphicsDescriptorSet(staticSet0.get(), 0);
                 commandList->setGraphicsDescriptorSet(set, 1); commandList->setGraphicsDescriptorSet(AcquireSet(2), 2);
                 commandList->setGraphicsDescriptorSet(AcquireSet(3), 3); if (vulkan) commandList->setGraphicsDescriptorSet(staticSamplerSet.get(), 4);
-                commandList->drawInstanced(3, 1, 0, 0);
+                if (!limitToRects) commandList->drawInstanced(3, 1, 0, 0);
+                else for (const auto& rect : rects) {
+                    commandList->setScissors(rect);
+                    commandList->drawInstanced(3, 1, 0, 0);
+                }
+                if (limitToRects) commandList->setScissors(full);
 #if defined(LO_GPU_PLUME)
                 HandleFsrAlphaRgbWriter(destination, "promotion_resample_rgb");
 #endif
@@ -2605,7 +2615,7 @@ namespace gpu::renderer
 
             bool ActivateSceneCopyDestination(HostTexture*& color, HostTexture*& rasterTarget,
                 RenderViewport& rasterViewport, RenderRect& physicalScissor,
-                const RenderViewport& guestViewport, const RenderRect& guestScissor)
+                const RenderViewport& guestViewport, const RenderRect& guestScissor, const float* replacedQuad)
             {
                 auto& promotion = sceneCopyPromotion;
                 const auto reject = [&] {
@@ -2620,7 +2630,24 @@ namespace gpu::renderer
                 it->second = std::move(promotion.preparedPromoted);
                 promotion.active = it->second.get(); promotion.activeMapping = true;
                 Transition(*promotion.parkedLow, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
-                if (!DrawPromotionResample(*promotion.active, promotion.fallbackSet, promotion.fallbackConstants, false)) {
+                // A scene copy that replaces every channel overwrites the old
+                // contents under its quad, so resample them only into the rest
+                // of the target (guest tile padding and a thin edge margin).
+                const auto& active = *promotion.active;
+                const auto uncovered = scene_copy_promotion::UncoveredPixels(active.width, active.height,
+                    replacedQuad ? scene_copy_promotion::CoveredPixels(replacedQuad[0], replacedQuad[1],
+                        replacedQuad[2], replacedQuad[3],
+                        double(active.resolutionSize.width) / 1280.0, double(active.resolutionSize.height) / 720.0,
+                        {active.ScaleX(uint32_t(std::max(guestScissor.left, 0))), active.ScaleY(uint32_t(std::max(guestScissor.top, 0))),
+                         active.ScaleX(uint32_t(std::max(guestScissor.right, 0))), active.ScaleY(uint32_t(std::max(guestScissor.bottom, 0)))},
+                        active.width, active.height) : scene_copy_promotion::PixelRect{});
+                std::array<RenderRect, 4> fallbackRects{};
+                for (uint32_t i = 0; i < uncovered.count; ++i) {
+                    const auto& r = uncovered.rects[i];
+                    fallbackRects[i] = RenderRect{int32_t(r.left), int32_t(r.top), int32_t(r.right), int32_t(r.bottom)};
+                }
+                if (!DrawPromotionResample(*promotion.active, promotion.fallbackSet, promotion.fallbackConstants, false,
+                        std::span<const RenderRect>(fallbackRects.data(), uncovered.count), replacedQuad != nullptr)) {
                     Gpu().retiredTextures.push_back(std::move(it->second));
                     it->second = std::move(promotion.parkedLow); promotion.active = nullptr; promotion.activeMapping = false;
                     return reject();
@@ -2671,7 +2698,6 @@ namespace gpu::renderer
                 auto retired = std::move(it->second);
                 it->second = std::move(promotion.parkedLow);
                 if (retired) Gpu().retiredTextures.push_back(std::move(retired));
-                if (promotion.composite) Gpu().retiredTextures.push_back(std::move(promotion.composite));
                 if (promotion.scratch) Gpu().retiredTextures.push_back(std::move(promotion.scratch));
                 static const char* loggedReason = nullptr;
                 static uint32_t loggedRepeats = 0;
@@ -2950,7 +2976,7 @@ namespace gpu::renderer
                 TraceFsrAlphaBridge(std::move(event));
             }
             template<class SrController>
-            bool RecordSceneCopyDlssUsing(SrController& controller, HostTexture*& color, HostTexture*& rasterTarget)
+            bool RecordSceneCopyDlssUsing(SrController& controller, HostTexture*& color, [[maybe_unused]] HostTexture*& rasterTarget)
             {
                 auto& promotion = sceneCopyPromotion;
                 if (!promotion.activeMapping || !Gpu().srIsolated || !Gpu().srContinuation) return false;
@@ -3039,8 +3065,7 @@ namespace gpu::renderer
                                     promotion.inputs.motion.texture, promotion.inputs.motionInvalidity.texture})
                     if (image) barriers.emplace_back(image, (!nativeVulkan || activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) ?
                         RenderTextureLayout::SHADER_READ : RenderTextureLayout::GENERAL);
-                barriers.emplace_back(promotion.scratch->texture.get(), activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ?
-                    RenderTextureLayout::COPY_DEST : RenderTextureLayout::GENERAL);
+                barriers.emplace_back(promotion.scratch->texture.get(), RenderTextureLayout::GENERAL);
                 // The scene-copy input only borrows this image. Hold the lease in
                 // the consuming slot before its first prefix command; the producer
                 // slot continues to own any earlier fetch/crop commands.
@@ -3191,21 +3216,22 @@ namespace gpu::renderer
                     }
                     return false;
                 }
-                Transition(*promotion.active, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
-                if (!DrawPromotionResample(*promotion.composite, promotion.rgbSet, promotion.rgbConstants, true)) {
+                auto it = renderTargets.find(promotion.key);
+                if (it == renderTargets.end() || it->second.get() != promotion.active) {
+                    if (evidence) evidence->reason = "composite_target_missing";
+                    return false;
+                }
+                // SR RGB goes straight into the promoted target: the RGB-only
+                // write mask keeps the guest copy's alpha, and the scissor keeps
+                // guest tile padding outside the provider output.
+                const std::array<RenderRect, 1> srRect{RenderRect{0, 0,
+                    int32_t(std::min(promotion.scratch->width, promotion.active->width)),
+                    int32_t(std::min(promotion.scratch->height, promotion.active->height))}};
+                if (!DrawPromotionResample(*promotion.active, promotion.rgbSet, promotion.rgbConstants, true, srRect, true)) {
                     if (evidence) evidence->reason = "composite_failed";
                     DisableDlssRequest(frame_plan::FailureReason::InvalidInput);
                     return false;
                 }
-                auto it = renderTargets.find(promotion.key);
-                if (it == renderTargets.end() || it->second.get() != promotion.active) {
-                    if (evidence) { evidence->compositeSucceeded = true; evidence->reason = "composite_target_missing"; }
-                    return false;
-                }
-                auto fallback = std::move(it->second); it->second = std::move(promotion.composite);
-                promotion.active = it->second.get(); color = promotion.active;
-                if (rasterTarget == fallback.get()) rasterTarget = color;
-                Gpu().retiredTextures.push_back(std::move(fallback));
                 promotion.srApplied = true;
                 RecordFgUiScene(*color);
                 const bool diagnosticSnapshot = vulkan && !fgSnapshotAttempted && fgSnapshotRequestedFrame == frame;
@@ -7570,7 +7596,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // This shader fetches float4 positions from slot 95 with 32-byte stride.
                 // Restrict to two triangles forming a rectangle; viewport size alone
                 // cannot justify treating an arbitrary fullscreen-looking draw as a copy.
-                uint32_t fullCopyReason=0;std::string fullCopyVertices;
+                uint32_t fullCopyReason=0;std::string fullCopyVertices;float fullCopyBounds[4]{};
                 bool fullSceneCopy = false;
                 {
                     render_batch::CpuTimer<> sceneCopyTimer(cpuTimingEnabled);
@@ -7613,6 +7639,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         masks[i/3]|=1u<<((right?1:0)+(bottom?2:0));
                     }
                     fullCopyVertices+=fmt::format(" bounds=({:g},{:g},{:g},{:g}) masks={}/{}",xmin,ymin,xmax,ymax,masks[0],masks[1]);
+                    fullCopyBounds[0]=xmin;fullCopyBounds[1]=ymin;fullCopyBounds[2]=xmax;fullCopyBounds[3]=ymax;
                     unsigned common=masks[0]&masks[1];fullCopyReason=10;return std::popcount(masks[0])==3&&std::popcount(masks[1])==3&&
                         (masks[0]|masks[1])==15&&(common==9||common==6);
                 };
@@ -8599,8 +8626,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     const RenderTargetKey promotionKey{colorInfo & 0xFFF, ColorClassOf((colorInfo >> 16) & 0xF), pitch, 0, false};
                     if (PrepareSceneCopyDestination(promotionKey, *color, *dlssSceneCopyInputs)) {
                         sceneCopyPromotion.fsrMaskLease = selectedFsrMaskLease;
+                        // fullSceneCopy pins colour to ONE/ZERO with all channels
+                        // written; with the same alpha factors nothing reads the
+                        // destination under the quad.
+                        const bool replacesAlpha = BlendFactor((key.blend >> 16) & 31) == RenderBlend::ONE &&
+                            BlendFactor((key.blend >> 24) & 31) == RenderBlend::ZERO &&
+                            BlendOp((key.blend >> 21) & 7) == RenderBlendOperation::ADD;
                         scenePromotionActivated = ActivateSceneCopyDestination(color, rasterTarget, rasterViewport, scissor,
-                            viewport, guestScissor);
+                            viewport, guestScissor, replacesAlpha ? fullCopyBounds : nullptr);
                     }
                 }
                 if (!scenePromotionActivated) {

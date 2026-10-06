@@ -7,7 +7,7 @@ p.add_argument('log',type=Path)
 p.add_argument('--output',type=Path,required=True)
 p.add_argument('--exclude-frame',type=int,action='append',default=[])
 p.add_argument('--first-frame',type=int,default=0,help='Explicit warmup cutoff; does not infer steady state')
-a=p.parse_args();rows=[];errors=[];scope='prepare_sdk_encode_copy_sync'
+a=p.parse_args();rows=[];errors=[];scope='prepare_sdk_encode_sync'
 for line_no,line in enumerate(a.log.read_text(errors='replace').splitlines(),1):
  if 'FSR GPU timing:' not in line:continue
  fields=dict(re.findall(r'(\w+)=([^\s]+)',line.split('FSR GPU timing:',1)[1]))
