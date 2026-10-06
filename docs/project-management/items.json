@@ -5951,10 +5951,10 @@
         "Area": "Graphics features",
         "Status": "Todo",
         "Delivery": "Not started",
-        "Release": "Next release",
+        "Release": null,
         "Start date": null,
         "Target date": null,
-        "Evidence": "Planned for next release after v0.6.19 (version unspecified); implementation and verification not started. Removes standalone experimental TAA user option while retaining Off, FXAA, spatial SMAA, DLSS, and FSR. FXAA/SMAA paths disable temporal camera jitter and in-house TAA history accumulation; DLSS/FSR retain common jitter, depth, and motion vector inputs. Legacy TAA settings migrate to stable spatial AA. User reported ground flickering in capture render-17903110123692464-f2548.zip (v0.6.19 declared in capture header, not verified by executable hash; Vulkan, RTX 5080). Structural checks on f2548 are complete; specific ground draw/shader, flickering stage, and root cause remain undetermined. Acceptance requires separate DLSS and FSR ground-flicker verification; removing standalone TAA does not claim ground-flicker resolution."
+        "Evidence": "Planned for next release after v0.6.19 (version unspecified); implementation and verification not started. Removes standalone experimental TAA user option while retaining Off, FXAA, spatial SMAA, DLSS, and FSR. FXAA/SMAA paths disable temporal camera jitter and in-house TAA history accumulation; DLSS/FSR retain common jitter, depth, and motion vector inputs. Legacy TAA settings migrate to stable spatial AA. User reported ground flickering in capture render-17903110123692464-f2548.zip. Structural checks on f2548 are complete; specific ground draw/shader, flickering stage, and root cause remain undetermined. Acceptance requires separate DLSS and FSR ground-flicker verification; removing standalone TAA does not claim ground-flicker resolution. 2026-10-06: still not started thirteen releases later (v0.7.0 to v0.8.44); the 'TAA (Experimental)' option remains in the settings menu, and the stale Release text 'Next release' was cleared; unscheduled."
       },
       "source_refs": [
         "docs/ROADMAP.md",
@@ -7016,6 +7016,356 @@
         "Start date": "2026-10-03",
         "Target date": null,
         "Evidence": "Reported on v0.8.0 (RX 6600, 4K, GTAO): FSR Quality, Balanced and Performance all ran at about the same frame rate. PR #189 (shipped in v0.8.10) stopped recreating the SR images every frame; PR #250 (merged 2026-10-06T10:45:23Z, shipped in v0.8.44, published 17:34:21Z, not accepted) skips one full-resolution copy and blend per frame (FSR encode writes the output directly, the composite draws in place) and is measured on one AMD host (psvita) with power caps. The Issue is open (reopened) for further work. Not covered: the reporter's machine, macOS MetalFX and Android. No reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "release-v0-8-7",
+      "title": "Publish the Android game folder, update check and on-device import in v0.8.7",
+      "body": "<!-- lo-project:release-v0-8-7 -->\n\nv0.8.7 于 2026-10-03T23:50:29Z 发布。它不是草稿或预发布版本，发布时是最新的正式版本，直到 v0.8.10（2026-10-04T05:39:20Z）发布。发布不等于验收，维护者尚未验收 v0.8.7。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.7`（tag 对象 `004b32c`，创建于 23:27:03Z）指向 `main` 上的提交 `a45bc74c`（`docs: prepare v0.8.7 release notes`；前一个提交 `336c812` 把 CMake 源码版本号改为 0.8.7）\n- [x] Gitea Actions [run 227](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/617)（API id 617）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功（UTC：创建草稿 23:28:45–23:28:55，FSR 输入 23:27:14–23:38:35，Android 23:33:29–23:39:50，Windows 23:38:40–23:45:38，Linux 23:39:51–23:49:17，发布 23:49:18–23:50:30），约 23 分钟\n- [ ] macOS 磁盘映像（DMG）：手工上传到草稿发布页（GitHub 记录 23:29:05Z 至 23:29:25Z），不是 CI 产物；它的构建记录、`hdiutil` 和 `codesign` 检查以及与 Mac 上哈希的对比都没有记录\n- [x] 着色器包：Linux job 的包检查通过（输出没有读取），没有发布新包\n- [ ] 取得 v0.8.7 的玩家确认（本版本的两项改动都没有关联 Issue）\n- [ ] 维护者验收 v0.8.7\n\n## Delivery verification\n\n发布页 [v0.8.7](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7) 的五个附件（大小和 SHA-256 为GitHub API 在 2026-10-04 约 05:45 UTC（v0.8.10 发布之后）读取的值；没有记录下载检查）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.7.zip` | 77,140,461 | `25ed7c832b77510327a81b2f871ea10962c358032554b633687d1f835f3a878c` |\n| `LostOdysseyRecomp-linux-x64-v0.8.7.AppImage` | 76,306,936 | `f3c95534193e75316eada0b1539aef54b5aee8e1ef0f82c13cd95e99ce803e5e` |\n| `LostOdysseyRecomp-linux-x64-v0.8.7.flatpak` | 54,079,248 | `9248c84455879d2f0c5e08bd234983feca0731244ba28f85b90c08f0b5a18661` |\n| `LostOdysseyRecomp-android-arm64-v0.8.7.apk` | 45,177,706 | `520e6a3e7a96244abc37de62977750e9ab6b7a7f0f5f35938eb78a1d9ed3e07b` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.7.dmg` | 60,444,375 | `79e7e2c38d7bcb00a8292e18458f22235ef2d605ae5c19ad870bab9487fdc923` |\n\nGitHub 记录四个 CI 安装包的创建时间为 23:49:29Z，磁盘映像为手工上传（23:29:05Z 至 23:29:25Z）。没有下载、解包或运行过任何安装包。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.6..v0.8.7` 中合并的 PR 和提交：\n\n- Android：[PR #184](https://github.com/freefrank/LostOdysseyRecomp/pull/184) 启动时检查更新并提供新 APK、一打开应用就建好 `game` 目录、可从 SD 卡或任意文件夹读取游戏（CTRL → Game folder）、可在设备上从光盘镜像或已解出的光盘导入、日志和崩溃报告写到 `Android/data/io.github.freefrank.lostodyssey/files/logs/`（STATUS 没有记录它的验证）\n- MetalFX：[PR #182](https://github.com/freefrank/LostOdysseyRecomp/pull/182) MetalFX 设置文字有日文、韩文和简体中文翻译（STATUS 没有记录它的验证）\n\n各项的验证范围和限制记录在 docs/STATUS.md 的“Delivered behavior and validation scope”表里。\n\n## Validation and acceptance\n\n没有用 v0.8.7 安装包本身做过游戏运行，两项改动的验证没有记录，也没有玩家或维护者的验收。维护者尚未验收 v0.8.7；发布不是玩家确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.7 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7)\n- [v0.8.6…v0.8.7 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.6...v0.8.7)\n- [Gitea Actions run 227](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/617)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/a45bc74ce31f4f2eb00e314b120a60f21bff13ba/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.7",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.7 at 2026-10-03T23:50:29Z: annotated tag at commit a45bc74c on main, built and published by Gitea Actions run 227 (API id 617; six jobs succeeded, about 23 minutes). Assets: Windows ZIP 77,140,461 B (SHA-256 25ed7c83...), Linux AppImage 76,306,936 B (f3c95534...), Flatpak 54,079,248 B (9248c844...), Android APK 45,177,706 B (520e6a3e...; CI-built) and macOS DMG 60,444,375 B (79e7e2c3...; uploaded by hand, no checks recorded). No shader pack was published. Published, not accepted: the release holds PR #184 (Android update check, game folder, on-device import, logs) and PR #182 (MetalFX translations), no validation is recorded for either, no game run was made with the v0.8.7 packages and no acceptance is recorded."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.7",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.6...v0.8.7",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/617",
+        "a45bc74ce31f4f2eb00e314b120a60f21bff13ba",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-10",
+      "title": "Publish the AMD shadow fix, Android GPU driver page and FSR image reuse in v0.8.10",
+      "body": "<!-- lo-project:release-v0-8-10 -->\n\nv0.8.10 于 2026-10-04T05:39:20Z 发布。它不是草稿或预发布版本，发布时是最新的正式版本，直到 v0.8.15（2026-10-04T11:52:16Z）发布。发布不等于验收，维护者尚未验收 v0.8.10。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.10`（tag 对象 `c7dbbea`，创建于 05:17:26Z）指向 `main` 上的提交 `1dc10ad0`（`docs: prepare v0.8.10 release notes`；前一个提交 `095b99b` 把 CMake 源码版本号改为 0.8.10）\n- [x] Gitea Actions [run 245](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/635)（API id 635）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功（UTC：创建草稿 05:17:34–05:17:45，FSR 输入 05:17:37–05:28:51，Android 05:17:48–05:24:12，Windows 05:28:53–05:35:58，Linux 05:28:55–05:38:16，发布 05:38:19–05:39:22），约 22 分钟\n- [x] 在维护者的 M1 Max（macOS 26.6.2）上用 `tools/package_macos.py --version v0.8.10 --dmg` 从 tag `1dc10ad` 增量构建（35 秒）macOS 磁盘映像（DMG）：`hdiutil verify` 有效，`codesign --verify --strict --deep` 通过（ad hoc 签名，标识符 `io.github.freefrank.LostOdysseyRecomp`），`CFBundleShortVersionString` 为 0.8.10；手工上传到草稿发布页（GitHub 记录 05:18:43Z），不是 CI 产物，SHA-256 与 Mac 上计算的相同；没有从下载安装，也没有走 Gatekeeper 批准流程\n- [x] 新的着色器包：翻译器版本 27 的包（Vulkan 契约 `a7d1ab94…`，DirectX 12 契约 `48cf14e3…`）在创建 tag 之前发布到 `shader-packs`；Linux job 的强制包检查通过（输出没有读取）\n- [ ] 取得 #176 报告者对 v0.8.10 的确认，以及 #185 在设备上的结果（本版本只让启动器显示失败原因并打开 GPU driver 页面）\n- [ ] 维护者验收 v0.8.10\n\n## Delivery verification\n\n发布页 [v0.8.10](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10) 的五个附件（大小和 SHA-256 为GitHub API 在 2026-10-04 约 05:45 UTC 读取的值；五个下载地址在约 05:42 UTC 跟随重定向后都返回 HTTP 200）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.10.zip` | 77,145,337 | `71ff8cccff067d5500c09d1bd03da0fb148f2dd7aa2dac431771ec2f2718a5cb` |\n| `LostOdysseyRecomp-linux-x64-v0.8.10.AppImage` | 76,306,936 | `247a147428bc259fcd722986cdd4ad2e7b4e74e6c51f4300a5ea1384dff523b5` |\n| `LostOdysseyRecomp-linux-x64-v0.8.10.flatpak` | 54,064,584 | `e0b4f8e7fc2a60110e0527d5a6a1e9fc75e71628ca29d9c4bc37f2245f965673` |\n| `LostOdysseyRecomp-android-arm64-v0.8.10.apk` | 45,190,754 | `2f83b4dede51bfcef350df6a463a9302ee6c371990de17bafabc89c3dd8d04be` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.10.dmg` | 60,451,954 | `4e63e416f786210ef6ff62c7830581fce39fc7dc90f2c241d6b8ac806e012fde` |\n\nGitHub 记录四个 CI 安装包的创建时间为 05:38:28Z，磁盘映像为手工上传（05:18:43Z）。没有下载、解包或运行过任何安装包。AppImage 与 v0.8.7 的大小相同，但 SHA-256 不同。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.7..v0.8.10` 中合并的 PR 和提交：\n\n- 着色器：[PR #186](https://github.com/freefrank/LostOdysseyRecomp/pull/186)（2026-10-04T02:19:39Z 合并）在着色器翻译器里用 `SV_Position` 重建阴影投影 pass 的像素位置，修复 AMD 显卡上阴影抖动（Issue #176；在 AMD Radeon 8060S 的 Proton Direct3D 12 上目测，RTX 5080 上画面不变；没有在 Steam Deck 上测试）。翻译器版本升到 27，着色器包随之更新\n- Android：[PR #187](https://github.com/freefrank/LostOdysseyRecomp/pull/187) 和 [PR #188](https://github.com/freefrank/LostOdysseyRecomp/pull/188) 无法运行游戏时显示原因，高通设备打开 GPU driver 页面（Issue #185，v0.8.21 的 PR #205 才修复 Turnip 的描述符集问题）\n- 性能：[PR #189](https://github.com/freefrank/LostOdysseyRecomp/pull/189) FSR 和 DLSS 不再每帧重新创建工作图像（Issue #172；验证范围见 docs/STATUS.md）\n- CI 和文档：[PR #190](https://github.com/freefrank/LostOdysseyRecomp/pull/190) 和 [PR #191](https://github.com/freefrank/LostOdysseyRecomp/pull/191)\n\n各项的验证范围和限制记录在 docs/STATUS.md 的“Delivered behavior and validation scope”表里。\n\n## Validation and acceptance\n\n没有用 v0.8.10 安装包本身做过游戏运行，macOS 映像也没有从下载安装。发布时没有记录报告者对 v0.8.10 的确认或验收；#176 由 PR #186 合并关闭（02:19:40Z），#185 当时仍开放。维护者尚未验收 v0.8.10；发布不是玩家确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.10 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10)\n- [v0.8.7…v0.8.10 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.7...v0.8.10)\n- [Gitea Actions run 245](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/635)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/1dc10ad01fb2b74d07e2efb811aa81927ea99126/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.10",
+        "Start date": "2026-10-04",
+        "Target date": "2026-10-04",
+        "Evidence": "Published v0.8.10 at 2026-10-04T05:39:20Z: annotated tag at commit 1dc10ad0 on main, built and published by Gitea Actions run 245 (API id 635; six jobs succeeded, about 22 minutes). Assets: Windows ZIP 77,145,337 B (SHA-256 71ff8ccc...), Linux AppImage 76,306,936 B (247a1474...), Flatpak 54,064,584 B (e0b4f8e7...), Android APK 45,190,754 B (2f83b4de...; CI-built) and macOS DMG 60,451,954 B (4e63e416...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, uploaded by hand). New shader packs for translator version 27 were published before the tag. Published, not accepted: the release holds PR #186 (AMD shadow shaking, #176; checked on one AMD host and an RTX 5080), #187 and #188 (Android GPU driver page and failure reason, #185) and #189 (FSR/DLSS image reuse, #172); no game run was made with the v0.8.10 packages and no reporter confirmation is recorded."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.10",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.7...v0.8.10",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/635",
+        "1dc10ad01fb2b74d07e2efb811aa81927ea99126",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-15",
+      "title": "Publish the cutscene shadow jitter fix in v0.8.15",
+      "body": "<!-- lo-project:release-v0-8-15 -->\n\nv0.8.15 于 2026-10-04T11:52:16Z 发布。它不是草稿或预发布版本，发布时是最新的正式版本，直到 v0.8.21（2026-10-04T22:02:56Z）发布。发布不等于验收，维护者尚未验收 v0.8.15。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.15`（tag 对象 `43edf61`，创建于 11:29:22Z）指向 `main` 上的提交 `a4162b01`（`docs: prepare v0.8.15 release notes`；前一个提交 `404fb782` 把 CMake 源码版本号改为 0.8.15）\n- [x] Gitea Actions [run 252](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/642)（API id 642）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功（UTC：创建草稿 11:32:06–11:32:16，FSR 输入 11:29:36–11:40:59，Android 11:36:00–11:42:14，Windows 11:41:00–11:47:53，Linux 11:42:16–11:51:21，发布 11:51:23–11:52:17），约 23 分钟\n- [ ] macOS 磁盘映像（DMG）：手工上传到草稿发布页（GitHub 记录 11:32:29Z，草稿 job 结束后 13 秒），不是 CI 产物；只记录了这条附件元数据，没有构建记录，没有 `hdiutil` 或 `codesign` 检查，也没有与 Mac 上哈希的对比\n- [x] 着色器包没有变化：Linux job 的“Check published shader packs”步骤（11:48:13–11:48:16Z）通过，日志打印的契约与 v0.8.10 相同（DirectX 12 `48cf14e3…`，Vulkan `a7d1ab94…`），没有发布新包\n- [ ] 取得 #183 报告者对 v0.8.15 的确认（报告者随后报告其他场景仍然闪烁，见 #212）\n- [ ] 维护者验收 v0.8.15\n\n## Delivery verification\n\n发布页 [v0.8.15](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15) 的五个附件（大小和 SHA-256 为GitHub API 在 2026-10-04 约 22:05–22:10 UTC（v0.8.21 发布之后，不是 v0.8.15 发布当时）读取的值；没有记录下载检查）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.15.zip` | 77,139,729 | `2a66b74cabe64458feda7f1ea592096b5e9959ca05e39886d8b6b3d956394c1c` |\n| `LostOdysseyRecomp-linux-x64-v0.8.15.AppImage` | 76,306,936 | `3517076d6cc95e069edc1947181d3d17b570cf5af52ea9d6ba4b9757a493f5a1` |\n| `LostOdysseyRecomp-linux-x64-v0.8.15.flatpak` | 54,145,680 | `0676115d2c29cab673eb209c04d48e9fa3c8c18cf025c8ef292cbd5fbd948d35` |\n| `LostOdysseyRecomp-android-arm64-v0.8.15.apk` | 45,191,538 | `017f4d1a6c8c16f5578b48f5374e10d2e539dd2318191e9d6ea06598846a7632` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.15.dmg` | 60,451,359 | `798e2f434e3d39cfc2c7d8b45dd7cd7a3b82e471f605a432d3a418eec30016da` |\n\nGitHub 记录四个 CI 安装包的创建时间为 11:51:33Z，磁盘映像为手工上传（11:32:29Z）。没有下载、解包或运行过任何安装包。AppImage 与 v0.8.10 的大小相同，但 SHA-256 不同。发布记录、tag 和 Gitea run 是在 v0.8.21 发布之后（2026-10-04 约 22:05–22:10 UTC）读取的。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.10..v0.8.15` 中合并的 PR 和提交：\n\n- 渲染：[PR #197](https://github.com/freefrank/LostOdysseyRecomp/pull/197)（2026-10-04T11:28:57Z 合并为 `0f8a8bb0`）过场里角色和物体的阴影体与光照 pass 随场景一起抖动，修复开启 TAA 或超分辨率时过场自阴影闪烁（Issue #183；在 RTX 5080 的 DLSS Balanced 和 AMD Radeon 8060S 的 Proton FSR Balanced 上各检查两个过场，没有在报告者的 RTX 4060 上运行）\n- CI 和文档：[PR #193](https://github.com/freefrank/LostOdysseyRecomp/pull/193) 和 [PR #195](https://github.com/freefrank/LostOdysseyRecomp/pull/195)（精简 README 和安装指南），提交 `67969a7b`（v0.8.7 和 v0.8.10 的记录）\n\n各项的验证范围和限制记录在 docs/STATUS.md 的“Delivered behavior and validation scope”表里。\n\n## Validation and acceptance\n\n发布页正文与 CHANGELOG 对应章节一致（仅末尾换行不同）。没有用 v0.8.15 安装包本身做过游戏运行。#183 报告者在发布后约一小时（12:48 UTC）写道修复似乎有效，约两小时后（13:56 UTC）写道其他场景仍在闪烁，并在 21:09 UTC 打开 #212；#183 随 PR 合并关闭不是报告者验收。维护者尚未验收 v0.8.15；发布不是玩家确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.15 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15)\n- [v0.8.10…v0.8.15 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.10...v0.8.15)\n- [Gitea Actions run 252](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/642)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/a4162b015f1fa15301c000c5a5d60c52d71de2d0/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.15",
+        "Start date": "2026-10-04",
+        "Target date": "2026-10-04",
+        "Evidence": "Published v0.8.15 at 2026-10-04T11:52:16Z: annotated tag at commit a4162b01 on main, built and published by Gitea Actions run 252 (API id 642; six jobs succeeded, about 23 minutes). Assets: Windows ZIP 77,139,729 B (SHA-256 2a66b74c...), Linux AppImage 76,306,936 B (3517076d...), Flatpak 54,145,680 B (0676115d...), Android APK 45,191,538 B (017f4d1a...; CI-built) and macOS DMG 60,451,359 B (798e2f43...; uploaded by hand, no build record or checks). No shader pack was published (the contracts equal v0.8.10's). Published, not accepted: the only runtime change is PR #197 (cutscene shadow jitter, #183), checked on an RTX 5080 and one AMD host; no game run was made with the v0.8.15 packages, and the #183 reporter reported flicker remaining in other scenes (#212)."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.15",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.10...v0.8.15",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/642",
+        "a4162b015f1fa15301c000c5a5d60c52d71de2d0",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-21",
+      "title": "Publish the Sea of Baus sky, Turnip, display gamma and HDR changes in v0.8.21",
+      "body": "<!-- lo-project:release-v0-8-21 -->\n\nv0.8.21 于 2026-10-04T22:02:56Z 发布。它不是草稿或预发布版本，发布时是最新的正式版本，直到 v0.8.30（2026-10-05T20:54:12Z）发布。发布不等于验收，维护者尚未验收 v0.8.21。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.21`（tag 对象 `95ff6e7`，创建于 21:40:18Z）指向 `main` 上的提交 `37ffd02f`（`docs: prepare v0.8.21 release notes`；前一个提交 `2e822ffa` 把 CMake 源码版本号改为 0.8.21）\n- [x] Gitea Actions [run 271](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/661)（API id 661）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功（UTC：创建草稿 21:43:11–21:43:21，FSR 输入 21:40:40–21:52:01，Android 21:43:23–21:49:43，Windows 21:52:02–21:59:03，Linux 21:52:05–22:01:20，发布 22:01:22–22:02:57），约 22 分钟\n- [x] 在维护者的 M1 Max 上从 tag `37ffd02` 构建 macOS 磁盘映像（DMG）：`codesign --verify` 通过（ad hoc 签名），`Info.plist` 版本为 0.8.21；发布前手工上传到草稿发布页（GitHub 记录 21:43:41Z），不是 CI 产物，SHA-256 与 Mac 上计算的相同；没有记录 `hdiutil verify` 或 Gatekeeper 检查\n- [x] 着色器包没有变化：Linux job 的“Check published shader packs”步骤（21:58:07–21:58:10Z）通过，日志打印的契约与 v0.8.10 相同（DirectX 12 `48cf14e3…`，Vulkan `a7d1ab94…`），`shader-packs` 索引列出本运行时所有渲染器的包，没有发布新包\n- [ ] 取得 #203、#185、#200、#179 和 #78 报告者对 v0.8.21 的确认\n- [ ] 维护者验收 v0.8.21\n\n## Delivery verification\n\n发布页 [v0.8.21](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21) 的五个附件（大小和 SHA-256 为GitHub API 在 2026-10-04 约 22:05–22:10 UTC 读取的值；只请求了 Windows ZIP 的下载地址（HTTP 200））：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.21.zip` | 77,157,364 | `9b3913fa54d23d4436286bf76b2c81eb36ba935d66a297b5ed20e42818675c23` |\n| `LostOdysseyRecomp-linux-x64-v0.8.21.AppImage` | 76,343,800 | `0c349f12f5e67f7106811e7b7b6cd6d9b889e5cb8c7e7011309930c43ace0783` |\n| `LostOdysseyRecomp-linux-x64-v0.8.21.flatpak` | 54,185,136 | `7350ff6fe9ce85d83f624d633e03b83971c37964c847b7a143b8b2c6e07b9b8f` |\n| `LostOdysseyRecomp-android-arm64-v0.8.21.apk` | 45,205,570 | `01b46a791695f97a735da33e5e84b835fbe62d7be8ce49c8b79380cdbf0cba46` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.21.dmg` | 60,489,102 | `99fb4d1ab10165533f523a34d78a4e4ded0c937586e1c7af205f5e39fba92555` |\n\nGitHub 记录四个 CI 安装包的创建时间为 22:01:31Z，磁盘映像为手工上传（21:43:41Z）。没有下载、解包或运行过任何安装包。与 v0.8.7、v0.8.10 和 v0.8.15 的 AppImage 都是 76,306,936 字节不同，v0.8.21 的 AppImage 大 36,864 字节。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.15..v0.8.21` 中合并的 PR 和提交：\n\n- 渲染：[PR #204](https://github.com/freefrank/LostOdysseyRecomp/pull/204)（2026-10-04T16:59:02Z 合并）Sea of Baus 战斗天空 shader 对加入抖动的天空表（Issue #203；只有夹具测试，没有在战斗里运行）\n- Android：[PR #205](https://github.com/freefrank/LostOdysseyRecomp/pull/205)（17:09:26Z 合并）在自定义驱动加载前设置 `tu_dont_reserve_descriptor_set`，让 Turnip 不再保留一个描述符集（Issue #185；只通过 CI 构建，没有 Adreno 6xx 设备运行）\n- Proton：[PR #207](https://github.com/freefrank/LostOdysseyRecomp/pull/207) 修复 AMD 显卡在 Proton 下开启 TAA 读档时游戏无提示退出（Issue #200）\n- 显示：[PR #209](https://github.com/freefrank/LostOdysseyRecomp/pull/209) 应用游戏针对高清电视的显示 gamma 调整（Issue #78、#179）；[PR #211](https://github.com/freefrank/LostOdysseyRecomp/pull/211) 新的 Brightness / Gamma 页面和冻结的游戏场景；[PR #213](https://github.com/freefrank/LostOdysseyRecomp/pull/213) 开关 HDR 保存后立即生效（开启插帧仍需重启），Android 从后台返回后 HDR 保持开启\n- 文档：[PR #206](https://github.com/freefrank/LostOdysseyRecomp/pull/206)、[PR #208](https://github.com/freefrank/LostOdysseyRecomp/pull/208) 和 [PR #210](https://github.com/freefrank/LostOdysseyRecomp/pull/210)\n\n各项的验证范围和限制记录在 docs/STATUS.md 的“Delivered behavior and validation scope”表里。\n\n## Validation and acceptance\n\n发布页正文与 CHANGELOG 对应章节一致（仅末尾换行不同）。没有用 v0.8.21 安装包本身做过游戏运行；两项 Android 改动（PR #205 和 PR #213 的 Android 部分）没有设备运行记录。发布时 #203 和 #179 的报告者没有回复，#185 的报告者答应用 v0.8.21 重试并附上日志，结果没有记录。维护者尚未验收 v0.8.21；发布不是玩家确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.21 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21)\n- [v0.8.15…v0.8.21 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.15...v0.8.21)\n- [Gitea Actions run 271](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/661)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/37ffd02fe4254a4d213f2167637ea89cd5d8a92d/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.21",
+        "Start date": "2026-10-04",
+        "Target date": "2026-10-04",
+        "Evidence": "Published v0.8.21 at 2026-10-04T22:02:56Z: annotated tag at commit 37ffd02f on main, built and published by Gitea Actions run 271 (API id 661; six jobs succeeded, about 22 minutes). Assets: Windows ZIP 77,157,364 B (SHA-256 9b3913fa...), Linux AppImage 76,343,800 B (0c349f12...), Flatpak 54,185,136 B (7350ff6f...), Android APK 45,205,570 B (01b46a79...; CI-built) and macOS DMG 60,489,102 B (99fb4d1a...; built on the maintainer's M1 Max from the tag, codesign verify passes with an ad-hoc signature, uploaded by hand, SHA-256 equals the Mac's). No shader pack was published (the contracts equal v0.8.10's). Published, not accepted: the release holds PRs #204 (Sea of Baus sky, fixture test only), #205 (Turnip on Adreno 6xx, no device run), #207, #209, #211 and #213; no game run was made with the v0.8.21 packages and no reporter confirmation is recorded in the release record."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.21",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.15...v0.8.21",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/661",
+        "37ffd02fe4254a4d213f2167637ea89cd5d8a92d",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-30",
+      "title": "Publish the Mansion lights, Android saves, XeSS and Depth of field settings in v0.8.30",
+      "body": "<!-- lo-project:release-v0-8-30 -->\n\nv0.8.30 于 2026-10-05T20:54:12Z 发布。它不是草稿或预发布版本，发布时是最新的正式版本，直到 v0.8.37（2026-10-06T07:46:23Z）发布。发布不等于验收，维护者尚未验收 v0.8.30。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.30`（tag 对象 `801132ac`，创建于 20:32:01Z）指向 `main` 上的提交 `f1ebdc05`（`docs: prepare v0.8.30 release notes`；前一个提交 `871002a4` 把 CMake 源码版本号改为 0.8.30）\n- [x] Gitea Actions [run 295](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/687)（API id 687）构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：六个 job 全部成功（UTC：创建草稿 20:32:14–20:32:25，Android 20:32:25–20:38:45，FSR 输入 20:32:13–20:43:29，Windows 20:43:32–20:51:10，Linux 20:43:30–20:53:09，发布 20:53:10–20:54:13），约 22 分钟\n- [x] 在维护者的 M1 Max 上用 `validation/mac-release-build.sh` 从 tag `f1ebdc05` 构建 macOS 磁盘映像（DMG），用 `scp` 拷到 PC，在 Windows 和 Linux job 还在构建时用 `gh release upload` 手工上传到草稿发布页（GitHub 记录 20:33:41Z），不是 CI 产物：`codesign --verify` 通过（ad hoc 签名），`Info.plist` 版本为 0.8.30；没有记录 `hdiutil verify` 或 Gatekeeper 检查，也没有记录与 Mac 上哈希的对比\n- [x] 着色器包没有变化：`tools/release/publish_shader_packs.py --check` 在推送 tag 之前对已发布的索引通过（契约 DirectX 12 `48cf14e3…`，Vulkan `a7d1ab94…`），Linux job 的同名步骤成功（日志没有读取），没有发布新包\n- [ ] 取得 #212、#219、#194、#30、#85、#49 和 #192 报告者对 v0.8.30 的确认\n- [ ] 维护者验收 v0.8.30\n\n## Delivery verification\n\n发布页 [v0.8.30](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30) 的五个附件（大小和 SHA-256 为GitHub API 在 2026-10-05 约 20:56 UTC 读取的值；没有请求下载）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.30.zip` | 150,316,921 | `be6f64765824bf434c616fc6d3e547c7ee0dcc1bfa7c44e7603472b26a157596` |\n| `LostOdysseyRecomp-linux-x64-v0.8.30.AppImage` | 76,364,280 | `a00d2e77742ff4daf226328e9a97763a2599dfdc6772367d83d6c27593434e11` |\n| `LostOdysseyRecomp-linux-x64-v0.8.30.flatpak` | 54,125,296 | `005b392308a4fde260da76eaf7d90b697c8cee9757c3e075c3e4e71c682aba4b` |\n| `LostOdysseyRecomp-android-arm64-v0.8.30.apk` | 45,222,430 | `52ae9ee6eae25cabcb65c46380699c569baf3beea99e0336f199eb4b5626637e` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.30.dmg` | 60,476,104 | `322dd378b604331c1ebdb2237b0d974c13c5fa4028ff3d6793f84ee1742dfc7f` |\n\nGitHub 记录四个 CI 安装包的创建时间为 20:53:20Z，磁盘映像为手工上传（20:33:41Z）。没有哈希、解包或运行过任何安装包。Windows ZIP 比 v0.8.21 大 73,159,557 字节：根据 PR #236，它现在带有 `libxess.dll`、`libxess_fg.dll`、`libxell.dll` 和 XeSS 许可证，内容没有检查。APK 由 CI 构建，用项目的调试密钥库签名，是实验性的。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.21..v0.8.30` 中合并的 PR 和提交：\n\n- 渲染：[PR #218](https://github.com/freefrank/LostOdysseyRecomp/pull/218)（2026-10-05T00:39:44Z 合并）Mansion 战斗地面光照和 Tolten 过场双视图阴影（Issue #212）；[PR #224](https://github.com/freefrank/LostOdysseyRecomp/pull/224) 和 [PR #227](https://github.com/freefrank/LostOdysseyRecomp/pull/227) 过场巡检后加入抖动的 45 个和 2 个着色器对；[PR #225](https://github.com/freefrank/LostOdysseyRecomp/pull/225)（07:50:17Z 合并）应用游戏的混合常量，敌人淡入（Issue #219）\n- Android：[PR #222](https://github.com/freefrank/LostOdysseyRecomp/pull/222) 和 [PR #223](https://github.com/freefrank/LostOdysseyRecomp/pull/223)（06:28:56Z 和 06:57:07Z 合并）CTRL → Saves 导出和导入存档 ZIP，屏幕 LT 开启快进（Issue #194；两个 PR 正文都说没有在设备上运行）\n- 设置和平台：[PR #228](https://github.com/freefrank/LostOdysseyRecomp/pull/228) Depth of field 和 Bloom 设置（Issue #30）；[PR #229](https://github.com/freefrank/LostOdysseyRecomp/pull/229) README 的小地图提示（Issue #85，没有代码改动）；[PR #230](https://github.com/freefrank/LostOdysseyRecomp/pull/230) 延迟加载 `d3d12.dll` 和 `dxgi.dll`（Issue #49）；[PR #233](https://github.com/freefrank/LostOdysseyRecomp/pull/233) 和 [PR #236](https://github.com/freefrank/LostOdysseyRecomp/pull/236) Intel XeSS 超分和插帧及 Windows 包里的 XeSS 库（来自 Issue #192）；[PR #232](https://github.com/freefrank/LostOdysseyRecomp/pull/232) 清理残留的着色器临时文件\n- CI 和文档：PR #215 到 #217、#221（安装指南）、#226、#231、#234、#235（后两个规划 v0.9.0 的首次使用管线卡顿，不带运行时改动）\n\n各项的验证范围和限制记录在 docs/STATUS.md 的“Delivered behavior and validation scope”表里。\n\n## Validation and acceptance\n\n发布页正文与 CHANGELOG 对应章节逐字节一致。没有用 v0.8.30 安装包本身做过游戏运行，发布记录没有任何报告者对其中改动的确认；多数改动只在一台机器上检查，两个 Android PR 的正文说明没有在设备上运行。#212、#49、#194、#219、#30 和 #85 在发布前由 PR 合并关闭，关闭不是报告者验收。维护者尚未验收 v0.8.30；发布不是玩家确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.30 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30)\n- [v0.8.21…v0.8.30 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.21...v0.8.30)\n- [Gitea Actions run 295](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/687)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/f1ebdc0591b2af7b90396a0c5660e6ce5db887db/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-05",
+        "Target date": "2026-10-05",
+        "Evidence": "Published v0.8.30 at 2026-10-05T20:54:12Z: annotated tag at commit f1ebdc05 on main, built and published by Gitea Actions run 295 (API id 687; six jobs succeeded, about 22 minutes). Assets: Windows ZIP 150,316,921 B (SHA-256 be6f6476...; now includes the XeSS libraries), Linux AppImage 76,364,280 B (a00d2e77...), Flatpak 54,125,296 B (005b3923...), Android APK 45,222,430 B (52ae9ee6...; CI-built) and macOS DMG 60,476,104 B (322dd378...; built on the maintainer's M1 Max from the tag, codesign verify passes with an ad-hoc signature, uploaded by hand). No shader pack was published. Published, not accepted: the release holds PRs #218, #224, #227, #225, #222, #223, #228, #229, #230, #233, #236 and #232, mostly checked on one machine; the Android PRs were not run on a device; no game run was made with the v0.8.30 packages and no reporter confirmation is recorded in the release record."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.21...v0.8.30",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/687",
+        "f1ebdc0591b2af7b90396a0c5660e6ce5db887db",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "issue-176-steam-deck-shadow-flicker",
+      "title": "[Bug]  Flickering/Incorrect shadows on Steam Deck",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/176",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shadows",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.10",
+        "Start date": "2026-10-03",
+        "Target date": null,
+        "Evidence": "Steam Deck (AMD) report: character and object shadows shake and flicker whatever the settings. PR #186 (merged 2026-10-04T02:19:39Z as eb69e6b6, shipped in v0.8.10, published 05:39:20Z, not accepted) rebuilds the pixel position from SV_Position in the shadow-projection pixel shaders; AMD's interpolated position was off by several texels. Checked by eye on an AMD Radeon 8060S (RADV, Proton Direct3D 12) in Uhra Main Street and on an RTX 5080 (shadows unchanged); LoShadowProjectionShaderTest passes. Not run on a Steam Deck or the reporter's machine. The Issue was closed by the merge at 02:19:40Z. The reporter wrote 'Thanks so much, you solved!' at 2026-10-04T12:52:53Z, after v0.8.10 was published, replying to the maintainer's 'Fixed, releasing'; it names no build and describes no test, so it is recorded as reporter-reported, not as acceptance."
+      }
+    },
+    {
+      "key": "issue-183-flickering-shadows",
+      "title": "[Bug] Flickering shadows",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/183",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.15",
+        "Start date": "2026-10-03",
+        "Target date": null,
+        "Evidence": "Reporter (RTX 4060, Direct3D 12, DLSS Balanced): dark block shadows on characters in real-time cutscenes with TAA or upscaling. PR #197 (merged 2026-10-04T11:28:57Z as 0f8a8bb0, shipped in v0.8.15, published 11:52:16Z, not accepted) stops the 720x720 cutscene pre-pass from becoming the scene's jitter anchor and extends the receiver jitter compensation to all twelve shadow-projection shaders. Checked on an RTX 5080 (DLSS Balanced, cutscene RT_064A) and an AMD Radeon 8060S (Proton, FSR Balanced, RT_064A and RT_063B); LoTemporalJitterTest passes. Not run on the reporter's machine. The Issue was closed by the merge at 11:28:58Z. The reporter wrote at 12:48Z that it seemed to work, then at 13:56Z that flicker continued on v0.8.15 in other scenes, and opened #212 (fixed in v0.8.30). Not accepted."
+      }
+    },
+    {
+      "key": "issue-185-android-adreno-start-crash",
+      "title": "[Bug] Android, game crashing at start",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/185",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Platforms",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.21",
+        "Start date": "2026-10-04",
+        "Target date": null,
+        "Evidence": "Android (Adreno 650): the game stopped at 'descriptor/push-constant limits below renderer layout'. v0.8.10 (PRs #187 and #188) made the launcher show the failure reason and open the GPU driver page; the reporter confirmed that at 16:13Z but the game still failed on several Turnip drivers. PR #205 (merged 2026-10-04T17:09:26Z as 80d2ae9a, shipped in v0.8.21, published 22:02:56Z, not accepted) sets tu_dont_reserve_descriptor_set before the custom driver loads, because Turnip reserves one of the five descriptor sets the renderer needs. Checked by CI builds only; no Adreno 6xx device run. The Issue was closed by the merge at 17:09:27Z. The reporter answered 'Will do' when asked to retry with T19 and attach a log; no result and no reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-203-sea-of-baus-flickering-sky",
+      "title": "[Bug] Sea of baus flickering sky",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/203",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.21",
+        "Start date": "2026-10-04",
+        "Target date": null,
+        "Evidence": "Reporter (AMD 7900 XTX, Direct3D 12, FSR native AA, 4K): the sky flickers when a Sea of Baus battle starts with TAA, FSR or DLSS. PR #204 (merged 2026-10-04T16:59:02Z as 06c3e657, shipped in v0.8.21, published 22:02:56Z, not accepted) adds the sky shader pair bda41a11/fd46e019 to the jittered sky pairs. Validation is a fixture test on the logged register banks (LoTemporalJitterTest --captured-issue203-sky, fails against the previous map); no run in a Sea of Baus battle. The Issue was closed by the merge at 16:59:03Z. The reporter wrote 'It's fixed, no more flickering!' at 2026-10-05T15:10:59Z, after v0.8.21 was published; it names no build, so it is recorded as reporter-reported, not as acceptance."
+      }
+    },
+    {
+      "key": "issue-212-remaining-taa-dlss-flicker",
+      "title": "[Bug] Still flickering at some parts using DLSS and TAA",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/212",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-04",
+        "Target date": null,
+        "Evidence": "Reporter (RTX 4060, Direct3D 12, DLSS Balanced, TAA): flicker remaining after #183 in the Old Sorceress' Mansion battle floor and the Tolten cutscene. PR #218 (merged 2026-10-05T00:39:44Z as 87ed5142, shipped in v0.8.30, published 20:54:12Z, not accepted) jitters the per-light floor passes and uses each frame's matching camera for shadow volumes and lights in two-view cutscenes. Checked on an RTX 5080 (DLSS Balanced, TAA, AO) with a diagnostic build: the maintainer watched the cutscene, the courtyard battle ground and the Entrance Hall enemy light in the foreground and accepted them; LoTemporalJitterTest and LoTemporalSceneTest pass. Not covered: AMD, macOS, other two-view shots, the reporter's machine. Closed by the merge at 00:39:45Z; the reporter has not replied."
+      }
+    },
+    {
+      "key": "issue-219-enemy-fade-in-first-battle",
+      "title": "[Bug] Enemies not fading in during the first battle",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/219",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-05",
+        "Target date": null,
+        "Evidence": "Enemies popped in instead of fading in when targets switched in the first battle (Vulkan). Fading enemies use constant-colour blend factors; the guest ramps the constant but the renderer never passed it to the host, so it stayed 0. PR #225 (merged 2026-10-05T07:50:17Z as e82cb6d1, shipped in v0.8.30, published 20:54:12Z, not accepted) sets the blend constant per draw on Direct3D 12, Vulkan and Metal and applies to every constant-factor blend. Checked on Windows, first battle on Vulkan at 30 FPS: the logged constant ramps 0.11 to 0.99 over about 11 frames at every target switch; no validation-layer errors with TAA. The Metal change compiles only in CI and the maintainer's visual check was listed as pending. Other scenes may now show effects that used to be invisible. The Issue was closed by the merge at 07:50:18Z; no reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-237-ao-polygons-white-flashes",
+      "title": "[Bug] Polygons visible during white flashes with Ambient Occlusion ON (Memory unlock, Enemy attacks)",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/237",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics quality",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-05",
+        "Target date": null,
+        "Evidence": "Polygon outlines showed through white flashes with ambient occlusion on (Low Town memory unlock, enemy attacks). The game's full-screen white fade is drawn before bloom and tone mapping, but AO is applied to the finished scene copy. PR #238 (merged 2026-10-05T23:08:08Z as 6fb29ebd, shipped in v0.8.37, published 2026-10-06T07:46:23Z, not accepted) scales AO strength by the fraction of the scene left visible and skips AO when nothing is left. Checked with the reporter's save on an RTX 5080 (Direct3D 12, GTAO) at the memory unlock only; the enemy-attack flashes were not reproduced; SSAO, Vulkan and other GPUs not checked. The Issue was closed by the merge at 23:08:10Z. On 2026-10-06T17:31:35Z the reporter posted a video and a save showing the outlines still appear during enemy attacks (the boss fight after the door) on v0.8.39; the Issue is still closed and no reply or follow-up fix is recorded."
+      }
+    },
+    {
+      "key": "issue-194-android-save-backup-and-lt",
+      "title": "[Feature]  andriod port back up saves like cloud and touch screen fast foward lt doesnt work",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/194",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Save & Storage",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-04",
+        "Target date": null,
+        "Evidence": "Request: Android save backup (like cloud) and an on-screen LT that starts fast-forward. PR #222 (merged 2026-10-05T06:28:56Z) adds CTRL > Saves, which exports every slot to one ZIP and imports a ZIP of a PC save folder, Xenia userNN folders or the RGH converter layout, replacing a slot only after confirmation; PR #223 (merged 06:57:07Z as 298e9c5c) makes the on-screen LT feed fast-forward. Both shipped in v0.8.30 (published 2026-10-05T20:54:12Z, not accepted). SaveTransferTest (5 JUnit tests) passes and the Android Java sources compile; both PR bodies say not run on a device. This is a ZIP export and import, not cloud sync. The Issue was closed with PR #223 at 06:57:09Z; the maintainer commented 'Coming in the next release' at 06:58:01Z. No reporter reply or confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-239-xbox-360-trainers",
+      "title": "[Feature] add Xbox 360 trainers",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/239",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Gameplay",
+        "Status": "Done",
+        "Delivery": "Superseded",
+        "Release": null,
+        "Start date": "2026-10-06",
+        "Target date": null,
+        "Evidence": "Request (2026-10-06): add Xbox 360 trainers (cheats) to the menu. The maintainer closed the Issue as completed at 2026-10-06T05:03:27Z with the comment 'its already there', meaning the existing cheat functions cover the request. No pull request, commit or release change was made for it, so there is nothing to ship or validate. No reporter reply is recorded."
+      }
+    },
+    {
+      "key": "issue-104-faster-menu-animation",
+      "title": "[Feature] QoL: Make game menu animation faster",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/104",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "User interface",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Request (2026-09-30): make the game menu animation about twice as fast; the reporter attached an edited video as an example. No maintainer decision or implementation is recorded."
+      }
+    },
+    {
+      "key": "issue-151-animated-options-menu",
+      "title": "[Feature] Make the options menu Animated.",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/151",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "User interface",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Request (2026-10-02): add simple animations to the options menu. No maintainer decision or implementation is recorded."
+      }
+    },
+    {
+      "key": "issue-174-surround-5-1-audio",
+      "title": "[Feature] 5.1 Audio",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/174",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Audio",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Request (2026-10-03): add 5.1 audio output, since the original mix is 5.1 and Xenia Canary already outputs it. No maintainer decision or implementation is recorded."
+      }
+    },
+    {
+      "key": "issue-198-rumble-intensity",
+      "title": "[Feature] Allow adjusting the rumble intensity",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/198",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Request (2026-10-04): add an option for the rumble intensity, which is too strong on a DualSense. No maintainer decision or implementation is recorded."
+      }
+    },
+    {
+      "key": "issue-201-display-choice",
+      "title": "[Feature] display choice",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/201",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Desktop windowing",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Request (2026-10-04): choose the monitor used for windowed and fullscreen modes without changing the primary display. No maintainer decision or implementation is recorded."
+      }
+    },
+    {
+      "key": "issue-202-gpu-choice",
+      "title": "[Feature] GPU choice",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/202",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics backends",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Release": null,
+        "Start date": null,
+        "Target date": null,
+        "Evidence": "Request (2026-10-04): add a rendering device selector for multi-GPU and Optimus systems, for both Direct3D 12 and Vulkan. No maintainer decision or implementation is recorded."
       }
     }
   ]

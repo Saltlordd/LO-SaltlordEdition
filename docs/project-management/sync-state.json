@@ -2958,8 +2958,8 @@
         "Area": "Graphics features",
         "Status": "Todo",
         "Delivery": "Not started",
-        "Release": "Next release",
-        "Evidence": "Planned for next release after v0.6.19 (version unspecified); implementation and verification not started. Removes standalone experimental TAA user option while retaining Off, FXAA, spatial SMAA, DLSS, and FSR. FXAA/SMAA paths disable temporal camera jitter and in-house TAA history accumulation; DLSS/FSR retain common jitter, depth, and motion vector inputs. Legacy TAA settings migrate to stable spatial AA. User reported ground flickering in capture render-17903110123692464-f2548.zip (v0.6.19 declared in capture header, not verified by executable hash; Vulkan, RTX 5080). Structural checks on f2548 are complete; specific ground draw/shader, flickering stage, and root cause remain undetermined. Acceptance requires separate DLSS and FSR ground-flicker verification; removing standalone TAA does not claim ground-flicker resolution.",
+        "Release": null,
+        "Evidence": "Planned for next release after v0.6.19 (version unspecified); implementation and verification not started. Removes standalone experimental TAA user option while retaining Off, FXAA, spatial SMAA, DLSS, and FSR. FXAA/SMAA paths disable temporal camera jitter and in-house TAA history accumulation; DLSS/FSR retain common jitter, depth, and motion vector inputs. Legacy TAA settings migrate to stable spatial AA. User reported ground flickering in capture render-17903110123692464-f2548.zip. Structural checks on f2548 are complete; specific ground draw/shader, flickering stage, and root cause remain undetermined. Acceptance requires separate DLSS and FSR ground-flicker verification; removing standalone TAA does not claim ground-flicker resolution. 2026-10-06: still not started thirteen releases later (v0.7.0 to v0.8.44); the 'TAA (Experimental)' option remains in the settings menu, and the stale Release text 'Next release' was cleared; unscheduled.",
         "Source key": "anti-aliasing-consolidation-remove-experimental-taa"
       },
       "title": "Consolidate anti-aliasing options and remove standalone experimental TAA",
@@ -3740,6 +3740,268 @@
         "Evidence": "Reported on v0.8.0 (RX 6600, 4K, GTAO): FSR Quality, Balanced and Performance all ran at about the same frame rate. PR #189 (shipped in v0.8.10) stopped recreating the SR images every frame; PR #250 (merged 2026-10-06T10:45:23Z, shipped in v0.8.44, published 17:34:21Z, not accepted) skips one full-resolution copy and blend per frame (FSR encode writes the output directly, the composite draws in place) and is measured on one AMD host (psvita) with power caps. The Issue is open (reopened) for further work. Not covered: the reporter's machine, macOS MetalFX and Android. No reporter confirmation is recorded.",
         "Source key": "issue-172-fsr-scaling-performance",
         "Status": "In Progress"
+      }
+    },
+    "release-v0-8-7": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9rsk",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.7",
+        "Start date": "2026-10-03",
+        "Target date": "2026-10-03",
+        "Evidence": "Published v0.8.7 at 2026-10-03T23:50:29Z: annotated tag at commit a45bc74c on main, built and published by Gitea Actions run 227 (API id 617; six jobs succeeded, about 23 minutes). Assets: Windows ZIP 77,140,461 B (SHA-256 25ed7c83...), Linux AppImage 76,306,936 B (f3c95534...), Flatpak 54,079,248 B (9248c844...), Android APK 45,177,706 B (520e6a3e...; CI-built) and macOS DMG 60,444,375 B (79e7e2c3...; uploaded by hand, no checks recorded). No shader pack was published. Published, not accepted: the release holds PR #184 (Android update check, game folder, on-device import, logs) and PR #182 (MetalFX translations), no validation is recorded for either, no game run was made with the v0.8.7 packages and no acceptance is recorded.",
+        "Source key": "release-v0-8-7"
+      },
+      "title": "Publish the Android game folder, update check and on-device import in v0.8.7",
+      "body_sha256": "5667a76bd9954feffc1f2517804fdc5260eeccaa1d4fd177434348563e2068d1"
+    },
+    "release-v0-8-10": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9ruk",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.10",
+        "Start date": "2026-10-04",
+        "Target date": "2026-10-04",
+        "Evidence": "Published v0.8.10 at 2026-10-04T05:39:20Z: annotated tag at commit 1dc10ad0 on main, built and published by Gitea Actions run 245 (API id 635; six jobs succeeded, about 22 minutes). Assets: Windows ZIP 77,145,337 B (SHA-256 71ff8ccc...), Linux AppImage 76,306,936 B (247a1474...), Flatpak 54,064,584 B (e0b4f8e7...), Android APK 45,190,754 B (2f83b4de...; CI-built) and macOS DMG 60,451,954 B (4e63e416...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, uploaded by hand). New shader packs for translator version 27 were published before the tag. Published, not accepted: the release holds PR #186 (AMD shadow shaking, #176; checked on one AMD host and an RTX 5080), #187 and #188 (Android GPU driver page and failure reason, #185) and #189 (FSR/DLSS image reuse, #172); no game run was made with the v0.8.10 packages and no reporter confirmation is recorded.",
+        "Source key": "release-v0-8-10"
+      },
+      "title": "Publish the AMD shadow fix, Android GPU driver page and FSR image reuse in v0.8.10",
+      "body_sha256": "9663cbc3ab595a0380dabf959b73d1dae0f76084ca357d650055fe5d80450cb9"
+    },
+    "release-v0-8-15": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9rwI",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.15",
+        "Start date": "2026-10-04",
+        "Target date": "2026-10-04",
+        "Evidence": "Published v0.8.15 at 2026-10-04T11:52:16Z: annotated tag at commit a4162b01 on main, built and published by Gitea Actions run 252 (API id 642; six jobs succeeded, about 23 minutes). Assets: Windows ZIP 77,139,729 B (SHA-256 2a66b74c...), Linux AppImage 76,306,936 B (3517076d...), Flatpak 54,145,680 B (0676115d...), Android APK 45,191,538 B (017f4d1a...; CI-built) and macOS DMG 60,451,359 B (798e2f43...; uploaded by hand, no build record or checks). No shader pack was published (the contracts equal v0.8.10's). Published, not accepted: the only runtime change is PR #197 (cutscene shadow jitter, #183), checked on an RTX 5080 and one AMD host; no game run was made with the v0.8.15 packages, and the #183 reporter reported flicker remaining in other scenes (#212).",
+        "Source key": "release-v0-8-15"
+      },
+      "title": "Publish the cutscene shadow jitter fix in v0.8.15",
+      "body_sha256": "9d557bff8add2c40c6f5610b4ca405f8c35b001707c78fe04511a328fe993fd6"
+    },
+    "release-v0-8-21": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9rxw",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.21",
+        "Start date": "2026-10-04",
+        "Target date": "2026-10-04",
+        "Evidence": "Published v0.8.21 at 2026-10-04T22:02:56Z: annotated tag at commit 37ffd02f on main, built and published by Gitea Actions run 271 (API id 661; six jobs succeeded, about 22 minutes). Assets: Windows ZIP 77,157,364 B (SHA-256 9b3913fa...), Linux AppImage 76,343,800 B (0c349f12...), Flatpak 54,185,136 B (7350ff6f...), Android APK 45,205,570 B (01b46a79...; CI-built) and macOS DMG 60,489,102 B (99fb4d1a...; built on the maintainer's M1 Max from the tag, codesign verify passes with an ad-hoc signature, uploaded by hand, SHA-256 equals the Mac's). No shader pack was published (the contracts equal v0.8.10's). Published, not accepted: the release holds PRs #204 (Sea of Baus sky, fixture test only), #205 (Turnip on Adreno 6xx, no device run), #207, #209, #211 and #213; no game run was made with the v0.8.21 packages and no reporter confirmation is recorded in the release record.",
+        "Source key": "release-v0-8-21"
+      },
+      "title": "Publish the Sea of Baus sky, Turnip, display gamma and HDR changes in v0.8.21",
+      "body_sha256": "b0d483739b8924a889d5e30adfcfc862f2aa746186411b9c8c6ee56185f013bf"
+    },
+    "release-v0-8-30": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9rzA",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-05",
+        "Target date": "2026-10-05",
+        "Evidence": "Published v0.8.30 at 2026-10-05T20:54:12Z: annotated tag at commit f1ebdc05 on main, built and published by Gitea Actions run 295 (API id 687; six jobs succeeded, about 22 minutes). Assets: Windows ZIP 150,316,921 B (SHA-256 be6f6476...; now includes the XeSS libraries), Linux AppImage 76,364,280 B (a00d2e77...), Flatpak 54,125,296 B (005b3923...), Android APK 45,222,430 B (52ae9ee6...; CI-built) and macOS DMG 60,476,104 B (322dd378...; built on the maintainer's M1 Max from the tag, codesign verify passes with an ad-hoc signature, uploaded by hand). No shader pack was published. Published, not accepted: the release holds PRs #218, #224, #227, #225, #222, #223, #228, #229, #230, #233, #236 and #232, mostly checked on one machine; the Android PRs were not run on a device; no game run was made with the v0.8.30 packages and no reporter confirmation is recorded in the release record.",
+        "Source key": "release-v0-8-30"
+      },
+      "title": "Publish the Mansion lights, Android saves, XeSS and Depth of field settings in v0.8.30",
+      "body_sha256": "810865c224b9b884d9cf810c88548835d19daeae6d7080895adaa8a730adaaee"
+    },
+    "issue-176-steam-deck-shadow-flicker": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9r1U",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Shadows",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.10",
+        "Start date": "2026-10-03",
+        "Evidence": "Steam Deck (AMD) report: character and object shadows shake and flicker whatever the settings. PR #186 (merged 2026-10-04T02:19:39Z as eb69e6b6, shipped in v0.8.10, published 05:39:20Z, not accepted) rebuilds the pixel position from SV_Position in the shadow-projection pixel shaders; AMD's interpolated position was off by several texels. Checked by eye on an AMD Radeon 8060S (RADV, Proton Direct3D 12) in Uhra Main Street and on an RTX 5080 (shadows unchanged); LoShadowProjectionShaderTest passes. Not run on a Steam Deck or the reporter's machine. The Issue was closed by the merge at 02:19:40Z. The reporter wrote 'Thanks so much, you solved!' at 2026-10-04T12:52:53Z, after v0.8.10 was published, replying to the maintainer's 'Fixed, releasing'; it names no build and describes no test, so it is recorded as reporter-reported, not as acceptance.",
+        "Source key": "issue-176-steam-deck-shadow-flicker"
+      }
+    },
+    "issue-183-flickering-shadows": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9r4o",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.15",
+        "Start date": "2026-10-03",
+        "Evidence": "Reporter (RTX 4060, Direct3D 12, DLSS Balanced): dark block shadows on characters in real-time cutscenes with TAA or upscaling. PR #197 (merged 2026-10-04T11:28:57Z as 0f8a8bb0, shipped in v0.8.15, published 11:52:16Z, not accepted) stops the 720x720 cutscene pre-pass from becoming the scene's jitter anchor and extends the receiver jitter compensation to all twelve shadow-projection shaders. Checked on an RTX 5080 (DLSS Balanced, cutscene RT_064A) and an AMD Radeon 8060S (Proton, FSR Balanced, RT_064A and RT_063B); LoTemporalJitterTest passes. Not run on the reporter's machine. The Issue was closed by the merge at 11:28:58Z. The reporter wrote at 12:48Z that it seemed to work, then at 13:56Z that flicker continued on v0.8.15 in other scenes, and opened #212 (fixed in v0.8.30). Not accepted.",
+        "Source key": "issue-183-flickering-shadows"
+      }
+    },
+    "issue-185-android-adreno-start-crash": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9r7k",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Platforms",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.21",
+        "Start date": "2026-10-04",
+        "Evidence": "Android (Adreno 650): the game stopped at 'descriptor/push-constant limits below renderer layout'. v0.8.10 (PRs #187 and #188) made the launcher show the failure reason and open the GPU driver page; the reporter confirmed that at 16:13Z but the game still failed on several Turnip drivers. PR #205 (merged 2026-10-04T17:09:26Z as 80d2ae9a, shipped in v0.8.21, published 22:02:56Z, not accepted) sets tu_dont_reserve_descriptor_set before the custom driver loads, because Turnip reserves one of the five descriptor sets the renderer needs. Checked by CI builds only; no Adreno 6xx device run. The Issue was closed by the merge at 17:09:27Z. The reporter answered 'Will do' when asked to retry with T19 and attach a log; no result and no reporter confirmation is recorded.",
+        "Source key": "issue-185-android-adreno-start-crash"
+      }
+    },
+    "issue-203-sea-of-baus-flickering-sky": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9r9s",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.21",
+        "Start date": "2026-10-04",
+        "Evidence": "Reporter (AMD 7900 XTX, Direct3D 12, FSR native AA, 4K): the sky flickers when a Sea of Baus battle starts with TAA, FSR or DLSS. PR #204 (merged 2026-10-04T16:59:02Z as 06c3e657, shipped in v0.8.21, published 22:02:56Z, not accepted) adds the sky shader pair bda41a11/fd46e019 to the jittered sky pairs. Validation is a fixture test on the logged register banks (LoTemporalJitterTest --captured-issue203-sky, fails against the previous map); no run in a Sea of Baus battle. The Issue was closed by the merge at 16:59:03Z. The reporter wrote 'It's fixed, no more flickering!' at 2026-10-05T15:10:59Z, after v0.8.21 was published; it names no build, so it is recorded as reporter-reported, not as acceptance.",
+        "Source key": "issue-203-sea-of-baus-flickering-sky"
+      }
+    },
+    "issue-212-remaining-taa-dlss-flicker": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9r_s",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Temporal rendering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-04",
+        "Evidence": "Reporter (RTX 4060, Direct3D 12, DLSS Balanced, TAA): flicker remaining after #183 in the Old Sorceress' Mansion battle floor and the Tolten cutscene. PR #218 (merged 2026-10-05T00:39:44Z as 87ed5142, shipped in v0.8.30, published 20:54:12Z, not accepted) jitters the per-light floor passes and uses each frame's matching camera for shadow volumes and lights in two-view cutscenes. Checked on an RTX 5080 (DLSS Balanced, TAA, AO) with a diagnostic build: the maintainer watched the cutscene, the courtyard battle ground and the Entrance Hall enemy light in the foreground and accepted them; LoTemporalJitterTest and LoTemporalSceneTest pass. Not covered: AMD, macOS, other two-view shots, the reporter's machine. Closed by the merge at 00:39:45Z; the reporter has not replied.",
+        "Source key": "issue-212-remaining-taa-dlss-flicker"
+      }
+    },
+    "issue-219-enemy-fade-in-first-battle": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-jPis",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-05",
+        "Evidence": "Enemies popped in instead of fading in when targets switched in the first battle (Vulkan). Fading enemies use constant-colour blend factors; the guest ramps the constant but the renderer never passed it to the host, so it stayed 0. PR #225 (merged 2026-10-05T07:50:17Z as e82cb6d1, shipped in v0.8.30, published 20:54:12Z, not accepted) sets the blend constant per draw on Direct3D 12, Vulkan and Metal and applies to every constant-factor blend. Checked on Windows, first battle on Vulkan at 30 FPS: the logged constant ramps 0.11 to 0.99 over about 11 frames at every target switch; no validation-layer errors with TAA. The Metal change compiles only in CI and the maintainer's visual check was listed as pending. Other scenes may now show effects that used to be invisible. The Issue was closed by the merge at 07:50:18Z; no reporter confirmation is recorded.",
+        "Source key": "issue-219-enemy-fade-in-first-battle",
+        "Status": "Done"
+      }
+    },
+    "issue-237-ao-polygons-white-flashes": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sCw",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics quality",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-05",
+        "Evidence": "Polygon outlines showed through white flashes with ambient occlusion on (Low Town memory unlock, enemy attacks). The game's full-screen white fade is drawn before bloom and tone mapping, but AO is applied to the finished scene copy. PR #238 (merged 2026-10-05T23:08:08Z as 6fb29ebd, shipped in v0.8.37, published 2026-10-06T07:46:23Z, not accepted) scales AO strength by the fraction of the scene left visible and skips AO when nothing is left. Checked with the reporter's save on an RTX 5080 (Direct3D 12, GTAO) at the memory unlock only; the enemy-attack flashes were not reproduced; SSAO, Vulkan and other GPUs not checked. The Issue was closed by the merge at 23:08:10Z. On 2026-10-06T17:31:35Z the reporter posted a video and a save showing the outlines still appear during enemy attacks (the boss fight after the door) on v0.8.39; the Issue is still closed and no reply or follow-up fix is recorded.",
+        "Source key": "issue-237-ao-polygons-white-flashes"
+      }
+    },
+    "issue-194-android-save-backup-and-lt": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sE4",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Save & Storage",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Start date": "2026-10-04",
+        "Evidence": "Request: Android save backup (like cloud) and an on-screen LT that starts fast-forward. PR #222 (merged 2026-10-05T06:28:56Z) adds CTRL > Saves, which exports every slot to one ZIP and imports a ZIP of a PC save folder, Xenia userNN folders or the RGH converter layout, replacing a slot only after confirmation; PR #223 (merged 06:57:07Z as 298e9c5c) makes the on-screen LT feed fast-forward. Both shipped in v0.8.30 (published 2026-10-05T20:54:12Z, not accepted). SaveTransferTest (5 JUnit tests) passes and the Android Java sources compile; both PR bodies say not run on a device. This is a ZIP export and import, not cloud sync. The Issue was closed with PR #223 at 06:57:09Z; the maintainer commented 'Coming in the next release' at 06:58:01Z. No reporter reply or confirmation is recorded.",
+        "Source key": "issue-194-android-save-backup-and-lt"
+      }
+    },
+    "issue-239-xbox-360-trainers": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sG0",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Gameplay",
+        "Status": "Done",
+        "Delivery": "Superseded",
+        "Start date": "2026-10-06",
+        "Evidence": "Request (2026-10-06): add Xbox 360 trainers (cheats) to the menu. The maintainer closed the Issue as completed at 2026-10-06T05:03:27Z with the comment 'its already there', meaning the existing cheat functions cover the request. No pull request, commit or release change was made for it, so there is nothing to ship or validate. No reporter reply is recorded.",
+        "Source key": "issue-239-xbox-360-trainers"
+      }
+    },
+    "issue-104-faster-menu-animation": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sIw",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "User interface",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Request (2026-09-30): make the game menu animation about twice as fast; the reporter attached an edited video as an example. No maintainer decision or implementation is recorded.",
+        "Source key": "issue-104-faster-menu-animation"
+      }
+    },
+    "issue-151-animated-options-menu": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sLI",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "User interface",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Request (2026-10-02): add simple animations to the options menu. No maintainer decision or implementation is recorded.",
+        "Source key": "issue-151-animated-options-menu"
+      }
+    },
+    "issue-174-surround-5-1-audio": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sN0",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Audio",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Request (2026-10-03): add 5.1 audio output, since the original mix is 5.1 and Xenia Canary already outputs it. No maintainer decision or implementation is recorded.",
+        "Source key": "issue-174-surround-5-1-audio"
+      }
+    },
+    "issue-198-rumble-intensity": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sQE",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Request (2026-10-04): add an option for the rumble intensity, which is too strong on a DualSense. No maintainer decision or implementation is recorded.",
+        "Source key": "issue-198-rumble-intensity"
+      }
+    },
+    "issue-201-display-choice": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sSU",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Desktop windowing",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Request (2026-10-04): choose the monitor used for windowed and fullscreen modes without changing the primary display. No maintainer decision or implementation is recorded.",
+        "Source key": "issue-201-display-choice"
+      }
+    },
+    "issue-202-gpu-choice": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-9sUI",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Graphics backends",
+        "Status": "Todo",
+        "Delivery": "Not started",
+        "Evidence": "Request (2026-10-04): add a rendering device selector for multi-GPU and Optimus systems, for both Direct3D 12 and Vulkan. No maintainer decision or implementation is recorded.",
+        "Source key": "issue-202-gpu-choice"
       }
     }
   },

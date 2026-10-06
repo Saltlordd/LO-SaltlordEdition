@@ -70,3 +70,46 @@ Receipt for the v0.8.44 release record (published 2026-10-06T17:34:21Z, tag comm
 No record exists yet for the earlier v0.8.7 to v0.8.30 releases or for #237; they are not added here. The README item count was brought to 270 with this apply.
 
 Plan and apply (maintainer's session, 2026-10-06 after publication): the plan reported 3 created, 2 updated, 265 unchanged, 0 conflicts, 36 operations. `issue-172-fsr-scaling-performance` counted as updated rather than created because the Project already held Issue #172 as an item (the Project workflow adds reopened Issues), so the manifest key bound to that item. `--apply` wrote the 5 items and `sync-state.json`; the re-plan afterwards reported 0 operations over 270 items. Readback with `gh project item-list`: the four v0.8.44 items show Status/Delivery/Release as listed above.
+
+## Drift reconciliation after v0.8.44
+
+Receipt for closing the gap between the manifest and the live GitHub state. Manifest and documentation changes only; this pass did not edit `sync-state.json`, did not run the sync tool, touched no Issue, pull request or comment, and ran no game. Checked on 2026-10-06 after the v0.8.44 publication: `items.json` against `gh issue list --state all` (107 Issues, 12 open: #40, #48, #104, #151, #167, #172, #174, #198, #201, #202, #214, #251) and against the Project listing (272 items: 270 managed, the keyless Issue #17 link and the keyless Issue #219 item that the Project workflow added). Issue states, comments, PR merge times and merge commits were read with `gh issue view` and `gh pr view`; releases, run ids, assets and DMG checks come from the `v0.8.7` to `v0.8.30` sections of [STATUS](../STATUS.md), [CHANGELOG](../../CHANGELOG.md) and [MACOS_RELEASE](../MACOS_RELEASE.md). Where a fact is not recorded there (for example a DMG check), the record says so.
+
+| Key | Kind | Status / Delivery / Release |
+| --- | --- | --- |
+| `release-v0-8-7` (new) | Release | Done / Released / v0.8.7 (2026-10-03) |
+| `release-v0-8-10` (new) | Release | Done / Released / v0.8.10 (2026-10-04) |
+| `release-v0-8-15` (new) | Release | Done / Released / v0.8.15 (2026-10-04) |
+| `release-v0-8-21` (new) | Release | Done / Released / v0.8.21 (2026-10-04) |
+| `release-v0-8-30` (new) | Release | Done / Released / v0.8.30 (2026-10-05) |
+| `issue-176-steam-deck-shadow-flicker` (new, #176) | Bug | Done / Released / v0.8.10 |
+| `issue-183-flickering-shadows` (new, #183) | Bug | Done / Released / v0.8.15 |
+| `issue-185-android-adreno-start-crash` (new, #185) | Bug | Done / Released / v0.8.21 |
+| `issue-203-sea-of-baus-flickering-sky` (new, #203) | Bug | Done / Released / v0.8.21 |
+| `issue-212-remaining-taa-dlss-flicker` (new, #212) | Bug | Done / Released / v0.8.30 |
+| `issue-219-enemy-fade-in-first-battle` (new key, #219) | Bug | Done / Released / v0.8.30 |
+| `issue-237-ao-polygons-white-flashes` (new, #237) | Bug | Done / Released / v0.8.37 |
+| `issue-194-android-save-backup-and-lt` (new, #194) | Feature | Done / Released / v0.8.30 |
+| `issue-239-xbox-360-trainers` (new, #239) | Feature | Done / Superseded / none |
+| `issue-104-faster-menu-animation` (new, #104) | Feature | Todo / Not started / none |
+| `issue-151-animated-options-menu` (new, #151) | Feature | Todo / Not started / none |
+| `issue-174-surround-5-1-audio` (new, #174) | Feature | Todo / Not started / none |
+| `issue-198-rumble-intensity` (new, #198) | Feature | Todo / Not started / none |
+| `issue-201-display-choice` (new, #201) | Feature | Todo / Not started / none |
+| `issue-202-gpu-choice` (new, #202) | Feature | Todo / Not started / none |
+| `anti-aliasing-consolidation-remove-experimental-taa` (edited) | Feature | Todo / Not started; Release `Next release` cleared (none); a dated sentence added to the Evidence |
+
+The release records follow `release-v0-8-39`: job timings, tag objects, assets and DMG checks are quoted from the STATUS and MACOS_RELEASE sections. The v0.8.7 and v0.8.15 DMGs have no recorded checks, so their DMG criterion stays unchecked, and the run, tag and assets of v0.8.15 were read after v0.8.21 was published (the body says so). Issue items use the Issue's exact title (two spaces after `[Bug]` for #176 and after `[Feature]` for #194), the Issue created date as Start date, and Evidence under 1,024 characters.
+
+### Judgment calls
+
+- **Live state differs from STATUS on three Issues.** STATUS predates these comments. #176: the reporter wrote "Thanks so much, you solved!" at 2026-10-04T12:52:53Z, after v0.8.10 was published. #203: the reporter wrote "It's fixed, no more flickering!" at 2026-10-05T15:10:59Z, after v0.8.21. Neither names a build or a test, so both are recorded as reporter-reported, not as acceptance (the #175 precedent of the 2026-10-03 receipt). #237: on 2026-10-06T17:31:35Z the reporter posted a video and a save showing the outlines still appear during enemy attacks on v0.8.39 (the boss fight after the door). The Issue is still closed. The item stays Done / Released / v0.8.37 because the maintainer closed it (the #183 precedent, whose reporter also reported remaining flicker), and the Evidence carries the follow-up. Whether to reopen #237 or open a follow-up is the maintainer's decision. STATUS and the roadmaps still say the reporter has not replied for these three.
+- **#239.** The maintainer closed it at 2026-10-06T05:03:27Z with "its already there." and no PR. No usable precedent exists: the #114, #116 and #121 closures of the 2026-10-03 receipt followed a fix, `issue-85-minimap-toggle` shipped a README line, and `issue-49` was Done / Deferred with a code change. So the item is Feature / Done / Superseded with no Release; the Evidence says the existing cheat functions cover the request and no change was made.
+- **#194** is a Feature in Save & Storage: PR #222 (save ZIP export and import) and PR #223 (on-screen LT) shipped in v0.8.30. It is a ZIP export and import, not cloud sync, and no device run is recorded.
+- **#219.** The Project already holds Issue #219 as a keyless item (the Project workflow adds Issues). The sync binds the new key to that item, so it counts as an update, not a creation, and the item's Project field values will be set to the desired ones.
+- **#90** (closed 2026-10-03T06:50:52Z: HDR passed, save states postponed) gets no new item; it stays covered by the drafts `hdr-output-tonemapping` and `save-state-support`.
+- **Open requests without items** (#104, #151, #174, #198, #201, #202) follow `issue-167-cutscene-audio-desync`: Todo / Not started, no Release, no dates, and "No maintainer decision or implementation is recorded."
+- **Left as they are.** `issue-199-android-fullscreen` keeps Release v0.8.37 (Release is the first release that carried the delivery, the convention of the "HDR Release" note in the 2026-10-03 receipt; the PR #256 regression fix in v0.8.44 is already in its Evidence). `issue-114-container-enemy-softlock` keeps Awaiting validation / Released / v0.8.37 although the Issue was closed 2026-10-06T07:11:17Z (closure is not reporter acceptance). `native-macos-platform` and `hdr-output-tonemapping` keep Release v0.7.35 (same convention).
+- **`anti-aliasing-consolidation-remove-experimental-taa`.** The "TAA (Experimental)" option is still in `LostOdysseyRecomp/settings/menu.cpp`, so it stays Todo / Not started. Its Release text "Next release" was stale after thirteen releases. The maintainer cleared the Project's Release field directly (`gh project item-edit --clear`, about 2026-10-06T18:10Z; the readback shows no Release) and set the last-synced value in `sync-state.json` to null. `items.json` now has `Release: null` (the sync tool skips null) and a dated sentence in the Evidence; to stay under the field limit the Evidence lost the parenthetical on the capture header's version.
+
+Plan and apply (maintainer's session, 2026-10-06, after the Release clear above): the plan reported 19 created, 2 updated, 269 unchanged, 0 conflicts, 171 operations. The 19 creations are the five release drafts, seven Issue items (#176, #183, #185, #203, #212, #237, #194), #239 and the six open requests; the two updates are #219 (bound to the keyless Issue item the Project already held) and the anti-aliasing item's Evidence (its cleared Release produces no operation because the tool skips null). `--apply` wrote them; the re-plan afterwards reported 0 operations over 290 items. Readback with `gh project item-list`: 291 Project items (290 managed plus the keyless Issue #17 link), and the new items show the Status / Delivery / Release values listed above. Live reporter replies read during this pass and copied into the Evidence fields: #176 (2026-10-04 12:52 UTC, solved, build not named), #203 (2026-10-05 15:10 UTC, fixed, build not named) and #237 (2026-10-06 17:31 UTC, a video and a save showing the outlines still appearing during enemy attacks on v0.8.39; the Issue stays closed, the item stays Done / Released / v0.8.37, and reopening or a follow-up is the maintainer's call).
