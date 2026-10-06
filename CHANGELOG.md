@@ -4,7 +4,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
-## Unreleased / 未发布
+## [v0.8.44](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44) — 2026-10-06
 
 ### English
 
