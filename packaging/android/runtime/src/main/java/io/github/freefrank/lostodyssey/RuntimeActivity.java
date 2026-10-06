@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.view.Window;
 import android.view.WindowManager;
 import android.widget.RelativeLayout;
+import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -40,6 +41,14 @@ public final class RuntimeActivity extends SDLActivity {
         PlayerLogs.installCrashHandler(this);
         super.onCreate(savedInstanceState);
         hideSystemBars();
+        // SDLActivity.onCreate posts setWindowStyle(false), which shows the bars
+        // again once this method returns; hide after that command has run, and
+        // whenever the bars come back later (SDL window-style changes, a swipe).
+        bootHandler.post(this::hideSystemBars);
+        ViewCompat.setOnApplyWindowInsetsListener(getWindow().getDecorView(), (view, insets) -> {
+            if (insets.isVisible(WindowInsetsCompat.Type.systemBars())) scheduleHideSystemBars();
+            return insets;
+        });
         GameStorage.prepare(this);
         GpuDriverStore.markBootPending(this);
         if (mLayout != null && !mBrokenLibraries) {
@@ -115,6 +124,15 @@ public final class RuntimeActivity extends SDLActivity {
         controller.hide(WindowInsetsCompat.Type.systemBars());
     }
 
+    /** Bars shown by a swipe stay for a moment, like Android's own transient bars. */
+    private static final long HIDE_BARS_AFTER_MS = 2500;
+    private final Runnable hideSystemBarsRunnable = this::hideSystemBars;
+
+    private void scheduleHideSystemBars() {
+        bootHandler.removeCallbacks(hideSystemBarsRunnable);
+        bootHandler.postDelayed(hideSystemBarsRunnable, HIDE_BARS_AFTER_MS);
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -136,6 +154,7 @@ public final class RuntimeActivity extends SDLActivity {
     protected void onDestroy() {
         if (touchControls != null) touchControls.clearTouches();
         bootHandler.removeCallbacks(bootSettled);
+        bootHandler.removeCallbacks(hideSystemBarsRunnable);
         // A normal exit is not a failed start, however short it was.
         GpuDriverStore.clearBootPending(this);
         super.onDestroy();
