@@ -54,3 +54,19 @@ Receipt for the v0.8.39 release record (published 2026-10-06T08:48:26Z, tag comm
 No Issue is linked to PR #248 or #249, so no Issue record changed. #237 and the v0.8.7 to v0.8.30 release records are still not in the manifest.
 
 Plan, `python -B tools/project_management/sync.py` (plan only, `--apply` not run): 2 created, 1 updated, 263 unchanged, 0 conflicts, 24 operations. The two creations are `release-v0-8-39` and `pipeline-first-use-stalls`; the update is `shader-delivery-v080`. The apply and the readback are for the maintainer's session.
+
+## v0.8.44 release
+
+Receipt for the v0.8.44 release record (published 2026-10-06T17:34:21Z, tag commit `504e7cd0`, not accepted). Manifest changes only; `sync-state.json` was not edited, the sync tool was not run (no plan, no `--apply`), the Project was not written, no Issue, pull request or comment was touched, and no game was run. The live release state and asset digests were read with `gh release view v0.8.44` and `git ls-remote`; the PR merge times and Issue states with `gh pr view` and `gh issue view`; the PR bodies of #250, #252, #254, #255 and #256 with `gh pr view`.
+
+| Key | Change |
+| --- | --- |
+| `release-v0-8-44` (new) | Kind Release, Done / Released / v0.8.44, 2026-10-06. Publication facts, the Gitea run (743), the five assets with sizes and SHA-256 values, the macOS image checks, the six PRs included and the open acceptance items. The shape follows `release-v0-8-39` |
+| `issue-253-android-ctrl-movable` (new) | Feature, Input, Done / Released / v0.8.44. The Issue was closed by the PR #254 merge at 16:37:44Z; checked on one tablet only; no reporter confirmation |
+| `issue-251-android-iso-importer-error` (new) | Bug, Installation, Awaiting validation / Released / v0.8.44. The Issue is open; the cause is a copy cut at 4 GB by FAT32 storage, so v0.8.44 only improves the error message; the maintainer replied after the release |
+| `issue-172-fsr-scaling-performance` (new) | Bug, Graphics performance, In Progress / Released / v0.8.44. PR #189 (v0.8.10) and PR #250 (v0.8.44) shipped; the Issue stays open for further work. Delivery is "Released" for the shipped PRs while Status stays "In Progress" because the Issue is open; this is a judgment call, change it if the Project's convention differs |
+| `issue-199-android-fullscreen` | Evidence extended with the regression (bars returned after SDL's window-style command) and PR #256 (v0.8.44). Status Done and Release v0.8.37 are unchanged |
+
+No record exists yet for the earlier v0.8.7 to v0.8.30 releases or for #237; they are not added here. The Project item count in the README text above (260 reviewed managed items) predates these records and was left as written until the maintainer's sync updates `sync-state.json`.
+
+Plan and apply: not run. The expected plan is 4 created and 1 updated; the apply and the readback are for the maintainer's session.

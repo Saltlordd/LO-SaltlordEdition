@@ -326,6 +326,21 @@ are not re-read here. No game run with the packages is recorded; see
 [STATUS](../STATUS.md#v0839-published--2026-10-06). A green run shows that the
 pipeline works, not that the release has been played or accepted.
 
+Thirteenth release, 2026-10-06: v0.8.44 (tag commit `504e7cd0`) was built and
+published by [run 743](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/743),
+started when the tag was pushed at about 17:05Z. The run completed at about
+17:34Z with status completed and conclusion success, which published the release
+at 2026-10-06T17:34:21Z; about 29 minutes passed from the tag push to the public
+release. Per-job timings were not read for this record. The macOS disk image
+was built on the Mac from the tag and uploaded to the draft by hand (GitHub
+dates the asset 17:09:34Z), before the CI packages (dated 17:33:15Z). No shader
+pack was published: the translator contracts equal those of v0.8.30 (see the
+[pack reference](../PORTABLE_SHADER_PACK.md#update-2026-10-06-later-still-no-new-packs-for-v0844)).
+The run status and timestamps were read through the Gitea API by the
+maintainer's session and are not re-read here. No game run with the packages is
+recorded; see [STATUS](../STATUS.md#v0844-published--2026-10-06). A green run
+shows that the pipeline works, not that the release has been played or accepted.
+
 Differences from the GitHub release workflow:
 
 - Flatpak needs bubblewrap, which needs a privileged container, hence the

@@ -36,6 +36,32 @@ python3 tools/package_macos.py --build <build dir> --output <dir> --version v0.8
   accepts the four packages built by CI (Windows ZIP, AppImage, Flatpak and the
   Android APK) and, at most, this one disk image beside them.
 
+### v0.8.44 image
+
+The v0.8.44 release was published at 2026-10-06T17:34:21Z ([release
+record](STATUS.md#v0844-published--2026-10-06)). The image was built on the
+maintainer's M1 Max from tag `v0.8.44` (`504e7cd0`) with
+`validation/mac-release-build.sh v0.8.44 v0.8.44 tag`, copied to the PC and
+uploaded to the draft release by hand with `gh release upload` (GitHub dates the
+asset 2026-10-06T17:09:34Z; the four CI packages are dated 17:33:15Z). GitHub
+lists `LostOdysseyRecomp-macos-arm64-v0.8.44.dmg` at 60,532,515 bytes with
+SHA-256 `ff940a2bbdbefc63d3769415811dc34ac9f686f8f3932c5b2ba3cba1fa476345`,
+which equals the SHA-256 computed on the Mac and on the PC copy. Checks on the
+built file:
+
+- `hdiutil verify` reports the image VALID.
+- `codesign --verify --deep --strict` passes on the app. The signature is ad hoc.
+- The `Info.plist` `CFBundleShortVersionString` is `0.8.44` and
+  `LSMinimumSystemVersion` is `15.0`.
+
+`validation/mac-pack-check.sh` at `504e7cd0` listed shader packs for both runtime
+contracts, unchanged since v0.8.30 (see the [pack reference](PORTABLE_SHADER_PACK.md#update-2026-10-06-later-still-no-new-packs-for-v0844)).
+
+Limits: no game run was made with this image, it was not installed from the
+download, and no Gatekeeper check is recorded here. These facts come from the
+maintainer's Mac session and the GitHub asset metadata; the check output was not
+re-run for this record.
+
 ### v0.8.39 image
 
 The v0.8.39 release was published at 2026-10-06T08:48:26Z ([release

@@ -6907,7 +6907,7 @@
         "Release": "v0.8.37",
         "Start date": "2026-10-04",
         "Target date": null,
-        "Evidence": "On Android the status and navigation bars stayed visible in game (the default Windowed mode never reaches SDL's immersive code). PR #240 (merged 2026-10-06T05:49:54Z, shipped in v0.8.37, published 07:46:23Z, not accepted) hides the bars with sticky-immersive behaviour and draws under the display cutout (short edges on Android 9 and 10, always on 11 and later). Validation: Java build, 31 unit tests and a debug APK in WSL; device check on a Lenovo TB321FU (no cutout, gesture navigation): status bar gone from the first frame, a swipe shows the bars transiently. Not covered: the cutout layout, three-button navigation and the reporter's Odin 2 Portal. The Issue was closed with the PR merge at 05:49:55Z; the maintainer asked the reporter to confirm on the Odin 2 Portal. No reporter confirmation is recorded."
+        "Evidence": "On Android the status and navigation bars stayed visible in game. PR #240 (merged 2026-10-06T05:49:54Z, shipped in v0.8.37, not accepted) hides the bars with sticky-immersive behaviour and draws under the display cutout. Checked on a Lenovo TB321FU (no cutout, gesture navigation). The Issue was closed with the PR merge at 05:49:55Z; the maintainer asked the reporter to confirm on the Odin 2 Portal. Regression: players reported on Reddit that v0.8.37 and v0.8.39 show the bars again (SDL posts a window-style command that undoes the hide); PR #256 (merged 2026-10-06T14:26:13Z) fixes it and shipped in v0.8.44, checked on the tablet only (no cutout, no three-button navigation). No reporter confirmation is recorded."
       }
     },
     {
@@ -6947,6 +6947,76 @@
       ],
       "source_lines": [],
       "record_type": "backlog"
+    },
+    {
+      "key": "release-v0-8-44",
+      "title": "Publish the FSR trim, Android CTRL button and importer message in v0.8.44",
+      "body": "<!-- lo-project:release-v0-8-44 -->\n\nv0.8.44 于 2026-10-06T17:34:21Z 发布。它不是草稿或预发布版本，是当前最新的正式版本，包含 v0.8.39 之后合并到 `main` 的全部工作。发布不等于验收，维护者尚未验收 v0.8.44。\n\n## Scope and completion criteria\n\n- [x] 带注释的 tag `v0.8.44`（tag 对象 `6bd85468`）指向 `main` 上的提交 `504e7cd0`（`docs: prepare v0.8.44 release notes`；前一个提交 `353d8236` 把源码版本号改为 0.8.44，之前是 PR #257 的合并 `0f278747`）\n- [x] Gitea Actions [run 743](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/743) 构建并发布 Windows ZIP、Linux AppImage、Linux Flatpak 和 Android APK：run 状态 completed、结论 success，tag 在约 17:05Z 推送，17:34Z 完成，从推送 tag 到公开约 29 分钟（没有读取各 job 的耗时）\n- [x] 在维护者的 M1 Max 上用 `validation/mac-release-build.sh v0.8.44 v0.8.44 tag` 从 tag 构建 macOS 磁盘映像（DMG）：`hdiutil verify` 有效，`codesign --verify --deep --strict` 通过（ad hoc 签名），`CFBundleShortVersionString` 为 0.8.44，`LSMinimumSystemVersion` 为 15.0；拷到 PC 后 SHA-256 相同，用 `gh release upload` 手工上传到草稿（GitHub 记录 17:09:34Z），早于 CI 安装包，不是 CI 产物\n- [x] 着色器包没有变化：Mac 上 `validation/mac-pack-check.sh` 对 504e7cd0 列出与 v0.8.30 相同的两个契约（d3d12 `48cf14e3…`，vulkan `a7d1ab94…`），已发布的索引列出所有渲染器的包，没有发布新包\n- [ ] 取得玩家对 v0.8.44 的确认（#251 仍开放，#172 因后续工作仍开放）\n- [ ] 维护者验收 v0.8.44\n\n## Delivery verification\n\n发布页 [v0.8.44](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44) 的五个附件（大小和 SHA-256 为 GitHub API 在 2026-10-06 发布后读取的值）：\n\n| 附件 | 字节数 | SHA-256 |\n| --- | ---: | --- |\n| `LostOdysseyRecomp-windows-x64-v0.8.44.zip` | 150,342,566 | `a64061262081ec01c46c376db676f41fb13a91f61991540196fc75602d78f980` |\n| `LostOdysseyRecomp-linux-x64-v0.8.44.AppImage` | 76,343,800 | `2e17fb6dfe6d5415c1dbab69c9004f62ea7736b4e71b3efb0dd441c655624638` |\n| `LostOdysseyRecomp-linux-x64-v0.8.44.flatpak` | 54,161,960 | `cdd28472a52e76dec6c25e35a3a7bdedce54ae44973300f2c0edd5666564dd71` |\n| `LostOdysseyRecomp-android-arm64-v0.8.44.apk` | 45,263,798 | `a5010e947c4f56ded87221676de2237c79bd67ecfcffee5858f95aabf3e2ed0d` |\n| `LostOdysseyRecomp-macos-arm64-v0.8.44.dmg` | 60,532,515 | `ff940a2bbdbefc63d3769415811dc34ac9f686f8f3932c5b2ba3cba1fa476345` |\n\nDMG 的 SHA-256 与 Mac 上和 PC 上拷贝计算出的值相同。四个 CI 安装包没有下载、解包或运行过。APK 由 CI 构建，用项目的调试密钥库签名，是实验性的。\n\n## 本版本包含的工作\n\n`git log --first-parent v0.8.39..v0.8.44` 中合并的 PR：\n\n- 升频：[PR #250](https://github.com/freefrank/LostOdysseyRecomp/pull/250)（2026-10-06T10:45:23Z 合并）FSR、DLSS 和 XeSS 每帧少做一次全分辨率复制和合成（#172，仍开放；在 psvita 上带功耗上限测过）\n- 导入器：[PR #252](https://github.com/freefrank/LostOdysseyRecomp/pull/252)（13:52:25Z）和 [PR #255](https://github.com/freefrank/LostOdysseyRecomp/pull/255)（14:04:26Z）说明不完整的光盘镜像（#251，仍开放；在平板上用合成镜像检查）\n- Android 系统栏：[PR #256](https://github.com/freefrank/LostOdysseyRecomp/pull/256)（14:26:13Z）让状态栏和导航栏保持隐藏（#199 的回归修复；只在一台平板上检查）\n- Android CTRL 按钮：[PR #254](https://github.com/freefrank/LostOdysseyRecomp/pull/254)（16:37:43Z）可移动、跟随透明度、空闲时缩到屏幕边缘（#253，已关闭），[PR #257](https://github.com/freefrank/LostOdysseyRecomp/pull/257)（17:01:55Z）把顶部的小块缩到物理上边缘（只在一台平板上检查）\n- 文档：发布 v0.8.39 的记录（`21c3e4ab`）和 v0.8.44 的发布说明\n\n各项的验证范围和限制记录在 docs/STATUS.md。\n\n## Validation and acceptance\n\n没有用 v0.8.44 安装包本身做过游戏运行，macOS 映像也没有从下载安装。没有玩家或维护者的游戏内验收。维护者尚未验收 v0.8.44；发布不是玩家确认，也不是维护者验收。\n\nstage_detail: Published; not accepted\n\n## Sources\n\n- [v0.8.44 发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44)\n- [v0.8.39…v0.8.44 对比](https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.39...v0.8.44)\n- [Gitea Actions run 743](https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/743)\n- [CHANGELOG.md](https://github.com/freefrank/LostOdysseyRecomp/blob/504e7cd01837611d1eb7be014670ba405631ade4/CHANGELOG.md)\n",
+      "issue_url": null,
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-06",
+        "Target date": "2026-10-06",
+        "Evidence": "Published v0.8.44 at 2026-10-06T17:34:21Z: latest release, annotated tag at commit 504e7cd0 on main, built and published by Gitea Actions run 743 (completed, success; about 29 minutes from the tag push). Assets: Windows ZIP 150,342,566 B (SHA-256 a6406126...), Linux AppImage 76,343,800 B (2e17fb6d...), Flatpak 54,161,960 B (cdd28472...), Android APK 45,263,798 B (a5010e94...; CI-built) and macOS DMG 60,532,515 B (ff940a2b...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, minimum macOS 15.0, uploaded by hand). No shader pack was published. Published, not accepted: PRs #250, #252, #254, #255, #256 and #257; the Android changes were checked on one tablet only; no game run with the v0.8.44 packages and no in-game acceptance is recorded."
+      },
+      "source_refs": [
+        "https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44",
+        "https://github.com/freefrank/LostOdysseyRecomp/compare/v0.8.39...v0.8.44",
+        "https://git.zkx.ca/freefrank/LostOdysseyRecomp/actions/runs/743",
+        "504e7cd01837611d1eb7be014670ba405631ade4",
+        "CHANGELOG.md"
+      ],
+      "source_lines": [],
+      "record_type": "backlog"
+    },
+    {
+      "key": "issue-253-android-ctrl-movable",
+      "title": "[Feature] CTRL icon can be moved and change opacity",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/253",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-06",
+        "Target date": null,
+        "Evidence": "Request (2026-10-06): move the Android on-screen CTRL button and make it follow the opacity setting. PR #254 (merged 2026-10-06T16:37:43Z, shipped in v0.8.44, published 17:34:21Z, not accepted) makes it draggable in the touch-layout editor, saved with the layout, and the full button follows the opacity slider; it slides to the nearest screen edge after 4 s idle and a tap on the tab brings it back (setting Auto-hide CTRL button, on by default). PR #257 retracts the top tab to the physical top edge. Validation: Android unit tests pass; behaviour checked on a Lenovo TB321FU with debug APK builds. Not covered: other devices and screen shapes, the reporter's device. The Issue was closed by the PR #254 merge at 16:37:44Z. No reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-251-android-iso-importer-error",
+      "title": "[Bug] Android: ISO importer error",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/251",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Installation",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-06",
+        "Target date": null,
+        "Evidence": "On Android all four USA/EU ISOs failed with 'File extends beyond image' although they work on the PC. On the maintainer's tablet a synthetic complete disc 1 image (5.98 GB) imported fine and a copy cut at 4,294,967,295 bytes (what FAT32 leaves) failed with the reporter's message, so the cause is an incomplete copy, not an importer bug. PRs #252 and #255 (merged 2026-10-06T13:52:25Z and 14:04:26Z, shipped in v0.8.44, published 17:34:21Z, not accepted) name the file size, the missing bytes and the likely cause, and wrap long scan errors. The wrapping was checked with a preview render test, not on a device. The Issue is open; the maintainer replied after the release. No reporter confirmation is recorded."
+      }
+    },
+    {
+      "key": "issue-172-fsr-scaling-performance",
+      "title": "[Bug] FSR 3.1 scaling & performance issue",
+      "issue_url": "https://github.com/freefrank/LostOdysseyRecomp/issues/172",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics performance",
+        "Status": "In Progress",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-03",
+        "Target date": null,
+        "Evidence": "Reported on v0.8.0 (RX 6600, 4K, GTAO): FSR Quality, Balanced and Performance all ran at about the same frame rate. PR #189 (shipped in v0.8.10) stopped recreating the SR images every frame; PR #250 (merged 2026-10-06T10:45:23Z, shipped in v0.8.44, published 17:34:21Z, not accepted) skips one full-resolution copy and blend per frame (FSR encode writes the output directly, the composite draws in place) and is measured on one AMD host (psvita) with power caps. The Issue is open (reopened) for further work. Not covered: the reporter's machine, macOS MetalFX and Android. No reporter confirmation is recorded."
+      }
     }
   ]
 }
