@@ -9,10 +9,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 ### English
 
 - FSR, DLSS and XeSS upscaling skip one full-resolution copy and blend per frame, which makes them a little faster at high output resolutions (#172).
+- Android: the on-screen CTRL button slides to the screen edge when it is not used; tap the tab to bring it back.
 
 ### 简体中文
 
 - FSR、DLSS 和 XeSS 超分每帧少做一次全分辨率复制和合成，在高输出分辨率下略快一些（#172）。
+- Android：屏幕上的 CTRL 按钮不用时会缩到屏幕边缘，点一下边缘的小块即可恢复。
 
 ## [v0.8.39](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.39) — 2026-10-06
 

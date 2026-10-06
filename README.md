@@ -79,7 +79,7 @@ The app is not notarized, so macOS blocks the first launch. Try to open it once,
 
 - **Game data:** opening the app creates `Android/data/io.github.freefrank.lostodyssey/files/game/`. Copy your extracted `disc1`–`disc4` into it over USB (about 20 GB), or import disc images on the device with **Game folder → Import disc images…**. **CTRL → Game folder** can also point the game at any folder or an SD card.
 - **Qualcomm devices:** the **GPU driver** page opens before the first start, because the phone's own driver draws some menu text invisible. Download a Turnip driver there. If a driver cannot run the game, the page tells you why.
-- **Controls:** a controller hides the touch controls automatically. **CTRL** opens their size, opacity and layout settings.
+- **Controls:** a controller hides the touch controls automatically. **CTRL** opens their size, opacity and layout settings. When you leave it alone for a few seconds, CTRL slides to the screen edge; tap the small tab to bring it back.
 - **Updates:** the app checks for updates at startup; a new APK installs over the old one and keeps your saves.
 - **Saves:** **CTRL → Saves** exports them to a ZIP and imports ZIPs from a PC, Xenia or the RGH save converter.
 - **Bug reports:** attach the files from `Android/data/io.github.freefrank.lostodyssey/files/logs/` ([how](docs/INSTALLING.md#android-logs)).
