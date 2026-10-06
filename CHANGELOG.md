@@ -9,10 +9,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 ### English
 
 - Fixed geometry outlines showing through white screen fades with ambient occlusion on (#237).
+- Android: the game now renders on Mali GPUs (MediaTek Helio / Dimensity, Exynos), which cannot create BC-compressed textures (#214).
 
 ### 简体中文
 
 - 修复开启环境光遮蔽时，画面变白时透出几何轮廓的问题（#237）。
+- Android：在不支持 BC 压缩纹理的 Mali GPU（MediaTek Helio / Dimensity、Exynos）上现在可以正常显示画面（#214）。
 
 ## [v0.8.30](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30) — 2026-10-05
 

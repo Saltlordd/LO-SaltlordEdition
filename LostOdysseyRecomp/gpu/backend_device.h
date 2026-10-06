@@ -13,6 +13,7 @@ inline Capabilities Inspect(Backend backend, plume::RenderDevice* device) {
     if (!device) return c;
     c.device = true;
     c.geometryShader = device->getCapabilities().geometryShader;
+    c.textureCompressionBC = backend != Backend::Vulkan;
 #ifdef _WIN32
     if (backend == Backend::D3D12) {
         auto* native = static_cast<plume::D3D12Device*>(device);
@@ -34,6 +35,7 @@ inline Capabilities Inspect(Backend backend, plume::RenderDevice* device) {
         vkGetPhysicalDeviceFeatures(native->physicalDevice, &features);
         // Plume enables the returned base features in vkCreateDevice.
         c.shaderInt64 = features.shaderInt64 != VK_FALSE;
+        c.textureCompressionBC = features.textureCompressionBC != VK_FALSE;
         c.boundSets = limits.maxBoundDescriptorSets;
         c.samplers = std::min(limits.maxPerStageDescriptorSamplers, limits.maxDescriptorSetSamplers);
         c.sampledImages = std::min(limits.maxPerStageDescriptorSampledImages, limits.maxDescriptorSetSampledImages);
