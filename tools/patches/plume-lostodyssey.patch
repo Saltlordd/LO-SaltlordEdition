@@ -1,5 +1,5 @@
 diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
-index 2cdcf18..f8d40aa 100644
+index 2cdcf18..29cddfd 100644
 --- a/plume_d3d12.cpp
 +++ b/plume_d3d12.cpp
 @@ -6,10 +6,14 @@
@@ -818,12 +818,41 @@ index 2cdcf18..f8d40aa 100644
          assert(desc.pipelineLayout != nullptr);
  
          topology = toD3D12(desc.primitiveTopology);
-@@ -3199,7 +3510,14 @@ namespace plume {
+@@ -3199,7 +3510,43 @@ namespace plume {
  
          psoDesc.InputLayout = { inputElements.data(), UINT(inputElements.size()) };
  
 -        device->d3d->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&d3d));
++        // Library entries are named after the caller's state key and the shader
++        // bytecode, so a translator change never reuses a stale name.
++        ID3D12PipelineLibrary *library = (desc.cacheKey != 0) ? device->pipelineLibrary : nullptr;
++        wchar_t libraryName[24] = {};
++        if (library != nullptr) {
++            uint64_t name = desc.cacheKey;
++            for (const D3D12_SHADER_BYTECODE *code : { &psoDesc.VS, &psoDesc.PS, &psoDesc.GS }) {
++                const uint8_t *bytes = static_cast<const uint8_t *>(code->pShaderBytecode);
++                for (SIZE_T i = 0; i < code->BytecodeLength; i++) {
++                    name = (name ^ bytes[i]) * 0x100000001B3ULL;
++                }
++
++                name = (name ^ code->BytecodeLength) * 0x100000001B3ULL;
++            }
++
++            swprintf(libraryName, 24, L"%016llx", static_cast<unsigned long long>(name));
++            if (SUCCEEDED(library->LoadGraphicsPipeline(libraryName, &psoDesc, IID_PPV_ARGS(&d3d)))) {
++                return;
++            }
++
++            d3d = nullptr;
++        }
++
 +        const HRESULT res = device->d3d->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&d3d));
++        if (SUCCEEDED(res) && (library != nullptr)) {
++            // E_INVALIDARG when another thread stored the same name first.
++            std::lock_guard<std::mutex> lock(device->pipelineLibraryMutex);
++            library->StorePipeline(libraryName, d3d);
++        }
++
 +        if (FAILED(res)) {
 +            PLUME_LOG_ERROR("D3D12", "CreateGraphicsPipelineState", LogErrorDomain::HResult, res,
 +                "vs_bytes=%llu ps_bytes=%llu gs_bytes=%llu render_targets=%u samples=%u flags=0x%X",
@@ -834,7 +863,7 @@ index 2cdcf18..f8d40aa 100644
      }
  
      D3D12GraphicsPipeline::~D3D12GraphicsPipeline() {
-@@ -3393,21 +3711,21 @@ namespace plume {
+@@ -3393,21 +3740,21 @@ namespace plume {
              const D3D12RaytracingPipeline *previousRaytracingPipeline = static_cast<const D3D12RaytracingPipeline *>(previousPipeline);
              HRESULT res = device->d3d->AddToStateObject(&pipelineDesc, previousRaytracingPipeline->stateObject, IID_PPV_ARGS(&stateObject));
              if (FAILED(res)) {
@@ -859,7 +888,7 @@ index 2cdcf18..f8d40aa 100644
              return;
          }
  
-@@ -3621,13 +3939,14 @@ namespace plume {
+@@ -3621,13 +3968,14 @@ namespace plume {
          ID3DBlob *errorBlob;
          HRESULT res = D3D12SerializeRootSignature(&rootSignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_0, &signatureBlob, &errorBlob);
          if (FAILED(res)) {
@@ -876,7 +905,7 @@ index 2cdcf18..f8d40aa 100644
              return;
          }
      }
-@@ -3673,18 +3992,16 @@ namespace plume {
+@@ -3673,18 +4021,16 @@ namespace plume {
              const D3D_SHADER_MODEL supportedShaderModels[] = { D3D_SHADER_MODEL_6_0 };
  #       endif
              D3D12_FEATURE_DATA_SHADER_MODEL dataShaderModel = {};
@@ -902,7 +931,7 @@ index 2cdcf18..f8d40aa 100644
              }
  
              // Determine if the device supports sample locations.
-@@ -3754,6 +4071,7 @@ namespace plume {
+@@ -3754,6 +4100,7 @@ namespace plume {
                  adapter = adapterOption;
                  d3d = deviceOption;
                  shaderModel = dataShaderModel.HighestShaderModel;
@@ -910,7 +939,7 @@ index 2cdcf18..f8d40aa 100644
                  capabilities.geometryShader = true;
                  capabilities.raytracing = rtSupportOption;
                  capabilities.raytracingStateUpdate = rtStateUpdateSupportOption;
-@@ -3790,7 +4108,7 @@ namespace plume {
+@@ -3790,7 +4137,7 @@ namespace plume {
          }
  
          if (d3d == nullptr) {
@@ -919,7 +948,7 @@ index 2cdcf18..f8d40aa 100644
              return;
          }
  
-@@ -3806,7 +4124,7 @@ namespace plume {
+@@ -3806,7 +4153,7 @@ namespace plume {
  
          res = D3D12MA::CreateAllocator(&allocatorDesc, &allocator);
          if (FAILED(res)) {
@@ -928,7 +957,7 @@ index 2cdcf18..f8d40aa 100644
              release();
              return;
          }
-@@ -3860,6 +4178,8 @@ namespace plume {
+@@ -3860,6 +4207,8 @@ namespace plume {
          capabilities.bufferDeviceAddress = true;
          capabilities.presentWait = true;
          capabilities.queryPools = true;
@@ -937,7 +966,7 @@ index 2cdcf18..f8d40aa 100644
          capabilities.maxTextureSize = 16384;
          capabilities.preferHDR = description.dedicatedVideoMemory > (512 * 1024 * 1024);
          capabilities.samplerMirrorClampToEdge = true;
-@@ -3881,7 +4201,7 @@ namespace plume {
+@@ -3881,7 +4230,7 @@ namespace plume {
          std::unique_ptr<D3D12CommandQueue> timestampCommandQueue = std::make_unique<D3D12CommandQueue>(this, RenderCommandListType::DIRECT);
          res = timestampCommandQueue->d3d->GetTimestampFrequency(&timestampFrequency);
          if (FAILED(res)) {
@@ -946,7 +975,7 @@ index 2cdcf18..f8d40aa 100644
          }
      }
  
-@@ -3894,7 +4214,10 @@ namespace plume {
+@@ -3894,7 +4243,10 @@ namespace plume {
      }
  
      std::unique_ptr<RenderDescriptorSet> D3D12Device::createDescriptorSet(const RenderDescriptorSetDesc &desc) {
@@ -958,7 +987,7 @@ index 2cdcf18..f8d40aa 100644
      }
  
      std::unique_ptr<RenderShader> D3D12Device::createShader(const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format) {
-@@ -3906,11 +4229,15 @@ namespace plume {
+@@ -3906,11 +4258,15 @@ namespace plume {
      }
  
      std::unique_ptr<RenderPipeline> D3D12Device::createComputePipeline(const RenderComputePipelineDesc &desc) {
@@ -976,7 +1005,7 @@ index 2cdcf18..f8d40aa 100644
      }
  
      std::unique_ptr<RenderPipeline> D3D12Device::createRaytracingPipeline(const RenderRaytracingPipelineDesc &desc, const RenderPipeline *previousPipeline) {
-@@ -3918,20 +4245,28 @@ namespace plume {
+@@ -3918,20 +4274,28 @@ namespace plume {
      }
  
      std::unique_ptr<RenderCommandQueue> D3D12Device::createCommandQueue(RenderCommandListType type) {
@@ -1009,7 +1038,7 @@ index 2cdcf18..f8d40aa 100644
      }
  
      std::unique_ptr<RenderAccelerationStructure> D3D12Device::createAccelerationStructure(const RenderAccelerationStructureDesc &desc) {
-@@ -3943,15 +4278,21 @@ namespace plume {
+@@ -3943,15 +4307,21 @@ namespace plume {
      }
  
      std::unique_ptr<RenderPipelineLayout> D3D12Device::createPipelineLayout(const RenderPipelineLayoutDesc &desc) {
@@ -1034,7 +1063,7 @@ index 2cdcf18..f8d40aa 100644
      }
  
      std::unique_ptr<RenderFramebuffer> D3D12Device::createFramebuffer(const RenderFramebufferDesc &desc) {
-@@ -3962,6 +4303,11 @@ namespace plume {
+@@ -3962,6 +4332,11 @@ namespace plume {
          return std::make_unique<D3D12QueryPool>(this, queryCount);
      }
  
@@ -1046,7 +1075,71 @@ index 2cdcf18..f8d40aa 100644
      void D3D12Device::setBottomLevelASBuildInfo(RenderBottomLevelASBuildInfo &buildInfo, const RenderBottomLevelASMesh *meshes, uint32_t meshCount, bool preferFastBuild, bool preferFastTrace) {
          assert(meshes != nullptr);
          assert(meshCount > 0);
-@@ -4161,7 +4507,9 @@ namespace plume {
+@@ -4148,7 +4523,63 @@ namespace plume {
+         return countsSupported;
+     }
+ 
++    bool D3D12Device::loadPipelineCache(const void *data, size_t size, bool &accepted) {
++        accepted = false;
++        std::lock_guard<std::mutex> lock(pipelineLibraryMutex);
++        if (pipelineLibrary != nullptr) {
++            pipelineLibrary->Release();
++            pipelineLibrary = nullptr;
++        }
++
++        if ((data != nullptr) && (size > 0)) {
++            pipelineLibraryData.assign(static_cast<const uint8_t *>(data), static_cast<const uint8_t *>(data) + size);
++            const HRESULT res = d3d->CreatePipelineLibrary(pipelineLibraryData.data(), pipelineLibraryData.size(), IID_PPV_ARGS(&pipelineLibrary));
++            if (SUCCEEDED(res)) {
++                accepted = true;
++                return true;
++            }
++
++            // D3D12_ERROR_ADAPTER_NOT_FOUND, D3D12_ERROR_DRIVER_VERSION_MISMATCH or
++            // E_INVALIDARG (corrupt data): start with an empty library.
++            pipelineLibrary = nullptr;
++            pipelineLibraryData.clear();
++        }
++
++        if (FAILED(d3d->CreatePipelineLibrary(nullptr, 0, IID_PPV_ARGS(&pipelineLibrary)))) {
++            pipelineLibrary = nullptr;
++            return false;
++        }
++
++        return true;
++    }
++
++    bool D3D12Device::getPipelineCacheData(std::vector<uint8_t> &data) {
++        data.clear();
++        std::lock_guard<std::mutex> lock(pipelineLibraryMutex);
++        if (pipelineLibrary == nullptr) {
++            return false;
++        }
++
++        data.resize(pipelineLibrary->GetSerializedSize());
++        if (data.empty() || FAILED(pipelineLibrary->Serialize(data.data(), data.size()))) {
++            data.clear();
++            return false;
++        }
++
++        return true;
++    }
++
++    size_t D3D12Device::getPipelineCacheSize() {
++        std::lock_guard<std::mutex> lock(pipelineLibraryMutex);
++        return (pipelineLibrary != nullptr) ? pipelineLibrary->GetSerializedSize() : 0;
++    }
++
+     void D3D12Device::release() {
++        if (pipelineLibrary != nullptr) {
++            pipelineLibrary->Release();
++            pipelineLibrary = nullptr;
++        }
++
+         if (d3d != nullptr) {
+             d3d->Release();
+             d3d = nullptr;
+@@ -4161,7 +4592,9 @@ namespace plume {
      }
  
      bool D3D12Device::isValid() const {
@@ -1057,7 +1150,7 @@ index 2cdcf18..f8d40aa 100644
      }
  
      bool D3D12Device::beginCapture() {
-@@ -4195,7 +4543,7 @@ namespace plume {
+@@ -4195,7 +4628,7 @@ namespace plume {
  
          HRESULT res = CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgiFactory));
          if (FAILED(res)) {
@@ -1067,7 +1160,7 @@ index 2cdcf18..f8d40aa 100644
          }
  
 diff --git a/plume_d3d12.h b/plume_d3d12.h
-index 4827452..97d2fb5 100644
+index 4827452..ba99892 100644
 --- a/plume_d3d12.h
 +++ b/plume_d3d12.h
 @@ -110,6 +110,9 @@ namespace plume {
@@ -1222,11 +1315,25 @@ index 4827452..97d2fb5 100644
          ID3D12Device8 *d3d = nullptr;
          D3D12Interface *renderInterface = nullptr;
          IDXGIAdapter1 *adapter = nullptr;
-@@ -467,6 +540,7 @@ namespace plume {
+@@ -448,6 +521,10 @@ namespace plume {
+         RenderDeviceDescription description;
+         uint64_t timestampFrequency = 1;
+         bool gpuUploadHeapFallback = false;
++        // Persistent pipeline library; its seed data must outlive it.
++        ID3D12PipelineLibrary *pipelineLibrary = nullptr;
++        std::vector<uint8_t> pipelineLibraryData;
++        std::mutex pipelineLibraryMutex;
+ 
+         D3D12Device(D3D12Interface *renderInterface, const std::string &preferredDeviceName);
+         ~D3D12Device() override;
+@@ -467,6 +544,10 @@ namespace plume {
          std::unique_ptr<RenderCommandSemaphore> createCommandSemaphore() override;
          std::unique_ptr<RenderFramebuffer> createFramebuffer(const RenderFramebufferDesc &desc) override;
          std::unique_ptr<RenderQueryPool> createQueryPool(uint32_t queryCount) override;
 +        std::unique_ptr<RenderQueryPool> createOcclusionQueryPool(uint32_t queryCount) override;
++        bool loadPipelineCache(const void *data, size_t size, bool &accepted) override;
++        bool getPipelineCacheData(std::vector<uint8_t> &data) override;
++        size_t getPipelineCacheSize() override;
          void setBottomLevelASBuildInfo(RenderBottomLevelASBuildInfo &buildInfo, const RenderBottomLevelASMesh *meshes, uint32_t meshCount, bool preferFastBuild, bool preferFastTrace) override;
          void setTopLevelASBuildInfo(RenderTopLevelASBuildInfo &buildInfo, const RenderTopLevelASInstance *instances, uint32_t instanceCount, bool preferFastBuild, bool preferFastTrace) override;
          void setShaderBindingTableInfo(RenderShaderBindingTableInfo &tableInfo, const RenderShaderBindingGroups &groups, const RenderPipeline *pipeline, RenderDescriptorSet **descriptorSets, uint32_t descriptorSetCount) override;
@@ -1365,7 +1472,7 @@ index 0000000..2f83160
 +        static_cast<uint32_t>(code), __VA_ARGS__); \
 +} while (0)
 diff --git a/plume_render_interface.h b/plume_render_interface.h
-index 2048557..99ca12a 100644
+index 2048557..9c3c406 100644
 --- a/plume_render_interface.h
 +++ b/plume_render_interface.h
 @@ -95,6 +95,8 @@ namespace plume {
@@ -1410,17 +1517,28 @@ index 2048557..99ca12a 100644
          virtual ~RenderQueryPool() { }
          virtual void queryResults() = 0;
          virtual const uint64_t *getResults() const = 0;
-@@ -241,6 +255,8 @@ namespace plume {
+@@ -241,6 +255,19 @@ namespace plume {
          virtual std::unique_ptr<RenderCommandSemaphore> createCommandSemaphore() = 0;
          virtual std::unique_ptr<RenderFramebuffer> createFramebuffer(const RenderFramebufferDesc &desc) = 0;
          virtual std::unique_ptr<RenderQueryPool> createQueryPool(uint32_t queryCount) = 0;
 +        // Null when the backend has no occlusion queries (capabilities.occlusionQueries).
 +        virtual std::unique_ptr<RenderQueryPool> createOcclusionQueryPool(uint32_t) { return nullptr; }
++        // Persistent driver pipeline cache (Vulkan pipeline cache, D3D12 pipeline
++        // library, Metal binary archive). loadPipelineCache enables it, seeded with
++        // data from an earlier getPipelineCacheData (null/0 starts empty). Call it
++        // before other threads create pipelines. Returns false when the backend has
++        // no such cache; accepted reports whether the seed data was used.
++        virtual bool loadPipelineCache(const void *, size_t, bool &accepted) { accepted = false; return false; }
++        // Serializes the cache; may run while other threads create pipelines.
++        // False when there is no cache or nothing new to serialize.
++        virtual bool getPipelineCacheData(std::vector<uint8_t> &) { return false; }
++        // Size getPipelineCacheData would return, without copying; 0 when unknown.
++        virtual size_t getPipelineCacheSize() { return 0; }
          virtual void setBottomLevelASBuildInfo(RenderBottomLevelASBuildInfo &buildInfo, const RenderBottomLevelASMesh *meshes, uint32_t meshCount, bool preferFastBuild = true, bool preferFastTrace = false) = 0;
          virtual void setTopLevelASBuildInfo(RenderTopLevelASBuildInfo &buildInfo, const RenderTopLevelASInstance *instances, uint32_t instanceCount, bool preferFastBuild = true, bool preferFastTrace = false) = 0;
          virtual void setShaderBindingTableInfo(RenderShaderBindingTableInfo &tableInfo, const RenderShaderBindingGroups &groups, const RenderPipeline *pipeline, RenderDescriptorSet **descriptorSets, uint32_t descriptorSetCount) = 0;
 diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
-index 9dcfedf..ec6ab71 100644
+index 9dcfedf..b646cf7 100644
 --- a/plume_render_interface_types.h
 +++ b/plume_render_interface_types.h
 @@ -37,6 +37,29 @@ namespace plume {
@@ -1516,7 +1634,18 @@ index 9dcfedf..ec6ab71 100644
          uint32_t renderTargetCount = 0;
          bool logicOpEnabled = false;
          RenderLogicOperation logicOp = RenderLogicOperation::NOOP;
-@@ -1762,6 +1809,7 @@ namespace plume {
+@@ -1305,6 +1352,10 @@ namespace plume {
+         uint32_t inputElementsCount = 0;
+         const RenderSpecConstant *specConstants = nullptr;
+         uint32_t specConstantsCount = 0;
++        // Non-zero: stable identity of this state across runs. D3D12 names its
++        // pipeline library entry after it (mixed with the shader bytecode), Metal
++        // adds such pipelines to its binary archive. Vulkan caches every pipeline.
++        uint64_t cacheKey = 0;
+     };
+ 
+     struct RenderRaytracingPipelineLibrarySymbol {
+@@ -1762,6 +1813,7 @@ namespace plume {
      };
  
      struct RenderDeviceCapabilities {
@@ -1524,7 +1653,7 @@ index 9dcfedf..ec6ab71 100644
          // Geometry shaders.
          bool geometryShader = false;
  
-@@ -1808,6 +1856,9 @@ namespace plume {
+@@ -1808,6 +1860,9 @@ namespace plume {
  
          // Query Pools.
          bool queryPools = false;
@@ -1535,7 +1664,7 @@ index 9dcfedf..ec6ab71 100644
  
      struct RenderInterfaceCapabilities {
 diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
-index f1dd503..5d406d4 100644
+index f1dd503..0fea5a4 100644
 --- a/plume_vulkan.cpp
 +++ b/plume_vulkan.cpp
 @@ -9,6 +9,9 @@
@@ -1774,9 +1903,12 @@ index f1dd503..5d406d4 100644
              return;
          }
      }
-@@ -1392,7 +1450,9 @@ namespace plume {
+@@ -1390,9 +1448,11 @@ namespace plume {
+         pipelineInfo.layout = pipelineLayout->vk;
+         pipelineInfo.stage = stageInfo;
  
-         VkResult res = vkCreateComputePipelines(device->vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk);
+-        VkResult res = vkCreateComputePipelines(device->vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk);
++        VkResult res = vkCreateComputePipelines(device->vk, device->pipelineCache, 1, &pipelineInfo, nullptr, &vk);
          if (res != VK_SUCCESS) {
 -            fprintf(stderr, "vkCreateComputePipelines failed with error code 0x%X.\n", res);
 +            PLUME_LOG_ERROR("Vulkan", "vkCreateComputePipelines", LogErrorDomain::VkResult, res,
@@ -1809,9 +1941,12 @@ index f1dd503..5d406d4 100644
          VkPipelineDynamicStateCreateInfo dynamicState = {};
          dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
          dynamicState.pDynamicStates = dynamicStates.data();
-@@ -1651,7 +1717,9 @@ namespace plume {
+@@ -1649,9 +1715,11 @@ namespace plume {
+         pipelineInfo.layout = pipelineLayout->vk;
+         pipelineInfo.renderPass = renderPass;
  
-         VkResult res = vkCreateGraphicsPipelines(device->vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk);
+-        VkResult res = vkCreateGraphicsPipelines(device->vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk);
++        VkResult res = vkCreateGraphicsPipelines(device->vk, device->pipelineCache, 1, &pipelineInfo, nullptr, &vk);
          if (res != VK_SUCCESS) {
 -            fprintf(stderr, "vkCreateGraphicsPipelines failed with error code 0x%X.\n", res);
 +            PLUME_LOG_ERROR("Vulkan", "vkCreateGraphicsPipelines", LogErrorDomain::VkResult, res,
@@ -3067,7 +3202,85 @@ index f1dd503..5d406d4 100644
          capabilities.uma = (description.type == RenderDeviceType::INTEGRATED) && hasHostVisibleDeviceLocalMemory;
          capabilities.gpuUploadHeap = capabilities.uma;
  
-@@ -4161,23 +4648,33 @@ namespace plume {
+@@ -4154,6 +4641,77 @@ namespace plume {
+         if (!nullDescriptorSupported) {
+             nullBuffer = createBuffer(RenderBufferDesc::DefaultBuffer(16, RenderBufferFlag::VERTEX));
+         }
++
++        // An empty cache until loadPipelineCache merges a saved one into it.
++        VkPipelineCacheCreateInfo pipelineCacheInfo = {};
++        pipelineCacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
++        if (vkCreatePipelineCache(vk, &pipelineCacheInfo, nullptr, &pipelineCache) != VK_SUCCESS) {
++            pipelineCache = VK_NULL_HANDLE;
++        }
++    }
++
++    bool VulkanDevice::loadPipelineCache(const void *data, size_t size, bool &accepted) {
++        accepted = false;
++        if (pipelineCache == VK_NULL_HANDLE) {
++            return false;
++        }
++
++        if ((data == nullptr) || (size == 0)) {
++            return true;
++        }
++
++        // Drivers ignore data from another device or driver version; the caller
++        // also checks the header. Merging keeps pipelines created so far valid.
++        VkPipelineCacheCreateInfo info = {};
++        info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
++        info.initialDataSize = size;
++        info.pInitialData = data;
++        VkPipelineCache loaded = VK_NULL_HANDLE;
++        if (vkCreatePipelineCache(vk, &info, nullptr, &loaded) != VK_SUCCESS) {
++            return true;
++        }
++
++        accepted = vkMergePipelineCaches(vk, pipelineCache, 1, &loaded) == VK_SUCCESS;
++        vkDestroyPipelineCache(vk, loaded, nullptr);
++        return true;
++    }
++
++    bool VulkanDevice::getPipelineCacheData(std::vector<uint8_t> &data) {
++        data.clear();
++        if (pipelineCache == VK_NULL_HANDLE) {
++            return false;
++        }
++
++        // Pipelines created between the two calls make the second one incomplete.
++        for (int attempt = 0; attempt < 4; attempt++) {
++            size_t size = 0;
++            if (vkGetPipelineCacheData(vk, pipelineCache, &size, nullptr) != VK_SUCCESS) {
++                return false;
++            }
++
++            data.resize(size + size / 8 + 4096);
++            size = data.size();
++            const VkResult res = vkGetPipelineCacheData(vk, pipelineCache, &size, data.data());
++            if (res == VK_SUCCESS) {
++                data.resize(size);
++                return size > 0;
++            }
++            else if (res != VK_INCOMPLETE) {
++                break;
++            }
++        }
++
++        data.clear();
++        return false;
++    }
++
++    size_t VulkanDevice::getPipelineCacheSize() {
++        size_t size = 0;
++        if ((pipelineCache == VK_NULL_HANDLE) || (vkGetPipelineCacheData(vk, pipelineCache, &size, nullptr) != VK_SUCCESS)) {
++            return 0;
++        }
++
++        return size;
+     }
+ 
+     VulkanDevice::~VulkanDevice() {
+@@ -4161,23 +4719,33 @@ namespace plume {
      }
  
      std::unique_ptr<RenderDescriptorSet> VulkanDevice::createDescriptorSet(const RenderDescriptorSetDesc &desc) {
@@ -3106,7 +3319,7 @@ index f1dd503..5d406d4 100644
      }
  
      std::unique_ptr<RenderPipeline> VulkanDevice::createRaytracingPipeline(const RenderRaytracingPipelineDesc &desc, const RenderPipeline *previousPipeline) {
-@@ -4185,15 +4682,21 @@ namespace plume {
+@@ -4185,15 +4753,21 @@ namespace plume {
      }
  
      std::unique_ptr<RenderCommandQueue> VulkanDevice::createCommandQueue(RenderCommandListType type) {
@@ -3131,7 +3344,7 @@ index f1dd503..5d406d4 100644
      }
  
      std::unique_ptr<RenderAccelerationStructure> VulkanDevice::createAccelerationStructure(const RenderAccelerationStructureDesc &desc) {
-@@ -4205,15 +4708,21 @@ namespace plume {
+@@ -4205,15 +4779,21 @@ namespace plume {
      }
  
      std::unique_ptr<RenderPipelineLayout> VulkanDevice::createPipelineLayout(const RenderPipelineLayoutDesc &desc) {
@@ -3156,7 +3369,7 @@ index f1dd503..5d406d4 100644
      }
  
      std::unique_ptr<RenderFramebuffer> VulkanDevice::createFramebuffer(const RenderFramebufferDesc &desc) {
-@@ -4224,6 +4733,11 @@ namespace plume {
+@@ -4224,6 +4804,11 @@ namespace plume {
          return std::make_unique<VulkanQueryPool>(this, queryCount);
      }
  
@@ -3168,7 +3381,7 @@ index f1dd503..5d406d4 100644
      void VulkanDevice::setBottomLevelASBuildInfo(RenderBottomLevelASBuildInfo &buildInfo, const RenderBottomLevelASMesh *meshes, uint32_t meshCount, bool preferFastBuild, bool preferFastTrace) {
          assert(meshes != nullptr);
          assert(meshCount > 0);
-@@ -4365,7 +4879,7 @@ namespace plume {
+@@ -4365,7 +4950,7 @@ namespace plume {
          groupHandles.resize(raytracingPipeline->groupCount * handleSize, 0);
          VkResult res = vkGetRayTracingShaderGroupHandlesKHR(vk, raytracingPipeline->vk, 0, raytracingPipeline->groupCount, groupHandles.size(), groupHandles.data());
          if (res != VK_SUCCESS) {
@@ -3177,7 +3390,19 @@ index f1dd503..5d406d4 100644
              return;
          }
          
-@@ -4444,7 +4958,11 @@ namespace plume {
+@@ -4432,6 +5017,11 @@ namespace plume {
+     void VulkanDevice::release() {
+         nullBuffer = nullptr; // force destruction before destroying allocator
+ 
++        if (pipelineCache != VK_NULL_HANDLE) {
++            vkDestroyPipelineCache(vk, pipelineCache, nullptr);
++            pipelineCache = VK_NULL_HANDLE;
++        }
++
+         if (allocator != VK_NULL_HANDLE) {
+             vmaDestroyAllocator(allocator);
+             allocator = VK_NULL_HANDLE;
+@@ -4444,7 +5034,11 @@ namespace plume {
      }
  
      bool VulkanDevice::isValid() const {
@@ -3190,7 +3415,7 @@ index f1dd503..5d406d4 100644
      }
  
      bool VulkanDevice::beginCapture() {
-@@ -4460,13 +4978,22 @@ namespace plume {
+@@ -4460,13 +5054,22 @@ namespace plume {
      // VulkanInterface
  
  #if PLUME_SDL_VULKAN_ENABLED
@@ -3217,7 +3442,7 @@ index f1dd503..5d406d4 100644
              return;
          }
  
-@@ -4496,6 +5023,7 @@ namespace plume {
+@@ -4496,6 +5099,7 @@ namespace plume {
  
          std::unordered_set<std::string> requiredExtensions = RequiredInstanceExtensions;
          std::unordered_set<std::string> supportedOptionalExtensions;
@@ -3225,7 +3450,7 @@ index f1dd503..5d406d4 100644
  #   if DLSS_ENABLED
          const std::unordered_set<std::string> dlssExtensions = DLSS::getRequiredInstanceExtensionsVulkan();
  #   endif
-@@ -4518,6 +5046,20 @@ namespace plume {
+@@ -4518,6 +5122,20 @@ namespace plume {
          }
  #   endif
  
@@ -3246,7 +3471,7 @@ index f1dd503..5d406d4 100644
          std::unordered_set<std::string> missingRequiredExtensions = requiredExtensions;
          for (uint32_t i = 0; i < extensionCount; i++) {
              const std::string extensionName(availableExtensions[i].extensionName);
-@@ -4535,13 +5077,23 @@ namespace plume {
+@@ -4535,13 +5153,23 @@ namespace plume {
  
          if (!missingRequiredExtensions.empty()) {
              for (const std::string &extension : missingRequiredExtensions) {
@@ -3272,7 +3497,7 @@ index f1dd503..5d406d4 100644
          std::vector<const char *> enabledExtensions;
          for (const std::string &extension : requiredExtensions) {
              enabledExtensions.push_back(extension.c_str());
-@@ -4551,6 +5103,17 @@ namespace plume {
+@@ -4551,6 +5179,17 @@ namespace plume {
              enabledExtensions.push_back(extension.c_str());
          }
  
@@ -3290,7 +3515,7 @@ index f1dd503..5d406d4 100644
          createInfo.ppEnabledExtensionNames = enabledExtensions.data();
          createInfo.enabledExtensionCount = uint32_t(enabledExtensions.size());
  
-@@ -4574,8 +5137,17 @@ namespace plume {
+@@ -4574,8 +5213,17 @@ namespace plume {
  #   endif
          
          res = vkCreateInstance(&createInfo, nullptr, &instance);
@@ -3309,7 +3534,7 @@ index f1dd503..5d406d4 100644
              return;
          }
  
-@@ -4625,6 +5197,10 @@ namespace plume {
+@@ -4625,6 +5273,10 @@ namespace plume {
          return instance != nullptr;
      }
  
@@ -3320,7 +3545,7 @@ index f1dd503..5d406d4 100644
      // Global creation function.
  
  #if PLUME_SDL_VULKAN_ENABLED
-@@ -4632,10 +5208,20 @@ namespace plume {
+@@ -4632,10 +5284,20 @@ namespace plume {
          std::unique_ptr<VulkanInterface> createdInterface = std::make_unique<VulkanInterface>(sdlWindow);
          return createdInterface->isValid() ? std::move(createdInterface) : nullptr;
      }
@@ -3342,7 +3567,7 @@ index f1dd503..5d406d4 100644
  #endif
  };
 diff --git a/plume_vulkan.h b/plume_vulkan.h
-index 0a1edbe..d754112 100644
+index 0a1edbe..115d082 100644
 --- a/plume_vulkan.h
 +++ b/plume_vulkan.h
 @@ -10,6 +10,7 @@
@@ -3484,7 +3709,7 @@ index 0a1edbe..d754112 100644
      };
  
      struct VulkanDevice : RenderDevice {
-@@ -417,6 +460,12 @@ namespace plume {
+@@ -417,6 +460,14 @@ namespace plume {
          std::unique_ptr<RenderBuffer> nullBuffer;
          bool loadStoreOpNoneSupported = false;
          bool nullDescriptorSupported = false;
@@ -3494,18 +3719,23 @@ index 0a1edbe..d754112 100644
 +        bool externalSwapchainSynchronization = false;
 +        bool destroySwapchainBeforeResize = false;
 +        VulkanExtensionStatus externalExtensionStatus;
++        // Passed to every graphics and compute pipeline creation.
++        VkPipelineCache pipelineCache = VK_NULL_HANDLE;
  
          VulkanDevice(VulkanInterface *renderInterface, const std::string &preferredDeviceName);
          ~VulkanDevice() override;
-@@ -436,6 +485,7 @@ namespace plume {
+@@ -436,6 +487,10 @@ namespace plume {
          std::unique_ptr<RenderCommandSemaphore> createCommandSemaphore() override;
          std::unique_ptr<RenderFramebuffer> createFramebuffer(const RenderFramebufferDesc &desc) override;
          std::unique_ptr<RenderQueryPool> createQueryPool(uint32_t queryCount) override;
 +        std::unique_ptr<RenderQueryPool> createOcclusionQueryPool(uint32_t queryCount) override;
++        bool loadPipelineCache(const void *data, size_t size, bool &accepted) override;
++        bool getPipelineCacheData(std::vector<uint8_t> &data) override;
++        size_t getPipelineCacheSize() override;
          void setBottomLevelASBuildInfo(RenderBottomLevelASBuildInfo &buildInfo, const RenderBottomLevelASMesh *meshes, uint32_t meshCount, bool preferFastBuild, bool preferFastTrace) override;
          void setTopLevelASBuildInfo(RenderTopLevelASBuildInfo &buildInfo, const RenderTopLevelASInstance *instances, uint32_t instanceCount, bool preferFastBuild, bool preferFastTrace) override;
          void setShaderBindingTableInfo(RenderShaderBindingTableInfo &tableInfo, const RenderShaderBindingGroups &groups, const RenderPipeline *pipeline, RenderDescriptorSet **descriptorSets, uint32_t descriptorSetCount) override;
-@@ -444,6 +494,7 @@ namespace plume {
+@@ -444,6 +499,7 @@ namespace plume {
          RenderSampleCounts getSampleCountsSupported(RenderFormat format) const override;
          void release();
          bool isValid() const;
@@ -3513,7 +3743,7 @@ index 0a1edbe..d754112 100644
          bool beginCapture() override;
          bool endCapture() override;
      };
-@@ -451,13 +502,21 @@ namespace plume {
+@@ -451,13 +507,21 @@ namespace plume {
      struct VulkanInterface : RenderInterface {
          VkInstance instance = VK_NULL_HANDLE;
          VkApplicationInfo appInfo = {};
@@ -3535,7 +3765,7 @@ index 0a1edbe..d754112 100644
  #   endif
  
          ~VulkanInterface() override;
-@@ -465,5 +524,14 @@ namespace plume {
+@@ -465,5 +529,14 @@ namespace plume {
          const RenderInterfaceCapabilities &getCapabilities() const override;
          const std::vector<std::string> &getDeviceNames() const override;
          bool isValid() const;

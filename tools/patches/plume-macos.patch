@@ -152,10 +152,10 @@ index 1384fe9..32a2032 100644
          auto updateBlock = ^{
              NSWindow *nsWindow = (__bridge NSWindow *)windowHandle;
 diff --git a/plume_metal.cpp b/plume_metal.cpp
-index 373c87e..9cb8dd0 100644
+index 373c87e..437938f 100644
 --- a/plume_metal.cpp
 +++ b/plume_metal.cpp
-@@ -8,16 +8,25 @@
+@@ -8,16 +8,28 @@
  #define NS_PRIVATE_IMPLEMENTATION
  #define CA_PRIVATE_IMPLEMENTATION
  #define MTL_PRIVATE_IMPLEMENTATION
@@ -168,7 +168,10 @@ index 373c87e..9cb8dd0 100644
  #include <CoreFoundation/CoreFoundation.h>
  
  #include <algorithm>
++#include <filesystem>
++#include <fstream>
  #include <mutex>
++#include <unistd.h>
 +#include <sstream>
 +#include <string>
 +#include <vector>
@@ -181,7 +184,7 @@ index 373c87e..9cb8dd0 100644
  
  extern "C" {
      void *objc_autoreleasePoolPush(void);
-@@ -182,6 +191,10 @@ namespace plume {
+@@ -182,6 +194,10 @@ namespace plume {
                      return RenderFormat::R32G32B32A32_UINT;
                  case MTL::PixelFormatRGBA32Sint:
                      return RenderFormat::R32G32B32A32_SINT;
@@ -192,7 +195,7 @@ index 373c87e..9cb8dd0 100644
                  case MTL::PixelFormatRGBA16Float:
                      return RenderFormat::R16G16B16A16_FLOAT;
                  case MTL::PixelFormatRGBA16Unorm:
-@@ -313,6 +326,10 @@ namespace plume {
+@@ -313,6 +329,10 @@ namespace plume {
                  return MTL::PixelFormatRGBA32Sint;
              case RenderFormat::R16G16B16A16_TYPELESS:
                  return MTL::PixelFormatRGBA16Float;
@@ -203,7 +206,7 @@ index 373c87e..9cb8dd0 100644
              case RenderFormat::R16G16B16A16_FLOAT:
                  return MTL::PixelFormatRGBA16Float;
              case RenderFormat::R16G16B16A16_UNORM:
-@@ -1329,19 +1346,140 @@ namespace plume {
+@@ -1329,19 +1349,140 @@ namespace plume {
  
      // MetalShader
  
@@ -346,7 +349,7 @@ index 373c87e..9cb8dd0 100644
          const dispatch_data_t dispatchData = dispatch_data_create(data, size, dispatch_get_main_queue(), ^{});
          library = device->mtl->newLibrary(dispatchData, &error);
  
-@@ -1353,8 +1491,12 @@ namespace plume {
+@@ -1353,8 +1494,12 @@ namespace plume {
  
      MetalShader::~MetalShader() {
          MetalAutoreleasePool releasePool;
@@ -361,7 +364,7 @@ index 373c87e..9cb8dd0 100644
  
          if (debugName != nullptr) {
              debugName->release();
-@@ -1370,10 +1512,15 @@ namespace plume {
+@@ -1370,10 +1515,15 @@ namespace plume {
          debugName = NS::String::string(name.c_str(), NS::UTF8StringEncoding);
          debugName->retain();
  
@@ -378,7 +381,7 @@ index 373c87e..9cb8dd0 100644
          MTL::FunctionConstantValues *values = MTL::FunctionConstantValues::alloc()->init();
          if (specConstants != nullptr) {
              for (uint32_t i = 0; i < specConstantsCount; i++) {
-@@ -1494,7 +1641,15 @@ namespace plume {
+@@ -1494,7 +1644,15 @@ namespace plume {
  
          MetalAutoreleasePool releasePool;
          MTL::RenderPipelineDescriptor *descriptor = MTL::RenderPipelineDescriptor::alloc()->init();
@@ -395,7 +398,35 @@ index 373c87e..9cb8dd0 100644
          descriptor->setRasterSampleCount(desc.multisampling.sampleCount);
          descriptor->setAlphaToCoverageEnabled(desc.alphaToCoverageEnabled);
          descriptor->setDepthAttachmentPixelFormat(mapPixelFormat(desc.depthTargetFormat));
-@@ -1909,6 +2064,9 @@ namespace plume {
+@@ -1604,7 +1762,26 @@ namespace plume {
+         state.cullMode = mapCullMode(desc.cullMode);
+         state.depthClipMode = (desc.depthClipEnabled) ? MTL::DepthClipModeClip : MTL::DepthClipModeClamp;
+         state.winding = mapFrontFace(desc.frontFace);
+-        state.renderPipelineState = device->mtl->newRenderPipelineState(descriptor, &error);
++        // LostOdysseyRecomp: a binary archive hit skips the Metal compiler.
++        const bool archivable = (desc.cacheKey != 0) && (device->binaryArchive != nullptr);
++        if (archivable) {
++            std::shared_lock<std::shared_mutex> lock(device->binaryArchiveMutex, std::try_to_lock);
++            if (lock.owns_lock()) {
++                NS::Error *lookupError = nullptr;
++                descriptor->setBinaryArchives(NS::Array::array(device->binaryArchive));
++                state.renderPipelineState = device->mtl->newRenderPipelineState(descriptor, MTL::PipelineOptionFailOnBinaryArchiveMiss, nullptr, &lookupError);
++                descriptor->setBinaryArchives(nullptr);
++            }
++        }
++
++        if (state.renderPipelineState == nullptr) {
++            state.renderPipelineState = device->mtl->newRenderPipelineState(descriptor, &error);
++            if (archivable && (state.renderPipelineState != nullptr)) {
++                std::lock_guard<std::mutex> lock(device->binaryArchivePendingMutex);
++                device->binaryArchivePending.push_back(descriptor->retain());
++            }
++        }
++
+         state.primitiveType = mapPrimitiveType(desc.primitiveTopology);
+         state.stencilReference = desc.stencilEnabled ? desc.stencilReference : 0;
+ 
+@@ -1909,6 +2086,9 @@ namespace plume {
          this->layer = static_cast<CA::MetalLayer*>(desc.renderWindow.view);
          layer->setDevice(commandQueue->device->mtl);
          layer->setPixelFormat(mapPixelFormat(desc.format));
@@ -405,7 +436,7 @@ index 373c87e..9cb8dd0 100644
  
          this->commandQueue = commandQueue;
          this->desc = desc;
-@@ -1917,6 +2075,10 @@ namespace plume {
+@@ -1917,6 +2097,10 @@ namespace plume {
          this->drawables.resize(MAX_DRAWABLES);
  
          this->windowWrapper = std::make_unique<CocoaWindow>(desc.renderWindow.window);
@@ -416,7 +447,7 @@ index 373c87e..9cb8dd0 100644
          getWindowSize(width, height);
  
          // Set the layer's drawable size to match the window size
-@@ -1935,6 +2097,22 @@ namespace plume {
+@@ -1935,6 +2119,22 @@ namespace plume {
      }
  
      MetalSwapChain::~MetalSwapChain() {
@@ -439,7 +470,7 @@ index 373c87e..9cb8dd0 100644
      }
  
      bool MetalSwapChain::present(const uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, const uint32_t waitSemaphoreCount) {
-@@ -1959,19 +2137,30 @@ namespace plume {
+@@ -1959,19 +2159,30 @@ namespace plume {
          // According to Apple, presenting via scheduled handler is more performant than using the presentDrawable method.
          // We grab the underlying drawable because we might've acquired a new one by now and the old one would have been released.
          CA::MetalDrawable *drawableMtl = drawable.mtl->retain();
@@ -479,7 +510,7 @@ index 373c87e..9cb8dd0 100644
          });
  
          presentBuffer->commit();
-@@ -1984,14 +2173,16 @@ namespace plume {
+@@ -1984,14 +2195,16 @@ namespace plume {
  
          MetalAutoreleasePool releasePool;
          if (currentPresentId >= desc.maxFrameLatency) {
@@ -499,7 +530,7 @@ index 373c87e..9cb8dd0 100644
          MetalAutoreleasePool releasePool;
          getWindowSize(width, height);
  
-@@ -2038,6 +2229,21 @@ namespace plume {
+@@ -2038,6 +2251,21 @@ namespace plume {
          return height;
      }
  
@@ -521,7 +552,7 @@ index 373c87e..9cb8dd0 100644
      RenderTexture *MetalSwapChain::getTexture(const uint32_t textureIndex) {
          assert(textureIndex < drawables.size());
          return &drawables[textureIndex];
-@@ -2066,6 +2272,7 @@ namespace plume {
+@@ -2066,6 +2294,7 @@ namespace plume {
          // Set the texture index and drawable data
          *textureIndex = currentAvailableDrawableIndex;
          MetalDrawable &drawable = drawables[currentAvailableDrawableIndex];
@@ -529,7 +560,7 @@ index 373c87e..9cb8dd0 100644
          drawable.desc.width = width;
          drawable.desc.height = height;
          drawable.desc.flags = RenderTextureFlag::RENDER_TARGET;
-@@ -2725,6 +2932,12 @@ namespace plume {
+@@ -2725,6 +2954,12 @@ namespace plume {
      }
  
      void MetalCommandList::setFramebuffer(const RenderFramebuffer *framebuffer) {
@@ -542,7 +573,7 @@ index 373c87e..9cb8dd0 100644
          MetalAutoreleasePool releasePool;
          endOtherEncoders(EncoderType::Render);
          endActiveRenderEncoder();
-@@ -2757,6 +2970,13 @@ namespace plume {
+@@ -2757,6 +2992,13 @@ namespace plume {
          dirtyGraphicsState.depthBias = 1;
      }
  
@@ -556,7 +587,7 @@ index 373c87e..9cb8dd0 100644
      void MetalCommandList::setCommonClearState() const {
          activeRenderEncoder->setViewport({ 0, 0, static_cast<float>(targetFramebuffer->width), static_cast<float>(targetFramebuffer->height), 0.0f, 1.0f });
          activeRenderEncoder->setScissorRect(clampScissorRectIfNecessary({ 0, 0, static_cast<int32_t>(targetFramebuffer->width), static_cast<int32_t>(targetFramebuffer->height) }, targetFramebuffer));
-@@ -2775,6 +2995,13 @@ namespace plume {
+@@ -2775,6 +3017,13 @@ namespace plume {
      }
  
      void MetalCommandList::clearColor(const uint32_t attachmentIndex, RenderColor colorValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -570,7 +601,7 @@ index 373c87e..9cb8dd0 100644
          assert(targetFramebuffer != nullptr);
          assert(attachmentIndex < targetFramebuffer->colorAttachments.size());
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -2864,6 +3091,12 @@ namespace plume {
+@@ -2864,6 +3113,12 @@ namespace plume {
      }
  
      void MetalCommandList::clearDepthStencil(const bool clearDepth, const bool clearStencil, const float depthValue, const uint32_t stencilValue, const RenderRect *clearRects, const uint32_t clearRectsCount) {
@@ -583,7 +614,7 @@ index 373c87e..9cb8dd0 100644
          assert(targetFramebuffer != nullptr);
          assert(targetFramebuffer->depthAttachment.format != RenderFormat::UNKNOWN);
          assert((!clearRects || clearRectsCount <= MAX_CLEAR_RECTS) && "Too many clear rects");
-@@ -3022,6 +3255,44 @@ namespace plume {
+@@ -3022,6 +3277,44 @@ namespace plume {
                  dstOrigin
              );
              activeBlitEncoder->popDebugGroup();
@@ -628,7 +659,7 @@ index 373c87e..9cb8dd0 100644
          } else {
              assert(dstTexture != nullptr);
              assert(srcTexture != nullptr);
-@@ -3460,6 +3731,12 @@ namespace plume {
+@@ -3460,6 +3753,12 @@ namespace plume {
              dirtyGraphicsState.depthBias = 0;
          }
  
@@ -641,7 +672,7 @@ index 373c87e..9cb8dd0 100644
          // Viewports
          if (dirtyGraphicsState.viewports) {
              if (!viewportVector.empty() && viewportVector != stateCache.lastViewports) {
-@@ -3818,6 +4095,10 @@ namespace plume {
+@@ -3818,6 +4117,10 @@ namespace plume {
          // TODO: Support Raytracing.
          // capabilities.raytracing = mtl->supportsRaytracing();
          capabilities.maxTextureSize = mtl->supportsFamily(MTL::GPUFamilyApple3) ? 16384 : 8192;
@@ -652,7 +683,27 @@ index 373c87e..9cb8dd0 100644
          capabilities.sampleLocations = mtl->programmableSamplePositionsSupported();
          capabilities.resolveRegion = true;
          capabilities.resolveModes = false;
-@@ -3885,7 +4166,13 @@ namespace plume {
+@@ -3856,6 +4159,19 @@ namespace plume {
+ 
+     MetalDevice::~MetalDevice() {
+         MetalAutoreleasePool releasePool;
++        for (MTL::RenderPipelineDescriptor *pending : binaryArchivePending) {
++            pending->release();
++        }
++
++        if (binaryArchive != nullptr) {
++            binaryArchive->release();
++        }
++
++        if (!binaryArchiveSeedPath.empty()) {
++            std::error_code ec;
++            std::filesystem::remove(binaryArchiveSeedPath, ec);
++        }
++
+         if (timestampCounterSet != nullptr) {
+             timestampCounterSet->release();
+         }
+@@ -3885,7 +4201,13 @@ namespace plume {
      }
  
      std::unique_ptr<RenderShader> MetalDevice::createShader(const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format) {
@@ -667,7 +718,105 @@ index 373c87e..9cb8dd0 100644
      }
  
      std::unique_ptr<RenderSampler> MetalDevice::createSampler(const RenderSamplerDesc &desc) {
-@@ -4222,6 +4509,212 @@ namespace plume {
+@@ -3981,6 +4303,97 @@ namespace plume {
+         mtl->release();
+     }
+ 
++    static std::string binaryArchiveTempPath(const void *owner, const char *suffix) {
++        char name[96];
++        snprintf(name, sizeof(name), "plume-archive-%d-%p-%s.bin", int(getpid()), owner, suffix);
++        std::error_code ec;
++        return (std::filesystem::temp_directory_path(ec) / name).string();
++    }
++
++    bool MetalDevice::loadPipelineCache(const void *data, size_t size, bool &accepted) {
++        accepted = false;
++        MetalAutoreleasePool releasePool;
++        std::unique_lock<std::shared_mutex> lock(binaryArchiveMutex);
++        if (binaryArchive != nullptr) {
++            binaryArchive->release();
++            binaryArchive = nullptr;
++        }
++
++        MTL::BinaryArchiveDescriptor *archiveDesc = MTL::BinaryArchiveDescriptor::alloc()->init();
++        if ((data != nullptr) && (size > 0)) {
++            binaryArchiveSeedPath = binaryArchiveTempPath(this, "seed");
++            std::ofstream seed(binaryArchiveSeedPath, std::ios::binary | std::ios::trunc);
++            seed.write(static_cast<const char *>(data), std::streamsize(size));
++            seed.close();
++            if (seed) {
++                archiveDesc->setUrl(NS::URL::fileURLWithPath(NS::String::string(binaryArchiveSeedPath.c_str(), NS::UTF8StringEncoding)));
++                NS::Error *error = nullptr;
++                binaryArchive = mtl->newBinaryArchive(archiveDesc, &error);
++                accepted = binaryArchive != nullptr;
++            }
++        }
++
++        if (binaryArchive == nullptr) {
++            // No seed, or one from another OS or GPU that Metal refused: start empty.
++            archiveDesc->setUrl(nullptr);
++            NS::Error *error = nullptr;
++            binaryArchive = mtl->newBinaryArchive(archiveDesc, &error);
++        }
++
++        archiveDesc->release();
++        return binaryArchive != nullptr;
++    }
++
++    bool MetalDevice::getPipelineCacheData(std::vector<uint8_t> &data) {
++        data.clear();
++        MetalAutoreleasePool releasePool;
++        std::vector<MTL::RenderPipelineDescriptor *> pending;
++        {
++            std::lock_guard<std::mutex> lock(binaryArchivePendingMutex);
++            pending.swap(binaryArchivePending);
++        }
++
++        if ((binaryArchive == nullptr) || pending.empty()) {
++            for (MTL::RenderPipelineDescriptor *descriptor : pending) {
++                descriptor->release();
++            }
++
++            return false;
++        }
++
++        // Adding compiles again (mostly from Metal's own cache); lookups meanwhile
++        // compile without the archive instead of waiting.
++        const std::string path = binaryArchiveTempPath(this, "out");
++        bool serialized = false;
++        {
++            std::unique_lock<std::shared_mutex> lock(binaryArchiveMutex);
++            for (MTL::RenderPipelineDescriptor *descriptor : pending) {
++                NS::Error *error = nullptr;
++                binaryArchive->addRenderPipelineFunctions(descriptor, &error);
++                descriptor->release();
++            }
++
++            NS::Error *error = nullptr;
++            serialized = binaryArchive->serializeToURL(NS::URL::fileURLWithPath(NS::String::string(path.c_str(), NS::UTF8StringEncoding)), &error);
++        }
++
++        if (serialized) {
++            std::ifstream input(path, std::ios::binary | std::ios::ate);
++            const std::streamoff size = input.tellg();
++            if (input && (size > 0)) {
++                data.resize(size_t(size));
++                input.seekg(0);
++                if (!input.read(reinterpret_cast<char *>(data.data()), size)) {
++                    data.clear();
++                }
++            }
++        }
++
++        std::error_code ec;
++        std::filesystem::remove(path, ec);
++        return !data.empty();
++    }
++
+     bool MetalDevice::isValid() const {
+         return mtl != nullptr;
+     }
+@@ -4222,6 +4635,212 @@ namespace plume {
  
      // Global creation function.
  
@@ -881,19 +1030,21 @@ index 373c87e..9cb8dd0 100644
          std::unique_ptr<MetalInterface> createdInterface = std::make_unique<MetalInterface>();
          return createdInterface->isValid() ? std::move(createdInterface) : nullptr;
 diff --git a/plume_metal.h b/plume_metal.h
-index 59ae129..cc7efe9 100644
+index 59ae129..c1b2a9d 100644
 --- a/plume_metal.h
 +++ b/plume_metal.h
-@@ -7,6 +7,8 @@
+@@ -7,7 +7,10 @@
  
  #pragma once
  
 +#include <atomic>
 +#include <memory>
  #include <set>
++#include <shared_mutex>
  #include <unordered_set>
  
-@@ -118,6 +120,7 @@ namespace plume {
+ #include "plume_render_interface.h"
+@@ -118,6 +121,7 @@ namespace plume {
                  uint32_t depthBias : 1;
                  uint32_t depthStencil : 1;
                  uint32_t rasterizer : 1;
@@ -901,7 +1052,7 @@ index 59ae129..cc7efe9 100644
              };
              uint32_t value;
          };
-@@ -129,7 +132,7 @@ namespace plume {
+@@ -129,7 +133,7 @@ namespace plume {
          uint32_t vertexBufferSlots;
  
          void setAll() {
@@ -910,7 +1061,7 @@ index 59ae129..cc7efe9 100644
              descriptorSetDirtyIndex = 0;
              vertexBufferSlots = (1U << MAX_VERTEX_BUFFER_BINDINGS) - 1;
          }
-@@ -232,6 +235,7 @@ namespace plume {
+@@ -232,6 +236,7 @@ namespace plume {
      struct MetalSwapChain : RenderSwapChain {
          RenderSwapChainDesc desc;
          CA::MetalLayer *layer = nullptr;
@@ -918,7 +1069,7 @@ index 59ae129..cc7efe9 100644
          MetalCommandQueue *commandQueue = nullptr;
          uint32_t width = 0;
          uint32_t height = 0;
-@@ -242,12 +246,22 @@ namespace plume {
+@@ -242,12 +247,22 @@ namespace plume {
  
          // Present wait
          uint64_t currentPresentId = 0;
@@ -944,7 +1095,7 @@ index 59ae129..cc7efe9 100644
          bool present(uint32_t textureIndex, RenderCommandSemaphore **waitSemaphores, uint32_t waitSemaphoreCount) override;
          void wait() override;
          bool resize() override;
-@@ -256,6 +270,8 @@ namespace plume {
+@@ -256,6 +271,8 @@ namespace plume {
          bool isVsyncEnabled() const override;
          uint32_t getWidth() const override;
          uint32_t getHeight() const override;
@@ -953,7 +1104,7 @@ index 59ae129..cc7efe9 100644
          RenderTexture *getTexture(uint32_t textureIndex) override;
          uint32_t getTextureCount() const override;
          bool acquireTexture(RenderCommandSemaphore *signalSemaphore, uint32_t *textureIndex) override;
-@@ -428,6 +444,8 @@ namespace plume {
+@@ -428,6 +445,8 @@ namespace plume {
              float slopeScaledDepthBias;
          } dynamicDepthBias;
  
@@ -962,7 +1113,7 @@ index 59ae129..cc7efe9 100644
          struct {
              uint32_t updateDirtyBits = ~0;
              int update[MetalBarrierStage::COUNT] = {};
-@@ -481,6 +499,7 @@ namespace plume {
+@@ -481,6 +500,7 @@ namespace plume {
          void setScissors(const RenderRect *scissorRects, uint32_t count) override;
          void setFramebuffer(const RenderFramebuffer *framebuffer) override;
          void setDepthBias(float depthBias, float depthBiasClamp, float slopeScaledDepthBias) override;
@@ -970,7 +1121,7 @@ index 59ae129..cc7efe9 100644
          void clearColor(uint32_t attachmentIndex, RenderColor colorValue, const RenderRect *clearRects, uint32_t clearRectsCount) override;
          void clearDepthStencil(bool clearDepth, bool clearStencil, float depthValue, uint32_t stencilValue, const RenderRect *clearRects, uint32_t clearRectsCount) override;
          void copyBufferRegion(RenderBufferReference dstBuffer, RenderBufferReference srcBuffer, uint64_t size) override;
-@@ -635,6 +654,8 @@ namespace plume {
+@@ -635,6 +655,8 @@ namespace plume {
          RenderShaderFormat format = RenderShaderFormat::UNKNOWN;
          MTL::Library *library = nullptr;
          NS::String *debugName = nullptr;
@@ -979,3 +1130,28 @@ index 59ae129..cc7efe9 100644
  
          MetalShader(const MetalDevice *device, const void *data, uint64_t size, const char *entryPointName, RenderShaderFormat format);
          ~MetalShader() override;
+@@ -729,6 +751,15 @@ namespace plume {
+         // Counter sets for query pools
+         MTL::CounterSet* timestampCounterSet = nullptr;
+ 
++        // Persistent binary archive for pipelines with a cacheKey. Lookups take the
++        // lock shared and skip the archive while it is held exclusively; new
++        // pipelines are added and serialized later in getPipelineCacheData.
++        MTL::BinaryArchive *binaryArchive = nullptr;
++        std::string binaryArchiveSeedPath; // Metal may read the seed lazily.
++        mutable std::shared_mutex binaryArchiveMutex;
++        mutable std::mutex binaryArchivePendingMutex;
++        mutable std::vector<MTL::RenderPipelineDescriptor *> binaryArchivePending;
++
+         explicit MetalDevice(MetalInterface *renderInterface, const std::string &preferredDeviceName);
+         ~MetalDevice() override;
+         std::unique_ptr<RenderDescriptorSet> createDescriptorSet(const RenderDescriptorSetDesc &desc) override;
+@@ -747,6 +778,8 @@ namespace plume {
+         std::unique_ptr<RenderCommandSemaphore> createCommandSemaphore() override;
+         std::unique_ptr<RenderFramebuffer> createFramebuffer(const RenderFramebufferDesc &desc) override;
+         std::unique_ptr<RenderQueryPool> createQueryPool(uint32_t queryCount) override;
++        bool loadPipelineCache(const void *data, size_t size, bool &accepted) override;
++        bool getPipelineCacheData(std::vector<uint8_t> &data) override;
+         void setBottomLevelASBuildInfo(RenderBottomLevelASBuildInfo &buildInfo, const RenderBottomLevelASMesh *meshes, uint32_t meshCount, bool preferFastBuild, bool preferFastTrace) override;
+         void setTopLevelASBuildInfo(RenderTopLevelASBuildInfo &buildInfo, const RenderTopLevelASInstance *instances, uint32_t instanceCount, bool preferFastBuild, bool preferFastTrace) override;
+         void setShaderBindingTableInfo(RenderShaderBindingTableInfo &tableInfo, const RenderShaderBindingGroups &groups, const RenderPipeline *pipeline, RenderDescriptorSet **descriptorSets, uint32_t descriptorSetCount) override;

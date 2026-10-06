@@ -1,6 +1,7 @@
 #pragma once
 
 #include <os/logger.h>
+#include <atomic>
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
@@ -206,8 +207,18 @@ namespace os::shaderlog
     // The game's normal window/guest exit paths use std::_Exit, which skips
     // destructors. Close before those calls; later racing events fall back to
     // the immediately flushed runtime logger rather than buffering new bytes.
+    // Set by the renderer: writes pipeline recipes and the driver pipeline cache,
+    // which std::_Exit would otherwise lose. Runs once, on the first close.
+    inline std::atomic<void (*)()>& ExitFlush()
+    {
+        static std::atomic<void (*)()> flush{ nullptr };
+        return flush;
+    }
+    inline void SetExitFlush(void (*flush)()) { ExitFlush().store(flush); }
+
     inline void CloseForExit()
     {
+        if (const auto flush = ExitFlush().exchange(nullptr)) flush();
         if (const auto error = Current().Close())
             LOG_WARNING("shader log close failed: {}", error.message());
     }

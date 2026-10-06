@@ -80,8 +80,8 @@ Gate 1 backlog：调查已知 SDK `PRESENT-AFTER-WRITE` 同步例外并补充显
 ## v0.9.0 延后计划
 
 - [x] **人物阴影：**人物模型上的阴影（尤其在脸部和身体上）曾流动得不自然、看起来发透（维护者 2026-10-01 附 Kaim 截图报告），2026-10-02 未经调查挂起到 v0.9.0。更新（2026-10-06）：维护者确认阴影已经修好。期间发布的 v0.8.10 到 v0.8.30 包含阴影投影修复（PR #186、#197、#218）；没有取过捕获，也没有单独修复。Project 条目为 Done／Released／v0.8.30。
-- [~] **着色器缓存清理（由 v0.8.0 第 12 项移来）：**装好匹配的着色器包后，启动时删除启动 bundle 和包中已有的存储记录，`builtin/` 文件夹并入宿主着色器存储。2026-10-06 在 `feat/shader-cache-cleanup` 上实现，并在 Proton D3D12 上测量；尚未合并或发布。
-- [ ] **首次使用管线的卡顿（全平台）：**第一次进入某张地图、第一次和新敌人战斗、第一次看某段过场时，创建新管线会卡顿，TB321FU 平板上最长约 1.3 秒；录制的配方永远覆盖不全所有 VS/PS 组合。方案见[首次使用管线卡顿](notes/pipeline-first-use-stalls.md)。[ ] P0 运行时未命中日志。[ ] P1 持久化驱动缓存（`VkPipelineCache`、`ID3D12PipelineLibrary`、`MTLBinaryArchive`，Android 上的 Mesa 缓存目录），并保证每次退出都保存配方。[ ] P2 Vulkan graphics pipeline library。[ ] P3 配方语料（含战斗巡游）与按场景预取。[ ] P4 剩余未命中的并行创建。尚未开始；维护者于 2026-10-05 排进 v0.9.0。
+- [~] **着色器缓存清理（由 v0.8.0 第 12 项移来）：**装好匹配的着色器包后，启动时删除启动 bundle 和包中已有的存储记录，`builtin/` 文件夹并入宿主着色器存储。2026-10-06 实现并在 Proton D3D12 上测量，已作为 PR #248（`83bf04da`）合并；尚未发布。
+- [ ] **首次使用管线的卡顿（全平台）：**第一次进入某张地图、第一次和新敌人战斗、第一次看某段过场时，创建新管线会卡顿，TB321FU 平板上最长约 1.3 秒；录制的配方永远覆盖不全所有 VS/PS 组合。方案见[首次使用管线卡顿](notes/pipeline-first-use-stalls.md)。[x] P0 运行时未命中日志。[x] P1 持久化驱动缓存（`VkPipelineCache`、`ID3D12PipelineLibrary`、`MTLBinaryArchive`，Android 上的 Mesa 缓存目录），并保证每次退出都保存配方；2026-10-06 实现，未发布，Metal 归档实测不比 Metal 自带缓存快，改为 `LO_METAL_BINARY_ARCHIVE=1` 才开启。[ ] P2 Vulkan graphics pipeline library。[ ] P3 配方语料（含战斗巡游）与按场景预取。[ ] P4 剩余未命中的并行创建。P2 到 P4 尚未开始；维护者于 2026-10-05 把本项排进 v0.9.0。
 
 ## v1.0.0 延后计划
 

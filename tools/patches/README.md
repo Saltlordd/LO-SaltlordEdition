@@ -54,6 +54,8 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 
 2026-10-05 混合常量（#219）：`RenderCommandList::setBlendConstants` 设置 `BLEND_FACTOR`／`INV_BLEND_FACTOR` 读取的 RGBA 值，带默认空实现。D3D12 使用 `OMSetBlendFactor`；Vulkan 只在以 `dynamicBlendConstantsEnabled` 创建的管线上声明 `VK_DYNAMIC_STATE_BLEND_CONSTANTS`，命令列表记住该值，并在绑定这类管线时重新设置，因此中途绑定静态常量管线后也不会失效（D3D12 和 Metal 本来就跨管线保留）。新补丁在固定 HEAD `d890ac8` 的干净副本上生成，`plume-android.patch` 与 `plume-macos.patch` 仍可叠加应用。
 
+2026-10-06 持久化管线缓存：`RenderDevice` 新增 `loadPipelineCache`、`getPipelineCacheData`、`getPipelineCacheSize`（默认实现表示不支持），`RenderGraphicsPipelineDesc` 新增 `cacheKey`。Vulkan 每个设备建一个 `VkPipelineCache`，图形和计算管线创建都传入它，`loadPipelineCache` 把保存的数据合并进去。D3D12 用 `ID3D12PipelineLibrary`：`cacheKey` 非零的管线按 `cacheKey` 与 VS/PS/GS 字节码的哈希命名，创建前 `LoadGraphicsPipeline`，未命中时创建后 `StorePipeline`；种子数据被拒（`D3D12_ERROR_ADAPTER_NOT_FOUND`、`D3D12_ERROR_DRIVER_VERSION_MISMATCH`、`E_INVALIDARG`）时换成空库。新补丁在固定 HEAD `d890ac8` 的干净副本上应用后与本地依赖源码一致，`plume-android.patch` 与 `plume-macos.patch` 仍可叠加应用。
+
 ## macOS: plume Metal patch
 
 `plume-macos.patch` applies on top of `plume-lostodyssey.patch` and changes `plume_metal.cpp`, `plume_metal.h`, `plume_apple.h`, `plume_apple.mm` and plume's `CMakeLists.txt` (the Apple files and the CMake change come with HDR output, PR #145):
@@ -67,6 +69,7 @@ Vulkan 改动应从受跟踪的 plume 子模块状态和上方补丁应用；它
 - Clears with more than `MAX_CLEAR_RECTS` rectangles are split into batches, matching the D3D12 and Vulkan changes in `plume-lostodyssey.patch`; the quad clear otherwise overruns fixed-size arrays.
 - `plume::SetMetalMinimumPresentDuration` makes the swap chain present each drawable with `presentAfterMinimumDuration`, so ProMotion displays follow the game's frame rate (the runtime's "Adaptive sync (ProMotion)" setting and targets above 60 FPS).
 - `setBlendConstants` stores the value and applies it with `setBlendColor` before the next draw, again on every new render encoder.
+- `loadPipelineCache` / `getPipelineCacheData` keep an `MTLBinaryArchive` for pipelines with a `cacheKey`. Creation first looks the pipeline up with `MTLPipelineOptionFailOnBinaryArchiveMiss`; a miss compiles as before and queues the descriptor, and `getPipelineCacheData` adds the queued descriptors and serializes the archive through a temporary file. Lookups skip the archive while it is being written instead of waiting. The runtime only enables it with `LO_METAL_BINARY_ARCHIVE=1`.
 - `plume::EncodeMetalFxSpatialScale` encodes MetalFX's spatial scaler into the command list's buffer (the "MetalFX" scaling filter). The runtime links `MetalFX.framework` to plume in `thirdparty/CMakeLists.txt`.
 - Drawable slots advance only in `acquireTexture`, on the presentation thread, instead of in present completion handlers.
 - Present completion is recorded in state shared with the handlers, so a handler that runs after teardown never touches the swap chain. `resize()` and the destructor wait up to 10 seconds for outstanding presents, because their command buffers wait on the caller's events without retaining them. A present command buffer that completes with an error is logged through `plume_log.h` and does not fail later resizes or teardown.
