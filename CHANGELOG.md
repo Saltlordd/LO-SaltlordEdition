@@ -12,6 +12,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - CGI movies, including the title intro, now play in the selected voice language instead of Japanese (#220, #54).
 - Android: the game now hides the status and navigation bars and draws under the display cutout (#199).
 - Android: the game now renders on Mali GPUs (MediaTek Helio / Dimensity, Exynos), which cannot create BC-compressed textures (#214).
+- Fixed being unable to move or open the menu after a random battle that started while breaking a box; the battle now waits until the item message is closed (#114).
 
 ### 简体中文
 
@@ -19,6 +20,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - CG 动画（包括标题画面的开场动画）现在按所选语音语言播放，不再固定为日语（#220、#54）。
 - Android：游戏现在会隐藏状态栏和导航栏，并延伸到屏幕挖孔区域（#199）。
 - Android：在不支持 BC 压缩纹理的 Mali GPU（MediaTek Helio / Dimensity、Exynos）上现在可以正常显示画面（#214）。
+- 修复打破箱子时恰好遇敌、战斗后无法移动也打不开菜单的问题；现在战斗会等到关闭获得道具的提示后才开始（#114）。
 
 ## [v0.8.30](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30) — 2026-10-05
 
