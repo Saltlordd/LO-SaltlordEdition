@@ -35,6 +35,8 @@ namespace gpu::video
     // The game window's height in points (logical pixels), or 0 when no window
     // exists. On Retina displays the drawable is larger than this.
     uint32_t LogicalOutputHeight();
+    // The device samples BC1-BC3 images (false on Mali Vulkan drivers, #214).
+    bool TextureCompressionBC();
     // Actual committed backend; absent before readiness or after shutdown.
     std::optional<backend::Backend> SelectedBackend();
     // Latest committed device capability. Callers receive a copy and do not

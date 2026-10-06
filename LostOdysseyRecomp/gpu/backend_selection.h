@@ -39,6 +39,9 @@ inline std::optional<Backend> Requested(Backend configured, const char* environm
 struct Capabilities {
     bool device = false, geometryShader = false, bufferDeviceAddress = false;
     bool shaderInt64 = false, scalarBlockLayout = false;
+    // BC1-BC3 sampled images. Always present on D3D12 and Metal; Mali GPUs on
+    // Vulkan expose only ASTC/ETC2 (#214).
+    bool textureCompressionBC = false;
     uint32_t apiVersion = 0, shaderModel = 0, bindingTier = 0;
     uint32_t boundSets = 0, samplers = 0, sampledImages = 0, storageBuffers = 0, pushConstants = 0;
 };
