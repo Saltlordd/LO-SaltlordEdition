@@ -35,6 +35,7 @@ namespace
     enum class State { Unavailable, Ready, Pending, Applied, Cancelled };
     std::atomic<State> state{State::Unavailable};
     std::atomic<uint64_t> lastBattleTick{0};
+    std::atomic<uint32_t> battleNumber{0};
     uint64_t Now()
     {
         return host_ui::GetActiveGameTimeMs();
@@ -74,6 +75,12 @@ const wchar_t* debug_menu::Status()
     }
 }
 
+uint32_t debug_menu::CurrentBattle()
+{
+    const uint64_t last = lastBattleTick.load();
+    return last && Now() - last <= 1000 ? battleNumber.load() : 0;
+}
+
 // Battle core tick, called on the guest game thread. Keep UI requests atomic;
 // never mutate guest state from the video/window thread.
 PPC_FUNC(sub_8238A640)
@@ -98,6 +105,7 @@ PPC_FUNC(sub_8238A640)
                 state = State::Ready;
         }
         if (state == State::Cancelled) state = State::Ready;
+        if (lastBattleTick.load() == 0 || now - lastBattleTick.load() > 1000) ++battleNumber;
         lastBattleTick = now;
         // Deterministic one-shot input for local integration tests, disabled by default.
         static const uint32_t testAt = getenv("LO_DEBUG_WIN_AT") ? strtoul(getenv("LO_DEBUG_WIN_AT"), nullptr, 10) : 0;

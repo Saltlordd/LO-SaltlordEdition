@@ -176,6 +176,10 @@ public final class RuntimeActivity extends SDLActivity {
         // Logs go where a PC can copy them over USB; the device line names the phone.
         nativeSetenv("LO_LOG_DIR", PlayerLogs.directory(this).getAbsolutePath());
         nativeSetenv("LO_ANDROID_DEVICE", PlayerLogs.deviceDescription());
+        // Mesa drivers (Turnip) keep compiled pipelines on disk only with a cache
+        // directory; Android gives them none. Other drivers ignore these.
+        nativeSetenv("MESA_SHADER_CACHE_DIR", new File(getCacheDir(), "mesa_shader_cache").getAbsolutePath());
+        nativeSetenv("MESA_SHADER_CACHE_MAX_SIZE", "256M");
         GpuDriverStore.Installed driver = GpuDriverStore.selectedDriver(this);
         if (driver != null) {
             nativeSetenv("LO_CUSTOM_DRIVER_DIR", driver.directory.getAbsolutePath() + "/");

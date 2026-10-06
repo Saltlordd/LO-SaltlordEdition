@@ -152,6 +152,54 @@ namespace gpu::pipeline_cache
             return false;
 #endif
         }
+
+        // Writes bytes to a unique temporary file next to path, then replaces path.
+        inline bool WriteAtomically(const std::filesystem::path& path, std::span<const uint8_t> bytes,
+                                    std::string& error)
+        {
+            TemporaryFile temporary;
+            static std::atomic<uint64_t> serial{ 0 };
+            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+            for (unsigned attempt = 0; attempt < 64; ++attempt)
+            {
+                auto candidate = path;
+                candidate += ".tmp-" + std::to_string(stamp) + "-" + std::to_string(serial.fetch_add(1));
+                std::error_code ec;
+                if (std::filesystem::create_directory(candidate, ec))
+                {
+                    temporary.directory = std::move(candidate);
+                    temporary.file = temporary.directory / "data";
+                    break;
+                }
+                if (ec)
+                {
+                    error = "could not reserve temporary file: " + ec.message();
+                    return false;
+                }
+            }
+            if (temporary.file.empty())
+            {
+                error = "could not reserve unique temporary file";
+                return false;
+            }
+            {
+                std::ofstream output(temporary.file, std::ios::binary | std::ios::trunc);
+                output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                output.flush();
+                if (!output)
+                {
+                    error = "could not write complete file";
+                    return false;
+                }
+                output.close();
+                if (!output)
+                {
+                    error = "could not close file";
+                    return false;
+                }
+            }
+            return AtomicReplace(temporary.file, path, error);
+        }
     }
 
     struct KeyHash
@@ -287,48 +335,11 @@ namespace gpu::pipeline_cache
             detail::Put64(bytes.data() + 32, detail::Hash(std::span(bytes).subspan(kHeaderBytes)));
             detail::Put64(bytes.data() + 40, detail::Hash(std::span(bytes).first(40)));
 
-            detail::TemporaryFile temporary;
-            static std::atomic<uint64_t> serial{ 0 };
-            const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-            for (unsigned attempt = 0; attempt < 64; ++attempt)
+            if (!detail::WriteAtomically(path, bytes, result.error))
             {
-                auto candidate = path;
-                candidate += ".tmp-" + std::to_string(stamp) + "-" + std::to_string(serial.fetch_add(1));
-                std::error_code ec;
-                if (std::filesystem::create_directory(candidate, ec))
-                {
-                    temporary.directory = std::move(candidate);
-                    temporary.file = temporary.directory / "data";
-                    break;
-                }
-                if (ec)
-                {
-                    result.error = "could not reserve recipe temporary file: " + ec.message();
-                    return result;
-                }
-            }
-            if (temporary.file.empty())
-            {
-                result.error = "could not reserve unique recipe temporary file";
+                result.error = "recipe file: " + result.error;
                 return result;
             }
-            {
-                std::ofstream output(temporary.file, std::ios::binary | std::ios::trunc);
-                output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-                output.flush();
-                if (!output)
-                {
-                    result.error = "could not write complete recipe file";
-                    return result;
-                }
-                output.close();
-                if (!output)
-                {
-                    result.error = "could not close recipe file";
-                    return result;
-                }
-            }
-            if (!detail::AtomicReplace(temporary.file, path, result.error)) return result;
             result.ok = true;
             result.written = seen.size();
             return result;

@@ -1608,6 +1608,8 @@ namespace gpu::video
         // No proven completion or lost-device disposal boundary. Never free
         // resources still referenced by native work. OS process teardown is
         // safer than running their destructors against an undrained device.
+        // Pipeline recipes and the driver cache are still written (no GPU wait).
+        if (const auto flush = os::shaderlog::ExitFlush().exchange(nullptr)) flush();
         std::fflush(nullptr);
         std::_Exit(EXIT_FAILURE);
     }

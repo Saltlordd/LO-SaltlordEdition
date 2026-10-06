@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 
 namespace debug_menu
 {
@@ -7,4 +8,6 @@ namespace debug_menu
     bool RequestVictory();
     void CancelVictory();
     const wchar_t* Status();
+    // Session number of the battle running now (from 1), 0 outside battles. Any thread.
+    uint32_t CurrentBattle();
 }

@@ -533,6 +533,10 @@ add_executable(LoTextureLayoutTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/te
 target_include_directories(LoTextureLayoutTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoTextureLayoutTest PRIVATE cxx_std_20)
 
+add_executable(LoDriverPipelineCacheTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/driver_pipeline_cache_test.cpp)
+target_include_directories(LoDriverPipelineCacheTest PRIVATE ${LO_RUNTIME_ROOT})
+target_compile_features(LoDriverPipelineCacheTest PRIVATE cxx_std_20)
+
 add_executable(LoGamePathTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/game_path_test.cpp)
 target_include_directories(LoGamePathTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoGamePathTest PRIVATE cxx_std_20)

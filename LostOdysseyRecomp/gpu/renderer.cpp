@@ -30,6 +30,7 @@
 #include "occlusion_queries.h"
 #include "polygon_offset.h"
 #include "pipeline_cache.h"
+#include "driver_pipeline_cache.h"
 #include "texture_layout.h"
 #include "controller_atlas.h"
 #include "bc_decode.h"
@@ -85,6 +86,8 @@
 #include <os/log_file.h>
 #include <os/startup_diagnostics.h>
 #include <os/capture_archive.h>
+#include <debug/map_info.h>
+#include <debug/battle_menu.h>
 #include <version.h>
 
 #ifdef LO_GPU_PLUME
@@ -656,6 +659,19 @@ namespace gpu::renderer
             std::future<gpu::pipeline_cache::WriteResult> pipelineWrite;
             bool pipelineCacheEnabled = false, pipelineRecipesDirty = false;
             uint64_t preparedPipelineHits = 0, runtimePipelineCreates = 0;
+            // Inserts into pipelineRecipes and the exit flush's snapshot (another thread).
+            std::mutex pipelineRecipeMutex;
+            // The driver's own pipeline cache file; empty when disabled.
+            std::filesystem::path driverCachePath;
+            std::atomic<size_t> driverCacheBytes{0}; // largest size loaded or written
+            std::future<std::string> driverCacheWrite;
+            // Draw-time pipeline creations (misses) of the current frame. A shader is
+            // "seen" when an earlier recipe or created pipeline used it.
+            std::unordered_set<uint64_t> pipelineShadersSeen[2];
+            struct PipelineMiss { PipelineKey key{}; double ms = 0; bool recipe = false, vsSeen = false, psSeen = false; };
+            PipelineMiss firstPipelineMiss;
+            uint32_t pipelineMissCount = 0;
+            double pipelineMissMs = 0;
             std::unordered_map<RenderTargetKey, std::unique_ptr<HostTexture>, RenderTargetKeyHash> renderTargets;
             std::unordered_map<TextureKey, std::unique_ptr<HostTexture>, TextureKeyHash> textures;
 
@@ -4481,10 +4497,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             {
                 pipelineCacheEnabled = !shaderCacheDir.empty() && !getenv("LO_NO_PIPELINE_CACHE");
                 if (!pipelineCacheEnabled) return;
+                const std::string driverCache = LoadDriverPipelineCache();
                 const auto path = std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
                 const auto loaded = gpu::pipeline_cache::Load(path, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
                 if (!loaded.error.empty()) LOG_WARNING("renderer: ignoring pipeline recipes: {}", loaded.error);
-                for (const auto& key : loaded.keys) pipelineRecipes.insert(key);
+                {
+                    std::lock_guard lock(pipelineRecipeMutex);
+                    for (const auto& key : loaded.keys) pipelineRecipes.insert(key);
+                }
+                for (const auto& key : loaded.keys) {
+                    pipelineShadersSeen[0].insert(key.vs);
+                    pipelineShadersSeen[1].insert(key.ps);
+                }
                 // Learning remains enabled when eager creation is skipped.
                 if (getenv("LO_NO_PIPELINE_PREPARE") || getenv("LO_NO_SHADER_PREPARE") ||
                     settings::GetConfig().skipShaderPrebuild || video::ShaderPreparationSkipped()) return;
@@ -4526,15 +4550,135 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 video::PreparationStage::Pipelines, video::PreparationUnit::Pipelines);
                             return !video::ShaderPreparationSkipped();
                         }, [] { video::PumpEvents(); return !video::ShaderPreparationSkipped(); });
-                    LOG_INFO("renderer: pipeline preparation: {} recipes, {} ready, {} missing shaders, {} failed, {} workers, {:.0f} ms",
+                    LOG_INFO("renderer: pipeline preparation: {} recipes, {} ready, {} missing shaders, {} failed, {} workers, {:.0f} ms, driver cache {}",
                         loaded.keys.size(), preparedPipelineKeys.size(), missingShaders, failed, stats.startedWorkers,
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count());
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count(), driverCache);
                 } catch (const xenos::preparation::Cancelled&) {
                     LOG_INFO("renderer: pipeline preparation skipped by user request");
                 } catch (const std::exception& e) {
                     LOG_WARNING("renderer: pipeline preparation stopped: {}", e.what());
                 }
                 video::SetShaderPreparationProgress(0, 0);
+            }
+
+            // Enables the backend's persistent pipeline cache, seeded from its file.
+            // Returns a short status for the preparation summary.
+            std::string LoadDriverPipelineCache()
+            {
+                namespace dpc = gpu::driver_pipeline_cache;
+                if (getenv("LO_NO_DRIVER_PIPELINE_CACHE")) return "disabled";
+                const char* name = nativeVulkan ? "pipeline_cache_vk.bin" :
+                    video::IsMetal() ? "pipeline_cache_metal.bin" : "pipeline_cache_dx12.bin";
+                const auto path = std::filesystem::path(shaderCacheDir) / name;
+                const auto started = std::chrono::steady_clock::now();
+                std::vector<uint8_t> data;
+                std::string error, state = "empty";
+                const auto status = dpc::Read(path, data, error);
+                if (status == dpc::ReadStatus::IoError) LOG_WARNING("renderer: driver pipeline cache {}: {}", path.string(), error);
+                if (status == dpc::ReadStatus::TooLarge) state = "over the size cap, replaced";
+#if defined(LO_GPU_PLUME)
+                if (!data.empty() && nativeVulkan) {
+                    const auto& properties = static_cast<const VulkanDevice*>(device)->physicalDeviceProperties;
+                    dpc::VulkanIdentity identity{ properties.vendorID, properties.deviceID, {} };
+                    std::copy(std::begin(properties.pipelineCacheUUID), std::end(properties.pipelineCacheUUID), identity.uuid.begin());
+                    if (!dpc::ValidVulkanHeader(data, identity)) {
+                        state = "from another device or driver, replaced";
+                        data.clear();
+                    }
+                }
+#endif
+                bool accepted = false;
+                if (!device->loadPipelineCache(data.empty() ? nullptr : data.data(), data.size(), accepted))
+                    return "unsupported";
+                if (!data.empty()) state = accepted ? "loaded" : "rejected by the driver, replaced";
+                driverCacheBytes = accepted ? data.size() : 0;
+                driverCachePath = path;
+                return fmt::format("{} {} ({} bytes, {:.0f} ms)", name, state, data.size(),
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+            }
+
+            // Writes the driver cache when it grew. wait: block until written (shutdown).
+            void SaveDriverPipelineCache(bool wait)
+            {
+                if (driverCachePath.empty()) return;
+                if (driverCacheWrite.valid()) {
+                    if (!wait && driverCacheWrite.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+                    if (const auto error = driverCacheWrite.get(); !error.empty())
+                        LOG_WARNING("renderer: driver pipeline cache write: {}", error);
+                }
+                try {
+                    driverCacheWrite = std::async(std::launch::async, [this] { return WriteDriverPipelineCache(); });
+                    if (wait)
+                        if (const auto error = driverCacheWrite.get(); !error.empty())
+                            LOG_WARNING("renderer: driver pipeline cache write: {}", error);
+                } catch (const std::exception& e) { LOG_WARNING("renderer: driver pipeline cache writer: {}", e.what()); }
+            }
+
+            // Any thread: the backends serialize while pipelines are being created.
+            std::string WriteDriverPipelineCache()
+            {
+                namespace dpc = gpu::driver_pipeline_cache;
+                const size_t previous = driverCacheBytes;
+                if (const size_t size = device->getPipelineCacheSize(); size && size <= previous) return {};
+                std::vector<uint8_t> data;
+                if (!device->getPipelineCacheData(data) || data.size() <= previous) return {};
+                if (!dpc::ShouldWrite(data.size(), previous))
+                    return fmt::format("{} bytes exceed the {} MB cap; keeping the file", data.size(), dpc::kMaxBytes >> 20);
+                std::string error;
+                if (!dpc::Write(driverCachePath, data, error)) return error;
+                driverCacheBytes = data.size();
+                return {};
+            }
+
+            // Recipes and driver cache before a std::_Exit that skips Shutdown. Runs on
+            // the exiting thread and never waits for GPU work.
+            void FlushCachesForExit()
+            {
+                if (!pipelineCacheEnabled) return;
+                std::vector<PipelineKey> snapshot;
+                {
+                    std::lock_guard lock(pipelineRecipeMutex);
+                    snapshot.assign(pipelineRecipes.begin(), pipelineRecipes.end());
+                }
+                const auto path = std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
+                const auto recipes = gpu::pipeline_cache::Write(path, snapshot, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
+                if (!recipes.ok) LOG_WARNING("renderer: exit recipe write failed: {}", recipes.error);
+                std::string driverError = driverCachePath.empty() ? std::string{} : WriteDriverPipelineCache();
+                if (!driverError.empty()) LOG_WARNING("renderer: exit driver pipeline cache write: {}", driverError);
+                LOG_INFO("renderer: exit flush: {} pipeline recipes, driver cache {} bytes", recipes.written, size_t(driverCacheBytes));
+            }
+
+            // One line per frame with draw-time pipeline creations; one line per
+            // creation with LO_PIPELINE_MISS_LOG=1. tools/pipeline_misses.py sums them.
+            static std::string SceneLabel()
+            {
+                const auto map = debug_menu::GetMapInfo();
+                return fmt::format("map={} battle={}", map.available ? std::to_string(map.id) : std::string("-"),
+                    debug_menu::CurrentBattle());
+            }
+
+            void NotePipelineMiss(const PipelineKey& key, double ms, bool recipe)
+            {
+                static const bool verbose = getenv("LO_PIPELINE_MISS_LOG") != nullptr;
+                const PipelineMiss miss{ key, ms, recipe, pipelineShadersSeen[0].contains(key.vs), pipelineShadersSeen[1].contains(key.ps) };
+                pipelineShadersSeen[0].insert(key.vs);
+                pipelineShadersSeen[1].insert(key.ps);
+                if (!pipelineMissCount++) firstPipelineMiss = miss;
+                pipelineMissMs += ms;
+                if (verbose)
+                    LOG_INFO("renderer: pipeline miss frame={} {} vs={:016x} ps={:016x} ms={:.2f} recipe={} vs_seen={} ps_seen={}",
+                        frame, SceneLabel(), key.vs, key.ps, ms, int(miss.recipe), int(miss.vsSeen), int(miss.psSeen));
+            }
+
+            void ReportPipelineMisses()
+            {
+                if (!pipelineMissCount) return;
+                const auto& first = firstPipelineMiss;
+                LOG_INFO("renderer: pipeline misses frame={} count={} ms={:.2f} {} first_vs={:016x} first_ps={:016x} first_ms={:.2f} recipe={} vs_seen={} ps_seen={}",
+                    frame, pipelineMissCount, pipelineMissMs, SceneLabel(), first.key.vs, first.key.ps, first.ms,
+                    int(first.recipe), int(first.vsSeen), int(first.psSeen));
+                pipelineMissCount = 0;
+                pipelineMissMs = 0;
             }
 
             void SavePipelineRecipes(bool force = false)
@@ -4562,6 +4706,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     });
                     pipelineRecipesDirty = false;
                 } catch (const std::exception& e) { LOG_WARNING("renderer: pipeline recipe writer: {}", e.what()); }
+                // New recipes mean new driver pipelines; the final write is in Shutdown.
+                if (!force) SaveDriverPipelineCache(false);
             }
 
             #include "shader/portable_shader_pack_renderer.inl"
@@ -6253,14 +6399,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 ScopedTimer timer{ tPipeline, cpuTimingEnabled };
                 nPipeline++;
                 if (gpuStatsEnabled) ++runtimePipelineCreates;
+                const auto started = std::chrono::steady_clock::now();
                 auto pipeline = CreatePipeline(key, vs, ps, true);
+                const bool recipe = pipelineRecipes.contains(key);
+                NotePipelineMiss(key, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(), recipe);
                 RenderPipeline* result = pipeline.get();
                 // A failed speculative creation must not poison the draw cache.
                 if (result) {
                     pipelines.emplace(key, std::move(pipeline));
-                    if (pipelineCacheEnabled && pipelineRecipes.size() < gpu::pipeline_cache::kMaxRecords &&
-                        gpu::pipeline_cache::IsValid(key) && ValidPipelineRecipe(key) && pipelineRecipes.insert(key).second)
-                        pipelineRecipesDirty = true;
+                    if (pipelineCacheEnabled && !recipe && pipelineRecipes.size() < gpu::pipeline_cache::kMaxRecords &&
+                        gpu::pipeline_cache::IsValid(key) && ValidPipelineRecipe(key)) {
+                        std::lock_guard lock(pipelineRecipeMutex);
+                        pipelineRecipesDirty = pipelineRecipes.insert(key).second || pipelineRecipesDirty;
+                    }
                 }
                 return result;
             }
@@ -6271,7 +6422,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer event=point_pipeline vs_hash=0x%llx module=0x%llx uses_point_size_metadata=%u color_mask=%u depth_format=%u\n",
                         vk_object_trace::Id(key.vs), vk_object_trace::Id(static_cast<const VulkanShader*>(vs->shader.get())->vk),
                         unsigned(vs->info.usesPointSize), key.colorMask, key.depthFormat);
-                return device->createGraphicsPipeline(DescribePipeline(key, vs, ps, trace));
+                auto desc = DescribePipeline(key, vs, ps, trace);
+                // Only exact game-state pipelines get a persistent name; the variant
+                // paths edit DescribePipeline's result and stay unnamed.
+                desc.cacheKey = gpu::pipeline_cache::detail::Hash(gpu::pipeline_cache::detail::Encode(key)) | 1;
+                return device->createGraphicsPipeline(desc);
             }
             RenderGraphicsPipelineDesc DescribePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace)
             {
@@ -11346,6 +11501,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         };
 
         Renderer* g_renderer = nullptr;
+        // Held while Shutdown deletes the renderer and while an exit flush uses it.
+        std::mutex g_exitFlushMutex;
+        void FlushCachesForExit()
+        {
+            std::lock_guard lock(g_exitFlushMutex);
+            if (g_renderer) g_renderer->FlushCachesForExit();
+        }
     }
 
 #if !defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -11361,6 +11523,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         auto r = std::make_unique<Renderer>();
         if (!r->Init()) return false;
         g_renderer = r.release();
+        // The std::_Exit paths close the shader log first; that runs this flush.
+        os::shaderlog::SetExitFlush(&FlushCachesForExit);
         return true;
     }
 
@@ -11387,6 +11551,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     g_renderer->temporalUpscaler->OnDiscarded(slot.srUseId);
 #endif
             g_renderer->SavePipelineRecipes(true);
+            g_renderer->SaveDriverPipelineCache(true);
+            std::lock_guard lock(g_exitFlushMutex);
             delete g_renderer;
             g_renderer = nullptr;
         }
@@ -11965,6 +12131,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 page.closed = true;
             }
             taa_collection::EndDiagnosticsFrame(collectionRenderer.frame,collectionFrame);
+            g_renderer->ReportPipelineMisses();
             g_renderer->SavePipelineRecipes();
             if (stats && g_renderer->frame % 600 == 0)
                 LOG_INFO("renderer: pipeline reuse frame {}: {} prepared hits, {}/{} prepared keys used, {} runtime creates, {} recipes",
