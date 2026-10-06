@@ -2,6 +2,7 @@
 #include <os/platform.h>
 #include "cache.h"
 #include "binary_cache.h"
+#include "builtin_shader_store.h"
 #include "resource_cpx_index_sha256.h"
 #include <os/shader_log.h>
 #include <os/user_paths.h>
@@ -11,6 +12,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <span>
 #include <string>
@@ -50,6 +52,62 @@ namespace xenos
 #endif
         std::atomic<uint64_t> g_calls{0}, g_succeeded{0}, g_rejected{0}, g_infrastructureFailed{0};
         std::once_flag g_loadOnce;
+
+        // Host-shader stores (builtin_shader_store.h), one per binary format,
+        // opened on first use. The first use also moves the old `builtin/`
+        // folder into them and removes stores of older translator versions.
+        struct BuiltinStores
+        {
+            std::mutex mutex;
+            std::filesystem::path dir;
+            bool cleaned = false;
+            std::unique_ptr<cache::ShaderStore> stores[3];
+            bool tried[3]{};
+        };
+        BuiltinStores& Builtins() { static BuiltinStores stores; return stores; }
+
+        cache::ShaderStore* OpenBuiltinStoreLocked(BuiltinStores& s, cache::Format format)
+        {
+            const auto i = static_cast<size_t>(format);
+            if (format == cache::Format::Dxbc) return nullptr;
+            if (!s.tried[i]) {
+                s.tried[i] = true;
+                std::error_code ec;
+                std::filesystem::create_directories(s.dir, ec);
+                auto store = std::make_unique<cache::ShaderStore>();
+                std::string error;
+                const auto path = cache::BuiltinStorePath(s.dir, format);
+                if (store->Open(path, format, &error)) s.stores[i] = std::move(store);
+                else LOG_WARNING("shader cache: host shader store {} unavailable ({}); using per-shader files", path.string(), error);
+            }
+            return s.stores[i].get();
+        }
+
+        cache::ShaderStore* BuiltinStore(const std::filesystem::path& dir, cache::Format format)
+        {
+            auto& s = Builtins();
+            std::lock_guard lock(s.mutex);
+            if (!s.cleaned) {
+                s.cleaned = true;
+                s.dir = dir;
+                uint64_t oldBytes = 0;
+                if (const auto removed = cache::RemoveOldBuiltinStores(dir, &oldBytes))
+                    LOG_INFO("shader cache cleanup: removed {} host shader stores of older translator versions ({} bytes freed)", removed, oldBytes);
+                const auto folder = dir / "builtin";
+                std::error_code ec;
+                if (std::filesystem::is_directory(folder, ec)) {
+                    const auto moved = cache::MigrateBuiltinFolder(folder, [&](cache::Format f) -> cache::ShaderStore* {
+                        auto* store = OpenBuiltinStoreLocked(s, f);
+                        return store && store->Writable() ? store : nullptr;
+                    });
+                    LOG_INFO("shader cache cleanup: moved {} host shaders from {} into {}, discarded {} stale files, {} bytes of per-shader files freed; folder {}{}",
+                        moved.moved, folder.string(), cache::BuiltinStorePath(dir, format).filename().string(), moved.discarded, moved.bytesFreed,
+                        moved.folderRemoved ? "removed" : fmt::format("kept ({} files left)", moved.kept),
+                        moved.error.empty() ? std::string{} : "; " + moved.error);
+                }
+            }
+            return OpenBuiltinStoreLocked(s, format);
+        }
 
 #ifdef _WIN32
         void LoadDxc()
@@ -338,10 +396,19 @@ namespace xenos
             ":" + std::to_string(std::strlen(profile)) + ":" + profile;
         const bool pixel = std::string_view(profile).starts_with("ps_");
         const char* configured = std::getenv("LO_SHADER_CACHE_DIR");
-        const auto directory = (configured ? std::filesystem::path(configured) : (os::user_paths::UsePortableLayout() ? std::filesystem::path("cache/shaders") : os::user_paths::DataDir() / "cache/shaders")) / "builtin";
+        const bool cacheEnabled = !configured || *configured;
+        const auto cacheDir = configured ? std::filesystem::path(configured) : (os::user_paths::UsePortableLayout() ? std::filesystem::path("cache/shaders") : os::user_paths::DataDir() / "cache/shaders");
+        const auto directory = cacheDir / "builtin";
         const auto path = directory / cache::FileName(pixel, hash, identity);
+        auto* store = cacheEnabled && cache::ValidIdentity(identity) ? BuiltinStore(cacheDir, identity.format) : nullptr;
+        const auto digest = store ? cache::BuiltinDigest(identity) : cache::InputDigest{};
         CompiledShader result;
-        if (!configured || *configured) result.bytecode = cache::ReadBinary(path, pixel, hash, identity);
+        if (store) {
+            result.bytecode = store->Find(pixel, hash, digest);
+            // A second instance cannot move the folder; it still reads it.
+            if (result.bytecode.empty() && !store->Writable())
+                result.bytecode = cache::ReadBinary(path, pixel, hash, identity);
+        } else if (cacheEnabled) result.bytecode = cache::ReadBinary(path, pixel, hash, identity);
         if (!result.bytecode.empty()) {
             result.ok = true;
             if (os::shaderlog::Current().IsOpen())
@@ -353,7 +420,9 @@ namespace xenos
             SHADER_LOG_INFO("cache-miss", BuiltinKeyFnv, "builtin key={:016x} profile={} entry={} format={}",
                 hash, profile, entry, spirv ? "spirv" : "dxil");
         result = CompileHlsl(source, entry, profile, format);
-        if (result.ok && (!configured || *configured)) {
+        if (result.ok && store) {
+            if (store->Writable()) store->Add(pixel, hash, digest, result.bytecode);
+        } else if (result.ok && cacheEnabled) {
             std::error_code error;
             std::filesystem::create_directories(directory, error);
             if (!error) cache::WriteBinary(path, pixel, hash, identity, result.bytecode);

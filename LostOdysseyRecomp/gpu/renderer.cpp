@@ -1902,6 +1902,34 @@ namespace gpu::renderer
                 }
                 return removed;
             }
+            // A matching distribution pack serves every shader it holds before the
+            // local cache is asked (TryLoadPortableShader), so this backend's startup
+            // bundle is never read and store records of shaders the pack's index
+            // lists are never found. Both are removed; store records the pack
+            // lacks (runtime-only variants) stay.
+            void RemovePackCoveredShaderCache()
+            {
+                const auto bundle = std::filesystem::path(shaderCacheDir) /
+                    (vulkan ? "startup_vk12_v1.bundle" : "startup_dxil_v1.bundle");
+                std::error_code ec;
+                const auto bundleBytes = std::filesystem::file_size(bundle, ec);
+                if (!ec && std::filesystem::remove(bundle, ec))
+                    LOG_INFO("renderer: shader cache cleanup: removed startup bundle {}, the shader pack replaces it ({} bytes freed)",
+                        bundle.filename().string(), bundleBytes);
+                auto* store = LocalShaderStore();
+                if (!store || !store->Writable() || !portableShaderPack) return;
+                const auto before = store->GetStats();
+                std::string error;
+                const auto dropped = store->CompactCovered([pack = portableShaderPack.get()](bool pixel, uint64_t hash) {
+                    return pack->Contains(pixel, hash);
+                }, &error);
+                const auto after = store->GetStats();
+                if (dropped)
+                    LOG_INFO("renderer: shader cache cleanup: dropped {} shader store records the shader pack holds, kept {} ({} bytes freed)",
+                        dropped, after.records, before.fileBytes > after.fileBytes ? before.fileBytes - after.fileBytes : 0);
+                if (!error.empty())
+                    LOG_WARNING("renderer: shader store compaction failed: {}", error);
+            }
             bool initializationModuleFailure = false;
             bool InitFailure(const char* stage, uint64_t bytes = 0, int slot = -1) noexcept
             {
@@ -4581,9 +4609,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const auto unboundXex = XexLoader::UnboundIdentityPrefix();
                 if (TryOpenPortableShaderPack(unboundXex)) {
                     // Per-shader files of older translator versions can never be read again.
-                    if (!shaderCacheDir.empty())
+                    if (!shaderCacheDir.empty()) {
                         if (const auto removed = RemoveLegacyShaderCacheFiles(false))
                             LOG_INFO("renderer: removed {} per-shader cache files of older translator versions", removed);
+                        RemovePackCoveredShaderCache();
+                    }
                     ResetTimers();
                     return;
                 }
