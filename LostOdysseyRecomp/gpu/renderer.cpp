@@ -4559,6 +4559,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     LOG_WARNING("renderer: pipeline preparation stopped: {}", e.what());
                 }
                 video::SetShaderPreparationProgress(0, 0);
+                // A cold prebuild filled the driver cache; keep it even if no new recipe
+                // follows. Synchronous, so a quick exit cannot cut the write short.
+                SaveDriverPipelineCache(true);
             }
 
             // Enables the backend's persistent pipeline cache, seeded from its file.
@@ -4625,8 +4628,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (const size_t size = device->getPipelineCacheSize(); size && size <= previous) return {};
                 std::vector<uint8_t> data;
                 if (!device->getPipelineCacheData(data) || data.size() <= previous) return {};
-                if (!dpc::ShouldWrite(data.size(), previous))
+                if (!dpc::ShouldWrite(data.size(), previous)) {
+                    driverCacheBytes = data.size(); // warn again only after it grows further
                     return fmt::format("{} bytes exceed the {} MB cap; keeping the file", data.size(), dpc::kMaxBytes >> 20);
+                }
                 std::string error;
                 if (!dpc::Write(driverCachePath, data, error)) return error;
                 driverCacheBytes = data.size();

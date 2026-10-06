@@ -7,7 +7,9 @@
 
 namespace gpu::driver_pipeline_cache
 {
-    inline constexpr size_t kMaxBytes = size_t(64) << 20;
+    // About 18 KB per pipeline under vkd3d-proton (1950 recipes: 35 MB); the
+    // recipe limit of 16384 would need about 300 MB.
+    inline constexpr size_t kMaxBytes = size_t(256) << 20;
     inline constexpr size_t kVulkanHeaderBytes = 32;
 
     struct VulkanIdentity

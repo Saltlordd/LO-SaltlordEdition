@@ -156,7 +156,7 @@ P0 → P1 → P2 → P3 → P4。
 - `vs_seen` / `ps_seen`：此前有配方或已建管线用过这个着色器。两个都为 1 表示“已知着色器的新组合”，是 P2 要解决的那类。
 - `tools/pipeline_misses.py <runtime log>` 按场景列出帧数、未命中数、总耗时、最差帧，有逐条日志时再列新 VS/PS 的数量。`LO_RENDER_TIMING=1` 的 `pipelines=` / `pipeline_ms=` 不变，两者数字一致。
 
-**P1 驱动缓存。** 文件放在着色器缓存目录：`pipeline_cache_vk.bin`、`pipeline_cache_dx12.bin`、`pipeline_cache_metal.bin`。启动预建之前读入，在写配方时（每 60 帧检查一次、有新配方才写）异步写回，正常退出时同步写一次；只在数据变大时写，上限 64 MB，经临时文件原子替换。
+**P1 驱动缓存。** 文件放在着色器缓存目录：`pipeline_cache_vk.bin`、`pipeline_cache_dx12.bin`、`pipeline_cache_metal.bin`。启动预建之前读入；预建结束后写一次，之后在写配方时（每 60 帧检查一次、有新配方才写）异步写回，正常退出时再写一次；只在数据变大时写，上限 256 MB（vkd3d-proton 下每条管线约 18 KB），超过上限时保留旧文件，经临时文件原子替换。
 
 - Vulkan：plume 每个设备一个 `VkPipelineCache`，图形和计算管线都用它。读入前校验头部的 `headerSize`、`headerVersion`、`vendorID`、`deviceID`、`pipelineCacheUUID`，不匹配就从空缓存开始并覆盖。
 - D3D12：`ID3D12PipelineLibrary`。只有 `CreatePipeline` 建的游戏管线带名字（键的哈希与 VS/PS/GS 字节码哈希），各种变体不入库。驱动拒绝旧数据时从空库开始。
