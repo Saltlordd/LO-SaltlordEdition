@@ -684,6 +684,10 @@ add_executable(LoAspectLayoutTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tes
 target_include_directories(LoAspectLayoutTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoAspectLayoutTest PRIVATE cxx_std_20)
 
+add_executable(LoEncounterDeferTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/encounter_defer_test.cpp)
+target_include_directories(LoEncounterDeferTest PRIVATE ${LO_RUNTIME_ROOT})
+target_compile_features(LoEncounterDeferTest PRIVATE cxx_std_20)
+
 add_executable(LoFsrProjectionTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/fsr_projection_test.cpp)
 target_include_directories(LoFsrProjectionTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoFsrProjectionTest PRIVATE cxx_std_20)
