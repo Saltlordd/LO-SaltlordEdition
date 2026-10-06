@@ -55,7 +55,28 @@ New sources came from the learned `cache/shaders/source` folders of the maintain
 - All three were published on 2026-10-02 to the `shader-packs` prerelease for the startup download ([startup download](../PORTABLE_SHADER_PACK.md#startup-download)).
 - An M1 Max loaded the Metal pack from that release; the opening battle then ran with every guest shader from the pack.
 
-## Not done
+## Cache cleanup once a pack is installed (2026-10-06)
 
-- The `builtin/` folder (506 host-shader files) still uses one file per shader.
-- The startup bundle now duplicates the store. Removing it needs a warm-start measurement from the store alone.
+The two items this note left open are done on `feat/shader-cache-cleanup`.
+
+- **Startup bundle.** With a matching pack, `PrepareKnownShaders` returns right after the pack hit and never reads the startup bundle; the pack serves every shader it holds before the local cache is asked (`TryLoadPortableShader`). That start now deletes the bundle of its own renderer (`startup_dxil_v1.bundle` for DirectX 12, `startup_vk12_v1.bundle` for Vulkan and Metal). The other renderer's bundle stays, since that renderer may have no pack. Installs without a pack keep building and using the bundle.
+- **Store records the pack holds.** The same start opens the store and drops every record whose shader the pack's index lists (`Reader::Contains`, by stage and guest hash), used this session or not (`ShaderStore::CompactCovered`). Records the pack lacks, such as runtime-only variants, stay. A second instance holding the store read-only skips this.
+- **`builtin/` folder.** Host shaders now go to `builtin_v<translator version>_<format>.lostore` (`gpu/shader/builtin_shader_store.h`). The key is the HLSL's FNV hash plus the identity key the old file name ended with, so the first use moves the old files in without their source: every valid file is added and the store synced before any file is deleted, and the folder is removed only when empty, so an interrupted move finishes on the next start. Files of older translator versions and interrupted writes are deleted; files with other names stay. Stores of older translator versions are deleted on the next start. If the store cannot be opened, the old per-shader files are used as before.
+
+Each removal logs one `shader cache cleanup:` line with the bytes freed. Nothing outside the shader cache folder is touched, and the pack itself is never deleted.
+
+Trade-off: the store no longer holds pack-covered shaders, so when the contract next changes before a new pack is published, those shaders are compiled again (134 s on the AMD host below). If a pack payload fails at runtime, the renderer drops the pack and compiles the shaders it needs.
+
+### Measurements (DirectX 12 through Proton, AMD Radeon 8060S, 2026-10-06)
+
+Windows build of `main` (`bfa6c824`) and of the branch, D3D12 pack `portable_dx12-48cf14e3720d8a64.lospd` (28,687 records), Uhra save loaded by automatic button presses. The cache came from one start of `main` without a pack: 28,484 shaders compiled in 134 s (`startup_dxil_v1.bundle` 444,939,750 bytes, `shaders_dxil.lostore` 290,430,148 bytes, 12 `builtin/` files).
+
+| Run | Startup bundle | Renderer ready (log) | First map (log) | First map (wall) |
+|---|---|---:|---:|---:|
+| `main`, pack | present | 0.76 / 0.65 s | 17.73 / 17.62 s | 23.3 / 23.1 s |
+| `main`, pack | removed by hand | 0.62 / 0.68 s | 17.45 / 17.60 s | 22.6 / 22.8 s |
+| branch, pack, first start (cleanup) | removed by the cleanup | 0.78 s | 17.68 s | 23.3 s |
+| branch, pack, later starts | absent | 1.39 / 0.87 s | 18.33 / 17.74 s | 23.3 / 23.1 s |
+| branch, no pack | present | 0.81 s (bundle hit, 172 ms) | 17.68 s | 22.8 s |
+
+The bundle makes no difference with a pack installed, as the code predicts. The cleanup start removed the bundle (444,939,750 bytes), dropped all 28,484 store records (290,430,116 bytes) in about 0.1 s including opening the store, and moved the 12 host shaders into `builtin_v27_dxil.lostore` (61,648 bytes); an injected older-version file and an interrupted write were deleted. The cache folder then held `builtin_v27_dxil.lostore`, `pipelines.bin` and a 32-byte `shaders_dxil.lostore`, and later starts opened that empty store in under 1 ms. Without a pack the bundle stayed and was used. `LoShaderStoreTest` (95 checks) covers the covered-record compaction and the folder move; `LoBackendCacheTest` checks the host-shader stores with the real compiler.

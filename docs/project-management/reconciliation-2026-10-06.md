@@ -21,3 +21,22 @@ The first plan reported four Status conflicts where the Project already held the
 ## Plan and readback
 
 First plan: 2 updated, 4 conflicts. After the manifest corrections: 6 updated, 254 unchanged, 0 conflicts, 21 operations. `--apply` succeeded; the Project read back the six items with the values above, and a new plan showed 260 unchanged and 0 operations.
+
+## v0.8.37 release
+
+Receipt for the v0.8.37 release record (published 2026-10-06T07:46:23Z, tag commit `bfa6c824`, not accepted). Manifest changes only; the Project was not written, no Issue, pull request or comment was touched, and no game was run. The live Issue and release state was read with `gh` at about 07:49 UTC.
+
+| Key | Change |
+| --- | --- |
+| `release-v0-8-37` (new) | Kind Release, Done / Released / v0.8.37, 2026-10-06. Publication facts, the Gitea run (318, API id 710), the five assets with sizes and SHA-256 values, the macOS image checks, the work included and the open acceptance items. There is no v0.8.30 release record in the manifest (the latest earlier one is `release-v0-8-6`), so the shape follows that one |
+| `issue-114-container-enemy-softlock` | Awaiting validation stays; Delivery Implemented → Released; Release Next release → v0.8.37. PR #243 has a decision-table test only. Live state: the Issue is **closed** (the maintainer closed it at 2026-10-06T07:11:17Z, after the 07:01 UTC comment that the fix ships in the next release), not open as the request assumed; the manifest keeps Awaiting validation because no reporter confirmation and no in-game run exist |
+| `issue-54-japanese-cutscene-language` | Done stays; Delivery Awaiting validation → Released; Release v0.6.3 → v0.8.37. The 2026-10-06 cause (an upper-case voice code from the host language hook) and PR #242 are in the evidence and in a dated body section; the 2026-09-26 text is kept |
+| `issue-214-mali-black-screen` (new) | Bug, Awaiting validation / Released / v0.8.37. The Issue is open (closed by the PR #241 merge at 05:38:59Z, reopened by the maintainer at 06:36:06Z); no Mali device ran the fix |
+| `issue-199-android-fullscreen` (new) | Feature, Done / Released / v0.8.37 (closed by the PR #240 merge at 05:49:55Z); no device with a display cutout was checked |
+| `issue-220-cgi-voice-language` (new) | Bug, Done / Released / v0.8.37 (closed by the PR #242 merge at 06:46:54Z); checked from a trace, not by listening |
+
+No record exists yet for #237 (closed with PR #238, shipped in v0.8.37) or the earlier v0.8.7 to v0.8.30 releases; they are not added here.
+
+Plan, `python -B tools/project_management/sync.py` (plan only, `--apply` not run): 4 created, 2 updated, 258 unchanged, 0 conflicts, 43 operations. The two updates are `issue-114-container-enemy-softlock` and `issue-54-japanese-cutscene-language`; the four creations are the release record and the three Issues above. The apply and the readback are for the maintainer's session.
+
+Apply notes: the first `--apply` stopped at the #114 field batch with `Column value must be a valid value for text column`; the record's Evidence had 1,105 characters, above the Project text-field limit (1,024). The Delivery and Release values of that batch had already been written. The Evidence was shortened to 725 characters and the apply completed (4 created, 1 updated). The following plan showed one conflict: `issue-214-mali-black-screen` Status was `In Progress` on the Project (set by the Project's own workflow when the maintainer reopened #214 at 06:36 UTC) while the manifest wanted `Awaiting validation`; the tracked value was aligned to the remote and the desired value applied. A final plan showed 264 unchanged and 0 operations.

@@ -12,6 +12,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android: Mesa drivers (Turnip) now keep their shader cache between starts.
 - Pipelines learned since the last periodic save are no longer lost when the game exits.
 - The log now reports pipelines compiled during play, per frame; `tools/pipeline_misses.py` sums them per map and battle.
+- The shader cache no longer keeps a startup bundle or per-shader files once the shader pack is installed; existing installs clean up at startup.
 
 ### 简体中文
 
@@ -19,6 +20,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android：Mesa 驱动（Turnip）的着色器缓存现在会在多次启动之间保留。
 - 游戏退出时不再丢失上次定期保存之后学到的管线配方。
 - 日志现在按帧记录游玩时编译的管线；`tools/pipeline_misses.py` 按地图和战斗汇总。
+- 安装着色器包后，本地缓存不再保留启动 bundle 和逐文件着色器；已有安装会在启动时清理。
 
 ## [v0.8.37](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.37) — 2026-10-06
 

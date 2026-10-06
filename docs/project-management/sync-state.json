@@ -2894,10 +2894,10 @@
         "Kind": "Bug",
         "Area": "Audio and language",
         "Status": "Done",
-        "Delivery": "Awaiting validation",
-        "Release": "v0.6.3",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
         "Start date": "2026-09-24",
-        "Evidence": "Live Issue #54 is CLOSED and the maintainer Project Status is Done (2026-09-26 readback). Respect tracker closure. PR #66/ab24e0b adds late XMA diagnostics, not a proven cutscene-language root-cause repair; prior Disc 3 CGI language reports remain historical evidence, with no new reporter acceptance inferred.",
+        "Evidence": "Live Issue #54 is CLOSED and the maintainer Project Status is Done (2026-09-26 readback). Respect tracker closure. PR #66/ab24e0b adds late XMA diagnostics, not a proven cutscene-language root-cause repair; prior Disc 3 CGI language reports remain historical evidence, with no new reporter acceptance inferred. Update, 2026-10-06: the cause of the Japanese CGI audio track was found with #220: the host language hook returned an upper-case voice code that never matched the game's lower-case language registry, so the movie player picked ID 0, the Japanese track. PR #242 (merged 06:46:52Z) returns the registry's own record; it shipped in v0.8.37 (published 07:46:23Z, not accepted). Checked with a unit fixture and a psvita voice-id trace (0 before, 1 after); nobody listened to the audio, the #54 scenes were not replayed, and no reporter confirmation is recorded. The Issue stays closed (since 2026-09-26).",
         "Source key": "issue-54-japanese-cutscene-language"
       }
     },
@@ -3306,10 +3306,10 @@
         "Kind": "Bug",
         "Area": "Field interaction",
         "Status": "Awaiting validation",
-        "Delivery": "Implemented",
-        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer. Update, 2026-10-06: PR #243 (merged b40ed68b) holds a random encounter while a field event has player control, so the battle starts after the item message instead of unloading the field under the box script; the C1 touch query is untouched. Decision-table test only (32 checks); no in-game run of the fix. Ships in the next release; reporter confirmation pending.",
+        "Delivery": "Released",
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock (reporter confirmed 2026-10-02) but caused #171, so v0.8.6 (058d8ffd) removed it and the Issue was reopened on 2026-10-03. Update, 2026-10-06: PR #243 (merged b40ed68b) holds a random encounter while a field event has player control, so the battle starts after the item message instead of unloading the field under the box script; the C1 touch query is untouched. Decision-table test only (32 checks); no in-game run. Released in v0.8.37 (published 07:46:23Z, not accepted). The maintainer closed the Issue at 07:11:17Z, before publication; closure is not reporter confirmation. Neither the #114 scenario nor the #171 Lunar Palace scenario was run in game with the fix.",
         "Source key": "issue-114-container-enemy-softlock",
-        "Release": "Next release"
+        "Release": "v0.8.37"
       }
     },
     "issue-116-linux-nvidia-dlss": {
@@ -3599,6 +3599,61 @@
         "Delivery": "Implemented",
         "Evidence": "Cause: VdGetCurrentDisplayGamma reported sRGB (type 1), so D3D wrote an identity display gamma ramp, and presentation never applied DC_LUT ramps. Xenia reports BT.709 (type 2) and applies the ramp the game then writes (sRGB decode, BT.709 encode); the #78 screenshots match that ramp applied to our output. Expanded RGB range, the #78 workaround, clipped everything above 235 (#179). PR #209 reports type 2 and applies the ramp at presentation (D3D12, Vulkan, Metal checked; psvita screenshot equals the old one through the ramp per pixel). Expanded RGB range stays as an option. Not released.",
         "Source key": "issue-179-sdr-white-levels"
+      }
+    },
+    "release-v0-8-37": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-0qLE",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-06",
+        "Target date": "2026-10-06",
+        "Evidence": "Published v0.8.37 at 2026-10-06T07:46:23Z: latest release, annotated tag at commit bfa6c824 on main, built and published by Gitea Actions run 318 (API id 710; six jobs succeeded, about 23 minutes from the tag push). Assets: Windows ZIP 150,315,665 B (SHA-256 e020486b...), Linux AppImage 76,368,376 B (d1def199...), Flatpak 54,094,696 B (57dd7421...), Android APK 45,234,574 B (ecca5931...; CI-built) and macOS DMG 60,497,783 B (065b5bfb...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, uploaded by hand). No shader pack was published. Published, not accepted: no reporter has confirmed the fixes for #214, #199, #220, #54, #114 or #237, no game run was made with the v0.8.37 packages, and the Mali, display-cutout and in-game encounter paths are unvalidated.",
+        "Source key": "release-v0-8-37"
+      },
+      "title": "Publish the Android, language, encounter and AO fixes in v0.8.37",
+      "body_sha256": "e6eaff7d6484aa89a06d38e9d51e139fbde11b60d39d73f790aef032c944de64"
+    },
+    "issue-214-mali-black-screen": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-0qOQ",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Compatibility",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-04",
+        "Evidence": "Samsung SM-A075M (Helio G99, Mali-G57) showed black menus and world with tens of thousands of 'texture creation failed fmt=18/20' lines: Mali drivers do not expose textureCompressionBC, so every BC1/BC3 texture was dropped. PR #241 (merged 2026-10-06T05:38:58Z, shipped in v0.8.37, published 07:46:23Z, not accepted) reads the capability and decodes BC to RGBA8 on the CPU when it is missing. Validation: LoBcDecodeTest (81 known-answer checks) and an A/B on psvita (AMD 8060S, Proton, Direct3D 12) with LO_TEXTURE_BC=0 forcing the decode path (0 texture failures, title, field and camp menu identical). Not validated: no Mali device, so the real detection path (bc=0) never ran; the Vulkan backend was not run with the fallback; CPU cost on a phone not measured. The Issue was closed by the PR merge at 05:38:59Z and reopened by the maintainer at 06:36:06Z; it is open. The maintainer asked the reporter at 07:01 UTC to try the release and post a fresh log. No reporter confirmation is recorded.",
+        "Source key": "issue-214-mali-black-screen"
+      }
+    },
+    "issue-199-android-fullscreen": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-0qRY",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Platforms",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-04",
+        "Evidence": "On Android the status and navigation bars stayed visible in game (the default Windowed mode never reaches SDL's immersive code). PR #240 (merged 2026-10-06T05:49:54Z, shipped in v0.8.37, published 07:46:23Z, not accepted) hides the bars with sticky-immersive behaviour and draws under the display cutout (short edges on Android 9 and 10, always on 11 and later). Validation: Java build, 31 unit tests and a debug APK in WSL; device check on a Lenovo TB321FU (no cutout, gesture navigation): status bar gone from the first frame, a swipe shows the bars transiently. Not covered: the cutout layout, three-button navigation and the reporter's Odin 2 Portal. The Issue was closed with the PR merge at 05:49:55Z; the maintainer asked the reporter to confirm on the Odin 2 Portal. No reporter confirmation is recorded.",
+        "Source key": "issue-199-android-fullscreen"
+      }
+    },
+    "issue-220-cgi-voice-language": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-0qT4",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Audio and language",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.37",
+        "Start date": "2026-10-05",
+        "Evidence": "CGI movies, including the title intro, played the Japanese audio track whatever language was selected. Cause: the movie player picks the track with the registry ID of the cached voice code, the registry's codes are lower case, and the host language hook returned the executable's upper-case table entry ('INT'), so the case-sensitive lookup missed and the ID was 0 (the Japanese track). PR #242 (merged 2026-10-06T06:46:52Z, shipped in v0.8.37, published 07:46:23Z, not accepted) returns the registry's own record, and also addresses #54. Validation: tools/tests/guest_language_test.py with lower-case registry codes passes (old policy resolves ID 0, new one the registry ID, English and Italian cases) and a psvita (Proton, Direct3D 12, USA disc 1, English text) LO_TRACE_LANGUAGE trace shows voice id 0 on main and 1 on the branch. Not checked: nobody listened to the audio and only English text was traced. The Issue was closed with the PR merge at 06:46:54Z. No reporter confirmation is recorded.",
+        "Source key": "issue-220-cgi-voice-language"
       }
     }
   },
