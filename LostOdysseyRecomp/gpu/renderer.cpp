@@ -4567,6 +4567,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             {
                 namespace dpc = gpu::driver_pipeline_cache;
                 if (getenv("LO_NO_DRIVER_PIPELINE_CACHE")) return "disabled";
+                // On an M1 Max, archive hits were no faster than Metal's own compiler
+                // cache, and loading the 60 MB archive added about 1.8 s to startup.
+                if (video::IsMetal() && !getenv("LO_METAL_BINARY_ARCHIVE")) return "off (LO_METAL_BINARY_ARCHIVE=1)";
                 const char* name = nativeVulkan ? "pipeline_cache_vk.bin" :
                     video::IsMetal() ? "pipeline_cache_metal.bin" : "pipeline_cache_dx12.bin";
                 const auto path = std::filesystem::path(shaderCacheDir) / name;
