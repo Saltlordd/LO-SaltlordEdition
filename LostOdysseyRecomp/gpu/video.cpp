@@ -1715,6 +1715,8 @@ namespace gpu::video
         return true;
 #endif
     }
+    static std::atomic<bool> g_textureCompressionBC{true};
+    bool TextureCompressionBC() { return g_textureCompressionBC.load(std::memory_order_relaxed); }
     std::optional<backend::Backend> SelectedBackend() {
         const auto selected = g_selectedBackend.load();
         return selected < 0 ? std::nullopt : std::optional(static_cast<backend::Backend>(selected));
@@ -2102,10 +2104,11 @@ namespace gpu::video
                     uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
             }
             const auto capabilities = backend::Inspect(candidate, g_device.get());
+            g_textureCompressionBC.store(capabilities.textureCompressionBC, std::memory_order_relaxed);
             if (g_device && candidate == backend::Backend::Vulkan)
-                LOG_INFO("vulkan limits: sets={} samplers={} sampled_images={} storage_buffers={} push_constants={}",
+                LOG_INFO("vulkan limits: sets={} samplers={} sampled_images={} storage_buffers={} push_constants={} bc={}",
                     capabilities.boundSets, capabilities.samplers, capabilities.sampledImages,
-                    capabilities.storageBuffers, capabilities.pushConstants);
+                    capabilities.storageBuffers, capabilities.pushConstants, capabilities.textureCompressionBC ? 1 : 0);
             if (const auto missing = backend::Missing(candidate, capabilities); !missing.empty()) return missing;
             if (g_vulkan && g_dlssController) {
                 bool retainNgxForFg = false;
