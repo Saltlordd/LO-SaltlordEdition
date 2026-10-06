@@ -3639,7 +3639,7 @@
         "Delivery": "Released",
         "Release": "v0.8.37",
         "Start date": "2026-10-04",
-        "Evidence": "On Android the status and navigation bars stayed visible in game (the default Windowed mode never reaches SDL's immersive code). PR #240 (merged 2026-10-06T05:49:54Z, shipped in v0.8.37, published 07:46:23Z, not accepted) hides the bars with sticky-immersive behaviour and draws under the display cutout (short edges on Android 9 and 10, always on 11 and later). Validation: Java build, 31 unit tests and a debug APK in WSL; device check on a Lenovo TB321FU (no cutout, gesture navigation): status bar gone from the first frame, a swipe shows the bars transiently. Not covered: the cutout layout, three-button navigation and the reporter's Odin 2 Portal. The Issue was closed with the PR merge at 05:49:55Z; the maintainer asked the reporter to confirm on the Odin 2 Portal. No reporter confirmation is recorded.",
+        "Evidence": "On Android the status and navigation bars stayed visible in game. PR #240 (merged 2026-10-06T05:49:54Z, shipped in v0.8.37, not accepted) hides the bars with sticky-immersive behaviour and draws under the display cutout. Checked on a Lenovo TB321FU (no cutout, gesture navigation). The Issue was closed with the PR merge at 05:49:55Z; the maintainer asked the reporter to confirm on the Odin 2 Portal. Regression: players reported on Reddit that v0.8.37 and v0.8.39 show the bars again (SDL posts a window-style command that undoes the hide); PR #256 (merged 2026-10-06T14:26:13Z) fixes it and shipped in v0.8.44, checked on the tablet only (no cutout, no three-button navigation). No reporter confirmation is recorded.",
         "Source key": "issue-199-android-fullscreen"
       }
     },
@@ -3686,6 +3686,61 @@
       },
       "title": "Stop first-use pipeline stalls on all platforms (P0 to P4)",
       "body_sha256": "ecb9976eca4e1eba50627a0cbec3638326ddb95cf1869061694c2ffb27da6eb0"
+    },
+    "release-v0-8-44": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-8oo4",
+      "fields": {
+        "Kind": "Release",
+        "Area": "Release Engineering",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-06",
+        "Target date": "2026-10-06",
+        "Evidence": "Published v0.8.44 at 2026-10-06T17:34:21Z: latest release, annotated tag at commit 504e7cd0 on main, built and published by Gitea Actions run 743 (completed, success; about 29 minutes from the tag push). Assets: Windows ZIP 150,342,566 B (SHA-256 a6406126...), Linux AppImage 76,343,800 B (2e17fb6d...), Flatpak 54,161,960 B (cdd28472...), Android APK 45,263,798 B (a5010e94...; CI-built) and macOS DMG 60,532,515 B (ff940a2b...; built on the maintainer's M1 Max from the tag, hdiutil verify valid, ad-hoc signature, minimum macOS 15.0, uploaded by hand). No shader pack was published. Published, not accepted: PRs #250, #252, #254, #255, #256 and #257; the Android changes were checked on one tablet only; no game run with the v0.8.44 packages and no in-game acceptance is recorded.",
+        "Source key": "release-v0-8-44"
+      },
+      "title": "Publish the FSR trim, Android CTRL button and importer message in v0.8.44",
+      "body_sha256": "c03afcec53c8b1b5ca880928d441411ade141320415f7845ac84adfb5eaf376a"
+    },
+    "issue-253-android-ctrl-movable": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-8ot8",
+      "fields": {
+        "Kind": "Feature",
+        "Area": "Input",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-06",
+        "Evidence": "Request (2026-10-06): move the Android on-screen CTRL button and make it follow the opacity setting. PR #254 (merged 2026-10-06T16:37:43Z, shipped in v0.8.44, published 17:34:21Z, not accepted) makes it draggable in the touch-layout editor, saved with the layout, and the full button follows the opacity slider; it slides to the nearest screen edge after 4 s idle and a tap on the tab brings it back (setting Auto-hide CTRL button, on by default). PR #257 retracts the top tab to the physical top edge. Validation: Android unit tests pass; behaviour checked on a Lenovo TB321FU with debug APK builds. Not covered: other devices and screen shapes, the reporter's device. The Issue was closed by the PR #254 merge at 16:37:44Z. No reporter confirmation is recorded.",
+        "Source key": "issue-253-android-ctrl-movable"
+      }
+    },
+    "issue-251-android-iso-importer-error": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-8oxk",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Installation",
+        "Status": "Awaiting validation",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-06",
+        "Evidence": "On Android all four USA/EU ISOs failed with 'File extends beyond image' although they work on the PC. On the maintainer's tablet a synthetic complete disc 1 image (5.98 GB) imported fine and a copy cut at 4,294,967,295 bytes (what FAT32 leaves) failed with the reporter's message, so the cause is an incomplete copy, not an importer bug. PRs #252 and #255 (merged 2026-10-06T13:52:25Z and 14:04:26Z, shipped in v0.8.44, published 17:34:21Z, not accepted) name the file size, the missing bytes and the likely cause, and wrap long scan errors. The wrapping was checked with a preview render test, not on a device. The Issue is open; the maintainer replied after the release. No reporter confirmation is recorded.",
+        "Source key": "issue-251-android-iso-importer-error"
+      }
+    },
+    "issue-172-fsr-scaling-performance": {
+      "id": "PVTI_lAHOAAsUY84Biy1azg-z_xM",
+      "fields": {
+        "Kind": "Bug",
+        "Area": "Graphics performance",
+        "Delivery": "Released",
+        "Release": "v0.8.44",
+        "Start date": "2026-10-03",
+        "Evidence": "Reported on v0.8.0 (RX 6600, 4K, GTAO): FSR Quality, Balanced and Performance all ran at about the same frame rate. PR #189 (shipped in v0.8.10) stopped recreating the SR images every frame; PR #250 (merged 2026-10-06T10:45:23Z, shipped in v0.8.44, published 17:34:21Z, not accepted) skips one full-resolution copy and blend per frame (FSR encode writes the output directly, the composite draws in place) and is measured on one AMD host (psvita) with power caps. The Issue is open (reopened) for further work. Not covered: the reporter's machine, macOS MetalFX and Android. No reporter confirmation is recorded.",
+        "Source key": "issue-172-fsr-scaling-performance",
+        "Status": "In Progress"
+      }
     }
   },
   "project_id": "PVT_kwHOAAsUY84Biy1a"
