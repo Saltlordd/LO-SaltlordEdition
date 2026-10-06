@@ -32,4 +32,9 @@ namespace debug_menu
     bool RequestSavePosition();
     bool RequestRestorePosition();
     bool RequestPoiTeleport(uint64_t id);
+    // Queues a map jump through the game's own RequestMapJump. Returns nullptr
+    // when queued, otherwise a translations.h status key naming the refusal.
+    const wchar_t* RequestMapJump(const char* map);
+    // The original event-debug room (location 295, on every disc).
+    inline const wchar_t* RequestDebugEventRoom() { return RequestMapJump("z0g_9_scrw"); }
 }

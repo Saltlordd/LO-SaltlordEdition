@@ -180,8 +180,8 @@ namespace debug_menu
                 g_overlayState.selectedRow--;
             return;
         case InputAction::Down:
-            // Every tab ends at row 7.
-            if (g_overlayState.selectedRow < 7)
+            // Overview ends at row 7; Teleport ends at row 8 (Debug Event Room).
+            if (g_overlayState.selectedRow < (g_overlayState.activeTab == 0 ? 7 : 8))
                 g_overlayState.selectedRow++;
             return;
         default:
@@ -270,6 +270,7 @@ namespace debug_menu
             // 5: Step delta (+-100/+-500)
             // 6: POI Selection (Left/Right)
             // 7: Teleport to POI
+            // 8: Debug Event Room (map jump to z0g_9_scrw)
             switch (g_overlayState.selectedRow)
             {
             case 0:
@@ -385,6 +386,16 @@ namespace debug_menu
                             : (zh ? L"POI 传送请求被拒绝（不可用）" : L"POI teleport request rejected (unavailable)"));
                         return;
                     }
+                }
+                break;
+            case 8:
+                if (action == InputAction::Confirm)
+                {
+                    stateLock.unlock();
+                    const wchar_t* refusal = debug_menu::RequestDebugEventRoom();
+                    // Guest threads stay paused while the menu is open.
+                    SetOverlayStatus(refusal ? refusal : L"已提交跳转调试事件房请求（关闭菜单后生效）");
+                    return;
                 }
                 break;
             }
@@ -618,6 +629,13 @@ namespace debug_menu
             }
             host_ui::DrawButton(r, gridX, contentY + 182, editW, 30, poiName, state.selectedRow == 6);
             host_ui::DrawButton(r, gridX + editW + colGap, contentY + 182, actionW, 30, zh ? L"传送到此兴趣点" : L"Teleport to POI", state.selectedRow == 7);
+
+            // Line 6 (Row 8: map jump to the game's event-debug room)
+            host_ui::DrawButton(r, gridX, contentY + 224, gridW, 30, zh ? L"调试事件房" : L"Debug Event Room", state.selectedRow == 8);
+            const std::wstring roomHint = zh ? L"跳到 z0g_9；在那里按住 LB 再按上打开 Scenario Jump"
+                                             : L"Jumps to z0g_9; hold LB and press Up there for Scenario Jump";
+            const std::wstring hint = controller_hint::ShoulderLabels(roomHint, playStation);
+            r.DrawWString(panelX + (panelW - r.MeasureWString(hint)) / 2, contentY + 260, hint, host_ui::MakeColor(255, 170, 175, 185));
         }
         else if (state.activeTab == 2)
         {

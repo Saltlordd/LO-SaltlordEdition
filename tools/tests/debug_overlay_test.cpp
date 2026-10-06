@@ -86,6 +86,7 @@ bool RequestTeleportOffset(Position) { return true; }
 bool RequestSavePosition() { return true; }
 bool RequestRestorePosition() { return true; }
 bool RequestPoiTeleport(uint64_t) { return true; }
+const wchar_t* RequestMapJump(const char*) { return nullptr; }
 MapInfo GetMapInfo() { return {}; }
 bool SaveAnywhereEnabled() { return g_saveAnywhere.load(); }
 void SetSaveAnywhereEnabled(bool enabled) { g_saveAnywhere = enabled; }

@@ -14,6 +14,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android: the game now hides the status and navigation bars and draws under the display cutout (#199).
 - Android: the game now renders on Mali GPUs (MediaTek Helio / Dimensity, Exynos), which cannot create BC-compressed textures (#214).
 - Fixed being unable to move or open the menu after a random battle that started while breaking a box; the battle now waits until the item message is closed (#114).
+- Debug menu (F1): new **Debug Event Room** button that jumps to the game's event-debug map (z0g_9); hold **LB** and press **Up** there for Scenario Jump.
 
 ### 简体中文
 
@@ -23,6 +24,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Android：游戏现在会隐藏状态栏和导航栏，并延伸到屏幕挖孔区域（#199）。
 - Android：在不支持 BC 压缩纹理的 Mali GPU（MediaTek Helio / Dimensity、Exynos）上现在可以正常显示画面（#214）。
 - 修复打破箱子时恰好遇敌、战斗后无法移动也打不开菜单的问题；现在战斗会等到关闭获得道具的提示后才开始（#114）。
+- 调试菜单（F1）：新增**调试事件房**按钮，直接跳到游戏自带的事件调试图（z0g_9）；在那里按住 **LB** 再按**上**打开 Scenario Jump。
 
 ## [v0.8.30](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30) — 2026-10-05
 

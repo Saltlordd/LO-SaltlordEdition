@@ -137,6 +137,7 @@ bool RequestPoiTeleport(uint64_t)
     ++g_mock.poiTeleportCalls;
     return true;
 }
+const wchar_t* RequestMapJump(const char*) { return nullptr; }
 }
 
 int main()
