@@ -73,9 +73,13 @@ inline const char* Extension(Format format) {
     }
     return ".unsupported";
 }
-inline std::string ArtifactKey(bool pixel, uint64_t hash, const Identity& identity) {
-    return resources::Sha256Hex(resources::Sha256(IdentityBytes(IdentityKey(identity) +
+// `identityKey` is IdentityKey(identity), the 64 hex digits a per-shader file name ends with.
+inline std::string ArtifactKey(bool pixel, uint64_t hash, std::string_view identityKey) {
+    return resources::Sha256Hex(resources::Sha256(IdentityBytes(std::string(identityKey) +
         ":" + std::to_string(pixel) + ":" + std::to_string(hash))));
+}
+inline std::string ArtifactKey(bool pixel, uint64_t hash, const Identity& identity) {
+    return ArtifactKey(pixel, hash, IdentityKey(identity));
 }
 inline std::string FileName(bool pixel, uint64_t hash, const Identity& identity) {
     char name[80];

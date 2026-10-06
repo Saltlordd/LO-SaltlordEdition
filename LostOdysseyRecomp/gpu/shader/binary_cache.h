@@ -14,10 +14,10 @@ inline constexpr size_t MaxBinaryBytes = 32u << 20;
 
 // The identity is checked inside the file as well as in its name: copying or
 // renaming a valid cache from another backend/compiler cannot bypass isolation.
+// The same check with the identity known only by its key, as in a file name.
 inline std::vector<uint8_t> ReadBinary(const std::filesystem::path& path, bool pixel,
-    uint64_t hash, const Identity& identity, bool* present = nullptr) {
+    uint64_t hash, std::string_view identityKey, Format format, bool* present = nullptr) {
     if (present) *present = false;
-    if (!ValidIdentity(identity)) return {};
     try {
         std::ifstream in(path, std::ios::binary | std::ios::ate);
         if (present) *present = in.is_open();
@@ -27,7 +27,7 @@ inline std::vector<uint8_t> ReadBinary(const std::filesystem::path& path, bool p
         in.seekg(0);
         if (!in.read(reinterpret_cast<char*>(header.data()), header.size())) return {};
         if (std::memcmp(header.data(), "LOSHDR1\n", 8)) return {};
-        const auto key = ArtifactKey(pixel, hash, identity);
+        const auto key = ArtifactKey(pixel, hash, identityKey);
         if (std::memcmp(header.data()+8, key.data(), key.size())) return {};
         uint64_t length=0;
         for (unsigned i=0;i<8;++i) length |= uint64_t(header[136+i]) << (i*8);
@@ -35,9 +35,16 @@ inline std::vector<uint8_t> ReadBinary(const std::filesystem::path& path, bool p
         std::vector<uint8_t> binary(static_cast<size_t>(length));
         if (!in.read(reinterpret_cast<char*>(binary.data()), binary.size()) ||
             in.peek()!=std::char_traits<char>::eof()) return {};
-        if (!CompleteBinary(binary, identity.format)) return {};
+        if (!CompleteBinary(binary, format)) return {};
         return binary;
     } catch (...) { return {}; }
+}
+
+inline std::vector<uint8_t> ReadBinary(const std::filesystem::path& path, bool pixel,
+    uint64_t hash, const Identity& identity, bool* present = nullptr) {
+    if (present) *present = false;
+    if (!ValidIdentity(identity)) return {};
+    return ReadBinary(path, pixel, hash, IdentityKey(identity), identity.format, present);
 }
 
 inline bool WriteBinary(const std::filesystem::path& path, bool pixel, uint64_t hash,
