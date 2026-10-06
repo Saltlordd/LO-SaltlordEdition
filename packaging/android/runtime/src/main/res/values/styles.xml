@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The game screen: RuntimeActivity hides the system bars (#199). -->
+    <style name="Theme.LostOdyssey.Game" parent="@android:style/Theme.Material.NoActionBar">
+    </style>
+</resources>

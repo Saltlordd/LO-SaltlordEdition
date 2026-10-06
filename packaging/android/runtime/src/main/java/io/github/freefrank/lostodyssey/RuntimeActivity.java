@@ -2,10 +2,16 @@ package io.github.freefrank.lostodyssey;
 
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.RelativeLayout;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 import java.io.File;
 import org.libsdl.app.SDLActivity;
 
@@ -33,6 +39,7 @@ public final class RuntimeActivity extends SDLActivity {
     protected void onCreate(Bundle savedInstanceState) {
         PlayerLogs.installCrashHandler(this);
         super.onCreate(savedInstanceState);
+        hideSystemBars();
         GameStorage.prepare(this);
         GpuDriverStore.markBootPending(this);
         if (mLayout != null && !mBrokenLibraries) {
@@ -82,9 +89,36 @@ public final class RuntimeActivity extends SDLActivity {
         super.onPause();
     }
 
+    /**
+     * The game always fills the screen (#199): status and navigation bars stay
+     * hidden (a swipe shows them briefly) and the picture extends under the
+     * display cutout. SDL only does this when the native side switches to a
+     * fullscreen window mode, and the default display mode never does.
+     */
+    private void hideSystemBars() {
+        Window window = getWindow();
+        if (window == null) return;
+        WindowCompat.setDecorFitsSystemWindows(window, false);
+        if (Build.VERSION.SDK_INT >= 28 /* Android 9 (P) */) {
+            WindowManager.LayoutParams attributes = window.getAttributes();
+            int cutoutMode = Build.VERSION.SDK_INT >= 30 /* Android 11 (R) */
+                ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            if (attributes.layoutInDisplayCutoutMode != cutoutMode) {
+                attributes.layoutInDisplayCutoutMode = cutoutMode;
+                window.setAttributes(attributes);
+            }
+        }
+        WindowInsetsControllerCompat controller =
+            WindowCompat.getInsetsController(window, window.getDecorView());
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        controller.hide(WindowInsetsCompat.Type.systemBars());
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+        hideSystemBars();
         if (touchControls != null) touchControls.onHostResume();
         bootHandler.removeCallbacks(bootSettled);
         bootHandler.postDelayed(bootSettled, BOOT_SETTLED_MS);
@@ -94,6 +128,8 @@ public final class RuntimeActivity extends SDLActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         if (!hasFocus && touchControls != null) touchControls.clearTouches();
         super.onWindowFocusChanged(hasFocus);
+        // Dialogs and the pages opened over the game can bring the bars back.
+        if (hasFocus) hideSystemBars();
     }
 
     @Override
