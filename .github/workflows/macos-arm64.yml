@@ -11,11 +11,21 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
+      # Android, Linux packaging and Gitea CI never reach the macOS build.
+      - 'packaging/android/**'
+      - 'packaging/linux/**'
+      - 'tools/android/**'
+      - '.gitea/**'
   pull_request:
     branches: [main]
     paths-ignore:
       - 'docs/**'
       - '**/*.md'
+      # Android, Linux packaging and Gitea CI never reach the macOS build.
+      - 'packaging/android/**'
+      - 'packaging/linux/**'
+      - 'tools/android/**'
+      - '.gitea/**'
 
 permissions:
   contents: read
