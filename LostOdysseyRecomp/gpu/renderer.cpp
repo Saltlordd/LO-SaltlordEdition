@@ -32,6 +32,7 @@
 #include "pipeline_cache.h"
 #include "texture_layout.h"
 #include "controller_atlas.h"
+#include "bc_decode.h"
 #include "temporal_scene.h"
 #include "temporal_jitter.h"
 #include "temporal_suspect.h"
@@ -1129,6 +1130,7 @@ namespace gpu::renderer
             }
             bool resolveReadback = false; // LO_RESOLVE_READBACK=1: legacy CPU write-back into guest memory
             bool textureRevalidate = true; // LO_TEXTURE_STATIC=1 disables re-hashing cached textures
+            bool textureBcFallback = false; // BC1-BC3 decoded to RGBA8 on the CPU (no device support, or LO_TEXTURE_BC=0)
             uint64_t controllerAtlasFamilyFrame = ~0ull;
             bool controllerAtlasPlayStationFamily = false;
             uint64_t controllerAtlasTraceFrame = ~0ull;
@@ -2012,6 +2014,16 @@ namespace gpu::renderer
                 if (!readback) return InitFailure("readback.create", kReadbackSize);
                 resolveReadback = getenv("LO_RESOLVE_READBACK") != nullptr;
                 textureRevalidate = getenv("LO_TEXTURE_STATIC") == nullptr;
+                {
+                    // Mali Vulkan drivers cannot create BC images (#214).
+                    // LO_TEXTURE_BC=0 forces the CPU decode on any device.
+                    const char* bcOverride = getenv("LO_TEXTURE_BC");
+                    const bool deviceBc = video::TextureCompressionBC();
+                    textureBcFallback = !deviceBc || (bcOverride && strcmp(bcOverride, "0") == 0);
+                    LOG_INFO("renderer: BC textures {} (device bc={} LO_TEXTURE_BC={})",
+                        textureBcFallback ? "decoded to RGBA8 on the CPU" : "native",
+                        deviceBc ? 1 : 0, bcOverride ? bcOverride : "unset");
+                }
                 auto enabled=[](const char* key){const char* value=getenv(key);return value&&strcmp(value,"1")==0;};
                 bloomPrefilterEnabled = !enabled("LO_DISABLE_BLOOM_PREFILTER");
                 temporalExperiment = enabled("LO_TEMPORAL_EXPERIMENT");
@@ -6038,7 +6050,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 decode(src, pitchBlocks, packedOffset, blocksX, blocksY, faces, staging.data(), rowPitch);
 
                 auto tex = std::make_unique<HostTexture>();
-                tex->format = fi.host;
                 tex->width = width;
                 tex->height = height;
                 tex->guestAddress = sourceAddress;
@@ -6088,13 +6099,52 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     tex->mipAddress = mipAddress;
                     tex->mipBytes = std::max(tex->mipBytes, uint32_t(mipBytes));
                 }
+                // Without device BC support the guest side above stays on 4x4
+                // blocks; each uploaded level is decoded into an RGBA8 staging
+                // of the same texel size and the host texture is RGBA8 (#214).
+                const bool expandBc = textureBcFallback && gpu::bc_decode::IsBcFormat(format);
+                const RenderFormat hostFormat = expandBc ? RenderFormat::R8G8B8A8_UNORM : fi.host;
+                uint32_t uploadBpp = hostBpp, uploadBlockWidth = fi.blockWidth, uploadFaceRows = blocksY;
+                std::vector<uint8_t> expanded;
+                if (expandBc)
+                {
+                    std::vector<UploadLevel> hostLevels;
+                    size_t expandedBytes = 0;
+                    for (size_t level = 0; level < levels.size(); ++level)
+                    {
+                        const uint32_t pitch = (levels[level].width * 4 + 255) & ~255u;
+                        const size_t levelOffset = level == 0 ? 0 : (expandedBytes + 511) & ~size_t(511);
+                        expandedBytes = levelOffset + size_t(pitch) * levels[level].height * (level == 0 ? faces : 1u);
+                        hostLevels.push_back({levels[level].width, levels[level].height, pitch, levelOffset});
+                    }
+                    if (expandedBytes > kUploadRingSize)
+                    {
+                        LOG_WARNING("renderer: decoded BC texture exceeds upload ring fmt={} {}x{} uploadBytes={}",
+                            format, texWidth, texHeight, expandedBytes);
+                        return nullptr;
+                    }
+                    expanded.resize(expandedBytes);
+                    for (uint32_t f = 0; f < faces; f++)
+                        gpu::bc_decode::DecodeImage(format, staging.data() + size_t(f) * rowPitch * blocksY, rowPitch,
+                            blocksX, blocksY, expanded.data() + size_t(f) * hostLevels[0].rowPitch * texHeight, hostLevels[0].rowPitch);
+                    for (size_t level = 1; level < levels.size(); ++level)
+                        gpu::bc_decode::DecodeImage(format, staging.data() + levels[level].offset, levels[level].rowPitch,
+                            levels[level].width / 4, levels[level].height / 4, expanded.data() + hostLevels[level].offset, hostLevels[level].rowPitch);
+                    levels = std::move(hostLevels);
+                    rowPitch = levels[0].rowPitch;
+                    uploadBpp = 4;
+                    uploadBlockWidth = 1;
+                    uploadFaceRows = texHeight;
+                }
+                const std::vector<uint8_t>& upload = expandBc ? expanded : staging;
+                tex->format = hostFormat;
                 tex->guestHash = SampledGuestHash(*tex);
                 tex->guestFullHash = FullGuestHash(*tex);
                 tex->nextFullScanFrame = texture_cache::FirstFullScanFrame(frame, tex->guestAddress);
                 if (dimension == 3)
-                    tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, fi.host, RenderTextureFlag::CUBE));
+                    tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, hostFormat, RenderTextureFlag::CUBE));
                 else
-                    tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texWidth, texHeight, uint32_t(levels.size()), fi.host));
+                    tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texWidth, texHeight, uint32_t(levels.size()), hostFormat));
                 tex->layout = RenderTextureLayout::UNKNOWN;
                 if (!tex->texture)
                 {
@@ -6102,21 +6152,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     return nullptr;
                 }
 
-                texBytes += staging.size();
-                uint64_t offset = Upload(staging.data(), staging.size(), 512);
+                texBytes += upload.size();
+                uint64_t offset = Upload(upload.data(), upload.size(), 512);
                 if (offset == UINT64_MAX)
                     return nullptr;
                 Transition(*tex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
                 for (uint32_t f = 0; f < faces; f++)
                     commandList->copyTextureRegion(
                         RenderTextureCopyLocation::Subresource(tex->texture.get(), 0, f),
-                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, fi.host, texWidth, texHeight, 1, (rowPitch / hostBpp) * fi.blockWidth,
-                            offset + uint64_t(f) * rowPitch * blocksY));
+                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, hostFormat, texWidth, texHeight, 1, (rowPitch / uploadBpp) * uploadBlockWidth,
+                            offset + uint64_t(f) * rowPitch * uploadFaceRows));
                 for (uint32_t level = 1; level < levels.size(); ++level)
                     commandList->copyTextureRegion(
                         RenderTextureCopyLocation::Subresource(tex->texture.get(), level, 0),
-                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, fi.host, levels[level].width, levels[level].height, 1,
-                            (levels[level].rowPitch / hostBpp) * fi.blockWidth, offset + levels[level].offset));
+                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, hostFormat, levels[level].width, levels[level].height, 1,
+                            (levels[level].rowPitch / uploadBpp) * uploadBlockWidth, offset + levels[level].offset));
                 Transition(*tex, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
 
                 HostTexture* result = tex.get();
