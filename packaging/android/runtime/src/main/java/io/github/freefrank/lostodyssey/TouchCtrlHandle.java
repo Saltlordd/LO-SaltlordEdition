@@ -21,7 +21,8 @@ final class TouchCtrlHandle {
     // Geometry from the last layout() call; fields so onDraw allocates nothing.
     int edge;
     float drawX, drawY, labelX, labelY, labelScale = 1f, labelRotation, opacity = 1f;
-    float hitLeft, hitTop, hitRight, hitBottom;
+    float hitLeft, hitTop, hitRight, hitBottom, clipTop;
+    private float topInset;
 
     /** Full button, timer restarted (game start, return from another page). */
     void reset(long now) {
@@ -88,9 +89,10 @@ final class TouchCtrlHandle {
         return slideFrom + (slideTo - slideFrom) * eased;
     }
 
-    static int nearestEdge(float cx, float cy, int width, int height) {
+    /** The top edge is the line topInset below the view's top (status-bar strip). */
+    static int nearestEdge(float cx, float cy, int width, int height, float topInset) {
         int edge = EDGE_TOP;
-        float best = cy;
+        float best = cy - topInset;
         if (height - cy < best) { best = height - cy; edge = EDGE_BOTTOM; }
         if (cx < best) { best = cx; edge = EDGE_LEFT; }
         if (width - cx < best) edge = EDGE_RIGHT;
@@ -100,13 +102,17 @@ final class TouchCtrlHandle {
     /**
      * Places the button (centre cx/cy, radius) for the given slide progress and
      * computes the retracted tab's touch rectangle, at least minTouch on each side.
+     * A top-edge tab hangs below topInset; draw with clipTop as the clip's top so
+     * nothing of it shows in the strip above.
      */
     void layout(float cx, float cy, float radius, int width, int height,
-                float minTouch, float progress) {
-        edge = nearestEdge(cx, cy, width, height);
+                float minTouch, float topInset, float progress) {
+        edge = nearestEdge(cx, cy, width, height, topInset);
+        this.topInset = edge == EDGE_TOP ? topInset : 0f;
+        clipTop = this.topInset;
         boolean vertical = edge == EDGE_TOP || edge == EDGE_BOTTOM;
         // Distance of the centre from its edge: now, and once retracted.
-        float home = edge == EDGE_TOP ? cy : edge == EDGE_BOTTOM ? height - cy
+        float home = edge == EDGE_TOP ? cy - topInset : edge == EDGE_BOTTOM ? height - cy
             : edge == EDGE_LEFT ? cx : width - cx;
         float tabDepth = 2f * radius * TAB_FRACTION;
         float hidden = tabDepth - radius;
@@ -127,8 +133,8 @@ final class TouchCtrlHandle {
         if (vertical) {
             hitLeft = along - halfLength;
             hitRight = along + halfLength;
-            hitTop = edge == EDGE_TOP ? near : height - far;
-            hitBottom = edge == EDGE_TOP ? far : height - near;
+            hitTop = edge == EDGE_TOP ? topInset + near : height - far;
+            hitBottom = edge == EDGE_TOP ? topInset + far : height - near;
         } else {
             hitTop = along - halfLength;
             hitBottom = along + halfLength;
@@ -138,7 +144,8 @@ final class TouchCtrlHandle {
     }
 
     private float fromEdge(float distance, int size) {
-        return edge == EDGE_TOP || edge == EDGE_LEFT ? distance : size - distance;
+        if (edge == EDGE_TOP) return topInset + distance;
+        return edge == EDGE_LEFT ? distance : size - distance;
     }
 
     boolean hitTab(float x, float y) {
