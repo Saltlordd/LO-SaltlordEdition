@@ -29,20 +29,25 @@ constexpr bool PicksBattle(const LoaderState& s)
     return s.stage < 4 && s.current >= 6 && s.phase[0] <= 0 && s.phase[1] > 0;
 }
 
+// Longest wait for the event to give control back. The box's item message
+// clears its wait (VM field 0x1010) after about 2.6 s; once it has, a battle
+// no longer strands the script, which then only waits for a button press.
+constexpr uint64_t MaxHoldMs = 15000;
+
 // Skip this loader pick. The first pick after the request is always skipped:
 // the field script that accepts a touch in the request's frame may run after
 // the loader in that frame, so its player lock is visible only on the next
-// pick. After that, wait while the event keeps player control. Only the
-// walking encounter's own phase 1 request is held, and only while no other
-// request is queued, so the original order of requests never changes.
-constexpr bool HoldPick(const LoaderState& s, const RandomRequest& r, bool playerControl)
+// pick. After that, wait while the event keeps player control, up to
+// MaxHoldMs. Only the walking encounter's own phase 1 request is held, and
+// only while no other request is queued, so the order of requests never changes.
+constexpr bool HoldPick(const LoaderState& s, const RandomRequest& r, bool playerControl, uint64_t heldMs)
 {
     if (!PicksBattle(s) || s.phase[1] != 1 || !r.active || r.id != s.battleId)
         return false;
     for (int slot = 2; slot < 6; ++slot)
         if (s.phase[slot] > 0)
             return false;
-    return r.heldPicks == 0 || !playerControl;
+    return r.heldPicks == 0 || (!playerControl && heldMs < MaxHoldMs);
 }
 
 // Another battle request arrives while the random one is being held: drop the

@@ -52,36 +52,38 @@ int main()
     Expect(!PicksBattle(s), "negative phase is inactive");
 
     // First pick after the request is always held (request and touch share a frame).
-    Expect(HoldPick(Queued(), Random(), true), "first pick held even with control");
-    Expect(HoldPick(Queued(), Random(), false), "first pick held without control");
+    Expect(HoldPick(Queued(), Random(), true, 0), "first pick held even with control");
+    Expect(HoldPick(Queued(), Random(), false, 0), "first pick held without control");
     // Afterwards only while the field event keeps control.
-    Expect(!HoldPick(Queued(), Random(4, 1), true), "control back: battle starts");
-    Expect(HoldPick(Queued(), Random(4, 1), false), "event holds control: wait");
-    Expect(HoldPick(Queued(), Random(4, 500), false), "long event: still wait");
+    Expect(!HoldPick(Queued(), Random(4, 1), true, 0), "control back: battle starts");
+    Expect(HoldPick(Queued(), Random(4, 1), false, 0), "event holds control: wait");
+    Expect(HoldPick(Queued(), Random(4, 500), false, MaxHoldMs - 1), "long event: still wait");
+    Expect(!HoldPick(Queued(), Random(4, 500), false, MaxHoldMs), "wait is capped");
+    Expect(HoldPick(Queued(), Random(4, 0), true, MaxHoldMs), "first pick held regardless of time");
 
     // Only the walking encounter's own phase 1 request.
-    Expect(!HoldPick(Queued(), RandomRequest{}, false), "scripted battle never held");
-    Expect(!HoldPick(Queued(), Random(3, 1), false), "different request in slot 1");
+    Expect(!HoldPick(Queued(), RandomRequest{}, false, 0), "scripted battle never held");
+    Expect(!HoldPick(Queued(), Random(3, 1), false, 0), "different request in slot 1");
     s = Queued();
     s.phase[1] = 2;
-    Expect(!HoldPick(s, Random(4, 1), false), "loading request is not touched");
+    Expect(!HoldPick(s, Random(4, 1), false, 0), "loading request is not touched");
     s.phase[1] = 0;
-    Expect(!HoldPick(s, Random(4, 1), false), "cancelled request");
+    Expect(!HoldPick(s, Random(4, 1), false, 0), "cancelled request");
 
     // Never reorders requests: a map change or any other queued load is not held back.
     s = Queued();
     s.phase[0] = 1;
-    Expect(!HoldPick(s, Random(4, 1), false), "slot 0 pending");
+    Expect(!HoldPick(s, Random(4, 1), false, 0), "slot 0 pending");
     for (int slot = 2; slot < 6; ++slot)
     {
         s = Queued();
         s.phase[slot] = 1;
-        Expect(!HoldPick(s, Random(4, 1), false), "slot 2..5 pending releases the hold");
-        Expect(!HoldPick(s, Random(4, 0), true), "slot 2..5 pending, first pick");
+        Expect(!HoldPick(s, Random(4, 1), false, 0), "slot 2..5 pending releases the hold");
+        Expect(!HoldPick(s, Random(4, 0), true, 0), "slot 2..5 pending, first pick");
     }
     s = Queued();
     s.current = 2;
-    Expect(!HoldPick(s, Random(4, 1), false), "loader busy: original runs");
+    Expect(!HoldPick(s, Random(4, 1), false, 0), "loader busy: original runs");
 
     // A scripted battle arriving during a hold replaces the held encounter.
     Expect(DropForScriptedRequest(1, 4, Random(4, 1)), "held encounter dropped");

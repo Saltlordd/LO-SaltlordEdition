@@ -1,6 +1,7 @@
 #include <stdafx.h>
 #include <os/logger.h>
 #include "encounter_defer.h"
+#include <chrono>
 
 // Issue #114. The walking encounter (sub_829E3048) queues a battle in the
 // controller tick through sub_828278A0 (loader slot 1 at 0x83263EA8, phase 1).
@@ -12,8 +13,9 @@
 // battle, so the box script waits at 0xCB forever with control still taken:
 // Kaim cannot move and the menu does not open.
 //
-// Hold the pick instead, until the event gives control back; the battle then
-// starts right after the item message. C1 and the scripts are not touched.
+// Hold the pick instead, until the event gives control back (at most 15 s);
+// the battle then starts right after the item message. C1 and the scripts are
+// not touched.
 
 extern "C" PPC_FUNC(__imp__sub_828278A0);
 extern "C" PPC_FUNC(__imp__sub_82828698);
@@ -32,6 +34,7 @@ constexpr uint32_t PlayerControlBit = 0x08000000;
 
 // Guest game thread only (controller tick, VM and loader run there).
 encounter_defer::RandomRequest random;
+std::chrono::steady_clock::time_point holdStart;
 
 bool Address(uint32_t p) { return p >= 0x100000 && p < 0x7BFF0000 && !(p & 3); }
 
@@ -99,7 +102,11 @@ PPC_FUNC(sub_8231F5E0)
     if (ctx.r3.u32 == Loader && random.active)
     {
         const auto state = ReadLoader(base);
-        if (encounter_defer::HoldPick(state, random, PlayerHasControl(base)))
+        const auto now = std::chrono::steady_clock::now();
+        if (random.heldPicks == 0) holdStart = now;
+        const auto heldMs = static_cast<uint64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(now - holdStart).count());
+        if (encounter_defer::HoldPick(state, random, PlayerHasControl(base), heldMs))
         {
             if (random.heldPicks++ == 1)
                 LOG_INFO("encounter defer: holding encounter {} while a field event has player control", random.id);
@@ -110,7 +117,7 @@ PPC_FUNC(sub_8231F5E0)
         if (encounter_defer::PicksBattle(state) || state.phase[1] != 1 || state.battleId != random.id)
         {
             if (random.heldPicks > 1 && encounter_defer::PicksBattle(state))
-                LOG_INFO("encounter defer: starting encounter {} after {} held picks", random.id, random.heldPicks);
+                LOG_INFO("encounter defer: starting encounter {} after {} held picks ({} ms)", random.id, random.heldPicks, heldMs);
             random.active = false;
         }
     }

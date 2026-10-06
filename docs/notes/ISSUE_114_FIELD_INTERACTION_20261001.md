@@ -52,12 +52,18 @@ not called again, so the player cannot reach a box later than that frame.
 - `0x8231F5E0`: when it would start that random encounter (idle loader, no map change in
   slot 0, no other request in slots 2-5), the call is skipped. The first pick after the
   request is always skipped once, because the touch may be accepted after the loader in
-  that frame. After that the pick waits while controller +0x5C8 bit `0x08000000` is clear.
-  When the event gives control back, the battle starts as usual. Request order never
-  changes: anything else queued releases the hold.
+  that frame. After that the pick waits while controller +0x5C8 bit `0x08000000` is clear,
+  for at most 15 s. When the event gives control back, the battle starts as usual. Request
+  order never changes: anything else queued releases the hold.
+
+The cap covers one open question: the prompt's A check (`D0`, `0x82A63FC0`) asks the
+player controller through its vtable +972, and whether that answers while the controller
+sits after an encounter request was not established from the code. If it does not, the
+battle starts after 15 s; by then records 6/7 have cleared `0x1010` (about 2.6 s), so the
+box script only waits for A, which works again after the battle.
 
 The decision is a pure function in `encounter_defer.h`; `LoEncounterDeferTest` checks it
-(30 cases). No game run was done with the fix.
+(32 cases). No game run was done with the fix.
 
 ## Why it cannot affect C1 (#171)
 
