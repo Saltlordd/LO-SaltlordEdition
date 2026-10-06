@@ -2868,10 +2868,10 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Desktop windowing",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Done",
+        "Delivery": "Deferred",
         "Start date": "2026-09-24",
-        "Evidence": "Windows 7 report (v0.5.13 legacy with a compatibility layer). SetThreadDpiAwarenessContext(PMv2) returns null, so the window thread stops before any GPU backend starts; the runtime also needs Windows 10 1803+ memory APIs (VirtualAlloc2, placeholders, MapViewOfFile3), which a DX11 backend would not remove. Moved to Todo on 2026-10-04 with the decision open: relabel as a feature or close as not planned.",
+        "Evidence": "Windows 7 report (v0.5.13 legacy with a compatibility layer). SetThreadDpiAwarenessContext(PMv2) returns null, so the window thread stops before any GPU backend starts; the runtime also needs Windows 10 1803+ memory APIs (VirtualAlloc2, placeholders, MapViewOfFile3), which a DX11 backend would not remove. Moved to Todo on 2026-10-04 with the decision open: relabel as a feature or close as not planned. Closed by the maintainer on 2026-10-05 (recorded as completed): Windows 7 lacks the APIs the runtime needs and a DX11 backend would not change that; left as research after v1.0.0. PR #230 (v0.8.30) delay-loads d3d12.dll and dxgi.dll so the Vulkan backend no longer loads the Direct3D 12 runtime.",
         "Source key": "issue-49-physical-pixel-window-coords"
       }
     },
@@ -2943,11 +2943,12 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Graphics quality",
-        "Status": "Todo",
-        "Delivery": "Not started",
+        "Status": "Done",
+        "Delivery": "Released",
         "Start date": "2026-09-14",
-        "Evidence": "Feature request for Depth-of-Field toggle or adjustment slider due to character-relative blur appearance. Initial triage requested F1 render capture ZIP; in backlog.",
-        "Source key": "issue-30-dof-toggle-slider"
+        "Evidence": "Depth of field (Off to 100%) and Bloom settings shipped in v0.8.30 (PR #228, thanks @cngjd); the Issue was closed on 2026-10-05. No reporter confirmation is recorded.",
+        "Source key": "issue-30-dof-toggle-slider",
+        "Release": "v0.8.30"
       }
     },
     "anti-aliasing-consolidation-remove-experimental-taa": {
@@ -2969,14 +2970,14 @@
       "fields": {
         "Kind": "Feature",
         "Area": "Platforms",
-        "Status": "In Progress",
-        "Delivery": "In progress",
-        "Release": "v0.9.0",
-        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. The v0.8.0 lane is kept as the plan milestone and is open for the maintainer to move.",
+        "Status": "Paused",
+        "Delivery": "Deferred",
+        "Release": "After v1.0.0",
+        "Evidence": "PR #60 (dj5927, merged 2026-10-02) added an experimental Linux AArch64 cross-build path with an ARM64 DXC build (docs/LINUX_ARM64.md). No ARM64 package is published, the build does not run in CI, and the maintainer has not run it on ARM64 hardware. On 2026-10-03 the maintainer decided that Linux AArch64 ships as is, without an ARM64 hardware validation gate. v0.8.0 and v0.8.5 were published without an ARM64 package; the cross-build path of PR #60 is in the source of both. On 2026-10-03 the lane moved to v0.9.0. On 2026-10-06 the maintainer moved Linux AArch64 past v1.0.0: no ARM64 package is planned before then; the cross-build path stays in the source.",
         "Source key": "linux-aarch64-platform"
       },
       "title": "Establish native Linux AArch64 platform support",
-      "body_sha256": "49a47c17c85a6c9b567fd5d471ebb2632ac1417932a0b1dddd3edea13e695d2a"
+      "body_sha256": "afc7b731d20fac413473ad8d8243f1a5c0ae65789887bf0fa7dc6ebb4d6f5347"
     },
     "experimental-android-platform": {
       "id": "PVTI_lAHOAAsUY84Biy1azg814CI",
@@ -3254,10 +3255,11 @@
       "fields": {
         "Kind": "Feature",
         "Area": "User interface",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Evidence": "Maintainer called the request doable but not yet planned, suggesting a future modder path. The open Issue requests minimap visibility toggle scope; no implementation or release is recorded.",
-        "Source key": "issue-85-minimap-toggle"
+        "Status": "Done",
+        "Delivery": "Released",
+        "Evidence": "The retail game already hides the minimap by holding Back; the README documents it since v0.8.30 (PR #229). The Issue was closed on 2026-10-05.",
+        "Source key": "issue-85-minimap-toggle",
+        "Release": "v0.8.30"
       }
     },
     "issue-88-xbox360-save-conversion": {
@@ -3289,24 +3291,25 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Shadows",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Release": "v0.9.0",
-        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; not investigated; deferred to v0.9.0 on 2026-10-02.",
+        "Status": "Done",
+        "Delivery": "Released",
+        "Release": "v0.8.30",
+        "Evidence": "Reported by the maintainer on 2026-10-01 with a screenshot of Kaim; deferred to v0.9.0 on 2026-10-02 without investigation. On 2026-10-06 the maintainer reported the shadows fixed; the shadow-projection fixes of v0.8.10 to v0.8.30 (PRs #186, #197 and #218) shipped in the meantime. No capture was taken and no separate fix was made.",
         "Source key": "character-shadow-flow-2026-10-01"
       },
       "title": "Character shadows move unnaturally and look translucent",
-      "body_sha256": "f7595cb8ea487445ff1bd396b92c13e36f9f4e29ec847e581fe26a9843014554"
+      "body_sha256": "3bc5a3ce6fa1b2bd13eab782369a54b15d1f94ab17e43e59c836bd4cc9ef434f"
     },
     "issue-114-container-enemy-softlock": {
       "id": "PVTI_lAHOAAsUY84Biy1azg-D79o",
       "fields": {
         "Kind": "Bug",
         "Area": "Field interaction",
-        "Status": "Paused",
-        "Delivery": "Deferred",
-        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer.",
-        "Source key": "issue-114-container-enemy-softlock"
+        "Status": "Awaiting validation",
+        "Delivery": "Implemented",
+        "Evidence": "The v0.7.35 guard (PR #135) fixed the reported softlock and the reporter confirmed it on 2026-10-02. The guard was removed in v0.8.6 (commit 058d8ffd) because it caused #171. The issue was reopened on 2026-10-03 and the softlock window is open again. A future fix should defer the encounter while a touch-started script runs instead of changing the C1 touch result. Moved to the backlog on 2026-10-04 by the maintainer. Update, 2026-10-06: PR #243 (merged b40ed68b) holds a random encounter while a field event has player control, so the battle starts after the item message instead of unloading the field under the box script; the C1 touch query is untouched. Decision-table test only (32 checks); no in-game run of the fix. Ships in the next release; reporter confirmation pending.",
+        "Source key": "issue-114-container-enemy-softlock",
+        "Release": "Next release"
       }
     },
     "issue-116-linux-nvidia-dlss": {
