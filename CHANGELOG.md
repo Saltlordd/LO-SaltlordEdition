@@ -4,6 +4,22 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- Vulkan and DirectX 12 now keep compiled pipelines on disk, so a scene visited before and the startup pipeline preparation no longer wait for them to compile again.
+- Android: Mesa drivers (Turnip) now keep their shader cache between starts.
+- Pipelines learned since the last periodic save are no longer lost when the game exits.
+- The log now reports pipelines compiled during play, per frame; `tools/pipeline_misses.py` sums them per map and battle.
+
+### 简体中文
+
+- Vulkan 和 DirectX 12 现在会把编译好的管线存到磁盘，再次进入去过的场景和启动时的管线准备不再等待重新编译。
+- Android：Mesa 驱动（Turnip）的着色器缓存现在会在多次启动之间保留。
+- 游戏退出时不再丢失上次定期保存之后学到的管线配方。
+- 日志现在按帧记录游玩时编译的管线；`tools/pipeline_misses.py` 按地图和战斗汇总。
+
 ## [v0.8.37](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.37) — 2026-10-06
 
 ### English

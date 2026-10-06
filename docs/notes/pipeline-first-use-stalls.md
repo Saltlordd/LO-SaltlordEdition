@@ -1,6 +1,6 @@
 # 首次使用管线的卡顿：方案（2026-10-05）
 
-> 状态：方案，未实现。影响所有平台：Windows（D3D12 / Vulkan）、Linux、macOS、Android。
+> 状态：P0、P1 已实现（2026-10-06，见文末“P0/P1 实现与测量”），P2–P4 未开始。影响所有平台：Windows（D3D12 / Vulkan）、Linux、macOS、Android。
 
 ## 现象
 
@@ -146,3 +146,39 @@ P0 → P1 → P2 → P3 → P4。
 
 - 只用 Vulkan 核心动态状态和 EDS1 时，保留 (vs, ps, 有写掩码时的 blend, 写掩码, RT 格式, 深度格式, 是否 rect list)：i212-run 剩 1371 条。
 - 再用 EDS3 把混合和写掩码也做成动态：剩 1246 条，即表中“去掉所有可动态化状态后”。
+
+## P0/P1 实现与测量（2026-10-06）
+
+**P0 未命中日志。** 绘制时新建的管线（`GetPipeline` 未命中）计入当帧；有未命中的帧在帧末打一行 `renderer: pipeline misses frame=… count=… ms=… map=… battle=… first_vs=… first_ps=… first_ms=… recipe=… vs_seen=… ps_seen=…`。`LO_PIPELINE_MISS_LOG=1` 再给每次创建打一行 `renderer: pipeline miss …`。
+
+- `map`：`debug/map_info` 的地图定义 ID，切换中为 `-`；`battle`：本次运行第几场战斗（战斗核心最近 1 秒内有 tick），不在战斗中为 0。
+- `recipe=1`：这个键已在配方集合里（读入的或本次学到的）但还没有建好，例如启动预建被跳过。
+- `vs_seen` / `ps_seen`：此前有配方或已建管线用过这个着色器。两个都为 1 表示“已知着色器的新组合”，是 P2 要解决的那类。
+- `tools/pipeline_misses.py <runtime log>` 按场景列出帧数、未命中数、总耗时、最差帧，有逐条日志时再列新 VS/PS 的数量。`LO_RENDER_TIMING=1` 的 `pipelines=` / `pipeline_ms=` 不变，两者数字一致。
+
+**P1 驱动缓存。** 文件放在着色器缓存目录：`pipeline_cache_vk.bin`、`pipeline_cache_dx12.bin`、`pipeline_cache_metal.bin`。启动预建之前读入，在写配方时（每 60 帧检查一次、有新配方才写）异步写回，正常退出时同步写一次；只在数据变大时写，上限 64 MB，经临时文件原子替换。
+
+- Vulkan：plume 每个设备一个 `VkPipelineCache`，图形和计算管线都用它。读入前校验头部的 `headerSize`、`headerVersion`、`vendorID`、`deviceID`、`pipelineCacheUUID`，不匹配就从空缓存开始并覆盖。
+- D3D12：`ID3D12PipelineLibrary`。只有 `CreatePipeline` 建的游戏管线带名字（键的哈希与 VS/PS/GS 字节码哈希），各种变体不入库。驱动拒绝旧数据时从空库开始。
+- Metal：`MTLBinaryArchive` 已实现，但默认关闭，`LO_METAL_BINARY_ARCHIVE=1` 打开。理由见下表：命中并不比 Metal 自己的编译缓存快，载入 62 MB 文件却要 1.8 秒。PSO 的耗时主要不在后端编译，归档省不掉。
+- Android：Java 侧设置 `MESA_SHADER_CACHE_DIR`（应用缓存目录下 `mesa_shader_cache`）和 `MESA_SHADER_CACHE_MAX_SIZE=256M`。
+- `_Exit` 退出：渲染器初始化后在 `os::shaderlog` 登记一个退出回调，所有先调 `CloseForExit()` 的 `_Exit` 路径（窗口 `SDL_QUIT`、内核终止、只准备着色器）以及 `video.cpp` 关闭时 GPU 排空失败的路径，都会先写配方和驱动缓存，不等 GPU。
+- `LO_NO_DRIVER_PIPELINE_CACHE=1` 关闭驱动缓存，用于对照。
+
+**测量。** 启动预建用同一份 1950 条配方（i212-run 地图巡游，1933 条着色器齐全），`--prepare-shaders-only`，每台机器同一缓存目录连续运行。“冷”是没有缓存文件，“对照”是 `LO_NO_DRIVER_PIPELINE_CACHE=1`，“暖”是读入上一次写下的文件。
+
+| 主机 / 后端 | 驱动自身磁盘缓存 | 冷 | 对照 | 暖 | 缓存文件 |
+|---|---|---|---|---|---|
+| psvita，Proton GE10-34 / vkd3d-proton D3D12，RADV | 关（`VKD3D_SHADER_CACHE_PATH=0`、`MESA_SHADER_CACHE_DISABLE=1`） | 2648 ms | 2631 ms | 888 / 894 ms（读入 18 ms） | 35.4 MB |
+| psvita，原生 Linux Vulkan，RADV（Radeon 8060S） | 关（`MESA_SHADER_CACHE_DISABLE=1`） | 2124 ms | 2112 ms | 1022 / 955 ms（读入 4 ms） | 8.8 MB |
+| M1 Max，Metal（macOS 26.6.2） | 系统缓存已热 | 13499 ms | 5245 ms | 5437 / 5265 ms（读入 1901 / 1764 ms） | 62.4 MB |
+| M1 Max，Metal | 系统缓存清空 | — | 44847 ms | 44848 ms（1933 条全部命中） | 62.4 MB |
+
+游玩：psvita D3D12，Uhra 存档开机进图（`skip_shader_prebuild=1`，所以全部管线在绘制时创建），两次运行之间只保留缓存目录：
+
+| 运行 | 绘制时建管线 | `pipeline_ms` 合计 | 最差一帧 |
+|---|---|---|---|
+| 冷 | 243 | 3221 ms | 1893 ms（171 条） |
+| 暖 | 244 | 50 ms | 26 ms（171 条） |
+
+未测：Android 平板（TB321FU，Turnip）。0.8.38-dev-pipecache 调试包已装上，但平板锁屏，游戏停在启动阶段，没有得到预建数字；Mac 和原生 Linux 只测了启动预建，没有游玩。
