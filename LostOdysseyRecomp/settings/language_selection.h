@@ -21,4 +21,12 @@ constexpr bool ResourceOverride(uint32_t host, uint32_t object, uint32_t request
 {
     return host >= 1 && host <= 9 && object == Registry && (request == 0 || request == host);
 }
+// An overridden lookup keeps the registry's own record when it carries the host
+// language. Callers compare the returned code with the registry's lower-case
+// codes ("int", "ita") case-sensitively; the static table's "INT" never matches,
+// and the FMV player then picks FMVInfo.dat's ID-0 (Japanese) audio track.
+constexpr bool KeepRegistryRecord(uint32_t record, uint32_t recordId, uint32_t host)
+{
+    return record != 0 && recordId == host;
+}
 }

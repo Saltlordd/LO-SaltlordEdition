@@ -9,10 +9,12 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 ### English
 
 - Fixed geometry outlines showing through white screen fades with ambient occlusion on (#237).
+- CGI movies, including the title intro, now play in the selected voice language instead of Japanese (#220, #54).
 
 ### 简体中文
 
 - 修复开启环境光遮蔽时，画面变白时透出几何轮廓的问题（#237）。
+- CG 动画（包括标题画面的开场动画）现在按所选语音语言播放，不再固定为日语（#220、#54）。
 
 ## [v0.8.30](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.30) — 2026-10-05
 

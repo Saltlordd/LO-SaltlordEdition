@@ -1262,17 +1262,21 @@ void PointerClick(float x, float y, bool reverse)
 } // namespace settings
 
 // Resolve the explicit host choice instead of the retail language allowlist's
-// default alias. Resource suffixes come from the original executable's table.
-// IDs 1-9 map to INT/JPN/DEU/FRA/SPA/ITA/KOR/CHI/SCH. The original function
-// aliases languages missing from the runtime allowlist to the ID-0 record, so
-// Europe text languages and Simplified Chinese must return the table pointer.
+// default alias. IDs 1-9 map to INT/JPN/DEU/FRA/SPA/ITA/KOR/CHI/SCH. Return the
+// registry record for the host language when the edition registers it, so voice
+// and FMV audio lookups match it (#220). Languages the registry lacks (Asian SCH
+// is registered as ID 10) still get the executable's static table pointer.
 PPC_FUNC(sub_82481BE8)
 {
     const uint32_t language = settings::GameLanguage();
     const auto object = ctx.r3.u32, request = ctx.r4.u32, caller = uint32_t(ctx.lr);
     if (settings::language::ResourceOverride(language, object, request))
     {
-        ctx.r3.u64 = PPC_LOAD_U32(0x832455F0 + language * 4);
+        ctx.r4.u64 = language;
+        __imp__sub_82481BE8(ctx, base);
+        const uint32_t record = ctx.r3.u32;
+        if (!settings::language::KeepRegistryRecord(record, record ? PPC_LOAD_U16(record - 2) : 0, language))
+            ctx.r3.u64 = PPC_LOAD_U32(0x832455F0 + language * 4);
         static const bool logged = [] {
             LOG_INFO("settings: explicit game resource language {}", settings::GameLanguage());
             return true;
