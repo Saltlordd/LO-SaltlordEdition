@@ -92,6 +92,7 @@ public:
         }
     }
     bool IsOpen() const { std::lock_guard lock(mutex_); return file_ != nullptr; }
+    bool Writable() const { std::lock_guard lock(mutex_); return file_ != nullptr && writable_; }
     const std::filesystem::path& Path() const { return path_; }
 
     // A validated binary, or empty when absent, corrupt or of another format.
@@ -148,12 +149,49 @@ public:
     // Returns the number of records dropped (0 when nothing was rewritten).
     size_t CompactUnused(uint64_t minDeadBytes = 64ull << 20, std::string* error = nullptr) {
         std::lock_guard lock(mutex_);
+        if (!file_ || !writable_ || used_.empty()) return 0;
+        uint64_t live = HeaderBytes;
+        for (const auto& [key, entry] : index_) if (used_.contains(key)) live += RecordHeaderBytes + entry.size;
+        const uint64_t dead = end_ > live ? end_ - live : 0;
+        if (dead < minDeadBytes || dead * 4 < end_) return 0;
+        return RewriteLocked([this](const Key& key) { return used_.contains(key); }, error);
+    }
+
+    // Drops every record whose shader `covered(pixel, hash)` reports, whether
+    // or not it was used this session: records a matching distribution pack
+    // already provides. Returns the number of records dropped.
+    template <typename Covered>
+    size_t CompactCovered(Covered&& covered, std::string* error = nullptr) {
+        std::lock_guard lock(mutex_);
+        if (!file_ || !writable_) return 0;
+        bool any = false;
+        for (const auto& [key, entry] : index_)
+            if (covered(std::get<0>(key), std::get<1>(key))) { any = true; break; }
+        if (!any) return 0;
+        return RewriteLocked([&](const Key& key) { return !covered(std::get<0>(key), std::get<1>(key)); }, error);
+    }
+
+    // Flushes appended records to the disk before the caller deletes their source.
+    bool Sync() {
+        std::lock_guard lock(mutex_);
+        if (!file_ || std::fflush(file_)) return false;
+#ifdef _WIN32
+        return _commit(_fileno(file_)) == 0;
+#else
+        return fsync(fileno(file_)) == 0;
+#endif
+    }
+
+    void Close() { std::lock_guard lock(mutex_); CloseLocked(); }
+
+private:
+    using Key = std::tuple<bool, uint64_t, InputDigest>;
+    struct Entry { uint64_t offset = 0; uint32_t size = 0; uint64_t checksum = 0; };
+
+    // Writes the kept records to a temporary file and replaces the store with it.
+    template <typename Keep>
+    size_t RewriteLocked(Keep&& keep, std::string* error) {
         try {
-            if (!file_ || !writable_ || used_.empty()) return 0;
-            uint64_t live = HeaderBytes;
-            for (const auto& [key, entry] : index_) if (used_.contains(key)) live += RecordHeaderBytes + entry.size;
-            const uint64_t dead = end_ > live ? end_ - live : 0;
-            if (dead < minDeadBytes || dead * 4 < end_) return 0;
             const auto temp = std::filesystem::path(path_.native() + std::filesystem::path(".compact").native());
             std::error_code ec;
             std::filesystem::remove(temp, ec);
@@ -168,7 +206,7 @@ public:
                 uint64_t position = HeaderBytes;
                 std::vector<uint8_t> binary;
                 for (const auto& [key, entry] : index_) {
-                    if (!used_.contains(key)) { ++dropped; continue; }
+                    if (!keep(key)) { ++dropped; continue; }
                     binary.resize(entry.size);
                     if (!Seek(entry.offset) || std::fread(binary.data(), 1, binary.size(), file_) != binary.size() ||
                         Fnv(binary) != entry.checksum) { ++dropped; continue; }
@@ -201,12 +239,6 @@ public:
             return 0;
         }
     }
-
-    void Close() { std::lock_guard lock(mutex_); CloseLocked(); }
-
-private:
-    using Key = std::tuple<bool, uint64_t, InputDigest>;
-    struct Entry { uint64_t offset = 0; uint32_t size = 0; uint64_t checksum = 0; };
 
     static uint64_t Fnv(std::span<const uint8_t> bytes) {
         uint64_t hash = 0xcbf29ce484222325ull;

@@ -4,6 +4,16 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 
 按新到旧记录简短更新，日期采用 UTC。技术验证见[开发状态](docs/STATUS.md)，后续计划见[路线图](docs/ROADMAP.zh-CN.md)。
 
+## Unreleased / 未发布
+
+### English
+
+- The shader cache no longer keeps a startup bundle or per-shader files once the shader pack is installed; existing installs clean up at startup.
+
+### 简体中文
+
+- 安装着色器包后，本地缓存不再保留启动 bundle 和逐文件着色器；已有安装会在启动时清理。
+
 ## [v0.8.37](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.37) — 2026-10-06
 
 ### English

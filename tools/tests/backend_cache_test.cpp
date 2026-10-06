@@ -1,4 +1,5 @@
 #include "gpu/shader/binary_cache.h"
+#include "gpu/shader/builtin_shader_store.h"
 #include "gpu/shader/startup_cache.h"
 #include "gpu/shader/dxc_compiler.h"
 #include <cstdio>
@@ -68,8 +69,10 @@ int main(int argc,char** argv) {
             CHECK(xenos::GetDxcStatistics().calls==before+1);
         }
     }
-    CHECK(fs::is_directory(root/"builtins/builtin"));
-    CHECK(std::distance(fs::directory_iterator(root/"builtins/builtin"),fs::directory_iterator{})==2);
+    // Host shaders live in one store per format, not in per-shader files.
+    CHECK(!fs::exists(root/"builtins/builtin"));
+    CHECK(fs::is_regular_file(cache::BuiltinStorePath(root/"builtins",cache::Format::Dxil)));
+    CHECK(fs::is_regular_file(cache::BuiltinStorePath(root/"builtins",cache::Format::Spirv)));
     if(restart) {
         CHECK(xenos::GetDxcStatistics().calls==0);
         std::printf("PASS restart: %u checks; DXIL and SPIR-V builtin cache hits, 0 actual DXC calls\n",checks);
