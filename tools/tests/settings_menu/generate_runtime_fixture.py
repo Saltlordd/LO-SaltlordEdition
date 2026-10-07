@@ -78,12 +78,20 @@ FrameGenerationStatus fgStatus{};
 FrameGenerationStatus GetFrameGenerationStatus(){return fgStatus;}
 std::optional<gpu::backend::Backend> SelectedBackend(){return gpu::backend::Backend::Vulkan;}
 DisplayChangeResult QueryDisplayChange(uint64_t){return DisplayChangeResult::Applied;}
-uint64_t BeginDisplayChange(const settings::Config&){return 1;}
+settings::Config displayRequest, movedTo; unsigned displayRequests=0, revertRequests=0; uint64_t displayMoves=0;
+// Models the window thread: a named display other than the current one moves the window.
+uint64_t BeginDisplayChange(const settings::Config& c){
+    displayRequest=c;++displayRequests;
+    if(!c.displayName.empty() && (c.displayName!=movedTo.displayName || c.displayIndex!=movedTo.displayIndex)){++displayMoves;movedTo=c;}
+    return 1;}
+uint64_t DisplayMoveCount(){return displayMoves;}
+uint64_t BeginDisplayRevert(const settings::Config& c){displayRequest=c;++displayRequests;++revertRequests;movedTo=c;return 1;}
 bool DisplayModeFailed(){return false;}
 bool WindowModeOverridden(){return false;}
 std::vector<std::string> GpuDeviceNames(){return {"GPU A","GPU B"};}
 std::string ActiveGpuDeviceName(){return "GPU A";}
-std::vector<std::string> DisplayNames(){return {"Display 1"};}
+std::vector<display_choice::Display> displays{{"Display 1",0,0,1920,1080}};
+std::vector<display_choice::Display> Displays(){return displays;}
 }
 namespace gpu::frame_plan {
 DlssEffectSnapshot CurrentDlssEffect(){return {};}
@@ -249,6 +257,98 @@ int main(int argc, char** argv) {
     settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
     Check(settings::restartPrompt && settings::GetConfig().gpuDevice=="GPU B","GPU change saves and asks for a restart");
     settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
+    // Three monitors of one model: each is its own choice, told apart by number
+    // and position, and Save asks the window thread to move to the chosen one.
+    {
+        using gpu::display_choice::Resolve;
+        gpu::video::displays={{"M27P20",0,0,3840,2160},{"M27P20",3840,0,3840,2160},{"M27P20",-3840,0,3840,2160}};
+        Check(Resolve(gpu::video::displays,"M27P20",2)==2 && Resolve(gpu::video::displays,"M27P20",1)==1 &&
+              Resolve(gpu::video::displays,"M27P20",7)==0 && Resolve(gpu::video::displays,"Other",0)==-1 &&
+              Resolve(gpu::video::displays,"",1)==-1,"identical names resolve by saved index");
+        using gpu::display_choice::Adjacent;
+        Check(Adjacent(gpu::video::displays,0,1)==1 && Adjacent(gpu::video::displays,0,-1)==2 &&
+              Adjacent(gpu::video::displays,1,1)==2 && Adjacent(gpu::video::displays,2,-1)==1 &&
+              Adjacent({{"A",0,0,1920,1080}},0,1)==-1 && Adjacent(gpu::video::displays,5,1)==-1,
+              "Win+Shift+arrow picks the display to the left or right, wrapping around");
+        settings::savedConfig=afSaved;settings::edit=afSaved;
+        settings::row=int(GraphicsRow::Display);tick();
+        const auto& displayRow=settings::snapshot.rows[int(GraphicsRow::Display)];
+        Check(!displayRow.hidden && displayRow.choices.size()==4,"three identical displays give Automatic plus three choices");
+        Check(displayRow.choices[1]!=displayRow.choices[2] && displayRow.choices[2]!=displayRow.choices[3] &&
+              displayRow.choices[1]!=displayRow.choices[3],"identical displays have distinct labels");
+        Check(displayRow.choices[2].find(L"2: M27P20")==0 && displayRow.choices[2].find(L"3840, 0")!=std::wstring::npos,
+              "display label carries number, name and position");
+        tick(8);Check(settings::edit.displayName=="M27P20" && settings::edit.displayIndex==0,"first display chosen");
+        tick(8);Check(settings::edit.displayIndex==1,"second identical display chosen");
+        tick(8);Check(settings::edit.displayIndex==2,"third identical display chosen");
+        Check(settings::snapshot.rows[int(GraphicsRow::Display)].selectedChoice==3,"third display shown as selected");
+        const auto requests=gpu::video::displayRequests;
+        settings::row=int(GraphicsRow::Save);tick(0x1000);
+        Check(gpu::video::displayRequests==requests+1 && gpu::video::displayRequest.displayIndex==2 &&
+              gpu::video::displayRequest.displayName=="M27P20","Save requests the move to the third display");
+        Check(settings::GetConfig().displayIndex==2,"display choice saved");
+        tick();Check(!settings::restartPrompt,"display choice needs no restart");
+        // The moved window asks to keep the display; without an answer it reverts after 5 s.
+        auto dialogHas=[&](int choice,const wchar_t* text){
+            return int(settings::snapshot.dialogChoices.size())>choice &&
+                   settings::snapshot.dialogChoices[choice].find(text)!=std::wstring::npos;};
+        Check(settings::displayConfirm && settings::snapshot.dialogTitle==L"Keep this display?" &&
+              dialogHas(0,L"Keep") && dialogHas(1,L"Revert (5)"),"moved window asks to keep the display with a 5 s countdown");
+        settings::menuClockOffset+=std::chrono::milliseconds(2100);tick();
+        Check(settings::displayConfirm && dialogHas(1,L"Revert (3)"),"countdown follows the clock");
+        tick(8);Check(settings::displayConfirm && settings::GetConfig().displayIndex==2,"other buttons do not answer the prompt");
+        auto reverts=gpu::video::revertRequests;
+        settings::menuClockOffset+=std::chrono::seconds(3);tick();
+        Check(!settings::displayConfirm && gpu::video::revertRequests==reverts+1 &&
+              settings::GetConfig().displayName.empty() && gpu::video::displayRequest.displayName.empty() &&
+              settings::edit.displayName.empty(),"no answer in 5 s restores the previous (Automatic) display");
+        tick();Check(settings::status==L"Previous display restored.","timeout revert completion is reported");
+        // Explicit revert with B.
+        settings::row=int(GraphicsRow::Display);tick(8);tick(8);
+        Check(settings::edit.displayIndex==1,"second display chosen again");
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(settings::displayConfirm,"second move asks again");
+        reverts=gpu::video::revertRequests;
+        tick(0x2000);
+        Check(!settings::displayConfirm && gpu::video::revertRequests==reverts+1 && settings::GetConfig().displayName.empty(),
+              "B reverts to the previous display");
+        tick();
+        // Escape (keyboard) reverts too.
+        settings::row=int(GraphicsRow::Display);tick(8);tick(8);
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(settings::displayConfirm && settings::CalibrationKey(27),"Escape is taken by the display prompt");
+        reverts=gpu::video::revertRequests;tick();
+        Check(!settings::displayConfirm && gpu::video::revertRequests==reverts+1,"Escape reverts to the previous display");
+        tick();Check(!settings::CalibrationKey(27),"Escape is released after the prompt");
+        // Keep with Start (keyboard Enter): the choice stays saved, nothing reverts.
+        settings::row=int(GraphicsRow::Display);tick(8);tick(8);
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(settings::displayConfirm,"third move asks again");
+        reverts=gpu::video::revertRequests;
+        tick(0x10);
+        Check(!settings::displayConfirm && gpu::video::revertRequests==reverts && settings::GetConfig().displayIndex==1 &&
+              settings::GetConfig().displayName=="M27P20" && settings::status==L"Display kept.","Enter keeps the new display");
+        settings::menuClockOffset+=std::chrono::seconds(10);tick();
+        Check(gpu::video::revertRequests==reverts && settings::GetConfig().displayIndex==1,"a kept display does not revert later");
+        settings::row=int(GraphicsRow::Display);tick();
+        Check(settings::snapshot.rows[int(GraphicsRow::Display)].selectedChoice==2,"kept second display stays selected");
+        // Saving an unchanged display does not ask again.
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(!settings::displayConfirm,"unchanged display saves without the prompt");
+        // The player moves the window (Win+Shift+arrow) while the menu is open: the
+        // window thread saves the new display, the menu follows, Save does not move back.
+        settings::savedConfig.displayIndex=2;tick();
+        Check(settings::edit.displayIndex==2,"menu follows a display the player moved the window to");
+        const auto requestsBeforeSave=gpu::video::displayRequests;
+        settings::row=int(GraphicsRow::Save);tick(0x1000);tick();
+        Check(!settings::displayConfirm && gpu::video::displayRequests==requestsBeforeSave,
+              "saving after a player move does not move the window back");
+        settings::savedConfig.displayIndex=5;settings::edit=settings::savedConfig;settings::row=int(GraphicsRow::Display);tick();
+        Check(settings::snapshot.rows[int(GraphicsRow::Display)].selectedChoice==1,"a missing index falls back to the first same-named display");
+        settings::menuClockOffset={};
+        gpu::video::displays={{"Display 1",0,0,1920,1080}};
+        settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
+    }
     settings::savedConfig=afSaved;settings::edit=afSaved;
     settings::edit.upscaler=Upscaler::Fsr;settings::row=int(GraphicsRow::AntiAliasing);tick();
     auto click=[&](int row,float x,bool reverse){
@@ -265,6 +365,8 @@ int main(int argc, char** argv) {
     auto oldSaves=saves;
     tick(0x1010);Check(settings::row==int(GraphicsRow::Save) && saves==oldSaves,"Start+A focuses Save without saving");
     tick(0x1000);Check(saves==oldSaves+1,"A on Save still confirms");
+    settings::restartPrompt=settings::savedRestartPrompt=false;settings::displayTicket=0;
+    tick(0x10);Check(saves==oldSaves+2,"Start on the focused Save row saves (keyboard Enter)");
     // No changed display or backend in subsequent mouse Save.
     settings::restartPrompt=false;settings::savedRestartPrompt=false;settings::displayTicket=0;
     tick();oldSaves=saves;click(int(GraphicsRow::Save),700,false);

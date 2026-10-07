@@ -66,6 +66,20 @@ Config edit;
 Config previousDisplay;
 uint64_t displayTicket = 0;
 bool displayRollback = false, rollbackSaveFailed = false;
+// Keep-or-revert prompt after a saved display choice moved the window. Without
+// an answer the previous display returns when the countdown ends.
+constexpr auto kDisplayConfirmTime = std::chrono::seconds(5);
+bool displayConfirm = false, displayReverting = false;
+int displayConfirmChoice = 0;
+uint64_t displayMovesBefore = 0;
+std::chrono::steady_clock::time_point displayConfirmDeadline;
+std::atomic<bool> displayConfirmOpen{false}, displayConfirmEscape{false};
+std::chrono::steady_clock::duration menuClockOffset{}; // Tests advance the menu clock.
+// Saved display choice the menu last saw; the window thread changes it when the
+// player moves the window (Win+Shift+arrow).
+std::string syncedDisplayName;
+uint32_t syncedDisplayIndex = 0;
+std::chrono::steady_clock::time_point MenuNow() { return std::chrono::steady_clock::now() + menuClockOffset; }
 bool collectionPrompt = false;
 int collectionChoice = 1;
 bool restartPrompt = false, savedRestartPrompt = false, restartSaveFailed = false;
@@ -216,12 +230,10 @@ struct NameChoices
 {
     std::vector<std::string> names;
     uint32_t selected = 0;
-    size_t listed = 0; // Entries before the unlisted saved name.
 };
 NameChoices GpuChoices()
 {
     NameChoices result{gpu::video::GpuDeviceNames()};
-    result.listed = result.names.size();
     if (!edit.gpuDevice.empty())
     {
         auto found = std::find(result.names.begin(), result.names.end(), edit.gpuDevice);
@@ -230,17 +242,60 @@ NameChoices GpuChoices()
     }
     return result;
 }
-NameChoices DisplayChoices()
+// Choice 0 is Automatic, choice i the connected display i - 1. Monitors of one
+// model share a name, so each label also carries its number, size and position.
+// A saved display that is not connected stays as the last choice.
+struct DisplayChoiceList
 {
-    NameChoices result{gpu::video::DisplayNames()};
-    result.listed = result.names.size();
+    std::vector<gpu::display_choice::Display> displays;
+    std::vector<std::wstring> labels;
+    uint32_t selected = 0;
+};
+DisplayChoiceList DisplayChoices()
+{
+    DisplayChoiceList result{gpu::video::Displays()};
+    result.labels.push_back(Tr(L"Automatic", L"自動"));
+    for (size_t i = 0; i < result.displays.size(); ++i)
+    {
+        const auto &display = result.displays[i];
+        std::wstring label = std::to_wstring(i + 1) + L": " + Widen(display.name);
+        if (display.width > 0 && display.height > 0)
+            label += L" · " + std::to_wstring(display.width) + L"×" + std::to_wstring(display.height) +
+                     L" (" + std::to_wstring(display.x) + L", " + std::to_wstring(display.y) + L")";
+        result.labels.push_back(std::move(label));
+    }
     if (!edit.displayName.empty())
     {
-        const int found = gpu::display_choice::Resolve(result.names, edit.displayName, edit.displayIndex);
-        if (found < 0) result.names.push_back(edit.displayName);
-        result.selected = found < 0 ? uint32_t(result.names.size()) : uint32_t(found) + 1;
+        const int found = gpu::display_choice::Resolve(result.displays, edit.displayName, edit.displayIndex);
+        if (found < 0) result.labels.push_back(Widen(edit.displayName));
+        result.selected = found < 0 ? uint32_t(result.labels.size() - 1) : uint32_t(found) + 1;
     }
     return result;
+}
+void KeepDisplayChoice()
+{
+    displayConfirm = false;
+    displayConfirmOpen = false;
+    status = Tr(L"Display kept.", L"已保留這台顯示器。");
+    LOG_INFO("settings: display choice kept: \"{}\"#{}", edit.displayName, edit.displayIndex);
+}
+// Restores the previous display choice in settings.ini and moves the window
+// back to where it was, in the current mode.
+void RevertDisplayChoice(const char *reason)
+{
+    displayConfirm = false;
+    displayConfirmOpen = false;
+    Config reverted = GetConfig();
+    reverted.displayName = previousDisplay.displayName;
+    reverted.displayIndex = previousDisplay.displayIndex;
+    rollbackSaveFailed = !SaveConfig(reverted);
+    if (rollbackSaveFailed) PreviewConfig(reverted);
+    edit.displayName = reverted.displayName;
+    edit.displayIndex = reverted.displayIndex;
+    displayReverting = true;
+    displayTicket = gpu::video::BeginDisplayRevert(reverted);
+    status = Tr(L"Returning to the previous display…", L"正在回到之前的顯示器……");
+    LOG_INFO("settings: display choice reverted ({}): back to \"{}\"#{}", reason, reverted.displayName, reverted.displayIndex);
 }
 uint32_t ConfigAddress(uint8_t *base)
 {
@@ -533,7 +588,7 @@ bool GraphicsRowHidden(int r)
     if (r == int(GraphicsRow::Gpu))
         return gpu::video::GpuDeviceNames().size() <= 1;
     if (r == int(GraphicsRow::Display))
-        return gpu::video::DisplayNames().size() <= 1;
+        return gpu::video::Displays().size() <= 1;
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -678,15 +733,11 @@ void Publish(uint8_t *base, uint32_t config)
             placeGraphics(GraphicsRow::Gpu, std::move(gpuRow));
         }
         placeGraphics(GraphicsRow::DisplayMode, makeChoices(L"Display mode", L"顯示模式",
-                   {Tr(L"Windowed", L"視窗"), Tr(L"Borderless fullscreen", L"無邊框全螢幕")},
+                   {Tr(L"Windowed", L"視窗"), Tr(L"Fullscreen", L"全螢幕")},
                    uint32_t(edit.windowMode)));
         {
-            const auto displays = DisplayChoices();
-            std::vector<std::wstring> labels{Tr(L"Automatic", L"自動")};
-            for (size_t i = 0; i < displays.names.size(); ++i)
-                labels.push_back(i < displays.listed ? std::to_wstring(i + 1) + L". " + Widen(displays.names[i])
-                                                     : Widen(displays.names[i]));
-            auto displayRow = makeChoices(L"Display", L"顯示器", std::move(labels), displays.selected);
+            auto displays = DisplayChoices();
+            auto displayRow = makeChoices(L"Display", L"顯示器", std::move(displays.labels), displays.selected);
             displayRow.singleValue = true;
             placeGraphics(GraphicsRow::Display, std::move(displayRow));
         }
@@ -910,8 +961,8 @@ void Publish(uint8_t *base, uint32_t config)
                            L"在 16:9 與 21:9 寬螢幕規格之間切換解析度選項。");
             break;
         case GraphicsRow::OutputResolution:
-            next.help = Tr(L"Sets the output size. Borderless fullscreen uses the desktop size.",
-                           L"設定輸出尺寸；無邊框全螢幕使用桌面尺寸。");
+            next.help = Tr(L"Sets the output size. Fullscreen uses the desktop size.",
+                           L"設定輸出尺寸；全螢幕使用桌面尺寸。");
             break;
         case GraphicsRow::RenderResolution:
 #if LO_PLATFORM_MACOS
@@ -1128,6 +1179,18 @@ void Publish(uint8_t *base, uint32_t config)
         next.dialogChoices = {Tr(L"Open importer", L"開啟匯入器"), Tr(L"Cancel", L"取消")};
         next.dialogSelection = importChoice;
     }
+    if (displayConfirm)
+    {
+        // Shown over a restart prompt from the same save; that one follows.
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(displayConfirmDeadline - MenuNow()).count();
+        const auto seconds = std::max<long long>(0, (left + 999) / 1000);
+        next.dialogTitle = Tr(L"Keep this display?", L"保留這台顯示器嗎？");
+        next.dialogMessage = Tr(L"The game moved to the chosen display. Without an answer it returns to the previous display.",
+                                L"遊戲已移到所選的顯示器。若未回應，將回到之前的顯示器。");
+        next.dialogChoices = {Tr(L"Keep", L"保留"),
+                              std::wstring(Tr(L"Revert", L"還原")) + L" (" + std::to_wstring(seconds) + L")"};
+        next.dialogSelection = displayConfirmChoice;
+    }
 #if LO_PLATFORM_ANDROID
     next.notice = tab == 2 && graphics_menu::AndroidFsrAvailable &&
         edit.upscaler == gpu::upscaling::Upscaler::Fsr ? DlssNotice() : std::wstring{};
@@ -1212,6 +1275,12 @@ HdrCalibration GetHdrCalibration()
 }
 bool CalibrationKey(uint32_t key)
 {
+    // Escape has no controller mapping; it answers Revert on the display prompt.
+    if (key == 27 && displayConfirmOpen.load())
+    {
+        displayConfirmEscape = true;
+        return true;
+    }
     const bool brightnessKey = brightnessOpen.load() && (key == 13 || key == 27);
     if (!brightnessKey && (!calibrationOpen.load() || !(key == 8 || key == 13 || key == 27 || (key >= '0' && key <= '9'))))
         return false;
@@ -1501,6 +1570,13 @@ PPC_FUNC(sub_822F19B0)
         mainMenuPrompt = false;
         importPrompt = false;
         importLaunchPending = false;
+        displayConfirm = displayReverting = false;
+        displayConfirmOpen = false;
+        {
+            const auto saved = GetConfig();
+            syncedDisplayName = saved.displayName;
+            syncedDisplayIndex = saved.displayIndex;
+        }
         status.clear();
         Publish(base, config);
         LOG_INFO("settings: replacement opened at guest menu {:#x}", menu);
@@ -1509,6 +1585,21 @@ PPC_FUNC(sub_822F19B0)
             LOG_INFO("settings: voice option {} -> language {}", i, VoiceLanguage(base, i));
     }
     uint16_t input = pending.exchange(0);
+    {
+        // Follow a display the player moved the window to while the menu is
+        // open, unless the Display row was changed here.
+        const auto saved = GetConfig();
+        if (saved.displayName != syncedDisplayName || saved.displayIndex != syncedDisplayIndex)
+        {
+            if (edit.displayName == syncedDisplayName && edit.displayIndex == syncedDisplayIndex)
+            {
+                edit.displayName = saved.displayName;
+                edit.displayIndex = saved.displayIndex;
+            }
+            syncedDisplayName = saved.displayName;
+            syncedDisplayIndex = saved.displayIndex;
+        }
+    }
     if (int selected = mouseTab.exchange(-1); selected >= 0)
     {
         tab = selected;
@@ -1588,6 +1679,24 @@ PPC_FUNC(sub_822F19B0)
             if (gpu::taa_collection::SetConsent(collectionChoice == 0)) { collectionPrompt = false; status.clear(); }
             else status = Tr(L"Settings could not be saved.", L"無法儲存設定。");
         }
+        Publish(base, config);
+        return;
+    }
+    if (displayConfirm)
+    {
+        if (int selected = mouseDialog.exchange(-1); selected >= 0)
+            displayConfirmChoice = std::min(selected, 1);
+        if (input & 3) displayConfirmChoice = 1 - displayConfirmChoice;
+        // A / Start (keyboard Enter) answer the selected choice; B, Back and
+        // Escape revert. An answer in the last tick still counts.
+        const bool revert = displayConfirmEscape.exchange(false) || (input & 0x2020);
+        const bool choose = (input & 0x1010) != 0;
+        if (!revert && choose && displayConfirmChoice == 0)
+            KeepDisplayChoice();
+        else if (revert || choose)
+            RevertDisplayChoice("player");
+        else if (MenuNow() >= displayConfirmDeadline)
+            RevertDisplayChoice("no answer in 5 s");
         Publish(base, config);
         return;
     }
@@ -1925,6 +2034,18 @@ PPC_FUNC(sub_822F19B0)
             restartSaveFailed = false;
             restartChoice = 0;
         }
+        // Only a display choice that actually moved the window asks to be kept.
+        if ((edit.displayName != previousDisplay.displayName || edit.displayIndex != previousDisplay.displayIndex) &&
+            gpu::video::DisplayMoveCount() != displayMovesBefore)
+        {
+            displayConfirm = true;
+            displayConfirmOpen = true;
+            displayConfirmEscape = false;
+            displayConfirmChoice = 0;
+            displayConfirmDeadline = MenuNow() + kDisplayConfirmTime;
+            LOG_INFO("settings: display choice \"{}\"#{} moved the window; waiting 5 s for Keep",
+                     edit.displayName, edit.displayIndex);
+        }
     };
     if (displayTicket)
     {
@@ -1935,7 +2056,16 @@ PPC_FUNC(sub_822F19B0)
             return;
         }
         displayTicket = 0;
-        if (displayRollback)
+        if (displayReverting)
+        {
+            displayReverting = false;
+            status = result != gpu::video::DisplayChangeResult::Applied
+                ? Tr(L"Could not return to the previous display.", L"無法回到之前的顯示器。")
+                : rollbackSaveFailed
+                    ? Tr(L"Previous display restored; settings file could not be updated.", L"已回到之前的顯示器，但無法更新設定檔。")
+                    : Tr(L"Previous display restored.", L"已回到之前的顯示器。");
+        }
+        else if (displayRollback)
         {
             displayRollback = false;
             status = result == gpu::video::DisplayChangeResult::Applied
@@ -1977,13 +2107,17 @@ PPC_FUNC(sub_822F19B0)
         do { row = (row + 1) % count; } while (rowHidden(row));
     if (input & 0x10)
     {
-        if (tab == 2)
-            row = int(GraphicsRow::Save);
-        else if (tab == 3)
-            row = 3;
-        // Start / Enter only shifts focus to Save; inhibit confirm on the same tick
-        // so simultaneous input (or key bindings sending both) cannot trigger saving.
-        input &= ~0x1000;
+        const int saveRow = tab == 2 ? int(GraphicsRow::Save) : tab == 3 ? 3 : -1;
+        // Start / Enter shifts focus to Save; inhibit confirm on the same tick so
+        // simultaneous input (or key bindings sending both) cannot save from another
+        // row. Pressed again on Save it saves, so keyboard Enter confirms like A.
+        if (saveRow >= 0 && row == saveRow)
+            input |= 0x1000;
+        else
+        {
+            if (saveRow >= 0) row = saveRow;
+            input &= ~0x1000;
+        }
     }
     if (tab == 3 && row == 4 && (input & 0x000c)) {
         if (gpu::taa_collection::Enabled()) {
@@ -2077,15 +2211,15 @@ PPC_FUNC(sub_822F19B0)
             case GraphicsRow::Display:
             {
                 const auto displays = DisplayChoices();
-                const auto choice = cycle(displays.selected, uint32_t(displays.names.size() + 1));
+                const auto choice = cycle(displays.selected, uint32_t(displays.labels.size()));
                 if (!choice)
                 {
                     edit.displayName.clear();
                     edit.displayIndex = 0;
                 }
-                else if (choice <= displays.listed)
+                else if (choice <= displays.displays.size())
                 {
-                    edit.displayName = displays.names[choice - 1];
+                    edit.displayName = displays.displays[choice - 1].name;
                     edit.displayIndex = choice - 1;
                 }
                 // The last choice keeps a saved display that is not connected.
@@ -2272,6 +2406,7 @@ PPC_FUNC(sub_822F19B0)
     if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::Save))
     {
         previousDisplay = GetConfig();
+        displayMovesBefore = gpu::video::DisplayMoveCount();
         Config graphics = edit;
         graphics.uiLanguage = previousDisplay.uiLanguage;
         graphics.gameLanguage = previousDisplay.gameLanguage;
