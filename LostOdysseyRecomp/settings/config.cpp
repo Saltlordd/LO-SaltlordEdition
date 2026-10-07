@@ -12,8 +12,17 @@ namespace settings
 namespace
 {
 std::mutex mutex;
+// One settings.ini line: no line breaks, bounded like the adapter/display names it stores.
+std::string TextValue(std::string text)
+{
+    while (!text.empty() && (text.back() == '\r' || text.back() == '\n')) text.pop_back();
+    return text.size() <= 256 && text.find_first_of("\r\n") == std::string::npos ? text : std::string{};
+}
 Config Validate(Config value)
 {
+    value.gpuDevice = TextValue(std::move(value.gpuDevice));
+    value.displayName = TextValue(std::move(value.displayName));
+    if (value.displayName.empty() || value.displayIndex > 63) value.displayIndex = 0;
     if (value.internalResolution != 0 && value.internalResolution != InternalResolutionNative &&
         value.internalResolution != 720 && value.internalResolution != 1080 &&
         value.internalResolution != 1440 && value.internalResolution != 2160)
@@ -66,7 +75,7 @@ Config Validate(Config value)
         value.uiLanguage = 0;
     if (GameLanguageIds[GameLanguageIndex(value.gameLanguage)] != value.gameLanguage)
         value.gameLanguage = 1;
-    if (uint32_t(value.windowMode) > 2)
+    if (uint32_t(value.windowMode) > 1)
         value.windowMode = WindowMode::Windowed;
     if (value.audioOutput > AudioOutputSurround)
         value.audioOutput = AudioOutputStereo;
@@ -109,6 +118,11 @@ Config Read()
         if (name == "anisotropic_filtering") value.anisotropicFiltering = 0;
         uint32_t number = 0;
         const auto digits = key.substr(equal + 1);
+        if (name == "gpu_device" || name == "display_name")
+        {
+            (name == "gpu_device" ? value.gpuDevice : value.displayName) = TextValue(digits);
+            continue;
+        }
         if (name == "display_brightness")
         {
             // The only signed value.
@@ -135,7 +149,9 @@ Config Read()
         else if (key == "internal_resolution")
             value.internalResolution = number <= 2160 ? int(number) : 0;
         else if (key == "window_mode")
-            value.windowMode = WindowMode(number);
+            value.windowMode = number == 2 ? WindowMode::Borderless : WindowMode(number); // 2 was exclusive fullscreen.
+        else if (key == "display_index")
+            value.displayIndex = number;
         else if (key == "graphics_backend")
             value.graphicsBackend = GraphicsBackend(number);
         else if (key == "antialiasing")
@@ -298,7 +314,9 @@ static bool WriteConfig(const Config &value)
     std::ofstream output(temporary, std::ios::trunc);
     output << "ui_language=" << value.uiLanguage << "\ngame_language=" << value.gameLanguage
            << "\nwidth=" << value.width << "\nheight=" << value.height << "\nwindow_mode=" << uint32_t(value.windowMode)
+           << "\ndisplay_name=" << value.displayName << "\ndisplay_index=" << value.displayIndex
            << "\ngraphics_backend=" << uint32_t(value.graphicsBackend)
+           << "\ngpu_device=" << value.gpuDevice
            << "\ndebug_language=" << value.debugLanguage
            << "\nantialiasing=" << value.antialiasing << "\nframe_rate=" << value.frameRate
            << "\nshadow_resolution=" << value.shadowResolution

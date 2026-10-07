@@ -71,6 +71,9 @@ bool MenuFlowDisplayModeFailed();
 namespace gpu::video {
 FrameGenerationStatus menuFlowFgStatus{};
 FrameGenerationStatus GetFrameGenerationStatus() { return menuFlowFgStatus; }
+std::vector<std::string> GpuDeviceNames() { return {}; }
+std::string ActiveGpuDeviceName() { return {}; }
+std::vector<std::string> DisplayNames() { return {}; }
 }
 
 // Compile the real settings reader/writer into this menu fixture as well.

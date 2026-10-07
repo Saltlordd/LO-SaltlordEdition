@@ -66,6 +66,7 @@
 #include <SDL_syswm.h>
 #include "window_pixels.h"
 #include "window_mode.h"
+#include "display_choice.h"
 #endif
 #include <os/logger.h>
 
@@ -362,7 +363,6 @@ namespace gpu::video
             }
         }
         std::atomic<int> g_displayMode{-1};
-        std::atomic<uint64_t> g_displaySize{0};
         std::atomic<bool> g_displayFailed{false},g_reapplyWindow{false};
         std::atomic<bool> g_windowResizeRequested{false};
         std::atomic<uint64_t> g_settingsDisplayEpoch{0};
@@ -575,10 +575,6 @@ namespace gpu::video
             bool nativeVsyncBaseline = true, nativeVsyncRequested = true;
             bool nativeVsyncReportPending = false;
             double metalMinimumPresentDuration = 0.0;
-#ifdef _WIN32
-            int appliedMode = -1;
-            uint64_t appliedSize = 0, appliedTicket = 0;
-#endif
         } g_presentationDisplay;
         constexpr plume::RenderFormat kSwapChainFormat = plume::RenderFormat::R8G8B8A8_UNORM;
         constexpr uint32_t kSwapChainBuffers = 3;
@@ -1723,6 +1719,42 @@ namespace gpu::video
         const auto selected = g_selectedBackend.load();
         return selected < 0 ? std::nullopt : std::optional(static_cast<backend::Backend>(selected));
     }
+    static std::mutex g_gpuNamesMutex;
+    static std::vector<std::string> g_gpuDeviceNames;
+    static std::string g_activeGpuDeviceName;
+    std::vector<std::string> GpuDeviceNames() {
+        std::lock_guard lock(g_gpuNamesMutex);
+        return g_gpuDeviceNames;
+    }
+    std::string ActiveGpuDeviceName() {
+        std::lock_guard lock(g_gpuNamesMutex);
+        return g_activeGpuDeviceName;
+    }
+    static std::vector<std::string> g_displayNames;
+    std::vector<std::string> DisplayNames() {
+        std::lock_guard lock(g_gpuNamesMutex);
+        return g_displayNames;
+    }
+    // Window owner thread only: SDL's display list is not thread-safe.
+    static std::vector<std::string> QueryDisplayNames() {
+        std::vector<std::string> names;
+        const int count = SDL_GetNumVideoDisplays();
+        for (int i = 0; i < count; ++i) {
+            const char* name = SDL_GetDisplayName(i);
+            names.emplace_back(name && *name ? std::string(name) : "Display " + std::to_string(i + 1));
+        }
+        std::lock_guard lock(g_gpuNamesMutex);
+        g_displayNames = names;
+        return names;
+    }
+    // SDL display index for the saved display, or -1 for system placement.
+    static int ChosenDisplay(const settings::Config& config, const std::vector<std::string>& names) {
+        const int display = display_choice::Resolve(names, config.displayName, config.displayIndex);
+        if (display < 0 && !config.displayName.empty())
+            LOG_WARNING("video: display \"{}\"#{} is not connected; using automatic placement",
+                config.displayName, config.displayIndex);
+        return display;
+    }
 
     // The command thread calls this only before guest startup, or after all
     // rendering has stopped. The window/event thread is deliberately retained
@@ -1795,12 +1827,6 @@ namespace gpu::video
         // Release DLSS-G's NGX feature while both SDK sessions remain live.
         // Renderer and presentation work have already been drained.
         if (g_d3dFg) g_d3dFg->ReleaseFeatureAfterGpuDrain();
-#endif
-#ifdef _WIN32
-        if (g_swapChain && !g_vulkan) {
-            auto* swap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-            if (swap->d3d) swap->d3d->SetFullscreenState(FALSE, nullptr);
-        }
 #endif
         g_swapChain.reset(); g_presentSemaphores.clear();
         if (g_temporalUpscaler) {
@@ -1906,7 +1932,15 @@ namespace gpu::video
 #elif !defined(_WIN32)
             flags |= SDL_WINDOW_VULKAN;
 #endif
-            g_window = SDL_CreateWindow(lo_version::WindowTitle, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+            // Fullscreen later uses the display the window was created on.
+            const auto displays = QueryDisplayNames();
+            std::string listed;
+            for (const auto& name : displays) listed += (listed.empty() ? "\"" : ", \"") + name + "\"";
+            const int display = ChosenDisplay(config, displays);
+            LOG_INFO("video: displays: {} configured=\"{}\"#{} chosen={}", listed.empty() ? std::string("none") : listed,
+                config.displayName, config.displayIndex, display);
+            const int position = display >= 0 ? int(SDL_WINDOWPOS_CENTERED_DISPLAY(display)) : int(SDL_WINDOWPOS_CENTERED);
+            g_window = SDL_CreateWindow(lo_version::WindowTitle, position, position,
                 config.width, config.height, flags);
             if (!g_window)
             {
@@ -2085,27 +2119,63 @@ namespace gpu::video
                     fg.Enabled() && fg.config.provider == framegen::Provider::Fsr;
             }
 #endif
-            g_device = g_interface->createDevice();
+            // The GPU setting names an adapter as this backend lists it. Plume
+            // picks automatically for an empty name or an adapter it cannot open.
+            std::string preferredGpu = settings::GetConfig().gpuDevice;
+            const auto adapterNames = g_interface->getDeviceNames();
+            {
+                std::string listed;
+                for (const auto& name : adapterNames) listed += (listed.empty() ? "\"" : ", \"") + name + "\"";
+                LOG_INFO("video: {} adapters: {} configured=\"{}\"", backend::Name(candidate),
+                    listed.empty() ? std::string("none") : listed, preferredGpu);
+            }
+            if (!preferredGpu.empty() && std::find(adapterNames.begin(), adapterNames.end(), preferredGpu) == adapterNames.end()) {
+                LOG_WARNING("video: GPU \"{}\" is not listed by {}; using automatic selection", preferredGpu, backend::Name(candidate));
+                preferredGpu.clear();
+            }
+            g_device = g_interface->createDevice(preferredGpu);
 #if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
             if (!g_device && RetryWithSystemVulkanDriver("device creation")) {
                 g_interface.reset();
                 g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
                 if (!g_interface) return "API/loader initialization failed";
                 LogVulkanPhysicalDevices(static_cast<plume::VulkanInterface*>(g_interface.get())->instance);
-                g_device = g_interface->createDevice();
+                g_device = g_interface->createDevice(preferredGpu);
             }
 #endif
-            if (g_device) {
-                const uint64_t nextEpoch = g_deviceEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
-                frame_plan::ResetSizing(nextEpoch);
+            const auto openedDevice = [&] {
+                if (g_device) {
+                    const uint64_t nextEpoch = g_deviceEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
+                    frame_plan::ResetSizing(nextEpoch);
+                    const auto& description = g_device->getDescription();
+                    LOG_INFO("video device: backend={} name={} driver_raw={} vendor_enum={} type_enum={} reported_device_memory_bytes={}",
+                        backend::Name(candidate), description.name, description.driverVersion,
+                        uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
+                }
+                return backend::Inspect(candidate, g_device.get());
+            };
+            auto capabilities = openedDevice();
+            if (!preferredGpu.empty()) {
+                const auto missing = backend::Missing(candidate, capabilities);
+                if (g_device && g_device->getDescription().name != preferredGpu) {
+                    LOG_WARNING("video: GPU \"{}\" could not be opened; automatic selection chose \"{}\"",
+                        preferredGpu, g_device->getDescription().name);
+                } else if (!missing.empty()) { // Includes a failed creation.
+                    // The chosen adapter must not end the only candidate (Linux/macOS).
+                    LOG_WARNING("video: GPU \"{}\" is unusable ({}); using automatic selection", preferredGpu, missing);
+                    g_device.reset();
+                    g_device = g_interface->createDevice();
+                    capabilities = openedDevice();
+                }
             }
-            if (g_device) {
-                const auto& description = g_device->getDescription();
-                LOG_INFO("video device: backend={} name={} driver_raw={} vendor_enum={} type_enum={} reported_device_memory_bytes={}",
-                    backend::Name(candidate), description.name, description.driverVersion,
-                    uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
+            {
+                std::vector<std::string> names;
+                for (const auto& name : g_interface->getDeviceNames())
+                    if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+                std::lock_guard lock(g_gpuNamesMutex);
+                g_gpuDeviceNames = std::move(names);
+                g_activeGpuDeviceName = g_device ? g_device->getDescription().name : std::string{};
             }
-            const auto capabilities = backend::Inspect(candidate, g_device.get());
             g_textureCompressionBC.store(capabilities.textureCompressionBC, std::memory_order_relaxed);
             if (g_device && candidate == backend::Backend::Vulkan)
                 LOG_INFO("vulkan limits: sets={} samplers={} sampled_images={} storage_buffers={} push_constants={} bc={}",
@@ -2627,8 +2697,8 @@ namespace gpu::video
         g_nextRefreshPoll = now + std::chrono::milliseconds(500);
         uint32_t refresh = 0;
 #ifdef _WIN32
-        // DXGI exclusive fullscreen can change the mode outside SDL's cache.
-        // Query the actual monitor containing this window, not the primary one.
+        // The display mode can change outside SDL's cache. Query the actual
+        // monitor containing this window, not the primary one.
         MONITORINFOEXW monitor{};
         monitor.cbSize = sizeof(monitor);
         DEVMODEW mode{};
@@ -2825,7 +2895,10 @@ namespace gpu::video
         }
         if (state.shortcutMode) config.windowMode = *state.shortcutMode;
         const bool reapply = g_reapplyWindow.exchange(false);
-        if(reapply || !state.initialized || config.width!=state.applied.width || config.height!=state.applied.height || config.windowMode!=state.applied.windowMode) {
+        // Startup already created the window on the saved display.
+        const bool displayChanged = state.initialized &&
+            (config.displayName != state.applied.displayName || config.displayIndex != state.applied.displayIndex);
+        if(reapply || displayChanged || !state.initialized || config.width!=state.applied.width || config.height!=state.applied.height || config.windowMode!=state.applied.windowMode) {
 #if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
             if (g_fgWindowSynchronization && g_fgWindowChange.load() != 2) {
                 g_fgWindowChange = 1;
@@ -2839,14 +2912,25 @@ namespace gpu::video
             const auto mode=getenv("LO_BACKGROUND")?settings::WindowMode::Windowed:config.windowMode;
             const bool wasWindowed = !state.initialized || state.applied.windowMode == settings::WindowMode::Windowed;
             const bool sizeChanged = !state.initialized || config.width != state.applied.width || config.height != state.applied.height;
+            if (displayChanged) {
+                const auto displays = QueryDisplayNames();
+                const int target = ChosenDisplay(config, displays);
+                if (target >= 0 && target != SDL_GetWindowDisplayIndex(g_window)) {
+                    // SDL only records the position of a fullscreen window, and
+                    // fullscreen covers the display the window is on: leave it,
+                    // move, and let the mode below enter it again.
+                    if (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) SDL_SetWindowFullscreen(g_window, 0);
+                    SDL_SetWindowPosition(g_window, SDL_WINDOWPOS_CENTERED_DISPLAY(target), SDL_WINDOWPOS_CENTERED_DISPLAY(target));
+                    state.placement.valid = false; // The windowed rectangle was on the old display.
+                    LOG_INFO("video: window moved to display {} \"{}\"", target, displays[size_t(target)]);
+                }
+            }
             if (wasWindowed && mode != settings::WindowMode::Windowed) state.placement.Capture(g_window);
-            int result=SDL_SetWindowFullscreen(g_window,mode==settings::WindowMode::Borderless?SDL_WINDOW_FULLSCREEN_DESKTOP:(g_vulkan && mode==settings::WindowMode::Exclusive?SDL_WINDOW_FULLSCREEN:0));
+            int result=SDL_SetWindowFullscreen(g_window,mode==settings::WindowMode::Borderless?SDL_WINDOW_FULLSCREEN_DESKTOP:0);
             if (result == 0 && mode == settings::WindowMode::Windowed) {
                 if ((!wasWindowed || reapply) && !sizeChanged && state.placement.valid) state.placement.Restore(g_window);
                 else if (sizeChanged) SDL_SetWindowSize(g_window,config.width,config.height);
             }
-            else if (result == 0 && mode == settings::WindowMode::Exclusive)
-                SDL_SetWindowSize(g_window,config.width,config.height);
 #ifdef _WIN32
             // SDL owns the fullscreen transition. A failed bounds repair must
             // not roll the shortcut back to windowed.
@@ -2854,8 +2938,8 @@ namespace gpu::video
                 window_mode::FitBorderless(g_nativeWindow);
 #endif
             g_displayFailed=result!=0;
-            g_displaySize.store(uint64_t(config.width)<<32|config.height);
             g_displayMode.store(int(mode));
+            LOG_INFO("video: window mode={} display={} result={}", int(mode), SDL_GetWindowDisplayIndex(g_window), result);
             state.applied=config; state.initialized=true;
             g_nextRefreshPoll = {}; // Re-query after a mode transition on the next window pump.
             g_windowResizeRequested = true;
@@ -2904,6 +2988,9 @@ namespace gpu::video
                  (event.window.event == SDL_WINDOWEVENT_MOVED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
                   event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED || event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)))
                 g_nextRefreshPoll = {};
+            if (event.type == SDL_DISPLAYEVENT &&
+                (event.display.event == SDL_DISPLAYEVENT_CONNECTED || event.display.event == SDL_DISPLAYEVENT_DISCONNECTED))
+                QueryDisplayNames(); // Refreshes the menu's display list.
             const bool pointerActivity =
                 event.type == SDL_MOUSEMOTION ||
                 event.type == SDL_MOUSEBUTTONDOWN ||
@@ -3122,8 +3209,6 @@ namespace gpu::video
         g_presentedSnapshot.reset();
         g_snapshotWidth = g_snapshotHeight = 0;
         g_snapshotFormat = plume::RenderFormat::UNKNOWN;
-        auto* oldSwap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-        if (oldSwap->d3d) oldSwap->d3d->SetFullscreenState(FALSE, nullptr);
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_d3dFg.reset();
@@ -3330,12 +3415,6 @@ namespace gpu::video
         // The frozen scene copies keep the format they were made in.
         g_hdrCalibrationCache = {};
         settings::SetHdrCalibrationSceneAvailable(false);
-#ifdef _WIN32
-        if (!g_vulkan) {
-            auto* oldSwap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-            if (oldSwap->d3d) oldSwap->d3d->SetFullscreenState(FALSE, nullptr);
-        }
-#endif
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_hdrSwapchain = desired;
@@ -3468,43 +3547,6 @@ namespace gpu::video
             g_forceSwapResize = true;
             g_presentationDisplay.resizedTicket = displayTicket;
         }
-#ifdef _WIN32
-        const int mode = g_displayMode.load();
-        const uint64_t size = g_displaySize.load();
-        auto& applied = g_presentationDisplay;
-        if (!g_vulkan && mode >= 0 && (mode != applied.appliedMode || size != applied.appliedSize ||
-            (displayTicket && displayTicket != applied.appliedTicket))) {
-            if (!WaitForPresentGpu()) return false;
-#if defined(LO_ENABLE_D3D12_FG)
-            if (g_d3dFg) g_d3dFg->Quiesce();
-#endif
-            auto* swap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-            const plume::WindowPixelContext pixels;
-            HRESULT result = swap->d3d->SetFullscreenState(FALSE, nullptr);
-            if (SUCCEEDED(result) && mode == int(settings::WindowMode::Exclusive)) {
-                DXGI_MODE_DESC target{};
-                target.Width = uint32_t(size >> 32); target.Height = uint32_t(size);
-                target.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                result = swap->d3d->ResizeTarget(&target);
-                if (SUCCEEDED(result)) result = swap->d3d->SetFullscreenState(TRUE, nullptr);
-            }
-            BOOL exclusive = FALSE;
-            const HRESULT queryResult = swap->d3d->GetFullscreenState(&exclusive, nullptr);
-            const bool modeApplied = SUCCEEDED(result) && SUCCEEDED(queryResult) &&
-                bool(exclusive) == (mode == int(settings::WindowMode::Exclusive));
-            if (applied.appliedMode == int(settings::WindowMode::Exclusive) && mode != applied.appliedMode)
-                g_reapplyWindow = true;
-            LOG_INFO("display mode: requested={} exclusive={} result={:#x}", mode, bool(exclusive), uint32_t(result));
-            // Flip-model buffers must be resized even for an equal-size transition.
-            g_forceSwapResize = true;
-            applied.appliedMode = mode; applied.appliedSize = size; applied.appliedTicket = displayTicket;
-            if (!modeApplied) {
-                g_displayFailed = true;
-                g_displayChanges.Complete(displayTicket, false);
-                return false;
-            }
-        }
-#endif
         // Empty is recoverable: minimized Vulkan surfaces may have zero extent.
         // Never return for isEmpty() before giving resize() a chance to recover.
 #if defined(__ANDROID__)

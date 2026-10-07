@@ -8,6 +8,7 @@
 #include "restart.h"
 #include "translations.h"
 #include <gpu/video.h>
+#include <gpu/display_choice.h>
 #include <gpu/frame_plan.h>
 #include <gpu/frame_generation_settings.h>
 #include <kernel/io/file_system.h>
@@ -179,6 +180,67 @@ inline uint32_t FindNearestResolutionIndex(const uint32_t list[][2], size_t coun
 const wchar_t *Tr(const wchar_t *en, const wchar_t *zh)
 {
     return Translate(edit.uiLanguage, en, zh);
+}
+// Adapter and display names arrive as UTF-8.
+std::wstring Widen(std::string_view text)
+{
+    std::wstring result;
+    for (size_t i = 0; i < text.size();)
+    {
+        const auto lead = uint8_t(text[i]);
+        const size_t length = lead < 0x80 ? 1 : (lead >> 5) == 6 ? 2 : (lead >> 4) == 14 ? 3 : (lead >> 3) == 30 ? 4 : 0;
+        if (!length || i + length > text.size())
+        {
+            result.push_back(L'?');
+            ++i;
+            continue;
+        }
+        uint32_t code = length == 1 ? lead : lead & (0x7f >> length);
+        for (size_t k = 1; k < length; ++k)
+            code = (code << 6) | (uint8_t(text[i + k]) & 0x3f);
+        i += length;
+        if (sizeof(wchar_t) == 2 && code >= 0x10000)
+        {
+            code -= 0x10000;
+            result.push_back(wchar_t(0xd800 + (code >> 10)));
+            result.push_back(wchar_t(0xdc00 + (code & 0x3ff)));
+        }
+        else
+            result.push_back(wchar_t(code));
+    }
+    return result;
+}
+// Menu choice 0 is Automatic; choice i names[i - 1]. A saved name that is not
+// listed stays as the last choice, so the row shows the saved value.
+struct NameChoices
+{
+    std::vector<std::string> names;
+    uint32_t selected = 0;
+    size_t listed = 0; // Entries before the unlisted saved name.
+};
+NameChoices GpuChoices()
+{
+    NameChoices result{gpu::video::GpuDeviceNames()};
+    result.listed = result.names.size();
+    if (!edit.gpuDevice.empty())
+    {
+        auto found = std::find(result.names.begin(), result.names.end(), edit.gpuDevice);
+        if (found == result.names.end()) found = result.names.insert(result.names.end(), edit.gpuDevice);
+        result.selected = uint32_t(found - result.names.begin()) + 1;
+    }
+    return result;
+}
+NameChoices DisplayChoices()
+{
+    NameChoices result{gpu::video::DisplayNames()};
+    result.listed = result.names.size();
+    if (!edit.displayName.empty())
+    {
+        const int found = gpu::display_choice::Resolve(result.names, edit.displayName, edit.displayIndex);
+        if (found < 0) result.names.push_back(edit.displayName);
+        result.selected = found < 0 ? uint32_t(result.names.size()) : uint32_t(found) + 1;
+    }
+    return result;
 }
 uint32_t ConfigAddress(uint8_t *base)
 {
@@ -459,14 +521,19 @@ bool GraphicsRowHidden(int r)
 #if LO_PLATFORM_ANDROID
     // Android owns the native surface; the renderer derives aspect from its drawable.
     // NGX and frame generation have no Android providers in this build.
-    if (r == int(GraphicsRow::Backend) || r == int(GraphicsRow::DisplayMode) ||
-        r == int(GraphicsRow::Widescreen) || r == int(GraphicsRow::OutputResolution) ||
+    if (r == int(GraphicsRow::Backend) || r == int(GraphicsRow::Gpu) || r == int(GraphicsRow::DisplayMode) ||
+        r == int(GraphicsRow::Display) || r == int(GraphicsRow::Widescreen) || r == int(GraphicsRow::OutputResolution) ||
         r == int(GraphicsRow::VariableRefreshRate) || r == int(GraphicsRow::FrameGeneration) ||
         r == int(GraphicsRow::FrameGenerationMultiplier))
         return true;
     if (r == int(GraphicsRow::DlssQuality) || r == int(GraphicsRow::FsrSharpness))
         return !graphics_menu::AndroidFsrAvailable || edit.upscaler != gpu::upscaling::Upscaler::Fsr;
 #endif
+    // A single adapter or display leaves nothing to choose.
+    if (r == int(GraphicsRow::Gpu))
+        return gpu::video::GpuDeviceNames().size() <= 1;
+    if (r == int(GraphicsRow::Display))
+        return gpu::video::DisplayNames().size() <= 1;
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -514,7 +581,7 @@ static_assert(int(GraphicsRow::Save) + 1 == int(GraphicsRow::Count));
 void Publish(uint8_t *base, uint32_t config)
 {
 #if LO_PLATFORM_ANDROID
-    // The first four graphics ids are hidden; enter the tab on a visible row.
+    // The first graphics ids are hidden; enter the tab on a visible row.
     if (tab == 2)
         for (int i = 0; i < int(GraphicsRow::Count) && GraphicsRowHidden(row); ++i)
             row = (row + 1) % int(GraphicsRow::Count);
@@ -602,10 +669,27 @@ void Publish(uint8_t *base, uint32_t config)
 #else
         placeGraphics(GraphicsRow::Backend, makeChoices(L"Graphics backend", L"圖形後端", {L"Vulkan"}, 0));
 #endif
+        {
+            const auto gpus = GpuChoices();
+            std::vector<std::wstring> labels{Tr(L"Automatic", L"自動")};
+            for (const auto& name : gpus.names) labels.push_back(Widen(name));
+            auto gpuRow = makeChoices(L"GPU", L"GPU", std::move(labels), gpus.selected);
+            gpuRow.singleValue = true;
+            placeGraphics(GraphicsRow::Gpu, std::move(gpuRow));
+        }
         placeGraphics(GraphicsRow::DisplayMode, makeChoices(L"Display mode", L"顯示模式",
-                   {Tr(L"Windowed", L"視窗"), Tr(L"Borderless fullscreen", L"無邊框全螢幕"),
-                    Tr(L"Exclusive fullscreen", L"獨占全螢幕")},
+                   {Tr(L"Windowed", L"視窗"), Tr(L"Borderless fullscreen", L"無邊框全螢幕")},
                    uint32_t(edit.windowMode)));
+        {
+            const auto displays = DisplayChoices();
+            std::vector<std::wstring> labels{Tr(L"Automatic", L"自動")};
+            for (size_t i = 0; i < displays.names.size(); ++i)
+                labels.push_back(i < displays.listed ? std::to_wstring(i + 1) + L". " + Widen(displays.names[i])
+                                                     : Widen(displays.names[i]));
+            auto displayRow = makeChoices(L"Display", L"顯示器", std::move(labels), displays.selected);
+            displayRow.singleValue = true;
+            placeGraphics(GraphicsRow::Display, std::move(displayRow));
+        }
         const bool ultrawide = IsUltrawideAspect(edit.width, edit.height);
         placeGraphics(GraphicsRow::Widescreen, makeChoices(L"Widescreen", L"寬螢幕", onOff(), ultrawide ? 0 : 1));
         std::vector<std::wstring> outputChoices;
@@ -809,6 +893,18 @@ void Publish(uint8_t *base, uint32_t config)
                 selected == gpu::backend::Backend::Metal ? L"Metal" : L"-";
             break;
         }
+        case GraphicsRow::Gpu: {
+            next.help = Tr(L"Applies after restarting. Lists the GPUs of the running graphics backend.",
+                           L"重新啟動後套用。列出目前圖形後端的 GPU。");
+            next.help += Tr(L" Running: ", L" 目前使用：");
+            const auto active = gpu::video::ActiveGpuDeviceName();
+            next.help += active.empty() ? std::wstring(L"-") : Widen(active);
+            break;
+        }
+        case GraphicsRow::Display:
+            next.help = Tr(L"Moves the game window to this display when saved; fullscreen uses it too. Automatic leaves the window where it is.",
+                           L"儲存後將遊戲視窗移到這台顯示器，全螢幕也會使用它。自動則讓視窗留在原處。");
+            break;
         case GraphicsRow::Widescreen:
             next.help = Tr(L"Switches resolution choices between 16:9 and 21:9 ultrawide.",
                            L"在 16:9 與 21:9 寬螢幕規格之間切換解析度選項。");
@@ -1269,7 +1365,7 @@ void PointerClick(float x, float y, bool reverse)
         mouseAction = snapshot.tab == 2 && hit == size_t(GraphicsRow::HdrPeak) &&
                       x >= 600 && x < 820 ? 0x1000 : graphics_menu::IsAction(snapshot.tab, int(hit))
             ? (reverse ? 0 : 0x1000) : (reverse || (hdrLevel && x < 600) ||
-               (snapshot.rows[hit].choices.size() > 5 && x < 458) ? 4 : 8);
+               ((snapshot.rows[hit].singleValue || snapshot.rows[hit].choices.size() > 5) && x < 458) ? 4 : 8);
     }
 }
 } // namespace settings
@@ -1968,9 +2064,33 @@ PPC_FUNC(sub_822F19B0)
                 edit.graphicsBackend = GraphicsBackend::Vulkan;
 #endif
                 break;
-            case GraphicsRow::DisplayMode:
-                edit.windowMode = WindowMode(cycle(uint32_t(edit.windowMode), 3));
+            case GraphicsRow::Gpu:
+            {
+                const auto gpus = GpuChoices();
+                const auto choice = cycle(gpus.selected, uint32_t(gpus.names.size() + 1));
+                edit.gpuDevice = choice ? gpus.names[choice - 1] : std::string{};
                 break;
+            }
+            case GraphicsRow::DisplayMode:
+                edit.windowMode = WindowMode(cycle(uint32_t(edit.windowMode), 2));
+                break;
+            case GraphicsRow::Display:
+            {
+                const auto displays = DisplayChoices();
+                const auto choice = cycle(displays.selected, uint32_t(displays.names.size() + 1));
+                if (!choice)
+                {
+                    edit.displayName.clear();
+                    edit.displayIndex = 0;
+                }
+                else if (choice <= displays.listed)
+                {
+                    edit.displayName = displays.names[choice - 1];
+                    edit.displayIndex = choice - 1;
+                }
+                // The last choice keeps a saved display that is not connected.
+                break;
+            }
             case GraphicsRow::Widescreen:
             {
                 const bool currentUltrawide = IsUltrawideAspect(edit.width, edit.height);
@@ -2168,7 +2288,8 @@ PPC_FUNC(sub_822F19B0)
             graphics.automaticUpdates = edit.automaticUpdates;
             edit = graphics;
             if (edit.width != previousDisplay.width || edit.height != previousDisplay.height ||
-                edit.windowMode != previousDisplay.windowMode || gpu::video::DisplayModeFailed() || gpu::video::WindowModeOverridden())
+                edit.windowMode != previousDisplay.windowMode || edit.displayName != previousDisplay.displayName ||
+                edit.displayIndex != previousDisplay.displayIndex || gpu::video::DisplayModeFailed() || gpu::video::WindowModeOverridden())
             {
                 displayRollback = false;
                 displayTicket = gpu::video::BeginDisplayChange(edit);
