@@ -55,15 +55,15 @@
 
 ## 开始游戏
 
-从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.8.44**。
+从[最新发布页](https://github.com/freefrank/LostOdysseyRecomp/releases/latest)选择对应平台的安装包。当前已发布版本为 **v0.8.53**。
 
 | 平台 | 安装包 | 首次启动 |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.44.zip` | 把整个 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.44.AppImage` | 用 `chmod +x` 加上执行权限后运行。 |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.44.flatpak` | 先安装 Freedesktop 26.08 运行时，再安装这个 bundle（[安装命令](docs/INSTALLING.zh-CN.md#flatpak)）。 |
-| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.8.44.dmg` | 把 `LostOdysseyRecomp.app` 拖到“应用程序”。需要 macOS 15 或更高版本的 Apple Silicon Mac。首次启动见 [macOS](#macos实验性)。 |
-| Android arm64（实验性） | `LostOdysseyRecomp-android-arm64-v0.8.44.apk` | 安装 APK 后先打开一次。需要支持 Vulkan 的 64 位 Android 8.0 及以上设备。见 [Android](#android实验性)。 |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.53.zip` | 把整个 ZIP 解压到可写目录，运行 `LostOdysseyRecomp.exe`。需要支持 AVX 的 CPU。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.53.AppImage` | 用 `chmod +x` 加上执行权限后运行。 |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.53.flatpak` | 先安装 Freedesktop 26.08 运行时，再安装这个 bundle（[安装命令](docs/INSTALLING.zh-CN.md#flatpak)）。 |
+| macOS arm64（实验性） | `LostOdysseyRecomp-macos-arm64-v0.8.53.dmg` | 把 `LostOdysseyRecomp.app` 拖到“应用程序”。需要 macOS 15 或更高版本的 Apple Silicon Mac。首次启动见 [macOS](#macos实验性)。 |
+| Android arm64（实验性） | `LostOdysseyRecomp-android-arm64-v0.8.53.apk` | 安装 APK 后先打开一次。需要支持 Vulkan 的 64 位 Android 8.0 及以上设备。见 [Android](#android实验性)。 |
 
 1. **导入游戏数据。** 找不到游戏时会打开导入器。用 **Files** 或 **Folder** 选择已提取的游戏文件夹、`default.xex`、ISO 或 GOD 数据。
 2. **选择语言和图形设置。** 首次启动时游戏会询问是否下载所选渲染器的预编译着色器；选择跳过则在本机编译一次。
@@ -92,7 +92,7 @@
 
 ### 最新更新
 
-[v0.8.44](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44) 让 Android 的状态栏和导航栏保持隐藏，屏幕上的 **CTRL** 按钮可以拖动、不用时缩到屏幕边缘（#253）；FSR、DLSS 和 XeSS 超分每帧少一次全分辨率复制（#172）；导入器会说明不完整的光盘镜像（#251）。[v0.8.39](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.39) 把编译好的管线存到磁盘并清理了着色器缓存。更早的版本见[更新日志](CHANGELOG.md)。
+[v0.8.53](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.53) 减少第一次进地图和战斗时的卡顿：Vulkan 用预先建好的部件链接新管线，每个场景在读盘时建好已知会用到的管线，游戏还会下载一份预先录好的地图、过场和战斗管线列表。另外新增 5.1 环绕声输出（#174）、手柄震动强度（#198）、选择 GPU 和显示器（#202、#201），调试菜单的快进设置会保留（#104），并去掉了独占全屏。[v0.8.44](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44) 让 Android 的状态栏和导航栏保持隐藏，并让 **CTRL** 按钮可以拖动。更早的版本见[更新日志](CHANGELOG.md)。
 
 ## 当前功能
 
@@ -218,7 +218,7 @@ Windows ZIP 是**便携式**的，所有文件都留在解压目录里。AppImag
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.8.44.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.8.53.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
 

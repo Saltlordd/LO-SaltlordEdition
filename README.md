@@ -56,15 +56,15 @@
 
 ## Start playing
 
-Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.8.44**.
+Choose a package from the [latest release](https://github.com/freefrank/LostOdysseyRecomp/releases/latest). The current published version is **v0.8.53**.
 
 | Platform | Package | First launch |
 | :--- | :--- | :--- |
-| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.44.zip` | Extract the whole ZIP to a writable folder and run `LostOdysseyRecomp.exe`. Needs a CPU with AVX. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.44.AppImage` | Make it executable with `chmod +x`, then run it. |
-| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.44.flatpak` | Install the Freedesktop 26.08 runtime, then the bundle ([commands](docs/INSTALLING.md#flatpak)). |
-| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.8.44.dmg` | Drag `LostOdysseyRecomp.app` to Applications. Needs an Apple Silicon Mac with macOS 15 or later. See [macOS](#macos-experimental) for the first launch. |
-| Android arm64 (experimental) | `LostOdysseyRecomp-android-arm64-v0.8.44.apk` | Install the APK and open it once. Needs a 64-bit Android 8.0+ device with Vulkan. See [Android](#android-experimental). |
+| Windows x64 | `LostOdysseyRecomp-windows-x64-v0.8.53.zip` | Extract the whole ZIP to a writable folder and run `LostOdysseyRecomp.exe`. Needs a CPU with AVX. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.53.AppImage` | Make it executable with `chmod +x`, then run it. |
+| Linux x64 | `LostOdysseyRecomp-linux-x64-v0.8.53.flatpak` | Install the Freedesktop 26.08 runtime, then the bundle ([commands](docs/INSTALLING.md#flatpak)). |
+| macOS arm64 (experimental) | `LostOdysseyRecomp-macos-arm64-v0.8.53.dmg` | Drag `LostOdysseyRecomp.app` to Applications. Needs an Apple Silicon Mac with macOS 15 or later. See [macOS](#macos-experimental) for the first launch. |
+| Android arm64 (experimental) | `LostOdysseyRecomp-android-arm64-v0.8.53.apk` | Install the APK and open it once. Needs a 64-bit Android 8.0+ device with Vulkan. See [Android](#android-experimental). |
 
 1. **Import your game data.** The importer opens when no game is found. Use **Files** or **Folder** to select an extracted game folder, `default.xex`, an ISO or GOD data.
 2. **Choose the languages and graphics options.** On the first start the game offers to download precompiled shaders for your renderer; if you skip, it compiles them on your PC once.
@@ -93,7 +93,7 @@ Turn on **HDR** in Graphics and save; it switches right away (with frame generat
 
 ### Latest changes
 
-[v0.8.44](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44) keeps the status and navigation bars hidden on Android, lets you move the on-screen **CTRL** button and slides it to the screen edge when it is not used (#253), trims one full-resolution copy per frame from FSR, DLSS and XeSS upscaling (#172), and explains an incomplete disc image in the importer (#251). [v0.8.39](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.39) kept compiled pipelines on disk on Vulkan and DirectX 12 and cleaned up the shader cache. Earlier releases are in the [changelog](CHANGELOG.md).
+[v0.8.53](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.53) cuts the stutter on the first visit to a map or battle: Vulkan links new pipelines from parts built ahead of time, every scene builds its known pipelines while it loads, and the game downloads a recorded list of the pipelines maps, cutscenes and battles use. It also adds 5.1 surround output (#174), a vibration strength slider (#198), GPU and display choice (#202, #201), keeps the debug fast-forward settings (#104), and drops exclusive fullscreen. [v0.8.44](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.44) kept the Android status and navigation bars hidden and made the **CTRL** button movable. Earlier releases are in the [changelog](CHANGELOG.md).
 
 ## Current features
 
@@ -219,7 +219,7 @@ Write `--game <path>` as two arguments; `--game=<path>` is ignored. The program 
 
 ```bash
 LostOdysseyRecomp.exe --game "D:\Games\Lost Odyssey"
-./LostOdysseyRecomp-linux-x64-v0.8.44.AppImage --game ~/Games/LostOdyssey
+./LostOdysseyRecomp-linux-x64-v0.8.53.AppImage --game ~/Games/LostOdyssey
 flatpak run io.github.freefrank.LostOdysseyRecomp --game ~/Games/LostOdyssey
 ```
 
