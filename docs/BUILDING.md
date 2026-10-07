@@ -126,7 +126,10 @@ Building the native Linux ELF works on Linux distributions (such as Ubuntu or Ma
 - Typical C++ build development packages
 - Running `vulkaninfo` is useful for verifying your driver setup, though not strictly required by CMake
 
-SDL2 build dependencies are already vendored in the repository tree.
+SDL 3.4.18 itself is vendored in the repository tree. Its CMake stops when X11
+is found without the extension headers it uses, so install the X11, Wayland and
+audio development packages from [SDL's Linux build dependencies](https://wiki.libsdl.org/SDL3/README-linux#build-dependencies);
+the Linux job in `.gitea/workflows/release.yml` lists the Ubuntu set.
 
 ### Linux PowerPC source generation
 
@@ -261,10 +264,11 @@ Experimental, Apple Silicon only (arm64). The runtime renders through plume's Me
 git submodule update --init --recursive
 git -C tools/XenonRecomp apply ../patches/XenonRecomp-lostodyssey.patch
 git -C thirdparty/plume apply ../../tools/patches/plume-lostodyssey.patch
+git -C thirdparty/plume apply ../../tools/patches/plume-sdl3.patch
 git -C thirdparty/plume apply ../../tools/patches/plume-macos.patch
 ```
 
-`plume-macos.patch` applies after the upstream plume patch; see [tools/patches/README.md](../tools/patches/README.md#macos-plume-metal-patch).
+`plume-macos.patch` applies after the upstream and SDL3 plume patches; see [tools/patches/README.md](../tools/patches/README.md#macos-plume-metal-patch).
 
 ### Generate and build
 

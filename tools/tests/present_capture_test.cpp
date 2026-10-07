@@ -14,7 +14,7 @@
 #include <os/capture_archive.h>
 #include <settings/config.h>
 #include <settings/restart.h>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #undef main
 
 namespace fixture {
@@ -55,7 +55,7 @@ namespace hid {
 void Init() {}
 void SetExternalEventPump(bool) {}
 void PumpHostInput() {}
-void HandleControllerEvent(uint32_t, int32_t) {}
+void HandleControllerEvent(uint32_t, uint32_t) {}
 void HandleKeyboardEvent(int32_t, bool) {}
 void ClearKeyboardState() {}
 }

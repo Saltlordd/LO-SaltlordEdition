@@ -7,7 +7,7 @@
 
 #include <cstdlib>
 #if defined(__ANDROID__)
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #elif defined(__linux__) && !defined(_WIN32)
 #include <unistd.h>
 #endif
@@ -60,7 +60,7 @@ StartupResult PrepareAtStartup(const StartupOptions &options)
     {
         result.status = StartupStatus::Cancelled; result.detail = "user declined update"; return result;
     }
-    if (SDL_OpenURL(asset->url.c_str()) != 0)
+    if (!SDL_OpenURL(asset->url.c_str()))
     {
         result.status = StartupStatus::DownloadFailed;
         result.detail = std::string("could not open ") + asset->url + ": " + SDL_GetError();

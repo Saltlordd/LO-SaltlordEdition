@@ -9,7 +9,7 @@ set(LO_RUNTIME "${LO_ROOT}/LostOdysseyRecomp")
 set(LO_TESTS "${LO_ROOT}/tools/tests")
 option(LO_REVIEW_SANITIZE "Enable AddressSanitizer and UndefinedBehaviorSanitizer" ON)
 option(LO_REVIEW_SDL_TESTS "Build both SDL updater implementations" ON)
-set(LO_REVIEW_SDL_LIBRARY "" CACHE FILEPATH "Optional existing SDL2 library (uses pinned headers)")
+set(LO_REVIEW_SDL_LIBRARY "" CACHE FILEPATH "Optional existing SDL3 library (uses pinned headers)")
 
 function(lo_review_test name source)
     add_executable(${name} "${LO_TESTS}/${source}" ${ARGN})
@@ -68,9 +68,29 @@ if(LO_REVIEW_SDL_TESTS)
         set_target_properties(lo_review_sdl PROPERTIES
             IMPORTED_LOCATION "${LO_REVIEW_SDL_LIBRARY}"
             INTERFACE_INCLUDE_DIRECTORIES "${LO_ROOT}/thirdparty/SDL/include")
+        if(WIN32)
+            target_link_libraries(lo_review_sdl INTERFACE winmm setupapi cfgmgr32 version imm32)
+        endif()
     else()
-        find_package(SDL2 REQUIRED CONFIG)
-        add_library(lo_review_sdl ALIAS SDL2::SDL2)
+        find_package(SDL3 CONFIG QUIET)
+        if(SDL3_FOUND)
+            add_library(lo_review_sdl ALIAS SDL3::SDL3)
+        else()
+            # Ubuntu 22.04/24.04 ship no SDL3 package: build the pinned submodule.
+            set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+            set(SDL_STATIC ON CACHE BOOL "" FORCE)
+            set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+            set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+            # The fixtures use the dummy video driver. SDL3 stops configuring
+            # when only some X11 extension headers are installed.
+            set(SDL_X11 OFF CACHE BOOL "" FORCE)
+            set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
+            set(SDL_UNIX_CONSOLE_BUILD ON CACHE BOOL "" FORCE)
+            add_subdirectory("${LO_ROOT}/thirdparty/SDL" sdl EXCLUDE_FROM_ALL)
+            # SDL3::SDL3-static is itself an alias, so it cannot be aliased again.
+            add_library(lo_review_sdl INTERFACE)
+            target_link_libraries(lo_review_sdl INTERFACE SDL3::SDL3-static)
+        endif()
     endif()
     lo_review_test(LoUpdaterSdlUiTest updater_sdl_ui_test.cpp
         "${LO_RUNTIME}/install/installer_font.cpp"

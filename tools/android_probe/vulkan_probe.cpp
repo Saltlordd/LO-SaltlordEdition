@@ -2,8 +2,8 @@
 #include "../../LostOdysseyRecomp/gpu/backend_selection.h"
 #include "../../LostOdysseyRecomp/gpu/render_arena_policy.h"
 
-#include <SDL.h>
-#include <SDL_vulkan.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_vulkan.h>
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
@@ -135,7 +135,7 @@ std::string TryClearPresent(SDL_Window* window, VkPhysicalDevice physical, VkSur
     VkExtent2D extent = caps.currentExtent;
     if (extent.width == UINT32_MAX) {
         int width = 0, height = 0;
-        SDL_Vulkan_GetDrawableSize(window, &width, &height);
+        SDL_GetWindowSizeInPixels(window, &width, &height);
         extent.width = std::clamp(static_cast<uint32_t>(std::max(0, width)), caps.minImageExtent.width, caps.maxImageExtent.width);
         extent.height = std::clamp(static_cast<uint32_t>(std::max(0, height)), caps.minImageExtent.height, caps.maxImageExtent.height);
     }
@@ -283,12 +283,11 @@ std::string ProbeVulkan(SDL_Window* window) {
     std::ostringstream out;
     out << "Vulkan probe (clear/present only; game renderer and assets not initialized)\n";
     if (!window) return out.str() + "SDL window unavailable\n";
-    uint32_t extensionCount = 0;
-    if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, nullptr) || !extensionCount)
+    Uint32 extensionCount = 0;
+    const char* const* sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
+    if (!sdlExtensions || !extensionCount)
         return out.str() + "SDL Vulkan instance extensions unavailable: " + SDL_GetError() + "\n";
-    std::vector<const char*> extensions(extensionCount);
-    if (!SDL_Vulkan_GetInstanceExtensions(window, &extensionCount, extensions.data()))
-        return out.str() + "SDL Vulkan extension query failed: " + SDL_GetError() + "\n";
+    std::vector<const char*> extensions(sdlExtensions, sdlExtensions + extensionCount);
     uint32_t loaderVersion = VK_API_VERSION_1_0;
     auto enumerateVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
         vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
@@ -309,7 +308,7 @@ std::string ProbeVulkan(SDL_Window* window) {
     InstanceGuard state;
     VkResult result = vkCreateInstance(&instanceInfo, nullptr, &state.instance);
     if (result != VK_SUCCESS) return out.str() + "Vulkan instance failed: " + ResultText(result) + "\n";
-    const bool haveSurface = SDL_Vulkan_CreateSurface(window, state.instance, &state.surface) == SDL_TRUE;
+    const bool haveSurface = SDL_Vulkan_CreateSurface(window, state.instance, nullptr, &state.surface);
     if (!haveSurface) out << "SDL Vulkan surface failed: " << SDL_GetError() << '\n';
     uint32_t deviceCount = 0;
     result = vkEnumeratePhysicalDevices(state.instance, &deviceCount, nullptr);
