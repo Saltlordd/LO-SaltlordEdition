@@ -68,6 +68,8 @@ Config Validate(Config value)
         value.gameLanguage = 1;
     if (uint32_t(value.windowMode) > 2)
         value.windowMode = WindowMode::Windowed;
+    if (value.audioOutput > AudioOutputSurround)
+        value.audioOutput = AudioOutputStereo;
     if (!gpu::backend::Known(value.graphicsBackend))
 #ifdef _WIN32
         value.graphicsBackend = GraphicsBackend::D3D12;
@@ -206,6 +208,8 @@ Config Read()
             value.fastForwardMode = number;
         else if (key == "fast_forward_rate")
             value.fastForwardRate = number;
+        else if (key == "audio_output")
+            value.audioOutput = number;
         else if (key == "automatic_updates")
         {
             // Unknown values keep the safe package default (enabled).
@@ -277,6 +281,7 @@ void PreviewConfig(const Config &value)
     merged.saveAnywhere = Current().saveAnywhere;
     merged.noRandomEncounters = Current().noRandomEncounters;
     CopyFastForward(merged, Current());
+    merged.audioOutput = Current().audioOutput;
     Current() = merged;
 }
 uint32_t GameLanguage()
@@ -320,6 +325,7 @@ static bool WriteConfig(const Config &value)
            << "\nframe_generation_target_fps=" << value.frameGenerationTargetFps
            << "\ninternal_resolution=" << value.internalResolution
            << "\nfxaa=" << value.fxaa << "\nautomatic_updates=" << value.automaticUpdates
+           << "\naudio_output=" << value.audioOutput
            << "\nskip_shader_prebuild=" << (value.skipShaderPrebuild ? 1 : 0)
            << "\nsave_anywhere=" << (value.saveAnywhere ? 1 : 0)
            << "\nno_random_encounters=" << (value.noRandomEncounters ? 1 : 0)
@@ -352,8 +358,19 @@ bool SaveConfig(const Config &requested)
     value.saveAnywhere = Current().saveAnywhere;
     value.noRandomEncounters = Current().noRandomEncounters;
     CopyFastForward(value, Current());
+    value.audioOutput = Current().audioOutput;
     if (!WriteConfig(value)) return false;
     Current() = value;
+    return true;
+}
+bool SaveAudioOutput(uint32_t output)
+{
+    std::lock_guard lock(mutex);
+    // Merge with the persisted settings, not a pending graphics preview.
+    auto persisted = Read();
+    persisted.audioOutput = output <= AudioOutputSurround ? output : AudioOutputStereo;
+    if (!WriteConfig(persisted)) return false;
+    Current().audioOutput = persisted.audioOutput;
     return true;
 }
 bool SaveDebugLanguage(uint32_t language)

@@ -27,6 +27,7 @@ inline bool SetConsent(bool) { return true; }
 namespace settings {
 Config MenuFlowGetConfig();
 bool MenuFlowSaveConfig(const Config&);
+bool MenuFlowSaveAudioOutput(uint32_t);
 void MenuFlowPreviewConfig(const Config&);
 inline uint32_t GameLanguage() { return 1; }
 }
@@ -37,6 +38,7 @@ bool MenuFlowDisplayModeFailed();
 }
 #define GetConfig MenuFlowGetConfig
 #define SaveConfig MenuFlowSaveConfig
+#define SaveAudioOutput MenuFlowSaveAudioOutput
 #define PreviewConfig MenuFlowPreviewConfig
 #define BeginDisplayChange MenuFlowBeginDisplayChange
 #define QueryDisplayChange MenuFlowQueryDisplayChange
@@ -54,6 +56,7 @@ bool MenuFlowDisplayModeFailed();
 #undef Translate
 #undef GetConfig
 #undef SaveConfig
+#undef SaveAudioOutput
 #undef PreviewConfig
 #undef BeginDisplayChange
 #undef QueryDisplayChange
@@ -94,6 +97,11 @@ namespace hid {
 bool UsesPlayStationPrompts() { return false; }
 void SetVibrationStrength(uint32_t percent) { vibrationStrength = percent; }
 void PreviewVibration() { ++vibrationPreviews; }
+}
+namespace apu {
+bool menuFlowSurround = false;
+void SetSurround(bool surround) { menuFlowSurround = surround; }
+uint32_t OutputChannels() { return menuFlowSurround ? 6 : 2; }
 }
 
 namespace {
@@ -156,6 +164,13 @@ bool settings::MenuFlowSaveConfig(const Config& value)
     ++saves;
     if (saveFails) return false;
     currentConfig = diskConfig = value;
+    return true;
+}
+bool settings::MenuFlowSaveAudioOutput(uint32_t output)
+{
+    ++saves;
+    if (saveFails) return false;
+    currentConfig.audioOutput = diskConfig.audioOutput = output;
     return true;
 }
 extern "C" int SDLCALL MenuFlowPushEvent(SDL_Event* event)
@@ -1316,9 +1331,9 @@ int main(int argc, char** argv)
             settings::edit.width = currentConfig.width == 2560 ? 1920 : 2560;
             const unsigned beforeSaves = saves, beforeApplies = applies, beforePreviews = vibrationPreviews;
             settings::pending = 2; Tick(base);
-            Require(settings::row == 3 && settings::snapshot.rows.size() == 4 &&
+            Require(settings::row == 3 && settings::snapshot.rows.size() == 5 &&
                     settings::snapshot.rows[3].name == L"Vibration" && settings::snapshot.rows[3].sliderPercent == 100,
-                    "Audio tab ends with the Vibration slider");
+                    "Vibration slider follows the retail audio sliders");
             Require(settings::snapshot.help.find(L"Min turns it off") != std::wstring::npos, "Vibration help");
             settings::pending = 8; Tick(base);
             Require(settings::edit.vibrationPercent == 100 && saves == beforeSaves, "right at 100 clamps without saving");
@@ -1331,10 +1346,18 @@ int main(int argc, char** argv)
             settings::edit.vibrationPercent = currentConfig.vibrationPercent = 0;
             settings::pending = 4; Tick(base);
             Require(settings::edit.vibrationPercent == 0 && saves == beforeSaves + 1, "left at 0 does not wrap");
+            // Audio output closes the tab: Right switches to 5.1 live and saves at once.
             settings::pending = 2; Tick(base);
-            Require(settings::row == 0, "down from Vibration wraps to Voice language");
+            Require(settings::row == 4 && settings::snapshot.rows[4].name == L"Audio output" &&
+                    settings::snapshot.rows[4].selectedChoice == 0, "Audio tab ends with Audio output, Stereo by default");
+            settings::pending = 8; Tick(base);
+            Require(settings::edit.audioOutput == settings::AudioOutputSurround && diskConfig.audioOutput == settings::AudioOutputSurround &&
+                    apu::menuFlowSurround && saves == beforeSaves + 2 && applies == beforeApplies &&
+                    diskConfig.width != settings::edit.width, "audio output switches live and saves alone");
+            settings::pending = 2; Tick(base);
+            Require(settings::row == 0, "down from Audio output wraps to Voice language");
             settings::edit = currentConfig;
-            std::puts("PASS Audio Vibration slider: bounds, immediate save, live apply and preview, Graphics edits untouched");
+            std::puts("PASS Audio Vibration slider and Audio output: bounds, immediate save, live apply, Graphics edits untouched");
         }
         // The host Settings game tab is reached from the retail System menu.
         // Only explicit dialog confirmation may request the guest title transition.
