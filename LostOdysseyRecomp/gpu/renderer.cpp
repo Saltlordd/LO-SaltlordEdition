@@ -1931,17 +1931,18 @@ namespace gpu::renderer
                 // Snapshot version each uploaded ALU bank came from; 0 when
                 // unknown or when the draw modified its copy (jitter).
                 uint64_t vsGeneration = 0, psGeneration = 0;
+                // vs/ps hold the bytes at vsOffset/psOffset. Versioned uploads
+                // skip the copy: a new version almost never repeats old bytes.
+                bool vsCopy = false, psCopy = false;
             };
             UploadedConstants uploadedConstants[kGpuSlots];
 
-            // ALU banks are rebuilt when command writes advance their generation;
-            // zero-register MMIO fallbacks are checked on reuse. drawConstants is
-            // the copy a draw may modify (TAA jitter).
-            uint32_t constantSnapshot[2][256 * 4]{};
+            // ALU banks follow command writes by dirty block and zero-register
+            // MMIO stores by compare. drawConstants is the copy a draw may modify
+            // (TAA jitter).
+            ConstantBankSnapshot constantSnapshot[2];
             uint64_t constantSnapshotGeneration[2]{UINT64_MAX, UINT64_MAX};
             uint64_t constantSnapshotVersion[2]{};
-            uint16_t constantFallbackOffsets[2][256 * 4]{};
-            uint32_t constantFallbackCount[2]{};
             uint32_t drawConstants[2][256 * 4]{};
             bool drawConstantsModified[2]{true, true};
 
@@ -1956,7 +1957,8 @@ namespace gpu::renderer
                     return lastOffset;
                 const void* last = bank == 0 ? static_cast<const void*>(before.vs) :
                     bank == 1 ? static_cast<const void*>(before.ps) : static_cast<const void*>(&before.shared);
-                if (lastOffset != UINT64_MAX && std::memcmp(last, data, size) == 0) {
+                const bool lastCopy = bank == 0 ? before.vsCopy : bank == 1 ? before.psCopy : true;
+                if (lastOffset != UINT64_MAX && lastCopy && std::memcmp(last, data, size) == 0) {
                     if (bank == 0) before.vsGeneration = generation;
                     else if (bank == 1) before.psGeneration = generation;
                     return lastOffset;
@@ -1965,9 +1967,13 @@ namespace gpu::renderer
                 auto& after = uploadedConstants[gpuSlot];
                 if (offset != UINT64_MAX)
                 {
-                    if (bank == 0) { std::memcpy(after.vs, data, size); after.vsOffset = offset; after.vsGeneration = generation; }
-                    else if (bank == 1) { std::memcpy(after.ps, data, size); after.psOffset = offset; after.psGeneration = generation; }
-                    else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
+                    if (bank == 0) {
+                        if (!generation) std::memcpy(after.vs, data, size);
+                        after.vsCopy = !generation; after.vsOffset = offset; after.vsGeneration = generation;
+                    } else if (bank == 1) {
+                        if (!generation) std::memcpy(after.ps, data, size);
+                        after.psCopy = !generation; after.psOffset = offset; after.psGeneration = generation;
+                    } else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
                 }
                 return offset;
             }
@@ -7865,34 +7871,35 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 } else {
                     for (uint32_t bank = 0; bank < 2; ++bank) {
                         const uint64_t generation = g_commandProcessor.ConstantGeneration(bank);
+                        auto& snapshot = constantSnapshot[bank];
                         const bool refresh = generation != constantSnapshotGeneration[bank];
-                        bool snapshotChanged = refresh;
-                        if (refresh) {
-                            constantFallbackCount[bank] = g_commandProcessor.ReadConstantBank(
-                                bank, constantSnapshot[bank], constantFallbackOffsets[bank]);
-                            constantSnapshotGeneration[bank] = generation;
-                            ++constantSnapshotVersion[bank];
-                        } else if (g_commandProcessor.RefreshConstantFallbacks(bank,
-                            constantFallbackOffsets[bank], constantFallbackCount[bank],
-                            constantSnapshot[bank], constantSnapshotVersion[bank])) {
-                            snapshotChanged = true;
-                        }
-                        if (!refresh && verifyConstants) {
+                        uint64_t changedBlocks = g_commandProcessor.UpdateConstantSnapshot(bank, snapshot);
+                        constantSnapshotGeneration[bank] = generation;
+                        if (refresh || changedBlocks) ++constantSnapshotVersion[bank];
+                        if (verifyConstants) {
                             uint32_t check[256 * 4];
                             g_commandProcessor.ReadRegisters(REG_ALU_CONSTANTS + bank * 256 * 4, 256 * 4, check);
-                            if (std::memcmp(check, constantSnapshot[bank], sizeof(check)) != 0) {
+                            if (std::memcmp(check, snapshot.values, sizeof(check)) != 0) {
                                 static uint32_t reported = 0;
                                 if (reported++ < 16)
-                                    LOG_ERROR("renderer: {} constants changed without a generation change (frame {})",
+                                    LOG_ERROR("renderer: {} constants changed without a generation change or dirty block (frame {})",
                                         bank ? "pixel" : "vertex", frame);
-                                std::memcpy(constantSnapshot[bank], check, sizeof(check));
+                                std::memcpy(snapshot.values, check, sizeof(check));
+                                snapshot.valid = false;
                                 ++constantSnapshotVersion[bank];
-                                snapshotChanged = true;
+                                changedBlocks = ~0ull;
                             }
                         }
-                        if (snapshotChanged || drawConstantsModified[bank]) {
-                            std::memcpy(drawConstants[bank], constantSnapshot[bank], sizeof(drawConstants[bank]));
+                        if (drawConstantsModified[bank]) {
+                            std::memcpy(drawConstants[bank], snapshot.values, sizeof(drawConstants[bank]));
                             drawConstantsModified[bank] = false;
+                        } else {
+                            // An unmodified copy equals the snapshot outside the changed blocks.
+                            constexpr size_t kBlock = ConstantBankSnapshot::kBlockWords;
+                            for (uint64_t blocks = changedBlocks; blocks; blocks &= blocks - 1) {
+                                const size_t first = size_t(std::countr_zero(blocks)) * kBlock;
+                                std::memcpy(drawConstants[bank] + first, snapshot.values + first, kBlock * sizeof(uint32_t));
+                            }
                         }
                         constantGeneration[bank] = constantSnapshotVersion[bank];
                     }
@@ -9372,8 +9379,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // Index buffer / primitive conversion. Static geometry skips
                 // ConvertIndices and primitive expansion on an exact-content
                 // hit; the cached output is already post-expansion.
-                auto& indices = indexScratch;
-                if (!info.indexed) indices.clear();
+                auto& converted = indexScratch;
+                if (!info.indexed) converted.clear();
                 bool useIndices = false;
                 RenderFormat indexFormat = RenderFormat::R32_UINT;
                 uint32_t indexCount = info.indexCount;
@@ -9395,7 +9402,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         auto it = indexCache.find(indexKey);
                         if (it != indexCache.end() && it->second.content.Matches(indexSrc, indexSrcBytes))
                         {
-                            indices = it->second.data;
                             cachedIndexEntry = &it->second;
                             it->second.lastFrame = frame;
                             if (cpuTimingEnabled) ++indexCacheHits;
@@ -9405,15 +9411,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         else
                         {
                             // Convert below, then replace the cached result.
-                            indices.resize(indexSrcCount);
-                            geometry_prepare::ConvertIndices(indexSrc, indices.data(), indexSrcCount, info.index32, info.indexEndian);
+                            converted.resize(indexSrcCount);
+                            geometry_prepare::ConvertIndices(indexSrc, converted.data(), indexSrcCount, info.index32, info.indexEndian);
                             useIndices = true;
                         }
                     }
                     else
                     {
-                        indices.resize(indexSrcCount);
-                        geometry_prepare::ConvertIndices(indexSrc, indices.data(), indexSrcCount, info.index32, info.indexEndian);
+                        converted.resize(indexSrcCount);
+                        geometry_prepare::ConvertIndices(indexSrc, converted.data(), indexSrcCount, info.index32, info.indexEndian);
                         useIndices = true;
                     }
                 }
@@ -9422,13 +9428,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                 case 13: // quad list -> triangle list
                 {
-                    geometry_prepare::ExpandQuadList(indices, primitiveScratch, useIndices, info.indexCount);
+                    geometry_prepare::ExpandQuadList(converted, primitiveScratch, useIndices, info.indexCount);
                     break;
                 }
                 case 8: // rect list -> six encoded corners per rectangle
                 {
                     if (!rectListExpansion) break;
-                    const uint32_t skipped = xenos::rect_list::ExpandIndices(indices, primitiveScratch, useIndices,
+                    const uint32_t skipped = xenos::rect_list::ExpandIndices(converted, primitiveScratch, useIndices,
                         info.indexCount, Reg(REG_VGT_INDX_OFFSET));
                     if (skipped && rectListSkipped++ < 8)
                         LOG_WARNING("renderer: rect list skipped {} rectangle(s) (non-consecutive indices or vertex range)", skipped);
@@ -9438,14 +9444,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     auto& out = primitiveScratch;
                     out.clear();
-                    uint32_t n = useIndices ? uint32_t(indices.size()) : info.indexCount;
+                    uint32_t n = useIndices ? uint32_t(converted.size()) : info.indexCount;
                     out.reserve(n > 2 ? size_t(n - 2) * 3 : 0);
                     for (uint32_t i = 2; i < n; i++)
                     {
-                        uint32_t a = useIndices ? indices[0] : 0, b = useIndices ? indices[i - 1] : i - 1, c = useIndices ? indices[i] : i;
+                        uint32_t a = useIndices ? converted[0] : 0, b = useIndices ? converted[i - 1] : i - 1, c = useIndices ? converted[i] : i;
                         out.insert(out.end(), { a, b, c });
                     }
-                    indices.swap(out);
+                    converted.swap(out);
                     useIndices = true;
                     break;
                 }
@@ -9460,12 +9466,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Store the post-expansion result against the exact source
                     // bytes; a later identical draw copies it verbatim.
                     geometry_prepare::IndexEntry entry;
-                    entry.data = indices;
+                    entry.data = converted;
                     entry.content.Capture(indexSrc, indexSrcBytes);
                     entry.lastFrame = frame;
                     indexCache.emplace(indexKey, std::move(entry));
                     if (cpuTimingEnabled) ++indexCacheMisses;
                 }
+                // A hit uses the cached entry in place, as cachedIndexEntry already does.
+                const std::vector<uint32_t>& indices = cachedIndexEntry ? cachedIndexEntry->data : converted;
                 if (useIndices)
                     indexCount = uint32_t(indices.size());
                 if (indexCount == 0)
