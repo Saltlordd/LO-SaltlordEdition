@@ -3573,9 +3573,9 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Audio",
-        "Status": "Todo",
-        "Delivery": "Not started",
-        "Evidence": "Two reporters (v0.7.35 and v0.8.15, 30 FPS, no fast-forward): voice drifts from the lips in real-time cutscenes, more toward the end. Both logs show the audio callback paced exactly to the wall clock (every 1,875-frame interval 10.00 s, no dropped audio progress), so the drift is likely on the animation side. Asked the reporters on 2026-10-04 whether the voice runs ahead of or behind the lips. Next: run the reporter's save with LO_FRAME_TIMING=1 and compare slow frames with the drift.",
+        "Status": "Done",
+        "Delivery": "Research complete",
+        "Evidence": "Two reporters (v0.7.35 and v0.8.15, 30 FPS, no fast-forward): voice drifts from the lips in real-time cutscenes, more toward the end. Both logs show the audio callback paced exactly to the wall clock (every 1,875-frame interval 10.00 s, no dropped audio progress). On 2026-10-07 a reporter said it was not extremely bad and that the lip sync of the Japanese voices is wrong by design. The maintainer closed the Issue as completed at 19:28:19 UTC and asked for a new Issue if the sync is worse than it should be. No runtime change was made for it.",
         "Source key": "issue-167-cutscene-audio-desync"
       }
     },
@@ -3622,11 +3622,11 @@
       "fields": {
         "Kind": "Bug",
         "Area": "Compatibility",
-        "Status": "Awaiting validation",
+        "Status": "Done",
         "Delivery": "Released",
         "Release": "v0.8.37",
         "Start date": "2026-10-04",
-        "Evidence": "Samsung SM-A075M (Helio G99, Mali-G57) showed black menus and world with tens of thousands of 'texture creation failed fmt=18/20' lines: Mali drivers do not expose textureCompressionBC, so every BC1/BC3 texture was dropped. PR #241 (merged 2026-10-06T05:38:58Z, shipped in v0.8.37, published 07:46:23Z, not accepted) reads the capability and decodes BC to RGBA8 on the CPU when it is missing. Validation: LoBcDecodeTest (81 known-answer checks) and an A/B on psvita (AMD 8060S, Proton, Direct3D 12) with LO_TEXTURE_BC=0 forcing the decode path (0 texture failures, title, field and camp menu identical). Not validated: no Mali device, so the real detection path (bc=0) never ran; the Vulkan backend was not run with the fallback; CPU cost on a phone not measured. The Issue was closed by the PR merge at 05:38:59Z and reopened by the maintainer at 06:36:06Z; it is open. The maintainer asked the reporter at 07:01 UTC to try the release and post a fresh log. No reporter confirmation is recorded.",
+        "Evidence": "Samsung SM-A075M (Helio G99, Mali-G57) showed black menus and world with tens of thousands of 'texture creation failed fmt=18/20' lines: Mali drivers do not expose textureCompressionBC, so every BC1/BC3 texture was dropped. PR #241 (merged 2026-10-06T05:38:58Z, shipped in v0.8.37) reads the capability and decodes BC to RGBA8 on the CPU when it is missing. Validation: LoBcDecodeTest (81 known-answer checks) and a psvita A/B with LO_TEXTURE_BC=0 forcing the decode path. Not validated: no Mali device, so the real detection path never ran; Vulkan with the fallback and phone CPU cost not measured. The maintainer asked the reporter to try the release (2026-10-06) and closed the Issue as completed on 2026-10-07 at 19:27:08 UTC. No reporter confirmation is recorded.",
         "Source key": "issue-214-mali-black-screen"
       }
     },
@@ -3737,9 +3737,9 @@
         "Delivery": "Released",
         "Release": "v0.8.44",
         "Start date": "2026-10-03",
-        "Evidence": "Reported on v0.8.0 (RX 6600, 4K, GTAO): FSR Quality, Balanced and Performance all ran at about the same frame rate. PR #189 (shipped in v0.8.10) stopped recreating the SR images every frame; PR #250 (merged 2026-10-06T10:45:23Z, shipped in v0.8.44, published 17:34:21Z, not accepted) skips one full-resolution copy and blend per frame (FSR encode writes the output directly, the composite draws in place) and is measured on one AMD host (psvita) with power caps. The Issue is open (reopened) for further work. Not covered: the reporter's machine, macOS MetalFX and Android. No reporter confirmation is recorded.",
+        "Evidence": "Reported on v0.8.0 (RX 6600, 4K, GTAO): FSR Quality, Balanced and Performance all ran at about the same frame rate. PR #189 (shipped in v0.8.10) stopped recreating the SR images every frame; PR #250 (shipped in v0.8.44) cut one full-resolution copy and blend per frame; PR #305 (merged 2026-10-08T00:39:50Z as 26ad776c, not yet released) folds the FSR encode into the composite and defers the restore resample (psvita, 12 W, 4K FSR Performance: 51.66 to 48.64 ms GPU). Measured on psvita (AMD) and, for #305, also checked with DLSS on an RTX 5080; not on the reporter's machine. The maintainer closed the Issue as completed on 2026-10-07 at 22:59:34 UTC; on 2026-10-08 the reporter was asked to rerun after the next release. No reporter confirmation is recorded.",
         "Source key": "issue-172-fsr-scaling-performance",
-        "Status": "In Progress"
+        "Status": "Done"
       }
     },
     "release-v0-8-7": {
