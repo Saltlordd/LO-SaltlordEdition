@@ -207,22 +207,27 @@ R"HLSL(
 struct XeVertexDeviceBuffer
 {
     uint unused;
+    // Branch-free so the arena address stays a uniform load the driver can
+    // hoist out of the per-vertex code. The arena is exactly 1 GiB, so the
+    // clamped address is always inside it; out-of-range fetches still read 0.
+    uint64_t Address(uint a, uint limit) {
+        return vk::RawBufferLoad<uint64_t>(xePush.SharedConstants + 1024, 8) + uint64_t(min(a, limit));
+    }
     uint Load(uint a) {
-        if (a > 1073741824u - 4u) return 0u;
-        uint64_t base = vk::RawBufferLoad<uint64_t>(xePush.SharedConstants + 1024, 8);
-        return vk::RawBufferLoad<uint>(base + uint64_t(a));
+        uint v = vk::RawBufferLoad<uint>(Address(a, 1073741824u - 4u), 4);
+        return a > 1073741824u - 4u ? 0u : v;
     }
     uint2 Load2(uint a) {
-        if (a > 1073741824u - 8u) return uint2(0u, 0u);
-        return uint2(Load(a), Load(a + 4u));
+        uint2 v = vk::RawBufferLoad<uint2>(Address(a, 1073741824u - 8u), 4);
+        return a > 1073741824u - 8u ? uint2(0u, 0u) : v;
     }
     uint3 Load3(uint a) {
-        if (a > 1073741824u - 12u) return uint3(0u, 0u, 0u);
-        return uint3(Load(a), Load(a + 4u), Load(a + 8u));
+        uint3 v = vk::RawBufferLoad<uint3>(Address(a, 1073741824u - 12u), 4);
+        return a > 1073741824u - 12u ? uint3(0u, 0u, 0u) : v;
     }
     uint4 Load4(uint a) {
-        if (a > 1073741824u - 16u) return uint4(0u, 0u, 0u, 0u);
-        return uint4(Load(a), Load(a + 4u), Load(a + 8u), Load(a + 12u));
+        uint4 v = vk::RawBufferLoad<uint4>(Address(a, 1073741824u - 16u), 4);
+        return a > 1073741824u - 16u ? uint4(0u, 0u, 0u, 0u) : v;
     }
 };
 static const XeVertexDeviceBuffer xeVertexDeviceBuffer = (XeVertexDeviceBuffer)0;

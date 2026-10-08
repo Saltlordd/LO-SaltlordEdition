@@ -21,6 +21,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - macOS: about 15% higher frame rate in busy scenes on an M1 Max with identical output: depth-only draws no longer split Metal render passes.
 - Fixed flickering boats at Experimental Staff Marine Division with TAA, FSR or DLSS (#307).
 - Vulkan does less redundant GPU synchronization and clearing between passes and in presentation, with identical output: about 1.5% higher frame rate on an Adreno 840 phone.
+- Vulkan and macOS: scene geometry takes about 12% less GPU time on an Adreno 840 phone with identical output: shaders read vertex data with fewer memory round trips.
 
 ### 简体中文
 
@@ -37,6 +38,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - macOS：画面不变，繁重场景下 M1 Max 帧率提高约 15%：只写深度的 draw 不再打断 Metal 的渲染 pass。
 - 修复 Experimental Staff Marine Division 的船在开启 TAA、FSR 或 DLSS 时闪烁的问题（#307）。
 - Vulkan 在 pass 之间和画面呈现时减少了多余的 GPU 同步与清屏，画面不变：Adreno 840 手机上帧率提高约 1.5%。
+- Vulkan 和 macOS：画面不变，Adreno 840 手机上场景几何体的 GPU 时间少约 12%：着色器读取顶点数据时的内存往返更少。
 
 ## [v0.8.53](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.53) — 2026-10-07
 
