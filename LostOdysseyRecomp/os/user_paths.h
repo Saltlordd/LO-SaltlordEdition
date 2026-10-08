@@ -4,6 +4,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <string>
+#if LO_PLATFORM_ANDROID
+#include <stdexcept>
+#endif
 
 #ifdef _WIN32
 #include <io.h>
@@ -15,14 +18,48 @@ namespace os::user_paths
 {
     inline bool g_usePortableLayout = true;
     inline std::filesystem::path g_executableDirectory;
+#if LO_PLATFORM_ANDROID
+    inline std::filesystem::path g_androidFilesDirectory;
+    inline std::filesystem::path g_androidCacheDirectory;
+    // Supplied by the Android shell, never derived from /proc/self/exe (app_process).
+    inline void InitializeAndroid(const std::filesystem::path& files,
+                                  const std::filesystem::path& cache)
+    {
+        if (!files.is_absolute() || !cache.is_absolute())
+            throw std::invalid_argument("Android app-private paths must be absolute");
+        // Android may supply an app-private root through a framework alias
+        // (for example /data/user/0). Resolve only these trusted, existing
+        // roots; the importer must still reject links in game descendants.
+        const auto resolvedFiles = std::filesystem::canonical(files);
+        const auto resolvedCache = std::filesystem::canonical(cache);
+        if (!std::filesystem::is_directory(resolvedFiles) ||
+            !std::filesystem::is_directory(resolvedCache))
+            throw std::invalid_argument("Android app-private roots must be directories");
+        g_androidFilesDirectory = resolvedFiles;
+        g_androidCacheDirectory = resolvedCache;
+        g_usePortableLayout = false;
+    }
+    inline const std::filesystem::path& AndroidFilesDir()
+    {
+        if (g_androidFilesDirectory.empty())
+            throw std::logic_error("Android storage has not been initialized");
+        return g_androidFilesDirectory;
+    }
+    inline const std::filesystem::path& AndroidCacheDir()
+    {
+        if (g_androidCacheDirectory.empty())
+            throw std::logic_error("Android storage has not been initialized");
+        return g_androidCacheDirectory;
+    }
+#endif
     inline bool IsExecutableDirWritable(const std::filesystem::path& path);
     inline void Initialize(const std::filesystem::path& executableDirectory)
     {
         g_executableDirectory = executableDirectory;
-#ifdef _WIN32
-        g_usePortableLayout = true;
-#elif LO_PLATFORM_ANDROID
+#if LO_PLATFORM_ANDROID
         g_usePortableLayout = false;
+#elif defined(_WIN32)
+        g_usePortableLayout = true;
 #elif LO_PLATFORM_MACOS
         // Never write into an app bundle: it may be user-writable, but changing
         // its contents breaks the code signature. Plain folders stay portable.
@@ -52,10 +89,10 @@ namespace os::user_paths
 
     inline std::filesystem::path ConfigDir(const std::filesystem::path& executableDirectory = {})
     {
-#ifdef _WIN32
+#if LO_PLATFORM_ANDROID
+        return AndroidFilesDir() / "config";
+#elif defined(_WIN32)
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
-#elif LO_PLATFORM_ANDROID
-        return g_executableDirectory / "config";
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Application Support");
 #else
@@ -66,10 +103,10 @@ namespace os::user_paths
 
     inline std::filesystem::path DataDir(const std::filesystem::path& executableDirectory = {})
     {
-#ifdef _WIN32
+#if LO_PLATFORM_ANDROID
+        return AndroidFilesDir() / "data";
+#elif defined(_WIN32)
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
-#elif LO_PLATFORM_ANDROID
-        return g_executableDirectory;
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Application Support");
 #else
@@ -82,10 +119,10 @@ namespace os::user_paths
 
     inline std::filesystem::path StateDir(const std::filesystem::path& executableDirectory = {})
     {
-#ifdef _WIN32
+#if LO_PLATFORM_ANDROID
+        return AndroidFilesDir() / "state";
+#elif defined(_WIN32)
         return executableDirectory.empty() ? std::filesystem::current_path() : executableDirectory;
-#elif LO_PLATFORM_ANDROID
-        return g_executableDirectory / "state";
 #elif LO_PLATFORM_MACOS
         return detail::LibraryPath("Logs");
 #else

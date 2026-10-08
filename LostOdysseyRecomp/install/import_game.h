@@ -80,6 +80,13 @@ using Cancelled = std::function<bool()>;
 // Throw on path-persistence failure to restore every selected old slot.
 using Commit = std::function<void(const InstallResult&)>;
 
+#if defined(__ANDROID__)
+// Read-only SAF descriptor. The caller retains ownership; readers duplicate it.
+// Uses the normal validated, staged installer, restricted to this boot test's Disc 1.
+InstallResult InstallAndroidDisc1(int descriptor, const std::filesystem::path& destination,
+                                 const Progress& progress = {}, const Cancelled& cancelled = {});
+#endif
+
 std::vector<std::filesystem::path> Discover(const std::filesystem::path& path);
 Scan ScanSource(const std::filesystem::path& path, const Cancelled& cancelled = {});
 

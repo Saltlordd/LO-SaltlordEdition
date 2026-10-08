@@ -1,3 +1,10 @@
+#if defined(__ANDROID__)
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cerrno>
+#include <limits>
+#endif
 #include "import_image.h"
 
 #include <algorithm>
@@ -217,14 +224,7 @@ std::vector<Entry> ReadXdvdfsEntries(ImageReader& reader)
             {
                 uint64_t fileStartOffset = static_cast<uint64_t>(startSector) * SECTOR;
                 if (fileStartOffset + fileLength > reader.GetLimit())
-                {
-                    // Seen when an ISO was cut during copying (FAT32 stops at 4 GB)
-                    // or a transfer stopped early. The caller prefixes the image's
-                    // own name and size; this names the first file past the end.
-                    const uint64_t missing = fileStartOffset + fileLength - reader.GetLimit();
-                    throw Error("the image is incomplete: its '" + relative + "' ends " +
-                        std::to_string(missing) + " bytes past the end of the file (FAT32 storage cuts copies at 4 GB; an interrupted copy also leaves a short file)");
-                }
+                    throw Error("File extends beyond image");
 
                 entries.push_back({relative, fileStartOffset, fileLength});
             }
@@ -316,6 +316,51 @@ IsoImageReader::IsoImageReader(std::filesystem::path path, const Cancelled& canc
     stream_.open(path_, std::ios::binary);
     if (!stream_) throw Error("Could not open ISO file: " + path_.string());
 
+    LocatePartition(cancelled);
+}
+#if defined(__ANDROID__)
+IsoImageReader::IsoImageReader(int descriptor, const Cancelled& cancelled)
+{
+    struct stat info{};
+    if (descriptor < 0 || fstat(descriptor, &info) != 0 || !S_ISREG(info.st_mode) ||
+        info.st_size <= 0 || lseek(descriptor, 0, SEEK_CUR) < 0)
+        throw Error("Choose a seekable ISO from local phone storage; streaming providers are unsupported");
+    limit_ = uint64_t(info.st_size);
+    descriptor_ = fcntl(descriptor, F_DUPFD_CLOEXEC, 0);
+    if (descriptor_ < 0) throw Error("Could not duplicate the selected ISO descriptor");
+    try { LocatePartition(cancelled); }
+    catch (...) { close(descriptor_); descriptor_=-1; throw; }
+}
+#endif
+IsoImageReader::~IsoImageReader()
+{
+#if defined(__ANDROID__)
+    if (descriptor_ >= 0) close(descriptor_);
+#endif
+}
+void IsoImageReader::ReadRaw(uint64_t offset, void* buffer, size_t size)
+{
+#if defined(__ANDROID__)
+    if (descriptor_ >= 0) {
+        if (offset > uint64_t(std::numeric_limits<off_t>::max()) ||
+            size > uint64_t(std::numeric_limits<off_t>::max())-offset)
+            throw Error("ISO read offset overflow");
+        size_t done=0;
+        while(done<size) {
+            const auto count=pread(descriptor_,static_cast<char*>(buffer)+done,size-done,off_t(offset+done));
+            if(count<0&&errno==EINTR)continue;
+            if(count<=0)throw Error("Selected ISO read failed or was truncated");
+            done+=size_t(count);
+        }
+        return;
+    }
+#endif
+    stream_.clear(); stream_.seekg(offset);
+    stream_.read(static_cast<char*>(buffer),size);
+    if(static_cast<size_t>(stream_.gcount())!=size)throw Error("Truncated game image read");
+}
+void IsoImageReader::LocatePartition(const Cancelled& cancelled)
+{
     // Search for sector-aligned MAGIC at 0x10000 descriptor offset.
     // Scan in 1MB chunks up to 512MB to find base.
     bool found = false;
@@ -327,11 +372,9 @@ IsoImageReader::IsoImageReader(std::filesystem::path path, const Cancelled& canc
         if (cancelled && cancelled())
             throw Error("Source check cancelled", true);
 
-        stream_.clear();
-        stream_.seekg(offset);
         size_t toRead = static_cast<size_t>(std::min<uint64_t>(chunk.size(), limit_ - offset));
-        stream_.read(reinterpret_cast<char*>(chunk.data()), toRead);
-        size_t bytesRead = static_cast<size_t>(stream_.gcount());
+        ReadRaw(offset, chunk.data(), toRead);
+        size_t bytesRead = toRead;
 
         if (bytesRead < 20) continue;
 
@@ -366,10 +409,7 @@ void IsoImageReader::Read(uint64_t offset, void* buffer, size_t size)
     if (offset > limit_ || size > limit_ - offset)
         throw Error("Image file range is outside the source");
 
-    stream_.seekg(base_ + offset);
-    stream_.read(reinterpret_cast<char*>(buffer), size);
-    if (static_cast<size_t>(stream_.gcount()) != size)
-        throw Error("Truncated game image read");
+    ReadRaw(base_ + offset, buffer, size);
 }
 
 std::vector<Entry> IsoImageReader::GetEntries()

@@ -1,6 +1,10 @@
 #include <stdafx.h>
 #include <os/logger.h>
 #include "auto_continue.h"
+#if defined(__ANDROID__)
+#include <hid/android_overlay_state.h>
+#include <kernel/memory.h>
+#endif
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -143,6 +147,18 @@ namespace
 
 PPC_FUNC(sub_8234B9B8)
 {
+#if defined(__ANDROID__)
+    const uint32_t boot=ctx.r3.u32;
+    uint32_t observedType=0;bool hadObject=false;
+    auto observe=[&]{uint32_t allocation=0,length=0;bool valid=base&&boot>=0x100000&&boot<0x7c000000&&!(boot&3)&&
+        g_pageAllocator.FindAllocation(g_pageAllocator.virtualRegion,boot,allocation,length)&&boot>=allocation&&boot-allocation<=length&&length-(boot-allocation)>=0x18;
+        if(valid){const auto type=PPC_LOAD_U32(boot);if(hadObject&&type!=observedType)valid=false;else{observedType=type;hadObject=true;}}
+        hid::android_overlay::ObserveTitle(valid?PPC_LOAD_U32(boot+0x14):~0u,hid::android_overlay::NowMs());};
+    observe();
+#endif
     if (debug_menu::AutoContinueEnabled()) Advance(ctx, base);
     __imp__sub_8234B9B8(ctx, base);
+#if defined(__ANDROID__)
+    observe();
+#endif
 }

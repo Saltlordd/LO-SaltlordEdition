@@ -1,13 +1,18 @@
 #include <stdafx.h>
 #include "cheats.h"
 #include "fast_forward.h"
+#if defined(__ANDROID__)
+#include <hid/touch_state.h>
+#include <os/logger.h>
+#include <hid/android_overlay_state.h>
+extern void PersistAndroidFastForward();
+#endif
 #include "menu_overlay.h"
 #include <kernel/memory.h>
 #include <kernel/xex_loader.h>
 #include <settings/menu.h>
 #include <host_ui/host_ui.h>
-#include <hid/android_touch.h>
-#include <SDL3/SDL.h>
+#include <SDL.h>
 #include <optional>
 
 namespace debug_menu::cheats {
@@ -98,43 +103,58 @@ void PollHostControls() {
     if (gameWindow && !SDL_GetWindowFromID(gameWindow)) gameWindow = 0;
     if (!gameWindow && focus) gameWindow = SDL_GetWindowID(focus);
     const auto edit = session.Get();
-    const bool allowed = focus && SDL_GetWindowID(focus) == gameWindow &&
+    const bool hostAllowed = focus && SDL_GetWindowID(focus) == gameWindow &&
         !(SDL_GetWindowFlags(focus) & (SDL_WINDOW_MINIMIZED | SDL_WINDOW_HIDDEN)) &&
         !std::getenv("LO_BACKGROUND") && !host_ui::IsStopping() &&
         !host_ui::IsGamePaused() && !IsOverlayVisible() && !settings::IsOpen() &&
         !edit.editorRequested && !edit.editorApplied;
+#if defined(__ANDROID__)
+    hid::android_overlay::hostBlocked.store(!hostAllowed,std::memory_order_release);
+    const bool allowed=hostAllowed&&!hid::android_overlay::appMenu.load(std::memory_order_acquire);
+#else
+    const bool allowed=hostAllowed;
+#endif
     uint8_t lt = 0, rt = 0;
     bool connected = false;
     uint64_t devices = 14695981039346656037ull;
     static uint64_t previousDevices = 0;
     if (allowed) {
-        int count = 0;
-        SDL_JoystickID* ids = SDL_GetGamepads(&count);
-        for (int i = 0; i < count; ++i) {
-            const auto instance = ids[i];
-            auto* controller = SDL_GetGamepadFromID(instance);
-            if (!controller || !SDL_GamepadConnected(controller)) continue;
+        for (int i=0; i<SDL_NumJoysticks(); ++i) {
+            const auto instance = SDL_JoystickGetDeviceInstanceID(i);
+            auto* controller = SDL_GameControllerFromInstanceID(instance);
+            if (!controller || !SDL_GameControllerGetAttached(controller)) continue;
             connected = true;
             devices = (devices ^ uint32_t(instance)) * 1099511628211ull;
-            auto trigger = [&](SDL_GamepadAxis axis) {
-                return uint8_t(std::max(0, int(SDL_GetGamepadAxis(controller, axis))) >> 7);
+            auto trigger = [&](SDL_GameControllerAxis axis) {
+                return uint8_t(std::max(0, int(SDL_GameControllerGetAxis(controller, axis))) >> 7);
             };
-            lt = std::max(lt, trigger(SDL_GAMEPAD_AXIS_LEFT_TRIGGER));
-            rt = std::max(rt, trigger(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+            lt = std::max(lt, trigger(SDL_CONTROLLER_AXIS_TRIGGERLEFT));
+            rt = std::max(rt, trigger(SDL_CONTROLLER_AXIS_TRIGGERRIGHT));
         }
-        SDL_free(ids);
     }
-#if LO_PLATFORM_ANDROID
-    // The on-screen LT/RT count as a controller, as they do for the game (#194).
-    if (allowed) {
-        const auto touch = hid::android_touch::Snapshot();
-        lt = std::max(lt, touch.leftTrigger);
-        rt = std::max(rt, touch.rightTrigger);
-        connected = true;
-    }
+    #if defined(__ANDROID__)
+    if(allowed){const auto touch=hid::touch::Read();lt=std::max(lt,touch.lt);rt=std::max(rt,touch.rt);
+        connected=true; // The touch controller remains present even while triggers are released.
+        devices=(devices^0x4c4f544f554348ull)*1099511628211ull;}
 #endif
     // A newly connected controller must not inherit a prior device's armed LT.
     if (devices != previousDevices) { fast_forward::Release(); previousDevices = devices; }
     fast_forward::Sample(lt, rt, allowed && connected);
+#if defined(__ANDROID__)
+    // Log changes, not every input/frame. Heartbeats independently record state.
+    static int lastSignature=-1;static unsigned reports=0;
+    const auto status=fast_forward::GetStatus();
+    // Reuse the existing input observation; no new timer/thread or per-frame disk writes.
+    static int savedConfiguration=-1;
+    const int configuration=(status.enabled?1:0)|(status.mode==fast_forward::Mode::Toggle?2:0)|(status.multiplier<<2);
+    if(configuration!=savedConfiguration&&!host_ui::IsStopping()){
+        savedConfiguration=configuration;PersistAndroidFastForward();
+    }
+    const int signature=(status.enabled?1:0)|(status.active?2:0)|(status.mode==fast_forward::Mode::Toggle?4:0)|(status.multiplier<<3);
+    if(signature!=lastSignature){
+        lastSignature=signature;
+        if(reports++<128)LOG_INFO("Android fast-forward transition: enabled={} active={} multiplier={} mode={} allowed={} lt={} rt={}",status.enabled,status.active,status.multiplier,status.mode==fast_forward::Mode::Hold?"Hold":"Toggle",allowed,lt,rt);
+    }
+#endif
 }
 } // namespace debug_menu::cheats

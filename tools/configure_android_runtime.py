@@ -34,7 +34,8 @@ def main():
         '-DCMAKE_TOOLCHAIN_FILE=' + str(ndk / 'build/cmake/android.toolchain.cmake'),
         '-DANDROID_ABI=arm64-v8a', '-DANDROID_PLATFORM=android-28', '-DANDROID_STL=c++_shared',
         '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON', '-DCMAKE_BUILD_TYPE=Release',
-        '-DLO_ANDROID_DIAGNOSTICS=OFF', '-DLO_BUILD_RUNTIME=ON', '-DLO_BUILD_GPU=ON'], check=True)
+        '-DLO_ANDROID_DIAGNOSTICS=OFF',
+        '-DLO_BUILD_RUNTIME=ON', '-DLO_BUILD_GPU=ON'], check=True)
     if args.build:
         subprocess.run([args.cmake, '--build', str(build), '--target', 'LostOdysseyRecomp', '-j', str(args.jobs)], check=True)
     print('Configured runtime; this target is not an APK or a verified Android game launch.')

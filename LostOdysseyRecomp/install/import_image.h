@@ -56,7 +56,10 @@ class IsoImageReader : public ImageReader
 {
 public:
     explicit IsoImageReader(std::filesystem::path path, const Cancelled& cancelled = {});
-    ~IsoImageReader() override = default;
+#if defined(__ANDROID__)
+    explicit IsoImageReader(int descriptor, const Cancelled& cancelled = {});
+#endif
+    ~IsoImageReader() override;
 
     Kind GetKind() const override { return Kind::Iso; }
     uint64_t GetLimit() const override { return limit_; }
@@ -64,6 +67,11 @@ public:
     std::vector<Entry> GetEntries() override;
 
 private:
+    void LocatePartition(const Cancelled& cancelled);
+    void ReadRaw(uint64_t offset, void* buffer, size_t size);
+#if defined(__ANDROID__)
+    int descriptor_ = -1;
+#endif
     std::filesystem::path path_;
     std::ifstream stream_;
     uint64_t base_ = 0;

@@ -2,6 +2,9 @@
 #include <os/platform.h>
 #include <cstddef>
 #include <cerrno>
+#if LO_PLATFORM_ANDROID
+#include <android/log.h>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -71,6 +74,12 @@ void RecordFailure(FailureOperation operation, uint32_t error, int32_t viewIndex
 {
     failure = {operation, error, preferredReservationError, viewIndex,
                reinterpret_cast<uintptr_t>(address), size, offset};
+#if LO_PLATFORM_ANDROID
+    // Allocation can run before main/static logger initialization. Use logcat directly.
+    __android_log_print(ANDROID_LOG_ERROR, "LostOdysseyRecomp",
+        "guest memory failure: operation=%s api=%s address=%p size=%zu offset=%zu view=%d errno=%u",
+        FailureOperationName(operation), FailureApiName(operation), address, size, offset, viewIndex, error);
+#endif
 #ifdef _WIN32
     // This path also runs during global Memory construction. Keep it allocation
     // free, and retain the caller's original error before any diagnostic API.
@@ -197,6 +206,21 @@ uint8_t* Allocate()
         return nullptr;
     }
 #else
+#if LO_PLATFORM_ANDROID
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    __android_log_print(ANDROID_LOG_INFO, "LostOdysseyRecomp",
+        "guest address reservation attempted: address=0x100000000 size=%zu host_page_size=%ld", kSize, pageSize);
+    // E aliases physical memory at a 4 KiB offset. Rounding this offset changes
+    // guest semantics; independent/copied mappings are not coherent substitutes.
+    if (pageSize <= 0 || kOffsets[3] % size_t(pageSize) != 0)
+    {
+        RecordFailure(FailureOperation::MapView, EINVAL, 3,
+            reinterpret_cast<void*>(0x100000000ull + kStarts[3]), kSizes[3], kOffsets[3]);
+        __android_log_print(ANDROID_LOG_ERROR, "LostOdysseyRecomp",
+            "guest alias mapping blocked: 4 KiB E-view offset cannot be represented with host pages of %ld bytes", pageSize);
+        return nullptr;
+    }
+#endif
     int mmapFlags = MAP_ANONYMOUS | MAP_PRIVATE;
 #ifdef MAP_FIXED_NOREPLACE
     mmapFlags |= MAP_FIXED_NOREPLACE;

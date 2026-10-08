@@ -207,3 +207,8 @@ endif()
 target_compile_options(lo_avcodec PRIVATE -w -O2)
 
 target_link_libraries(lo_avcodec PUBLIC lo_avutil)
+
+# FFmpeg assembly refers directly to internal tables in the Android shared library.
+if(ANDROID)
+    set_target_properties(lo_avcodec lo_avutil PROPERTIES C_VISIBILITY_PRESET hidden)
+endif()

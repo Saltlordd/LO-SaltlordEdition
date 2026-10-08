@@ -1,7 +1,21 @@
 cmake_policy(SET CMP0077 NEW)
 
-set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC ON CACHE BOOL "" FORCE)
+if(ANDROID)
+    include(FetchContent)
+    set(JSON_BuildTests OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(lo_android_json
+        GIT_REPOSITORY https://github.com/nlohmann/json.git
+        GIT_TAG 9cca280a4d0ccf0c08f47a99aa71d1b0e52f8d03)
+    FetchContent_MakeAvailable(lo_android_json)
+endif()
+
+if(ANDROID)
+    set(SDL_SHARED ON CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+else()
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+endif()
 set(SDL_TEST OFF CACHE BOOL "" FORCE)
 
 # o1heap's own CMakeLists only builds its tests; wrap the single source file.
@@ -21,6 +35,9 @@ if(LO_BUILD_GPU)
         set(PLUME_SDL_VULKAN_ENABLED ON CACHE BOOL "" FORCE)
     endif()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/plume")
+    if(ANDROID)
+        set_property(TARGET plume PROPERTY CXX_STANDARD 20)
+    endif()
     if(TARGET sdl_headers_copy)
         add_dependencies(plume sdl_headers_copy)
     endif()

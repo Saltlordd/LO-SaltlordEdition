@@ -27,6 +27,10 @@
 #include <os/user_paths.h>
 #include <host_ui/host_ui.h>
 #include <csetjmp>
+#if LO_PLATFORM_ANDROID
+#include "android_network.h"
+#include <unordered_set>
+#endif
 
 // Kernel HLE for xboxkrnl.exe / xam.xex imports. Reference behaviour: Xenia
 // (BSD-3) kernel/xboxkrnl; structure follows UnleashedRecomp (GPLv3).
@@ -445,7 +449,7 @@ static void RtlLeaveCriticalSection(XRTL_CRITICAL_SECTION* cs)
 static void KfAcquireSpinLock(uint32_t* spinLock)
 {
     WaitScope scope("KfAcquireSpinLock", g_memory.MapVirtual(spinLock));
-    os::AtomicRef<uint32_t> ref(*spinLock);
+    std::atomic_ref ref(*spinLock);
     while (true)
     {
         uint32_t expected = 0;
@@ -457,13 +461,13 @@ static void KfAcquireSpinLock(uint32_t* spinLock)
 
 static void KfReleaseSpinLock(uint32_t* spinLock)
 {
-    os::AtomicRef<uint32_t> ref(*spinLock);
+    std::atomic_ref ref(*spinLock);
     ref = 0;
 }
 
 static uint32_t KeTryToAcquireSpinLockAtRaisedIrql(uint32_t* spinLock)
 {
-    os::AtomicRef<uint32_t> ref(*spinLock);
+    std::atomic_ref ref(*spinLock);
     uint32_t expected = 0;
     return ref.compare_exchange_strong(expected, g_ppcContext->r13.u32) ? 1 : 0;
 }
@@ -881,7 +885,7 @@ static uint64_t SListHeaderValue(uint64_t stored) { return std::byteswap(stored)
 
 static uint32_t InterlockedPopEntrySList_x(be<uint32_t>* header)
 {
-    os::AtomicRef<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
+    std::atomic_ref<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
     uint64_t stored = ref.load();
     for (;;)
     {
@@ -900,7 +904,7 @@ static uint32_t InterlockedPopEntrySList_x(be<uint32_t>* header)
 
 static uint32_t InterlockedFlushSList_x(be<uint32_t>* header)
 {
-    os::AtomicRef<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
+    std::atomic_ref<uint64_t> ref(*reinterpret_cast<uint64_t*>(header));
     uint64_t stored = ref.load();
     for (;;)
     {
@@ -1358,10 +1362,7 @@ static void VdGetCurrentDisplayInformation(uint32_t* info)
 
 static void VdGetCurrentDisplayGamma(be<uint32_t>* type, be<float>* power)
 {
-    // 2 = BT.709 TV, Xenia's default: D3D then writes a display gamma ramp
-    // (sRGB decode, BT.709 encode) that presentation applies, as an Xbox 360
-    // on an HDTV does. Type 1 (sRGB) gets an identity ramp (#78, #179).
-    if (type) *type = 2;
+    if (type) *type = 1;
     if (power) *power = 2.22222233f;
 }
 
@@ -1722,11 +1723,8 @@ static uint32_t XamContentGetDeviceState(uint32_t device, XXOVERLAPPED* overlapp
     CompleteOverlapped(overlapped, result, 0);
     return overlapped ? ERROR_IO_PENDING : result;
 }
-static uint32_t XamContentFlush(const char* rootName, XXOVERLAPPED* overlapped)
+static uint32_t XamContentFlush(const char*, XXOVERLAPPED* overlapped)
 {
-    if (rootName)
-        if (const auto root = XamGetRootPath(rootName); !root.empty())
-            XamSyncSaveRoot(root);
     CompleteOverlapped(overlapped, ERROR_SUCCESS, 0);
     return overlapped ? ERROR_IO_PENDING : ERROR_SUCCESS;
 }
@@ -1744,7 +1742,10 @@ static uint32_t XamContentSetThumbnail(uint32_t userIndex, const XCONTENT_DATA* 
             std::error_code ec;
             if (std::filesystem::is_directory(root, ec))
             {
-                result = FileSystem::WriteFileDurably(root / ".lo-thumbnail.png", buffer, size) ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
+                std::ofstream out(root / ".lo-thumbnail.png", std::ios::binary | std::ios::trunc);
+                out.write(static_cast<const char*>(buffer), size);
+                out.close();
+                result = out ? ERROR_SUCCESS : ERROR_WRITE_FAULT;
             }
             else result = ERROR_PATH_NOT_FOUND;
         }
@@ -1878,6 +1879,65 @@ static uint32_t XMACreateContext(be<uint32_t>* context)
 }
 static void XMAReleaseContext(uint32_t context) { apu::xma::ReleaseContext(context); }
 
+#if LO_PLATFORM_ANDROID
+// Plain IPv4 socket transport is implemented. Xbox Live/XNet secure transport
+// is unavailable and reports an explicit error rather than simulated success.
+namespace AndroidNet = kernel::android_network;
+static uint32_t NetDll_XNetStartup(uint32_t, uint32_t) { return 10045; }
+static uint32_t NetDll_XNetCleanup(uint32_t, uint32_t) { return 10045; }
+static uint32_t NetDll_WSAStartup(uint32_t, uint32_t version, uint8_t* data) { return AndroidNet::Startup(version, data); }
+static int32_t NetDll_WSACleanup(uint32_t) { return AndroidNet::Cleanup(); }
+static uint32_t NetDll_WSAGetLastError() { return AndroidNet::LastError(); }
+static uint32_t NetDll_XNetGetTitleXnAddr(uint32_t, uint8_t* address)
+{
+    if (address) std::memset(address, 0, 36);
+    return 1; // XNET_GET_XNADDR_NONE, not PENDING; no Xbox Live identity.
+}
+static uint32_t NetDll_socket(uint32_t, uint32_t family, uint32_t type, uint32_t protocol) { return AndroidNet::Socket(family, type, protocol); }
+static int32_t NetDll_closesocket(uint32_t, uint32_t socket) { return AndroidNet::Close(socket); }
+static uint32_t NetDll_WSACreateEvent() { return GetKernelHandle(CreateKernelObject<Event>(true, false)); }
+static int32_t NetDll_bind(uint32_t, uint32_t socket, const uint8_t* address, uint32_t length) { return AndroidNet::Bind(socket, address, length); }
+static int32_t NetDll_connect(uint32_t, uint32_t socket, const uint8_t* address, uint32_t length) { return AndroidNet::Connect(socket, address, length); }
+static int32_t NetDll_getsockname(uint32_t, uint32_t socket, uint8_t* address, uint8_t* length) { return AndroidNet::GetName(socket, address, length); }
+static int32_t NetDll_getsockopt(uint32_t, uint32_t socket, uint32_t level, uint32_t option, uint8_t* value, uint8_t* length) { return AndroidNet::GetOption(socket, level, option, value, length); }
+static int32_t NetDll_setsockopt(uint32_t, uint32_t socket, uint32_t level, uint32_t option, const uint8_t* value, uint32_t length) { return AndroidNet::SetOption(socket, level, option, value, length); }
+static int32_t NetDll_ioctlsocket(uint32_t, uint32_t socket, uint32_t command, uint8_t* value) { return AndroidNet::Ioctl(socket, command, value); }
+static uint32_t NetDll_inet_addr(const char* address) { return AndroidNet::InetAddress(address); }
+static int32_t NetDll_send(uint32_t, uint32_t socket, const void* data, uint32_t length, uint32_t flags) { return AndroidNet::Send(socket, data, length, flags); }
+static int32_t NetDll_recv(uint32_t, uint32_t socket, void* data, uint32_t length, uint32_t flags) { return AndroidNet::Receive(socket, data, length, flags); }
+static int32_t NetDll_sendto(uint32_t, uint32_t socket, const void* data, uint32_t length, uint32_t flags, const uint8_t* address, uint32_t addressLength) { return AndroidNet::SendTo(socket, data, length, flags, address, addressLength); }
+static int32_t NetDll_recvfrom(uint32_t, uint32_t socket, void* data, uint32_t length, uint32_t flags, uint8_t* address, uint8_t* addressLength) { return AndroidNet::ReceiveFrom(socket, data, length, flags, address, addressLength); }
+struct AndroidDnsResult { be<uint32_t> status, count, addresses[8]; };
+static_assert(sizeof(AndroidDnsResult) == 40);
+static std::mutex androidDnsMutex;
+static std::unordered_set<AndroidDnsResult*> androidDnsResults;
+static uint32_t NetDll_XNetDnsLookup(uint32_t, const char* host, uint32_t eventHandle, be<uint32_t>* output)
+{
+    if (!host || !output) return 10022;
+    *output = 0;
+    auto event = eventHandle ? GetKernelObject<Event>(eventHandle) : nullptr;
+    if (eventHandle && !event) return 10022;
+    auto* result = static_cast<AndroidDnsResult*>(g_userHeap.Alloc(sizeof(AndroidDnsResult)));
+    if (!result) return 10055;
+    std::memset(result, 0, sizeof(*result));
+    std::vector<uint32_t> addresses;
+    result->status = AndroidNet::Resolve(host, addresses);
+    result->count = uint32_t(addresses.size());
+    for (size_t i = 0; i < addresses.size(); ++i) result->addresses[i] = addresses[i];
+    { std::lock_guard lock(androidDnsMutex); androidDnsResults.insert(result); }
+    *output = g_memory.MapVirtual(result);
+    // This initial backend completes synchronously and signals after publishing
+    // the result. Resolver failures are returned in XNDNS.status.
+    if (event) event->Set();
+    return 0;
+}
+static uint32_t NetDll_XNetDnsRelease(uint32_t, AndroidDnsResult* result)
+{
+    { std::lock_guard lock(androidDnsMutex);
+      if (!result || !androidDnsResults.erase(result)) return 10022; }
+    g_userHeap.Free(result); return 0;
+}
+#else
 // Networking: report no network.
 static uint32_t NetDll_XNetStartup(uint32_t, uint32_t) { return 0; }
 static uint32_t NetDll_XNetCleanup(uint32_t, uint32_t) { return 0; }
@@ -1887,6 +1947,8 @@ static uint32_t NetDll_WSAGetLastError() { return 10093; } // WSANOTINITIALISED
 static uint32_t NetDll_XNetGetTitleXnAddr(uint32_t, uint32_t) { return 0x00000001; } // XNET_GET_XNADDR_PENDING
 static uint32_t NetDll_socket(uint32_t, uint32_t, uint32_t, uint32_t) { return 0xFFFFFFFF; }
 static uint32_t NetDll_closesocket(uint32_t, uint32_t) { return 0; }
+
+#endif
 
 // ---------------------------------------------------------------------------
 // Hook table
@@ -2098,3 +2160,7 @@ GUEST_FUNCTION_HOOK(__imp__NetDll_WSAGetLastError, NetDll_WSAGetLastError);
 GUEST_FUNCTION_HOOK(__imp__NetDll_XNetGetTitleXnAddr, NetDll_XNetGetTitleXnAddr);
 GUEST_FUNCTION_HOOK(__imp__NetDll_socket, NetDll_socket);
 GUEST_FUNCTION_HOOK(__imp__NetDll_closesocket, NetDll_closesocket);
+
+#if LO_PLATFORM_ANDROID
+#include "android_network_hooks.inc"
+#endif

@@ -1,15 +1,8 @@
 cmake_minimum_required(VERSION 3.28)
 # Minimum macOS version; ignored elsewhere. Must precede project(), and keeps
-# plume from falling back to its own 10.15 default. The bundled DXC library is
-# built for macOS 15.
-set(LO_MINIMUM_MACOS "15.0")
-set(CMAKE_OSX_DEPLOYMENT_TARGET "${LO_MINIMUM_MACOS}" CACHE STRING "Minimum macOS deployment target")
-if(CMAKE_OSX_DEPLOYMENT_TARGET VERSION_LESS LO_MINIMUM_MACOS)
-    # Build trees configured before the minimum was raised keep the old cached value.
-    message(STATUS "Raising CMAKE_OSX_DEPLOYMENT_TARGET from ${CMAKE_OSX_DEPLOYMENT_TARGET} to ${LO_MINIMUM_MACOS}")
-    set(CMAKE_OSX_DEPLOYMENT_TARGET "${LO_MINIMUM_MACOS}" CACHE STRING "Minimum macOS deployment target" FORCE)
-endif()
-project(LostOdysseyRecomp VERSION 0.8.53 LANGUAGES C CXX)
+# plume from falling back to its own 10.15 default.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "14.0" CACHE STRING "Minimum macOS deployment target")
+project(LostOdysseyRecomp VERSION 0.7.25 LANGUAGES C CXX)
 include(GNUInstallDirs)
 # Source version, not a release/commit or clean-checkout assertion.
 # Capture before nested projects can replace PROJECT_VERSION in their scope.
@@ -24,15 +17,18 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(BUILD_SHARED_LIBS OFF)
+if(ANDROID)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # LO_TARGET_PLATFORM / LO_TARGET_ISA for every platform-specific decision below.
 include(cmake/LoPlatform.cmake)
-option(LO_BUILD_ANDROID_PROBE "Build the Android SDL/Vulkan/memory diagnostic app (no game data)" OFF)
-if(LO_BUILD_ANDROID_PROBE)
-    if(NOT ANDROID OR NOT LO_TARGET_ISA STREQUAL "aarch64")
-        message(FATAL_ERROR "The Android probe requires the NDK arm64-v8a toolchain")
+option(LO_ANDROID_DIAGNOSTICS "Build the asset-free Android platform probe (not the game runtime)" OFF)
+if(LO_ANDROID_DIAGNOSTICS)
+    if(NOT ANDROID)
+        message(FATAL_ERROR "LO_ANDROID_DIAGNOSTICS requires the Android NDK toolchain")
     endif()
-    add_subdirectory(tools/android_probe)
+    add_subdirectory(android/native)
     return()
 endif()
 # Sandy Bridge baseline (AVX): lets simde map VMX ops to real SSE4.1/AVX intrinsics
@@ -48,14 +44,12 @@ endif()
 include(cmake/LoOptimization.cmake)
 include(cmake/LoDlss.cmake)
 include(cmake/LoStreamline.cmake)
-include(cmake/LoXess.cmake)
 include(cmake/LoFrameGeneration.cmake)
 include(cmake/LoFsr.cmake)
 # NGX and the FidelityFX SDK paths are D3D12/Vulkan only; macOS renders through
 # Metal. Upscaling there is a separate later feature (MetalFX).
-if(LO_TARGET_PLATFORM STREQUAL "macos" AND (LO_ENABLE_DLSS OR LO_ENABLE_FSR OR LO_ENABLE_STREAMLINE_FG OR
-    LO_ENABLE_XESS OR LO_ENABLE_XESS_FG))
-    message(FATAL_ERROR "DLSS, FSR, XeSS and DLSS frame generation are not available on macOS")
+if(LO_TARGET_PLATFORM STREQUAL "macos" AND (LO_ENABLE_DLSS OR LO_ENABLE_FSR OR LO_ENABLE_STREAMLINE_FG))
+    message(FATAL_ERROR "DLSS, FSR and DLSS frame generation are not available on macOS")
 endif()
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
@@ -63,28 +57,14 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 # CMake 结构拆成 LostOdysseyRecompLib（重编译产物）与 LostOdysseyRecomp（运行时）。
 option(LO_BUILD_TOOLS "Build XenonRecomp / XenosRecomp (use tools/build_tools.bat with MSVC instead)" OFF)
 option(LO_BUILD_RECOMP_LIB "Build the recompiled game code library from LostOdysseyRecompLib/ppc" ON)
-option(LO_BUILD_RUNTIME "Build the LostOdysseyRecomp runtime executable" ON)
-option(LO_BUILD_GPU "Build the plume-based GPU backend" ON)
-option(LO_BUILD_ANDROID_RUNTIME "Enable the experimental Android game runtime shared library" OFF)
-
-if(ANDROID)
-    if(NOT LO_TARGET_ISA STREQUAL "aarch64")
-        message(FATAL_ERROR "Android currently requires the NDK arm64-v8a toolchain")
-    endif()
-    if(LO_BUILD_TOOLS)
-        message(FATAL_ERROR "Android builds use host-generated PPC sources; build XenonRecomp/XenosRecomp separately for the host")
-    endif()
-    if(LO_BUILD_RUNTIME AND NOT LO_BUILD_ANDROID_RUNTIME)
-        message(FATAL_ERROR "The Android game runtime is experimental; explicitly set -DLO_BUILD_ANDROID_RUNTIME=ON, or use -DLO_BUILD_ANDROID_PROBE=ON for diagnostics")
-    endif()
-    # These archives will be linked into the Android runtime shared library.
-    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-endif()
 
 if(LO_BUILD_TOOLS)
     add_subdirectory(tools/XenonRecomp)
     add_subdirectory(tools/XenosRecomp)
 endif()
+
+option(LO_BUILD_RUNTIME "Build the LostOdysseyRecomp runtime executable" ON)
+option(LO_BUILD_GPU "Build the plume-based GPU backend" ON)
 
 if(LO_BUILD_RECOMP_LIB)
     add_subdirectory(LostOdysseyRecompLib)
@@ -96,6 +76,22 @@ if(LO_BUILD_RUNTIME)
     endif()
     if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         message(FATAL_ERROR "The runtime requires Clang")
+    endif()
+    if(ANDROID)
+        include(CheckCXXSourceCompiles)
+        check_cxx_source_compiles("
+#include <atomic>
+#include <thread>
+#include <charconv>
+int main() {
+  unsigned word = 0; std::atomic_ref ref(word); ref.store(1);
+  std::jthread worker([] {});
+  float value = 0; const char text[] = \"60\";
+  return std::from_chars(text, text + 2, value).ec != std::errc{};
+}" LO_ANDROID_RUNTIME_LIBRARY_FEATURES)
+        if(NOT LO_ANDROID_RUNTIME_LIBRARY_FEATURES)
+            message(FATAL_ERROR "Android runtime needs std::atomic_ref, std::jthread and floating-point std::from_chars. Use the tested NDK r29 toolchain or a compatible newer NDK; the diagnostic-only target can still use r27d.")
+        endif()
     endif()
     # XenonRecomp's tree provides XenonUtils (XEX loading), fmt, xxHash and simde.
     if(NOT LO_BUILD_TOOLS)
@@ -113,12 +109,40 @@ if(LO_BUILD_RUNTIME)
                 ${CMAKE_SOURCE_DIR}/LostOdysseyRecomp/modding/mod_api.cpp)
         endif()
     endforeach()
-    if(LO_BUILD_GPU AND NOT ANDROID AND NOT LO_TARGET_PLATFORM STREQUAL "macos")
+    if(LO_BUILD_GPU AND NOT LO_TARGET_PLATFORM STREQUAL "macos")
         add_subdirectory(tools/tests/native_dlss)
     endif()
     if(TARGET LoPpcAutoSync)
         add_dependencies(LostOdysseyRecomp LoPpcAutoSync)
     endif()
+endif()
+
+option(LO_BUILD_XMA_DECODER_SMOKE "Build the asset-free XMA decoder API check" OFF)
+option(LO_BUILD_XEX_LOADER_SMOKE "Build the Disc 1 XEX loader integration check" OFF)
+if(LO_BUILD_XMA_DECODER_SMOKE OR LO_BUILD_XEX_LOADER_SMOKE)
+    if(NOT TARGET lo_avcodec)
+        include(thirdparty/ffmpeg.cmake)
+    endif()
+endif()
+if(LO_BUILD_XMA_DECODER_SMOKE)
+    enable_testing()
+    add_executable(LoXmaDecoderSmoke
+        tools/tests/xma_decoder_smoke.cpp android/native/xma_decoder_probe.cpp)
+    target_include_directories(LoXmaDecoderSmoke PRIVATE android/native)
+    target_link_libraries(LoXmaDecoderSmoke PRIVATE lo_avcodec)
+    add_test(NAME LoXmaDecoderSmoke COMMAND LoXmaDecoderSmoke)
+endif()
+if(LO_BUILD_XEX_LOADER_SMOKE)
+    if(NOT TARGET XenonUtils)
+        set(THIRDPARTY_ROOT ${CMAKE_SOURCE_DIR}/tools/XenonRecomp/thirdparty)
+        add_subdirectory(tools/XenonRecomp/thirdparty)
+        add_subdirectory(tools/XenonRecomp/XenonUtils)
+    endif()
+    add_executable(LoXexLoaderSmoke
+        tools/tests/xex_loader_smoke.cpp android/native/xex_probe.cpp
+        LostOdysseyRecomp/kernel/guest_address_space.cpp)
+    target_include_directories(LoXexLoaderSmoke PRIVATE android/native LostOdysseyRecomp)
+    target_link_libraries(LoXexLoaderSmoke PRIVATE XenonUtils lo_avutil)
 endif()
 
 # No private game data, generated PPC library, GPU or third-party dependency.
@@ -140,7 +164,7 @@ if(LO_BUILD_MOD_TESTS)
     add_test(NAME LoModApiTest COMMAND LoModApiTest)
 endif()
 
-if(UNIX AND NOT ANDROID AND LO_BUILD_RUNTIME)
+if(UNIX AND LO_BUILD_RUNTIME)
     install(TARGETS LostOdysseyRecomp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES
         packaging/linux/io.github.freefrank.LostOdysseyRecomp.desktop
@@ -151,4 +175,20 @@ if(UNIX AND NOT ANDROID AND LO_BUILD_RUNTIME)
     install(FILES
         packaging/linux/io.github.freefrank.LostOdysseyRecomp.metainfo.xml
         DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo)
+endif()
+
+option(LO_BUILD_ANDROID_NETWORK_TEST "Build the Android IPv4 transport regression on a POSIX host" OFF)
+if(LO_BUILD_ANDROID_NETWORK_TEST)
+    if(NOT UNIX)
+        message(FATAL_ERROR "The Android network regression requires a POSIX host")
+    endif()
+    enable_testing()
+    find_package(Threads REQUIRED)
+    add_executable(LoAndroidNetworkTest tools/tests/android_network_test.cpp
+        LostOdysseyRecomp/kernel/android_network.cpp)
+    target_include_directories(LoAndroidNetworkTest PRIVATE LostOdysseyRecomp)
+    target_compile_definitions(LoAndroidNetworkTest PRIVATE LO_ANDROID_NETWORK_TESTING)
+    target_link_libraries(LoAndroidNetworkTest PRIVATE Threads::Threads)
+    add_test(NAME AndroidNetworkTransport COMMAND LoAndroidNetworkTest)
+    set_tests_properties(AndroidNetworkTransport PROPERTIES TIMEOUT 15)
 endif()

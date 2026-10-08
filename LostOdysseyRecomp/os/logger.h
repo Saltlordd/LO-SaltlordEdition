@@ -6,7 +6,8 @@
 #include <cstdlib>
 #include <mutex>
 #include <thread>
-#ifdef __ANDROID__
+#include <os/platform.h>
+#if LO_PLATFORM_ANDROID
 #include <android/log.h>
 #endif
 
@@ -71,22 +72,16 @@ namespace os::logger
         const auto line = func
             ? fmt::format("[{:9.3f} t{:04x}] {} {}: {}\n", ElapsedSeconds(), ThreadTag(), Prefix(type), func, msg)
             : fmt::format("[{:9.3f} t{:04x}] {} {}\n", ElapsedSeconds(), ThreadTag(), Prefix(type), msg);
+#if LO_PLATFORM_ANDROID
+        __android_log_write(type == LogType::Error ? ANDROID_LOG_ERROR :
+            type == LogType::Warning ? ANDROID_LOG_WARN : ANDROID_LOG_INFO,
+            "LostOdysseyRecomp", line.c_str());
+#endif
         if (g_file)
         {
             fwrite(line.data(), 1, line.size(), g_file);
             fflush(g_file);
         }
-#ifdef __ANDROID__
-        // Android stderr is a file (native-stderr.log); logcat replaces the
-        // terminal copy, and stderr keeps only lines without a log file.
-        const int priority = type == LogType::Error ? ANDROID_LOG_ERROR
-            : type == LogType::Warning ? ANDROID_LOG_WARN
-            : type == LogType::Info ? ANDROID_LOG_INFO
-            : type == LogType::Verbose ? ANDROID_LOG_VERBOSE : ANDROID_LOG_DEBUG;
-        __android_log_write(priority, "LostOdyssey", line.c_str());
-        if (g_file)
-            return;
-#endif
         fwrite(line.data(), 1, line.size(), stderr);
         fflush(stderr);
     }

@@ -1,9 +1,274 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 0789c20..b357fd0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -17,7 +17,7 @@ string(COMPARE EQUAL ${CMAKE_SYSTEM_NAME} "Linux" IS_LINUX)
+ 
+ # Project options
+ include(CMakeDependentOption)
+-cmake_dependent_option(PLUME_SDL_VULKAN_ENABLED "Enable SDL Vulkan integration" OFF IS_LINUX OFF)
++cmake_dependent_option(PLUME_SDL_VULKAN_ENABLED "Enable SDL Vulkan integration" OFF "IS_LINUX OR ANDROID" OFF)
+ cmake_dependent_option(PLUME_D3D12_AGILITY_SDK_ENABLED "Enable D3D12 Agility SDK" OFF WIN32 OFF)
+ cmake_dependent_option(PLUME_APPLE_RETINA_ENABLED "Enable Apple Retina display support" ON APPLE ON)
+ option(PLUME_BUILD_EXAMPLES "Build example applications" OFF)
+diff --git a/plume_android_pipeline_cache.h b/plume_android_pipeline_cache.h
+new file mode 100644
+index 0000000..9dc7605
+--- /dev/null
++++ b/plume_android_pipeline_cache.h
+@@ -0,0 +1,39 @@
++#pragma once
++#include <vector>
++#include <span>
++#include <cstring>
++#include <cstdint>
++#include <string>
++#include <fcntl.h>
++#include <unistd.h>
++#include <sys/stat.h>
++#include <cerrno>
++namespace plume::android_pipeline_cache {
++inline constexpr size_t MaxBytes=64u*1024u*1024u;
++inline bool Compatible(std::span<const uint8_t> bytes,uint32_t vendor,uint32_t device,const uint8_t* uuid) {
++ if(bytes.size()<32 || bytes.size()>MaxBytes)return false;
++ uint32_t h[4];std::memcpy(h,bytes.data(),16);
++ return h[0]>=32 && h[0]<=bytes.size() && h[1]==1 && h[2]==vendor && h[3]==device &&
++        std::memcmp(bytes.data()+16,uuid,16)==0;
++}
++inline std::vector<uint8_t> Read(const std::string& path) {
++ int fd=open(path.c_str(),O_RDONLY|O_CLOEXEC|O_NOFOLLOW);if(fd<0)return {};
++ struct stat st{};std::vector<uint8_t> bytes;
++ if(fstat(fd,&st)==0 && S_ISREG(st.st_mode) && st.st_size>=32 && uint64_t(st.st_size)<=MaxBytes) {
++  bytes.resize(size_t(st.st_size));size_t n=0;
++  while(n<bytes.size()) {auto got=read(fd,bytes.data()+n,bytes.size()-n);if(got<0 && errno==EINTR)continue;if(got<=0)break;n+=size_t(got);}
++  if(n!=bytes.size())bytes.clear();
++ }
++ close(fd);return bytes;
++}
++inline bool Write(const std::string& path,std::span<const uint8_t> bytes) {
++ if(bytes.size()<32 || bytes.size()>MaxBytes)return false;
++ const auto tmp=path+".tmp";
++ int fd=open(tmp.c_str(),O_WRONLY|O_CREAT|O_TRUNC|O_CLOEXEC|O_NOFOLLOW,0600);if(fd<0)return false;
++ size_t n=0;
++ while(n<bytes.size()) {auto wrote=write(fd,bytes.data()+n,bytes.size()-n);if(wrote<0 && errno==EINTR)continue;if(wrote<=0)break;n+=size_t(wrote);}
++ bool ok=n==bytes.size() && fsync(fd)==0;if(close(fd)!=0)ok=false;
++ if(ok)ok=rename(tmp.c_str(),path.c_str())==0;
++ if(!ok)unlink(tmp.c_str());return ok;
++}
++}
 diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+index d949fac..df7f16e 100644
 --- a/plume_render_interface_types.h
 +++ b/plume_render_interface_types.h
-@@ -64,4 +64,4 @@ namespace plume {
+@@ -60,10 +60,10 @@ namespace plume {
+         return true;
+     }
+ 
 -#elif defined(__ANDROID__)
-+#elif defined(__ANDROID__) && !defined(PLUME_SDL_VULKAN_ENABLED)
-     typedef ANativeWindow* RenderWindow;
+-    typedef ANativeWindow* RenderWindow;
  #elif defined(PLUME_SDL_VULKAN_ENABLED)
      typedef SDL_Window *RenderWindow;
++#elif defined(__ANDROID__)
++    typedef ANativeWindow* RenderWindow;
+ #elif defined(__linux__)
+     struct RenderWindow {
+         Display* display;
+diff --git a/plume_surface_extent.h b/plume_surface_extent.h
+new file mode 100644
+index 0000000..fcb1853
+--- /dev/null
++++ b/plume_surface_extent.h
+@@ -0,0 +1,10 @@
++#pragma once
++#include <algorithm>
++#include <vulkan/vulkan.h>
++namespace plume {
++inline VkExtent2D ResolveSurfaceExtent(VkExtent2D requested, const VkSurfaceCapabilitiesKHR& caps) {
++    if (caps.currentExtent.width != UINT32_MAX) return caps.currentExtent;
++    return {std::clamp(requested.width,caps.minImageExtent.width,caps.maxImageExtent.width),
++            std::clamp(requested.height,caps.minImageExtent.height,caps.maxImageExtent.height)};
++}
++}
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+index e177f39..4f64ac4 100644
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -10,8 +10,13 @@
+ 
+ #include "plume_vulkan.h"
+ #include "plume_log.h"
++#include "plume_surface_extent.h"
+ 
+ #include <algorithm>
++#if defined(__ANDROID__)
++#include "plume_android_pipeline_cache.h"
++#include <chrono>
++#endif
+ #include <cmath>
+ #include <climits>
+ #include <unordered_map>
+@@ -1440,7 +1445,13 @@ namespace plume {
+         pipelineInfo.layout = pipelineLayout->vk;
+         pipelineInfo.stage = stageInfo;
+ 
++#if defined(__ANDROID__)
++        std::lock_guard cacheLock(device->androidPipelineCacheMutex);
++        VkResult res = vkCreateComputePipelines(device->vk, device->androidPipelineCache, 1, &pipelineInfo, nullptr, &vk);
++        if(res==VK_SUCCESS)++device->androidPipelineGeneration;
++#else
+         VkResult res = vkCreateComputePipelines(device->vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk);
++#endif
+         if (res != VK_SUCCESS) {
+             PLUME_LOG_ERROR("Vulkan", "vkCreateComputePipelines", LogErrorDomain::VkResult, res,
+                 "entry=%s groups=%u,%u,%u flags=0x%X", stageInfo.pName, unsigned(desc.threadGroupSizeX),
+@@ -1702,7 +1713,13 @@ namespace plume {
+         pipelineInfo.layout = pipelineLayout->vk;
+         pipelineInfo.renderPass = renderPass;
+ 
++#if defined(__ANDROID__)
++        std::lock_guard cacheLock(device->androidPipelineCacheMutex);
++        VkResult res = vkCreateGraphicsPipelines(device->vk, device->androidPipelineCache, 1, &pipelineInfo, nullptr, &vk);
++        if(res==VK_SUCCESS)++device->androidPipelineGeneration;
++#else
+         VkResult res = vkCreateGraphicsPipelines(device->vk, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &vk);
++#endif
+         if (res != VK_SUCCESS) {
+             PLUME_LOG_ERROR("Vulkan", "vkCreateGraphicsPipelines", LogErrorDomain::VkResult, res,
+                 "stages=%u render_targets=%u samples=%u flags=0x%X", unsigned(pipelineInfo.stageCount),
+@@ -2433,14 +2450,9 @@ namespace plume {
+         // Clamp the extent to the surface capabilities' min/max bounds.
+         // This is required because the window size may differ from the valid surface extent
+         // (e.g., due to window decorations, compositor behavior, or timing issues).
+-        if (surfaceCapabilities.currentExtent.width != UINT32_MAX) {
+-            requestedWidth = surfaceCapabilities.currentExtent.width;
+-            requestedHeight = surfaceCapabilities.currentExtent.height;
+-        }
+-        else {
+-            requestedWidth = std::clamp(requestedWidth, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
+-            requestedHeight = std::clamp(requestedHeight, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
+-        }
++        const auto extent = ResolveSurfaceExtent({requestedWidth,requestedHeight},surfaceCapabilities);
++        requestedWidth = extent.width;
++        requestedHeight = extent.height;
+ 
+         // A minimized/racing surface may have a zero fixed extent even when
+         // the preceding HWND query was nonzero. Keep its old views for retry.
+@@ -2529,6 +2541,18 @@ namespace plume {
+     bool VulkanSwapChain::needsResize() const {
+         uint32_t windowWidth, windowHeight;
+         getWindowSize(windowWidth, windowHeight);
++#if defined(__ANDROID__)
++        // Compare against the same authoritative extent used by resize().
++        // SDL's drawable size can differ from Android WSI's fixed extent.
++        if (windowWidth && windowHeight && (windowWidth != width || windowHeight != height)) {
++            VkSurfaceCapabilitiesKHR caps{};
++            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(commandQueue->device->physicalDevice, surface, &caps) != VK_SUCCESS)
++                return true;
++            const auto extent = ResolveSurfaceExtent({windowWidth,windowHeight},caps);
++            windowWidth = extent.width;
++            windowHeight = extent.height;
++        }
++#endif
+         return surfaceOutOfDate || (vk == VK_NULL_HANDLE) || (windowWidth != width) || (windowHeight != height) || (requiredPresentMode != createdPresentMode);
+     }
+ 
+@@ -4550,11 +4574,55 @@ namespace plume {
+         // Fill Vulkan-only capabilities.
+         loadStoreOpNoneSupported = supportedOptionalExtensions.find(VK_EXT_LOAD_STORE_OP_NONE_EXTENSION_NAME) != supportedOptionalExtensions.end();
+ 
++#if defined(__ANDROID__)
++        if (const char* path=std::getenv("LO_ANDROID_VK_PIPELINE_CACHE"); path && path[0]=='/') {
++            androidPipelineCachePath=path;
++            auto bytes=android_pipeline_cache::Read(androidPipelineCachePath);
++            if(!android_pipeline_cache::Compatible(bytes,physicalDeviceProperties.vendorID,
++                physicalDeviceProperties.deviceID,physicalDeviceProperties.pipelineCacheUUID))bytes.clear();
++            VkPipelineCacheCreateInfo cacheInfo{};cacheInfo.sType=VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
++            cacheInfo.initialDataSize=bytes.size();cacheInfo.pInitialData=bytes.empty()?nullptr:bytes.data();
++            auto result=vkCreatePipelineCache(vk,&cacheInfo,nullptr,&androidPipelineCache);
++            if(result!=VK_SUCCESS && !bytes.empty()) {
++                bytes.clear();cacheInfo.initialDataSize=0;cacheInfo.pInitialData=nullptr;
++                result=vkCreatePipelineCache(vk,&cacheInfo,nullptr,&androidPipelineCache);
++            }
++            if(result!=VK_SUCCESS)androidPipelineCache=VK_NULL_HANDLE;
++            androidPipelineLoadedBytes=bytes.size();
++        }
++#endif
+         if (!nullDescriptorSupported) {
+             nullBuffer = createBuffer(RenderBufferDesc::DefaultBuffer(16, RenderBufferFlag::VERTEX));
+         }
+     }
+ 
++#if defined(__ANDROID__)
++    void VulkanDevice::saveAndroidPipelineCache() {
++        if(androidPipelineCache==VK_NULL_HANDLE || androidPipelineCachePath.empty())return;
++        if(androidPipelineCacheWrite.valid()) {
++            if(androidPipelineCacheWrite.wait_for(std::chrono::seconds(0))!=std::future_status::ready)return;
++            try {if(!androidPipelineCacheWrite.get())androidPipelineSavedGeneration=0;}
++            catch(...) {androidPipelineSavedGeneration=0;}
++        }
++        std::unique_lock lock(androidPipelineCacheMutex,std::try_to_lock);
++        if(!lock.owns_lock() || androidPipelineGeneration==androidPipelineSavedGeneration)return;
++        size_t size=0;
++        if(vkGetPipelineCacheData(vk,androidPipelineCache,&size,nullptr)!=VK_SUCCESS || size<32 || size>android_pipeline_cache::MaxBytes)return;
++        std::vector<uint8_t> bytes(size);
++        if(vkGetPipelineCacheData(vk,androidPipelineCache,&size,bytes.data())!=VK_SUCCESS)return;
++        bytes.resize(size);
++        if(!android_pipeline_cache::Compatible(bytes,physicalDeviceProperties.vendorID,
++            physicalDeviceProperties.deviceID,physicalDeviceProperties.pipelineCacheUUID))return;
++        const auto generation=androidPipelineGeneration;
++        lock.unlock();
++        try {
++            androidPipelineCacheWrite=std::async(std::launch::async,[path=androidPipelineCachePath,bytes=std::move(bytes)] {
++                return android_pipeline_cache::Write(path,bytes);
++            });
++            androidPipelineSavedGeneration=generation;
++        }catch(...) {androidPipelineSavedGeneration=0;}
++    }
++#endif
+     VulkanDevice::~VulkanDevice() {
+         release();
+     }
+@@ -4856,6 +4924,13 @@ namespace plume {
+     }
+ 
+     void VulkanDevice::release() {
++#if defined(__ANDROID__)
++        if(androidPipelineCacheWrite.valid())androidPipelineCacheWrite.wait();
++        if(androidPipelineCache!=VK_NULL_HANDLE) {
++            vkDestroyPipelineCache(vk,androidPipelineCache,nullptr);
++            androidPipelineCache=VK_NULL_HANDLE;
++        }
++#endif
+         nullBuffer = nullptr; // force destruction before destroying allocator
+ 
+         if (allocator != VK_NULL_HANDLE) {
+diff --git a/plume_vulkan.h b/plume_vulkan.h
+index df27141..1da42bc 100644
+--- a/plume_vulkan.h
++++ b/plume_vulkan.h
+@@ -10,6 +10,9 @@
+ #include "plume_render_interface.h"
+ 
+ #include <mutex>
++#if defined(__ANDROID__)
++#include <future>
++#endif
+ #include <set>
+ #include <unordered_map>
+ #include <unordered_set>
+@@ -457,6 +460,15 @@ namespace plume {
+         bool destroySwapchainBeforeResize = false;
+         VulkanExtensionStatus externalExtensionStatus;
+ 
++#if defined(__ANDROID__)
++        VkPipelineCache androidPipelineCache=VK_NULL_HANDLE;
++        std::mutex androidPipelineCacheMutex;
++        std::string androidPipelineCachePath;
++        std::future<bool> androidPipelineCacheWrite;
++        uint64_t androidPipelineGeneration=0,androidPipelineSavedGeneration=0;
++        size_t androidPipelineLoadedBytes=0;
++        void saveAndroidPipelineCache(); // GPU owner only; disk write is asynchronous.
++#endif
+         VulkanDevice(VulkanInterface *renderInterface, const std::string &preferredDeviceName);
+         ~VulkanDevice() override;
+         std::unique_ptr<RenderDescriptorSet> createDescriptorSet(const RenderDescriptorSetDesc &desc) override;

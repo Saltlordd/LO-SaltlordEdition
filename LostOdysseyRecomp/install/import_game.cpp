@@ -22,7 +22,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
-#include <os/json.h>
+#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
 #include <memory>
 #include <optional>
 #include <set>
@@ -324,7 +324,8 @@ DiscInfo PrepareDisc(const std::filesystem::path& path,
                     std::vector<Entry>& outEntries,
                     bool validate,
                     const Cancelled& cancelled = {},
-                    std::unique_ptr<ImageReader>* retainedReader = nullptr)
+                    std::unique_ptr<ImageReader>* retainedReader = nullptr,
+                    int androidDescriptor = -1)
 {
     if (cancelled && cancelled())
         throw Error("Source check cancelled", true);
@@ -348,6 +349,10 @@ DiscInfo PrepareDisc(const std::filesystem::path& path,
     std::unique_ptr<ImageReader> imageReader;
     if (kind == Kind::Iso)
     {
+#if defined(__ANDROID__)
+        if (androidDescriptor >= 0) imageReader = std::make_unique<IsoImageReader>(androidDescriptor, cancelled);
+        else
+#endif
         imageReader = std::make_unique<IsoImageReader>(path, cancelled);
         outEntries = imageReader->GetEntries();
     }
@@ -390,6 +395,12 @@ DiscInfo PrepareDisc(const std::filesystem::path& path,
             throw Error("Truncated default.xex read");
     }
 
+#if defined(__ANDROID__)
+    if (androidDescriptor >= 0 && (xexBytes.size() != 6623232 ||
+        xenos::resources::Sha256Hex(xenos::resources::Sha256(xexBytes)) !=
+        "175ae53d109d480a83bebbd186e7b6871f7b03ce80af69ab388db2f747640de3"))
+        throw Error("Unsupported Disc 1 executable fingerprint");
+#endif
     ExecutionInfo exec = ParseExecution(xexBytes);
     const std::string edition = IdentifyDisc(exec);
 
@@ -488,7 +499,10 @@ ExtractedDlc ReadExtractedDlc(const std::filesystem::path& dir, const Cancelled&
         if (!input.eof() && input.fail()) throw Error("Could not read extracted DLC sidecar");
     }
     const auto& manifest = package.sidecars[2];
-    json data = json::parse(manifest.begin(), manifest.end(), nullptr, false);
+    // JSON is text. The legacy vendored parser requires char iterators;
+    // newer libc++ deliberately does not provide char_traits<unsigned char>.
+    const std::string_view manifestText(reinterpret_cast<const char*>(manifest.data()), manifest.size());
+    json data = json::parse(manifestText.begin(), manifestText.end(), nullptr, false);
     if (data.is_discarded() || !data.is_object()) throw Error("Invalid extracted DLC manifest");
     if (data.value("schema", 0) != 1 || data.value("title_id", "") != "4D5307FA") throw Error("Wrong extracted DLC metadata");
     auto contentId = data.value("content_id", "");
@@ -938,15 +952,7 @@ ContentScan ScanContent(const std::vector<std::filesystem::path>& paths, const C
         for (size_t i = 0; i < std::min<size_t>(4, scanResult.rejected.size()); ++i)
         {
             if (!details.empty()) details += "; ";
-            const auto& source = scanResult.rejected[i].first;
-            details += source.filename().string();
-            // The size the player sees in their file manager; a short image is
-            // the usual reason an ISO that works elsewhere is rejected (#251).
-            std::error_code ec;
-            if (std::filesystem::is_regular_file(source, ec) && !ec)
-                if (const auto bytes = std::filesystem::file_size(source, ec); !ec)
-                    details += " (" + std::to_string(bytes) + " bytes)";
-            details += ": " + scanResult.rejected[i].second;
+            details += scanResult.rejected[i].first.filename().string() + ": " + scanResult.rejected[i].second;
         }
         std::string suffix = details.empty() ? "" : (" Details: " + details);
         throw Error("No supported Lost Odyssey discs or DLC found." + suffix);
@@ -1003,7 +1009,8 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
                                 const Progress& progress,
                                 const Cancelled& cancelled,
                                 bool replace,
-                                const Commit& commit)
+                                const Commit& commit,
+                                int androidDescriptor = -1)
 {
     auto checkCancelled = [&]() -> bool {
         return cancelled && cancelled();
@@ -1083,7 +1090,13 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
                     "close all importers before removing .import.lock.");
     }
 #else
+#if defined(__ANDROID__)
+    // The kernel lock survives process death correctly; the file stays present
+    // so closing/unlinking cannot race another opener onto a different inode.
+    const int lockFd = open(lockPath.c_str(), O_WRONLY | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+#else
     const int lockFd = open(lockPath.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+#endif
     if (lockFd < 0 || flock(lockFd, LOCK_EX | LOCK_NB) != 0)
     {
         if (lockFd >= 0) close(lockFd);
@@ -1102,8 +1115,10 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
 #else
         close(lockFd);
 #endif
+#if !defined(__ANDROID__)
         std::error_code removeEc;
         std::filesystem::remove(lockPath, removeEc);
+#endif
     };
 
     struct LockGuard
@@ -1156,9 +1171,7 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
     {
         for (const auto& d : selection.discs)
         {
-            const auto slot = dest / ("disc" + std::to_string(d.disc));
-            if (!replace && std::filesystem::exists(slot, ec) &&
-                !(std::filesystem::is_directory(slot, ec) && std::filesystem::is_empty(slot, ec)))
+            if (!replace && std::filesystem::exists(dest / ("disc" + std::to_string(d.disc)), ec))
                 throw Error("Disc " + std::to_string(d.disc) + " is already installed; existing files were kept");
         }
 
@@ -1166,11 +1179,7 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         for (uint32_t n = 1; n <= 4; ++n)
         {
             auto existing = dest / ("disc" + std::to_string(n));
-            // An empty slot folder (made by hand or by an older Android app
-            // that prepared disc1-disc4) holds no disc to retain.
-            const bool emptySlot = !IsSymlinkOrReparse(existing) &&
-                std::filesystem::is_directory(existing, ec) && std::filesystem::is_empty(existing, ec);
-            if (!emptySlot && std::filesystem::exists(existing, ec) &&
+            if (std::filesystem::exists(existing, ec) &&
                 std::none_of(selection.discs.begin(), selection.discs.end(), [n](const DiscInfo& disc) { return disc.disc == n; }))
             {
                 if (IsSymlinkOrReparse(existing)) throw Error("Disc destination is a link: " + existing.string());
@@ -1207,7 +1216,7 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         for (const auto& d : selection.discs)
         {
             LoadedDisc ld;
-            ld.info = PrepareDisc(d.path, d.kind, ld.entries, true, checkCancelled, &ld.image);
+            ld.info = PrepareDisc(d.path, d.kind, ld.entries, true, checkCancelled, &ld.image, androidDescriptor);
             if (ld.info.disc != d.disc || ld.info.media != d.media ||
                 ld.info.version != d.version || ld.info.base != d.base || ld.info.edition != d.edition)
                 throw Error("The selected disc identity changed after review; check the source again");
@@ -1540,9 +1549,6 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         {
             if (IsSymlinkOrReparse(slot.target)) throw Error("Import target is a link: " + slot.target.string());
             std::filesystem::create_directories(slot.target.parent_path());
-            // An empty slot folder holds nothing to back up.
-            if (std::filesystem::is_directory(slot.target) && std::filesystem::is_empty(slot.target))
-                std::filesystem::remove(slot.target);
             if (std::filesystem::exists(slot.target))
             {
                 if (!replace) throw Error("Import target already exists: " + slot.target.string());
@@ -1617,6 +1623,23 @@ InstallResult InstallContent(const ContentScan& selection,
 {
     return ImportContentImpl(selection, destination, progress, cancelled, false, {});
 }
+
+#if defined(__ANDROID__)
+InstallResult InstallAndroidDisc1(int descriptor, const std::filesystem::path& destination,
+                                 const Progress& progress, const Cancelled& cancelled)
+{
+    if (descriptor < 0) throw Error("No ISO descriptor supplied");
+    // Opaque display path, never reopened. ISO reads use only the duplicated FD.
+    std::vector<Entry> entries;
+    const auto disc = PrepareDisc("/android-selected-disc.iso", Kind::Iso, entries, true,
+                                  cancelled, nullptr, descriptor);
+    if (disc.disc != 1 || disc.media != "368DE6DD" || disc.version != 3 || disc.base != 3)
+        throw Error("Select the supported Disc 1 ISO used in the earlier tests");
+    ContentScan selection;
+    selection.discs.push_back(disc);
+    return ImportContentImpl(selection, destination, progress, cancelled, false, {}, descriptor);
+}
+#endif
 
 InstallResult ReimportContent(const ContentScan& selection,
                               const std::filesystem::path& destination,

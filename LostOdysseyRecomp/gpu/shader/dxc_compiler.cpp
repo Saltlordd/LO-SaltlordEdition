@@ -1,8 +1,8 @@
 #include "dxc_compiler.h"
 #include <os/platform.h>
+#include <os/logger.h>
 #include "cache.h"
 #include "binary_cache.h"
-#include "builtin_shader_store.h"
 #include "resource_cpx_index_sha256.h"
 #include <os/shader_log.h>
 #include <os/user_paths.h>
@@ -12,7 +12,6 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <memory>
 #include <mutex>
 #include <span>
 #include <string>
@@ -52,62 +51,6 @@ namespace xenos
 #endif
         std::atomic<uint64_t> g_calls{0}, g_succeeded{0}, g_rejected{0}, g_infrastructureFailed{0};
         std::once_flag g_loadOnce;
-
-        // Host-shader stores (builtin_shader_store.h), one per binary format,
-        // opened on first use. The first use also moves the old `builtin/`
-        // folder into them and removes stores of older translator versions.
-        struct BuiltinStores
-        {
-            std::mutex mutex;
-            std::filesystem::path dir;
-            bool cleaned = false;
-            std::unique_ptr<cache::ShaderStore> stores[3];
-            bool tried[3]{};
-        };
-        BuiltinStores& Builtins() { static BuiltinStores stores; return stores; }
-
-        cache::ShaderStore* OpenBuiltinStoreLocked(BuiltinStores& s, cache::Format format)
-        {
-            const auto i = static_cast<size_t>(format);
-            if (format == cache::Format::Dxbc) return nullptr;
-            if (!s.tried[i]) {
-                s.tried[i] = true;
-                std::error_code ec;
-                std::filesystem::create_directories(s.dir, ec);
-                auto store = std::make_unique<cache::ShaderStore>();
-                std::string error;
-                const auto path = cache::BuiltinStorePath(s.dir, format);
-                if (store->Open(path, format, &error)) s.stores[i] = std::move(store);
-                else LOG_WARNING("shader cache: host shader store {} unavailable ({}); using per-shader files", path.string(), error);
-            }
-            return s.stores[i].get();
-        }
-
-        cache::ShaderStore* BuiltinStore(const std::filesystem::path& dir, cache::Format format)
-        {
-            auto& s = Builtins();
-            std::lock_guard lock(s.mutex);
-            if (!s.cleaned) {
-                s.cleaned = true;
-                s.dir = dir;
-                uint64_t oldBytes = 0;
-                if (const auto removed = cache::RemoveOldBuiltinStores(dir, &oldBytes))
-                    LOG_INFO("shader cache cleanup: removed {} host shader stores of older translator versions ({} bytes freed)", removed, oldBytes);
-                const auto folder = dir / "builtin";
-                std::error_code ec;
-                if (std::filesystem::is_directory(folder, ec)) {
-                    const auto moved = cache::MigrateBuiltinFolder(folder, [&](cache::Format f) -> cache::ShaderStore* {
-                        auto* store = OpenBuiltinStoreLocked(s, f);
-                        return store && store->Writable() ? store : nullptr;
-                    });
-                    LOG_INFO("shader cache cleanup: moved {} host shaders from {} into {}, discarded {} stale files, {} bytes of per-shader files freed; folder {}{}",
-                        moved.moved, folder.string(), cache::BuiltinStorePath(dir, format).filename().string(), moved.discarded, moved.bytesFreed,
-                        moved.folderRemoved ? "removed" : fmt::format("kept ({} files left)", moved.kept),
-                        moved.error.empty() ? std::string{} : "; " + moved.error);
-                }
-            }
-            return OpenBuiltinStoreLocked(s, format);
-        }
 
 #ifdef _WIN32
         void LoadDxc()
@@ -174,7 +117,7 @@ namespace xenos
             // dyld resolves this beside the running executable.
             candidates.push_back(std::string("@executable_path/") + kLibrary);
             const std::filesystem::path relativeDxc = "tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64/libdxcompiler.dylib";
-#else
+#elif !LO_PLATFORM_ANDROID
             char selfPath[4096]{};
             const ssize_t n = readlink("/proc/self/exe", selfPath, sizeof(selfPath) - 1);
             if (n > 0)
@@ -182,16 +125,14 @@ namespace xenos
                 selfPath[n] = '\0';
                 candidates.push_back(std::filesystem::path(selfPath).parent_path() / "libdxcompiler.so");
             }
-#if defined(__linux__) && defined(__aarch64__)
-            const std::filesystem::path relativeDxc = "tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64/libdxcompiler.so";
-#else
             const std::filesystem::path relativeDxc = "tools/XenosRecomp/thirdparty/dxc-bin/lib/x64/libdxcompiler.so";
 #endif
-#endif
+#if !LO_PLATFORM_ANDROID
             if (std::filesystem::exists(relativeDxc, ec))
             {
                 candidates.push_back(relativeDxc);
             }
+#endif
 
             void* module = nullptr;
             for (const auto& candidate : candidates)
@@ -257,6 +198,8 @@ namespace xenos
         return {g_calls.load(), g_succeeded.load(), g_rejected.load(), g_infrastructureFailed.load()};
     }
 
+    static std::atomic<int> g_spirvOptimization{3};
+
     static CompiledShader CompileHlslImpl(const std::string& source, const char* entryPoint, const char* profile, ShaderBinaryFormat format, bool debugInfo)
     {
         CompiledShader result;
@@ -303,7 +246,7 @@ namespace xenos
         }
         else
         {
-            args.push_back(L"-O3");
+            args.push_back(format == ShaderBinaryFormat::Spirv && g_spirvOptimization.load() == 1 ? L"-O1" : L"-O3");
             args.push_back(L"-Qstrip_debug");
             if (format == ShaderBinaryFormat::Dxil) args.push_back(L"-Qstrip_reflect");
         }
@@ -362,8 +305,15 @@ namespace xenos
 {
     CompiledShader CompileHlsl(const std::string& source, const char* entry, const char* profile, ShaderBinaryFormat format, bool debugInfo)
     {
+#if defined(__ANDROID__)
+        const bool trace = std::getenv("LO_ANDROID_SHADER_TRACE") != nullptr;
+        if (trace) LOG_INFO("Android shader compile BEGIN entry={} profile={} sourceBytes={}",entry,profile,source.size());
+#endif
         const auto start = std::chrono::steady_clock::now();
         auto result = CompileHlslImpl(source, entry, profile, format, debugInfo);
+#if defined(__ANDROID__)
+        if (trace) LOG_INFO("Android shader compile END entry={} profile={} ok={} bytecodeBytes={}",entry,profile,result.ok,result.bytecode.size());
+#endif
         // This is compilation-time provenance, not a guest shader or cache key.
         // Do not add content hashing to the cache-hit/per-draw path.
         if (os::shaderlog::Current().IsOpen())
@@ -385,32 +335,36 @@ namespace xenos
         return CompileHlsl(source, entry, profile, ShaderBinaryFormat::Dxil, debugInfo);
     }
 
+    void SetSpirvOptimizationLevel(int level)
+    {
+        g_spirvOptimization = level == 1 ? 1 : 3;
+    }
+
     CompiledShader CompileCachedHlsl(const std::string& source, const char* entry, const char* profile, ShaderBinaryFormat format)
     {
+#if defined(__ANDROID__)
+        const bool trace = std::getenv("LO_ANDROID_SHADER_TRACE") != nullptr;
+        if (trace) LOG_INFO("Android builtin shader BEGIN entry={} profile={} sourceBytes={}",entry,profile,source.size());
+#endif
         const std::string key = source + '\0' + entry + '\0' + profile + "lo-dxc-vulkan12-dx-layout-v1";
         uint64_t hash = 0xcbf29ce484222325ull;
         for (uint8_t byte : key) { hash ^= byte; hash *= 0x100000001b3ull; }
         const bool spirv = format == ShaderBinaryFormat::Spirv;
         auto identity = cache::MakeIdentity(spirv ? cache::Backend::Vulkan : cache::Backend::D3D12, DxcIdentity());
+        if (spirv && g_spirvOptimization.load() == 1) identity.options = cache::MetalOptions();
         identity.variant = "builtin:" + std::to_string(std::strlen(entry)) + ":" + entry +
             ":" + std::to_string(std::strlen(profile)) + ":" + profile;
         const bool pixel = std::string_view(profile).starts_with("ps_");
         const char* configured = std::getenv("LO_SHADER_CACHE_DIR");
-        const bool cacheEnabled = !configured || *configured;
-        const auto cacheDir = configured ? std::filesystem::path(configured) : (os::user_paths::UsePortableLayout() ? std::filesystem::path("cache/shaders") : os::user_paths::DataDir() / "cache/shaders");
-        const auto directory = cacheDir / "builtin";
+        const auto directory = (configured ? std::filesystem::path(configured) : (os::user_paths::UsePortableLayout() ? std::filesystem::path("cache/shaders") : os::user_paths::DataDir() / "cache/shaders")) / "builtin";
         const auto path = directory / cache::FileName(pixel, hash, identity);
-        auto* store = cacheEnabled && cache::ValidIdentity(identity) ? BuiltinStore(cacheDir, identity.format) : nullptr;
-        const auto digest = store ? cache::BuiltinDigest(identity) : cache::InputDigest{};
         CompiledShader result;
-        if (store) {
-            result.bytecode = store->Find(pixel, hash, digest);
-            // A second instance cannot move the folder; it still reads it.
-            if (result.bytecode.empty() && !store->Writable())
-                result.bytecode = cache::ReadBinary(path, pixel, hash, identity);
-        } else if (cacheEnabled) result.bytecode = cache::ReadBinary(path, pixel, hash, identity);
+        if (!configured || *configured) result.bytecode = cache::ReadBinary(path, pixel, hash, identity);
         if (!result.bytecode.empty()) {
             result.ok = true;
+#if defined(__ANDROID__)
+            if (trace) LOG_INFO("Android builtin shader CACHE HIT entry={} profile={} bytes={}",entry,profile,result.bytecode.size());
+#endif
             if (os::shaderlog::Current().IsOpen())
                 SHADER_LOG_INFO("cache-hit", BuiltinKeyFnv, "builtin key={:016x} profile={} entry={} format={} bytes={}",
                     hash, profile, entry, spirv ? "spirv" : "dxil", result.bytecode.size());
@@ -420,13 +374,14 @@ namespace xenos
             SHADER_LOG_INFO("cache-miss", BuiltinKeyFnv, "builtin key={:016x} profile={} entry={} format={}",
                 hash, profile, entry, spirv ? "spirv" : "dxil");
         result = CompileHlsl(source, entry, profile, format);
-        if (result.ok && store) {
-            if (store->Writable()) store->Add(pixel, hash, digest, result.bytecode);
-        } else if (result.ok && cacheEnabled) {
+        if (result.ok && (!configured || *configured)) {
             std::error_code error;
             std::filesystem::create_directories(directory, error);
             if (!error) cache::WriteBinary(path, pixel, hash, identity, result.bytecode);
         }
+#if defined(__ANDROID__)
+        if (trace) LOG_INFO("Android builtin shader END entry={} profile={} ok={}",entry,profile,result.ok);
+#endif
         return result;
     }
 }

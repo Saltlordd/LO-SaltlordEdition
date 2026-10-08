@@ -16,10 +16,9 @@ struct VulkanDevice;
 namespace gpu { class TemporalUpscaler; }
 
 namespace gpu::upscaling {
-// Persisted. MetalFx is the Metal backend's temporal upscaler (macOS only);
-// Xess is Intel XeSS-SR on the D3D12 backend (Windows only).
-enum class Upscaler : uint32_t { Off = 0, Dlss = 1, Fsr = 2, MetalFx = 3, Xess = 4 };
-inline constexpr bool KnownUpscaler(Upscaler value) { return uint32_t(value) <= uint32_t(Upscaler::Xess); }
+// Persisted. MetalFx is the Metal backend's temporal upscaler (macOS only).
+enum class Upscaler : uint32_t { Off = 0, Dlss = 1, Fsr = 2, MetalFx = 3 };
+inline constexpr bool KnownUpscaler(Upscaler value) { return uint32_t(value) <= uint32_t(Upscaler::MetalFx); }
 // Persisted IDs and the two-bit frame-plan wire field. Append, never renumber.
 enum class DlssQuality : uint32_t { Quality = 0, Balanced = 1, Performance = 2, Dlaa = 3 };
 inline constexpr std::array kDlssQualityModes{
@@ -49,12 +48,12 @@ inline constexpr bool ValidDlssRenderExtent(DlssQuality quality, resolution::Siz
     return KnownDlssQuality(quality) && render.width && render.height && output.width && output.height &&
         (quality != DlssQuality::Dlaa || render == output);
 }
-enum class TemporalConsumer : uint32_t { None = 0, LegacyTaa = 1, DlssInputs = 2, DlssSr = 3, FsrSr = 4, MetalFxSr = 5, XessSr = 6 };
-inline constexpr bool KnownTemporalConsumer(TemporalConsumer value) { return uint32_t(value) <= uint32_t(TemporalConsumer::XessSr); }
+enum class TemporalConsumer : uint32_t { None = 0, LegacyTaa = 1, DlssInputs = 2, DlssSr = 3, FsrSr = 4, MetalFxSr = 5 };
+inline constexpr bool KnownTemporalConsumer(TemporalConsumer value) { return uint32_t(value) <= uint32_t(TemporalConsumer::MetalFxSr); }
 inline constexpr bool RequiresMotionDepth(TemporalConsumer consumer, FrameGeneration frameGeneration = FrameGeneration::Off) {
     return consumer == TemporalConsumer::DlssInputs || consumer == TemporalConsumer::DlssSr ||
         consumer == TemporalConsumer::FsrSr || consumer == TemporalConsumer::MetalFxSr ||
-        consumer == TemporalConsumer::XessSr || frameGeneration != FrameGeneration::Off;
+        frameGeneration != FrameGeneration::Off;
 }
 // P1's input-only route and P2's native SR route have different output handling,
 // but both require the same complete temporal input contract and request-level
@@ -64,32 +63,29 @@ inline constexpr bool IsDlssConsumer(TemporalConsumer consumer) {
 }
 inline constexpr bool IsSrConsumer(TemporalConsumer consumer) {
     return consumer == TemporalConsumer::DlssSr || consumer == TemporalConsumer::FsrSr ||
-        consumer == TemporalConsumer::MetalFxSr || consumer == TemporalConsumer::XessSr;
+        consumer == TemporalConsumer::MetalFxSr;
 }
 inline constexpr Upscaler ProviderForConsumer(TemporalConsumer consumer) {
     return consumer == TemporalConsumer::FsrSr ? Upscaler::Fsr : consumer == TemporalConsumer::MetalFxSr ? Upscaler::MetalFx :
-        consumer == TemporalConsumer::XessSr ? Upscaler::Xess : IsDlssConsumer(consumer) ? Upscaler::Dlss : Upscaler::Off;
+        IsDlssConsumer(consumer) ? Upscaler::Dlss : Upscaler::Off;
 }
 inline constexpr bool MatchesSrProvider(Upscaler provider, TemporalConsumer consumer) {
     return IsSrConsumer(consumer) && ProviderForConsumer(consumer) == provider;
 }
-// FSR, MetalFX and XeSS share the FsrQuality IDs and plan field. FSR and MetalFX
-// share its ratios; XeSS maps the same-named SDK presets and queries their extent.
+// FSR and MetalFX share the FsrQuality ratios and plan field.
 inline constexpr bool UsesFsrQuality(Upscaler provider) {
-    return provider == Upscaler::Fsr || provider == Upscaler::MetalFx || provider == Upscaler::Xess;
+    return provider == Upscaler::Fsr || provider == Upscaler::MetalFx;
 }
 inline constexpr TemporalConsumer FsrQualityConsumer(Upscaler provider) {
-    return provider == Upscaler::MetalFx ? TemporalConsumer::MetalFxSr :
-        provider == Upscaler::Xess ? TemporalConsumer::XessSr : TemporalConsumer::FsrSr;
+    return provider == Upscaler::MetalFx ? TemporalConsumer::MetalFxSr : TemporalConsumer::FsrSr;
 }
 inline constexpr bool SameEffectiveQuality(Upscaler provider, DlssQuality aDlss, DlssQuality bDlss,
     FsrQuality aFsr, FsrQuality bFsr) {
     switch (provider) {
     case Upscaler::Dlss: return aDlss == bDlss;
-    // MetalFX and XeSS reuse the FSR quality IDs.
+    // MetalFX reuses the FSR quality ratios.
     case Upscaler::Fsr:
-    case Upscaler::MetalFx:
-    case Upscaler::Xess: return aFsr == bFsr;
+    case Upscaler::MetalFx: return aFsr == bFsr;
     case Upscaler::Off: return true;
     }
     return false;
@@ -103,8 +99,20 @@ struct OutputRegion {
 
 inline constexpr OutputRegion ResolveOutputRegion(resolution::Size drawable) {
     if (!drawable.width || !drawable.height) return {{}, 0, 0, 0, 0};
-    // The scene fills the drawable. Menus and movies fit their own 16:9
-    // content inside it; their bars must not constrain the 3D render target.
+#if defined(__ANDROID__)
+    // Cap vertical expansion at 4:3; retain the complete ultrawide cover view.
+    if (uint64_t(drawable.width) * 3 < uint64_t(drawable.height) * 4) {
+        const uint32_t height = uint32_t(uint64_t(drawable.width) * 3 / 4);
+        return {drawable, 0, (drawable.height - height) / 2, drawable.width, height};
+    }
+    return {drawable, 0, 0, drawable.width, drawable.height};
+#endif
+    // Preserve configured wide output. Taller outputs present the 16:9 logical
+    // surface in the centered content region, leaving top/bottom bars outside it.
+    if (uint64_t(drawable.width) * 9 < uint64_t(drawable.height) * 16) {
+        const uint32_t height = uint32_t((uint64_t(drawable.width) * 9) / 16);
+        return {drawable, 0, (drawable.height - height) / 2, drawable.width, height};
+    }
     return {drawable, 0, 0, drawable.width, drawable.height};
 }
 
@@ -193,11 +201,9 @@ struct BackendDeviceSnapshot {
     bool gpuWorkStopped = false;
     bool fsrAvailable = false;
     bool metalFxAvailable = false;
-    bool xessAvailable = false;
     bool Available(Upscaler provider) const {
         if (!deviceReady || gpuWorkStopped) return false;
         if (backend == backend::Backend::Metal) return provider == Upscaler::MetalFx && metalFxAvailable;
-        if (provider == Upscaler::Xess) return backend == backend::Backend::D3D12 && xessAvailable;
         return (backend == backend::Backend::Vulkan || backend == backend::Backend::D3D12) &&
             (provider == Upscaler::Dlss ? dlssAvailable : provider == Upscaler::Fsr && fsrAvailable);
     }

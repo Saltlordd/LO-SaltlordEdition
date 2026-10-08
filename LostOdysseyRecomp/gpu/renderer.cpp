@@ -1,4 +1,5 @@
 #include "taa_collection.h"
+#include "shader/learned_source.h"
 #include <source_location>
 #include "taa_binding_producer.h"
 #include "temporal_evidence.h"
@@ -7,9 +8,6 @@
 #include "scene_copy_promotion_shaders.h"
 #include "bloom_prefilter.h"
 #include <stdafx.h>
-#include <os/atomic_ref.h>
-#include <condition_variable>
-#include <deque>
 #include "renderer.h"
 #include <os/user_paths.h>
 #include "render_resolution.h"
@@ -32,10 +30,8 @@
 #include "occlusion_queries.h"
 #include "polygon_offset.h"
 #include "pipeline_cache.h"
-#include "driver_pipeline_cache.h"
 #include "texture_layout.h"
 #include "controller_atlas.h"
-#include "bc_decode.h"
 #include "temporal_scene.h"
 #include "temporal_jitter.h"
 #include "temporal_suspect.h"
@@ -61,26 +57,21 @@
 #include "shader/dxc_compiler.h"
 #include "shader/cache.h"
 #include "shader/binary_cache.h"
-#include "shader/shader_store.h"
 #include "shader/preparation_queue.h"
 #include "shader/retry_state.h"
 #include "shader/rect_list_hlsl.h"
 #include "shader/startup_cache.h"
 #include "shader/portable_shader_pack.h"
 #include "shader/portable_shader_contract.h"
-#include "shader/portable_shader_pack_location.h"
 #include "shader/resource_scan.h"
 #include "shader/source_store.h"
 #include "shader/resource_xex.h"
 #include "shader/resource_variants.h"
-#include "hdr_scene_shader.h"
 #include <kernel/io/file_system.h>
 #include <kernel/memory.h>
 #include <kernel/xex_loader.h>
 #include <os/logger.h>
 #include <os/shader_log.h>
-#include <os/stale_files.h>
-#include <os/thread_name.h>
 #include "color_qualification.h"
 #include "render_timing.h"
 #include "render_batch_policy.h"
@@ -89,8 +80,6 @@
 #include <os/log_file.h>
 #include <os/startup_diagnostics.h>
 #include <os/capture_archive.h>
-#include <debug/map_info.h>
-#include <debug/battle_menu.h>
 #include <version.h>
 
 #ifdef LO_GPU_PLUME
@@ -125,7 +114,6 @@ namespace plume {
 #include <fstream>
 #include <iomanip>
 #include <future>
-#include <bitset>
 #include <set>
 #include <tuple>
 #include <map>
@@ -136,32 +124,15 @@ namespace plume {
 #include <mutex>
 #include <string_view>
 #include "gpu/frame_plan.h"
-#include "gpu/ambient_occlusion.h"
 
 namespace gpu::renderer
 {
     namespace binding = gpu::taa_collection::binding;
     namespace {
-        std::atomic<bool> hdrSceneEnabled{false};
-        // Scene tags of maps and battles that started loading (game thread),
-        // consumed by the renderer's scene prefetch once a frame.
-        std::mutex g_scenePrefetchMutex;
-        std::vector<uint32_t> g_scenePrefetchRequests;
-        void RequestScenePrefetch(uint32_t tag)
-        {
-            std::lock_guard lock(g_scenePrefetchMutex);
-            if (g_scenePrefetchRequests.size() < 64 &&
-                std::find(g_scenePrefetchRequests.begin(), g_scenePrefetchRequests.end(), tag) == g_scenePrefetchRequests.end())
-                g_scenePrefetchRequests.push_back(tag);
-        }
         std::mutex framePlanMutex;
         frame_plan::FramePlan committedPlan{};
-        // Bumped under framePlanMutex when committedPlan or failedPlanEpochs changes.
-        std::atomic<uint64_t> framePlanGeneration{1};
         std::mutex catalogMutex;
         std::unordered_map<uint64_t, frame_plan::SurfaceRole> catalogRoles;
-        // Bumped under catalogMutex when catalogRoles changes.
-        std::atomic<uint64_t> catalogGeneration{1};
         uint64_t CatalogKey(uint32_t surfaceInfo, uint32_t colorInfo)
         {
             return (uint64_t(colorInfo & 0xFFF) << 32) | (surfaceInfo & 0x3FFF);
@@ -172,7 +143,6 @@ namespace gpu::renderer
             const auto found = catalogRoles.find((uint64_t(base) << 32) | pitch);
             if (found == catalogRoles.end()) return resolution::TargetRole::Unknown;
             return found->second == frame_plan::SurfaceRole::Scene ? resolution::TargetRole::Scene
-                : found->second == frame_plan::SurfaceRole::Shadow ? resolution::TargetRole::Shadow
                 : found->second == frame_plan::SurfaceRole::Fixed ? resolution::TargetRole::Fixed
                 : resolution::TargetRole::Unknown;
         }
@@ -235,10 +205,6 @@ namespace gpu::renderer
         // leaves END records for the command processor to complete.
         std::atomic<bool> g_occlusionWait{false};
         std::atomic<bool> g_occlusionStrict{false};
-        // Owner of each guest query record slot, as the pool allocation hook
-        // last reported it (NoteOcclusionQueryOwner).
-        std::mutex g_occlusionOwnerMutex;
-        std::unordered_map<uint32_t, uint64_t> g_occlusionOwners;
 
         // ---- register indices ---------------------------------------------
         constexpr uint32_t REG_RB_SURFACE_INFO = 0x2000;
@@ -251,7 +217,6 @@ namespace gpu::renderer
         constexpr uint32_t REG_PA_SC_WINDOW_SCISSOR_BR = 0x2082;
         constexpr uint32_t REG_VGT_INDX_OFFSET = 0x2102;
         constexpr uint32_t REG_RB_COLOR_MASK = 0x2104;
-        constexpr uint32_t REG_RB_BLEND_RED = 0x2105;   // GREEN, BLUE, ALPHA follow
         constexpr uint32_t REG_RB_ALPHA_REF = 0x210E;
         constexpr uint32_t REG_RB_STENCILREFMASK_BF = 0x210C;
         constexpr uint32_t REG_RB_STENCILREFMASK = 0x210D;
@@ -391,7 +356,6 @@ namespace gpu::renderer
             uint32_t width = 0, height = 0;
             uint32_t guestWidth = 0, guestHeight = 0;
             resolution::Size resolutionSize{};
-            bool shadowMap = false;
             uint32_t ScaleX(uint32_t value) const { return resolution::ScaleX(value, resolutionSize.width); }
             uint32_t ScaleY(uint32_t value) const { return resolution::Scale(value, resolutionSize.height); }
             uint32_t depthMsaa = 0;
@@ -416,27 +380,6 @@ namespace gpu::renderer
             uint64_t sdrProducerFrame = ~0ull;
             uint32_t qualifiedSdrWidth = 0;
             uint32_t qualifiedSdrHeight = 0;
-            std::unique_ptr<HostTexture> hdrSidecar;
-            uint64_t hdrFrame = ~0ull;
-            bool hdrValid = false;
-            uint32_t hdrValidWidth = 0, hdrValidHeight = 0;
-            // Nonzero for scene-copy promotion images: retirement returns the
-            // image to the renderer's pool instead of destroying it.
-            RenderTextureFlags poolFlags = RenderTextureFlag::NONE;
-            // Cropped resolve fetch views: the resolve write they last copied.
-            uint64_t viewSourceOrdinal = 0, viewSourceAllocation = 0;
-            const RenderTexture* viewSource = nullptr;
-        };
-
-        // An idle scene-copy promotion image, reused once its slot's fence
-        // completed. Each use gets a fresh HostTexture and allocation serial.
-        struct PooledTexture
-        {
-            std::unique_ptr<RenderTexture> texture;
-            RenderFormat format = RenderFormat::UNKNOWN;
-            uint32_t width = 0, height = 0;
-            RenderTextureFlags flags = RenderTextureFlag::NONE;
-            uint64_t idleFrame = 0;
         };
 
         struct RenderTargetKey
@@ -455,8 +398,6 @@ namespace gpu::renderer
             std::unique_ptr<RenderShader> shader;
             xenos::TranslatedShader info;
             bool valid = false;
-            std::unique_ptr<RenderShader> hdrShader;
-            bool hdrShaderAttempted = false;
             position_evidence::Summary position;
             bool positionReady = false;
             xenos::retry::State retry;
@@ -542,9 +483,6 @@ namespace gpu::renderer
                 std::unique_ptr<RenderBuffer> uploadRing;
                 uint8_t* uploadMapped = nullptr;
                 uint64_t uploadOffset = 0;
-                // Renderer-unique, renewed whenever the ring is created or rewound:
-                // an offset recorded under this value still holds its data.
-                uint64_t uploadGeneration = 0;
                 uint64_t arenaOffset = 0;
                 std::vector<std::unique_ptr<RenderDescriptorSet>> setPools[4];
                 // Per pooled set: bindings that may hold a non-dummy view.
@@ -557,8 +495,7 @@ namespace gpu::renderer
                 // a distinct output while commands in the slot remain in flight.
                 std::vector<std::unique_ptr<HostTexture>> bloomPrefilterTextures;
                 size_t bloomPrefilterUsed = 0;
-                uint64_t temporalSerial = 0, hdrTemporalSerial = 0, sceneTaaHdrSerial = 0, motionSerial = 0, aoSerial = 0;
-                std::vector<std::shared_ptr<void>> aoUses;
+                uint64_t temporalSerial = 0, hdrTemporalSerial = 0, motionSerial = 0;
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
                 uint64_t srUseId = 0;
 #else
@@ -637,7 +574,6 @@ namespace gpu::renderer
             geometry_prepare::VertexCache vertexCache;
             geometry_prepare::IndexCache indexCache;
             uint64_t indexCacheHits = 0, indexCacheMisses = 0;
-            uint64_t uploadGenerations = 0; // Source of GpuSlot::uploadGeneration.
             std::array<uint64_t, kGpuSlots> motionArenaGeneration{};
             void ResetSlotArena(uint32_t i)
             {
@@ -676,142 +612,14 @@ namespace gpu::renderer
             uint32_t rectListSkipped = 0;
 
             std::unordered_map<uint64_t, Shader> shaders[2];
-            // Keyed by the normalized pipeline key. sceneSerial: the scene in which
-            // the pipeline was last drawn was recorded in its recipe.
-            struct PipelineSlot { std::unique_ptr<RenderPipeline> pipeline; uint32_t sceneSerial = 0; };
-            std::unordered_map<PipelineKey, PipelineSlot, PipelineKeyHash> pipelines;
-            std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> hdrPipelines;
+            std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> pipelines;
             // Full state recipes are portable; driver blobs and object pointers
             // are never persisted. Render maps stay on the command thread.
-            // Version 2: keys are normalized (gpu::pipeline_cache::Normalize);
-            // version 1 files are normalized on load.
-            static constexpr uint32_t kPipelineRecipeVersion = 2, kOldestPipelineRecipeVersion = 1;
-            // Known recipes: the player's learned file plus the shipped corpus, with
-            // the scenes they were drawn in. Learned entries are saved. Written on the
-            // render thread under pipelineRecipeMutex (the exit flush reads it).
-            struct RecipeEntry { gpu::pipeline_cache::Scenes scenes; bool learned = false; };
-            std::unordered_map<PipelineKey, RecipeEntry, PipelineKeyHash> knownRecipes;
-            size_t learnedRecipes = 0, corpusRecipes = 0;
-            std::unordered_set<PipelineKey, PipelineKeyHash> preparedPipelineKeys, usedPreparedPipelineKeys;
+            static constexpr uint32_t kPipelineRecipeVersion = 1;
+            std::unordered_set<PipelineKey, PipelineKeyHash> pipelineRecipes, preparedPipelineKeys, usedPreparedPipelineKeys;
             std::future<gpu::pipeline_cache::WriteResult> pipelineWrite;
             bool pipelineCacheEnabled = false, pipelineRecipesDirty = false;
             uint64_t preparedPipelineHits = 0, runtimePipelineCreates = 0;
-            std::mutex pipelineRecipeMutex;
-            // Scene being drawn (debug_menu::CurrentSceneTag), checked once a frame.
-            uint32_t sceneTag = gpu::pipeline_cache::kNoScene, sceneSerial = 1;
-            // The driver's own pipeline cache file; empty when disabled.
-            std::filesystem::path driverCachePath;
-            std::atomic<size_t> driverCacheBytes{0}; // largest size loaded or written
-            std::future<std::string> driverCacheWrite;
-            // Draw-time pipeline creations (misses) of the current frame. A shader is
-            // "seen" when an earlier recipe or created pipeline used it.
-            std::unordered_set<uint64_t> pipelineShadersSeen[2];
-            struct PipelineMiss { PipelineKey key{}; double ms = 0; bool recipe = false, vsSeen = false, psSeen = false; };
-            PipelineMiss firstPipelineMiss;
-            uint32_t pipelineMissCount = 0;
-            double pipelineMissMs = 0;
-            // Draw-time lookups served by a prefetch job this frame; the
-            // time spent waiting for jobs that were still compiling.
-            uint32_t prefetchServed = 0;
-            double prefetchWaitMs = 0;
-            // Pipeline workers: pipelines of a scene's recipes while it loads, the
-            // siblings of a draw-time miss (known recipes sharing its VS or PS), and
-            // with LO_PIPELINE_ASYNC=1 the pipelines of skipped draws; plus the pack
-            // shader modules they still need. Jobs are made and harvested on the
-            // render thread. A sibling whose other shader is not loaded yet makes it
-            // on the worker before building; such modules are never freed (plume's
-            // pipeline libraries key on module handles). A draw that needs a queued
-            // pipeline job takes it over, one that needs a running job waits for it.
-            // Declared before the pool so jobs outlive it.
-            struct PrefetchBatch {
-                uint32_t tag = 0;
-                size_t planned = 0;
-                std::atomic<size_t> remaining{0}, failed{0};
-                std::chrono::steady_clock::time_point started;
-            };
-            struct PrefetchJob {
-                enum State : int { Queued, Running, Done, Taken };
-                // Priority order. Draw: a skipped draw needs it. Scene: a scene that is
-                // loading. Sibling: shares a shader with a draw-time miss.
-                enum Kind : uint8_t { Draw, Scene, Sibling };
-                std::atomic<int> state{Queued};
-                Kind kind = Scene; // changed under the pool mutex
-                PipelineKey key{};
-                RenderGraphicsPipelineDesc desc;
-                std::unique_ptr<RenderPipeline> pipeline;
-                std::shared_ptr<PrefetchBatch> batch;
-                // Shader job: the module of one pack record. raw stays valid after the
-                // module moves into the shader map.
-                bool shader = false, pixel = false;
-                uint64_t hash = 0;
-                std::shared_ptr<xenos::portable_pack::Reader> pack;
-                xenos::TranslatedShader info;
-                std::unique_ptr<RenderShader> module;
-                RenderShader* raw = nullptr;
-                // Sibling job whose shader is not loaded: the desc is made on the worker
-                // after the shader job (run there if still queued) has its module.
-                Shader* vs = nullptr;
-                Shader* ps = nullptr;
-                std::shared_ptr<PrefetchJob> needVs, needPs;
-            };
-            // Worker-made modules whose hash got another module first; a build may
-            // have used them, so they live as long as the shader map.
-            std::vector<std::unique_ptr<RenderShader>> orphanShaders;
-            std::unordered_map<PipelineKey, std::shared_ptr<PrefetchJob>, PipelineKeyHash> prefetchJobs;
-            std::unordered_map<uint64_t, std::shared_ptr<PrefetchJob>> prefetchShaderJobs[2];
-            // Recipes whose shader modules are still being made.
-            std::vector<std::pair<PipelineKey, std::shared_ptr<PrefetchBatch>>> prefetchWaiting;
-            uint64_t prefetchHarvested = 0;
-            bool scenePrefetchEnabled = false;
-            bool prefetchShadersChanged = false; // a draw took a shader job over
-            std::unordered_set<PipelineKey, PipelineKeyHash> failedPrefetch;
-            // Draw-time siblings: known recipes not built at the first miss, by shader.
-            // Recipes learned later are built ones, never siblings.
-            struct SiblingIndex {
-                bool built = false;
-                std::vector<std::pair<PipelineKey, const RecipeEntry*>> recipes;
-                std::unordered_map<uint64_t, std::vector<uint32_t>> byVs, byPs;
-            } siblingIndex;
-            // Workers for draw and sibling jobs (scene jobs may use them all);
-            // LO_PIPELINE_MISS_WORKERS=0 turns siblings and skipped draws off.
-            const size_t drawWorkerCap = [] {
-                if (const char* value = getenv("LO_PIPELINE_MISS_WORKERS")) return size_t(std::clamp(atoi(value), 0, 16));
-                return size_t(std::clamp(std::thread::hardware_concurrency() / 4, 2u, 6u));
-            }();
-            const bool pipelineSiblings = drawWorkerCap && !getenv("LO_NO_PIPELINE_SIBLINGS");
-            const bool pipelineAsync = drawWorkerCap && getenv("LO_PIPELINE_ASYNC") &&
-                std::string_view(getenv("LO_PIPELINE_ASYNC")) != "0";
-            bool pipelineDeferred = false; // GetPipeline's nullptr is a skipped draw, not a failure
-            const bool pipelineMissVerbose = getenv("LO_PIPELINE_MISS_LOG") != nullptr;
-            std::unordered_set<PipelineKey, PipelineKeyHash> unusedSiblings; // verbose: built, not drawn yet
-            struct WorkerStats { uint32_t queued = 0, built = 0, hits = 0, skipped = 0, shaders = 0; } workerStats; // this frame
-            // Vulkan graphics pipeline libraries: a draw-time miss links per-shader
-            // parts instead of compiling the whole pipeline. A background thread builds
-            // the parts for the shaders of known recipes. Declared after the shader
-            // and pipeline maps so it stops first.
-            bool fastLinkPipelines = false;
-            struct LibraryPrecompile {
-                std::atomic<bool> stop{false};
-                std::thread thread;
-                ~LibraryPrecompile() { stop = true; if (thread.joinable()) thread.join(); }
-            } libraryPrecompile;
-            struct PrefetchPool {
-                std::mutex mutex;
-                std::condition_variable wake, finished;
-                // One queue per job kind; siblings newest miss first. Entries that were
-                // taken over or dropped stay until a worker skips them.
-                std::deque<std::shared_ptr<PrefetchJob>> draw, scene, siblings;
-                size_t runningSmall = 0, smallCap = 1; // draw and sibling jobs
-                std::vector<std::thread> workers;
-                bool stop = false;
-                std::atomic<uint64_t> completed{0};
-                ~PrefetchPool()
-                {
-                    { std::lock_guard lock(mutex); stop = true; draw.clear(); scene.clear(); siblings.clear(); }
-                    wake.notify_all();
-                    for (auto& worker : workers) worker.join();
-                }
-            } prefetchPool;
             std::unordered_map<RenderTargetKey, std::unique_ptr<HostTexture>, RenderTargetKeyHash> renderTargets;
             std::unordered_map<TextureKey, std::unique_ptr<HostTexture>, TextureKeyHash> textures;
 
@@ -827,15 +635,7 @@ namespace gpu::renderer
                 uint64_t frame = 0;
                 uint64_t writeOrdinal = 0;
                 uint32_t writeX = 0, writeY = 0, writeWidth = 0, writeHeight = 0;
-                // Depth-writing draws in the frame that wrote it (depthDraws).
-                uint32_t sceneDraws = 0;
                 uint64_t sdrWriteOrdinal = 0;
-                std::unique_ptr<HostTexture> hdrTex;
-                uint64_t hdrWriteOrdinal = 0;
-                uint64_t hdrFrame = ~0ull;
-                // hdrTex holds the pre-upscale scene (smaller than tex) for the
-                // presentation highlight gain instead of a same-size resolve.
-                bool hdrGain = false;
                 frame_plan::FramePlan sourcePlan{};
                 bool sourcePlanValid = false;
                 uint64_t fgOwner = 0, fgEpoch = 0, fgSourceAllocation = 0, fgSourceGeneration = 0;
@@ -850,14 +650,6 @@ namespace gpu::renderer
             // first, so the composite's fetch of the FP16 surface missed and fell
             // back to guest memory.
             std::unordered_map<uint32_t, std::vector<ResolvedSurface>> resolved;
-            // Depth-tested, depth-writing draws in depthDrawFrame: the 3D world
-            // draws hundreds, the game's menus and their blurred backdrops none.
-            uint64_t depthDrawFrame = ~0ull;
-            uint32_t depthDraws = 0;
-            // SDR views that have an HDR companion in this frame. An arbitrary
-            // overlay sampling one would collapse highlights on replay.
-            std::unordered_set<RenderTexture*> hdrSdrSources;
-            uint64_t hdrSdrSourcesFrame = ~0ull;
             uint64_t resolveWriteOrdinal = 0;
             uint64_t nextTargetAllocation = 0;
             resolve_copy::ConsecutiveCopies consecutiveResolveCopies;
@@ -1132,14 +924,6 @@ namespace gpu::renderer
                 }
             }
             std::unique_ptr<temporal::HistoryOwner> temporalHistory;
-            std::unique_ptr<ao::AmbientOcclusion> ambientOcclusion;
-            uint32_t aoMode = 0;
-            bool aoActive = false, aoInitFailed = false;
-            // The game fades the scene with a full-screen colour quad before tone
-            // mapping; AO lands on the finished scene copy and would shade the fade
-            // colour by the hidden geometry (#237). Fraction of the scene left.
-            uint32_t sceneFadeFrame = ~0u;
-            float sceneFadeTransmittance = 1;
 #if defined(LO_GPU_PLUME)
             dlss::Controller* dlssController = nullptr;
             TemporalUpscaler* temporalUpscaler = nullptr;
@@ -1150,15 +934,6 @@ namespace gpu::renderer
             RenderTexture* hdrTemporalOutput = nullptr;
             temporal::SceneResolve hdrTemporalSource{};
             bool hdrTonemapApplied = false, hdrTemporalInitFailed = false;
-            // FP16 twin of the scene TAA for the HDR scene (extended gamma, raw
-            // domain): same depth, jitter and motion, its own history/display.
-            // The sidecar copy follows the SDR TAA binding when the twin exists.
-            std::unique_ptr<temporal::HistoryOwner> sceneTaaHdrHistory;
-            RenderTexture* sceneTaaHdrOutput = nullptr;
-            RenderTexture* sceneTaaHdrSource = nullptr;
-            RenderTexture* sceneTaaSdrOutput = nullptr;
-            uint64_t sceneTaaHdrFrame = ~0ull;
-            bool sceneTaaHdrInitFailed = false;
             uint32_t hdrTemporalLogs = 0;
             bool temporalExperiment=false,temporalAllowHistory=false,temporalJitter=false,temporalStableGrid=false;
             bool temporalForced=false,temporalForcedHistory=false,temporalForcedJitter=false,temporalForcedStable=false;
@@ -1174,12 +949,7 @@ namespace gpu::renderer
             bool actualRasterJitterCaptured=false;
             uint64_t appliedPlanEpoch=~0ull;
             resolution::Size internalSize{}, requestedInternalSize{};
-            resolution::ShadowResolutionState shadowState;
-            uint32_t shadowResolution = 1;
             frame_plan::FramePlan activePlan{};
-            uint64_t activePlanGeneration = 0, shadowConfigFrame = ~0ull;
-            bool activePlanFailed = false;
-            uint32_t shadowConfigValue = 1;
             // Allocation failures are recorded by the GPU and can be observed
             // after later plan markers have already been committed.
             std::unordered_set<uint64_t> failedPlanEpochs;
@@ -1197,6 +967,7 @@ namespace gpu::renderer
                 std::unique_ptr<HostTexture> parkedLow;
                 std::unique_ptr<HostTexture> preparedPromoted;
                 std::unique_ptr<HostTexture> scratch;
+                std::unique_ptr<HostTexture> composite;
                 temporal::TemporalFrameInputs inputs{};
                 SrDispatchOptions srOptions{};
                 std::shared_ptr<fsr_alpha::MaskLease> fsrMaskLease;
@@ -1204,39 +975,13 @@ namespace gpu::renderer
                 RenderDescriptorSet* rgbSet = nullptr;
                 uint64_t fallbackConstants = UINT64_MAX, rgbConstants = UINT64_MAX;
                 bool prepared = false, activeMapping = false, srApplied = false;
-                // This frame's extended-gamma resolve of the input scene, borrowed
-                // for the promoted target's resolve (presentation highlight gain).
-                RenderTexture* hdrSource = nullptr;
-                uint32_t hdrSourceWidth = 0, hdrSourceHeight = 0;
-                uint64_t hdrSourceFrame = ~0ull;
             } sceneCopyPromotion;
-            // A deferred restore: `target` is back in renderTargets but owes its
-            // pixels to `source`, the promoted image. Any colour access draws the
-            // resample first; depth-only draws leave the debt, and the depth
-            // fill that clears every view of those tiles cancels it.
-            struct RestoreDebt {
-                HostTexture* target = nullptr;
-                uint32_t base = 0;
-                std::unique_ptr<HostTexture> source;
-            } restoreDebt;
-            // Every SR frame needs two output-size images. Allocating them per
-            // frame cost milliseconds of render-thread time and VRAM churn.
-            std::vector<PooledTexture> promotionPool;
-            static constexpr size_t kPromotionPoolLimit = 12;
-            static constexpr uint64_t kPromotionPoolIdleFrames = 120;
             SrDispatchOptions frameSrOptions{};
             uint64_t sceneCopyPromotionFrame = ~0ull;
             uint64_t srReconfigureFrame = ~0ull;
             std::unique_ptr<RenderShader> sceneCopyPromotionPs, sceneCopyPromotionRgbPs;
             std::map<uint32_t, std::unique_ptr<RenderPipeline>> sceneCopyPromotionPipelines, sceneCopyPromotionRgbPipelines;
             std::unique_ptr<RenderTexture> sceneAAOutput;
-            // FP16 twin of sceneAAOutput for the HDR scene (see sceneAo.hdrColor):
-            // the sidecar copy follows the AA binding when this frame's twin
-            // came from the same source texture.
-            std::unique_ptr<RenderTexture> sceneAAHdrOutput;
-            RenderTexture* sceneAAHdrSource=nullptr;
-            uint64_t sceneAAHdrFrame=~0ull;
-            uint32_t sceneAAHdrWidth=0,sceneAAHdrHeight=0;
             uint32_t sceneAAWidth=0,sceneAAHeight=0,sceneAAMode=0;
             bool sceneAAEnabled=false,sceneAABusy=false,activeSpatialAA=false;
             uint64_t sceneAAConfigFrame=~0ull,sceneAAAppliedFrame=~0ull,sceneAAAllocation=0;
@@ -1284,20 +1029,12 @@ namespace gpu::renderer
                 if (it == resolved.end())
                     return;
                 for (auto rs = it->second.begin(); rs != it->second.end(); ++rs)
-                    if (rs->destFormat == destFormat) {
-                        if (rs->tex) Gpu().retiredTextures.push_back(std::move(rs->tex));
-                        if (rs->hdrTex) Gpu().retiredTextures.push_back(std::move(rs->hdrTex));
-                        for (auto& [key, view] : rs->fetchViews)
-                            if (view) Gpu().retiredTextures.push_back(std::move(view));
-                        it->second.erase(rs);
-                        break;
-                    }
+                    if (rs->destFormat == destFormat) { it->second.erase(rs); break; }
                 if (it->second.empty())
                     resolved.erase(it);
             }
             bool resolveReadback = false; // LO_RESOLVE_READBACK=1: legacy CPU write-back into guest memory
             bool textureRevalidate = true; // LO_TEXTURE_STATIC=1 disables re-hashing cached textures
-            bool textureBcFallback = false; // BC1-BC3 decoded to RGBA8 on the CPU (no device support, or LO_TEXTURE_BC=0)
             uint64_t controllerAtlasFamilyFrame = ~0ull;
             bool controllerAtlasPlayStationFamily = false;
             uint64_t controllerAtlasTraceFrame = ~0ull;
@@ -1364,6 +1101,16 @@ namespace gpu::renderer
             uint32_t descriptorBatchLimit = 500;
             uint32_t descriptorSplits = 0, textureSetSplits = 0, samplerVersionSplits = 0;
             uint32_t uploadSplits = 0, arenaSplits = 0;
+            struct AndroidStallTimer {
+                const char* operation;
+                std::chrono::steady_clock::time_point start=std::chrono::steady_clock::now();
+                ~AndroidStallTimer() {
+#if defined(__ANDROID__)
+                    const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-start).count();
+                    if(ms >= (std::string_view(operation)=="graphics pipeline creation" ? 33 : 100)) LOG_INFO("Android rendering stall: operation={} elapsedMs={} (CPU wall time including waits)",operation,ms);
+#endif
+                }
+            };
             struct ScopedTimer
             {
                 double& acc;
@@ -1390,9 +1137,6 @@ namespace gpu::renderer
             // 2048-entry sampler heap, including the immutable host table.
             static constexpr size_t kSamplerVersionsPerBatch = 8;
             std::map<std::pair<const RenderTexture*, const RenderTexture*>, std::unique_ptr<RenderFramebuffer>> framebuffers;
-            // Last GetFramebuffer hit; cleared wherever framebuffers loses entries.
-            std::pair<const RenderTexture*, const RenderTexture*> lastFramebufferKey{};
-            RenderFramebuffer* lastFramebuffer = nullptr;
 
             std::string shaderCacheDir;
             uint32_t drawsThisFrame = 0;
@@ -1593,7 +1337,6 @@ namespace gpu::renderer
                         taaDiagnosticBloom = next.bloom; taaDiagnosticHDR = next.hdr; taaDiagnosticMaterials = next.materials;
                         if (temporalHistory) temporalHistory->Reset();
                         if (hdrTemporalHistory) hdrTemporalHistory->Reset();
-                if (sceneTaaHdrHistory) sceneTaaHdrHistory->Reset();
                         temporalSupportedFrame = ~0ull; ++temporalEpoch;
                         taaLiveResolvedFrame = 0; taaLiveHistoryReused = false;
                         taaLiveSourceFormat = taaLiveHistoryFormat = taaLiveOutputFormat = RenderFormat::UNKNOWN;
@@ -1628,19 +1371,10 @@ namespace gpu::renderer
                 if (state.fail()) return;
                 std::error_code error; std::filesystem::rename(temporary, destination, error);
             }
-            // Request files are read at most every 250 ms, PollTaaLive's rate.
-            static bool RequestPollDue(std::chrono::steady_clock::time_point& next)
-            {
-                const auto now = std::chrono::steady_clock::now();
-                if (now < next) return false;
-                next = now + std::chrono::milliseconds(250);
-                return true;
-            }
             void PollTaaDiagnostic()
             {
                 static const char* path = getenv("LO_TAA_DIAGNOSTIC_REQUEST");
-                static std::chrono::steady_clock::time_point nextPoll{};
-                if (!path || !RequestPollDue(nextPoll)) return;
+                if (!path) return;
                 std::ifstream input(path);
                 std::string serialText, extra;
                 int aa, jitter, history, bloom, hdr = 0, materials = 1;
@@ -1669,7 +1403,6 @@ namespace gpu::renderer
                 taaDiagnosticMaterials = materials;
                 if (temporalHistory) temporalHistory->Reset();
                 if (hdrTemporalHistory) hdrTemporalHistory->Reset();
-                if (sceneTaaHdrHistory) sceneTaaHdrHistory->Reset();
                 temporalSupportedFrame = ~0ull; ++temporalEpoch;
                 LOG_INFO("renderer: TAA diagnostic serial={} frame={} aa={} jitter={} history={} bloom={} hdr={} materials={}",
                     serial, frame, aa, jitter, history, bloom, hdr, materials);
@@ -1800,8 +1533,7 @@ namespace gpu::renderer
                 BeginDebugCapture();
                 if (!debugCaptureDir.empty()) return;
                 static const char* path = getenv("LO_CAPTURE_REQUEST");
-                static std::chrono::steady_clock::time_point nextPoll{};
-                if (!path || !RequestPollDue(nextPoll)) return;
+                if (!path) return;
                 {
                     std::lock_guard lock(captureMutex);
                     if (fsrCaptureBusy) return;
@@ -1920,10 +1652,7 @@ namespace gpu::renderer
                 uint32_t samplerIndex[32];
                 uint32_t textureInfo[32];
                 uint32_t textureSize[32]; // packed guest width/height; physical resolves may be larger.
-                uint64_t vertexArenaAddress; // SPIR-V vertex fetch (common_hlsl.h)
             };
-            static_assert(offsetof(SharedConstants,vertexArenaAddress)==xenos::VertexArenaAddressOffset);
-            static_assert(gpu::render_arena::kVertexArenaSize == 1073741824ull);
 
             static_assert(offsetof(SharedConstants,ndcScale)==160);
             static_assert(offsetof(SharedConstants,transfer)==240);
@@ -1968,18 +1697,17 @@ namespace gpu::renderer
                 // Snapshot version each uploaded ALU bank came from; 0 when
                 // unknown or when the draw modified its copy (jitter).
                 uint64_t vsGeneration = 0, psGeneration = 0;
-                // vs/ps hold the bytes at vsOffset/psOffset. Versioned uploads
-                // skip the copy: a new version almost never repeats old bytes.
-                bool vsCopy = false, psCopy = false;
             };
             UploadedConstants uploadedConstants[kGpuSlots];
 
-            // ALU banks follow command writes by dirty block and zero-register
-            // MMIO stores by compare. drawConstants is the copy a draw may modify
-            // (TAA jitter).
-            ConstantBankSnapshot constantSnapshot[2];
+            // ALU banks are rebuilt when command writes advance their generation;
+            // zero-register MMIO fallbacks are checked on reuse. drawConstants is
+            // the copy a draw may modify (TAA jitter).
+            uint32_t constantSnapshot[2][256 * 4]{};
             uint64_t constantSnapshotGeneration[2]{UINT64_MAX, UINT64_MAX};
             uint64_t constantSnapshotVersion[2]{};
+            uint16_t constantFallbackOffsets[2][256 * 4]{};
+            uint32_t constantFallbackCount[2]{};
             uint32_t drawConstants[2][256 * 4]{};
             bool drawConstantsModified[2]{true, true};
 
@@ -1994,8 +1722,7 @@ namespace gpu::renderer
                     return lastOffset;
                 const void* last = bank == 0 ? static_cast<const void*>(before.vs) :
                     bank == 1 ? static_cast<const void*>(before.ps) : static_cast<const void*>(&before.shared);
-                const bool lastCopy = bank == 0 ? before.vsCopy : bank == 1 ? before.psCopy : true;
-                if (lastOffset != UINT64_MAX && lastCopy && std::memcmp(last, data, size) == 0) {
+                if (lastOffset != UINT64_MAX && std::memcmp(last, data, size) == 0) {
                     if (bank == 0) before.vsGeneration = generation;
                     else if (bank == 1) before.psGeneration = generation;
                     return lastOffset;
@@ -2004,118 +1731,15 @@ namespace gpu::renderer
                 auto& after = uploadedConstants[gpuSlot];
                 if (offset != UINT64_MAX)
                 {
-                    if (bank == 0) {
-                        if (!generation) std::memcpy(after.vs, data, size);
-                        after.vsCopy = !generation; after.vsOffset = offset; after.vsGeneration = generation;
-                    } else if (bank == 1) {
-                        if (!generation) std::memcpy(after.ps, data, size);
-                        after.psCopy = !generation; after.psOffset = offset; after.psGeneration = generation;
-                    } else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
+                    if (bank == 0) { std::memcpy(after.vs, data, size); after.vsOffset = offset; after.vsGeneration = generation; }
+                    else if (bank == 1) { std::memcpy(after.ps, data, size); after.psOffset = offset; after.psGeneration = generation; }
+                    else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
                 }
                 return offset;
             }
 
             // ---- lifecycle -----------------------------------------------------
             xenos::cache::Identity cacheIdentity;
-            // One-file local cache of compiled shaders (shader/shader_store.h), keyed
-            // by the compile input rather than the translator version. Opened on first
-            // use, after the backend and compiler identity are known.
-            xenos::cache::ShaderStore shaderStore;
-            std::once_flag shaderStoreOnce;
-            bool shaderStoreReady = false;
-            xenos::cache::ShaderStore* LocalShaderStore()
-            {
-                std::call_once(shaderStoreOnce, [this] {
-                    if (shaderCacheDir.empty() || !xenos::cache::ValidIdentity(cacheIdentity)) return;
-                    std::string error;
-                    const auto path = xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format);
-                    shaderStoreReady = shaderStore.Open(path, cacheIdentity.format, &error);
-                    if (!shaderStoreReady) {
-                        LOG_WARNING("renderer: shader store unavailable ({}); using per-shader cache files", error);
-                        return;
-                    }
-                    const auto stats = shaderStore.GetStats();
-                    LOG_INFO("renderer: shader store {}: {} records, {} bytes{}{}", path.string(), stats.records, stats.fileBytes,
-                        stats.writable ? "" : ", read-only (another instance holds it)",
-                        stats.recovered ? fmt::format(", dropped a torn {}-byte tail", stats.recovered) : std::string{});
-                });
-                return shaderStoreReady ? &shaderStore : nullptr;
-            }
-            // The compiled binary for this compile input: the store first, then a
-            // per-shader file from before the store, which is moved into the store.
-            struct StoredBinary { std::vector<uint8_t> binary; bool storeHit = false, legacyHit = false, legacyPresent = false; };
-            StoredBinary FindCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
-                const std::string& legacyPath)
-            {
-                StoredBinary result;
-                auto* store = LocalShaderStore();
-                if (store) {
-                    result.binary = store->Find(pixel, hash, digest);
-                    if (!result.binary.empty()) { result.storeHit = true; return result; }
-                }
-                if (legacyPath.empty()) return result;
-                result.binary = xenos::cache::ReadBinary(legacyPath, pixel, hash, cacheIdentity, &result.legacyPresent);
-                if (!result.binary.empty()) {
-                    result.legacyHit = true;
-                    if (store) store->Add(pixel, hash, digest, result.binary);
-                }
-                return result;
-            }
-            bool StoreCompiledShader(bool pixel, uint64_t hash, const xenos::cache::InputDigest& digest,
-                const std::string& legacyPath, std::span<const uint8_t> binary, std::string* error)
-            {
-                if (auto* store = LocalShaderStore()) return store->Add(pixel, hash, digest, binary, error);
-                return !legacyPath.empty() && xenos::cache::WriteBinary(legacyPath, pixel, hash, cacheIdentity, binary, error);
-            }
-            // Per-shader files the store has replaced: this format's files once a
-            // complete preparation has moved them into the store, and files of any
-            // format whose translator version can never be read again.
-            size_t RemoveLegacyShaderCacheFiles(bool includeCurrentFormat)
-            {
-                size_t removed = 0;
-                std::error_code ec;
-                std::vector<std::filesystem::path> doomed;
-                for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
-                    const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
-                    if (!legacy) continue;
-                    const bool currentFormat = legacy->extension == xenos::cache::Extension(cacheIdentity.format);
-                    if (legacy->version != cacheIdentity.translatorVersion || (includeCurrentFormat && currentFormat))
-                        doomed.push_back(file.path());
-                }
-                for (const auto& path : doomed) {
-                    std::error_code removeError;
-                    removed += std::filesystem::remove(path, removeError) ? 1 : 0;
-                }
-                return removed;
-            }
-            // A matching distribution pack serves every shader it holds before the
-            // local cache is asked (TryLoadPortableShader), so this backend's startup
-            // bundle is never read and store records of shaders the pack's index
-            // lists are never found. Both are removed; store records the pack
-            // lacks (runtime-only variants) stay.
-            void RemovePackCoveredShaderCache()
-            {
-                const auto bundle = std::filesystem::path(shaderCacheDir) /
-                    (vulkan ? "startup_vk12_v1.bundle" : "startup_dxil_v1.bundle");
-                std::error_code ec;
-                const auto bundleBytes = std::filesystem::file_size(bundle, ec);
-                if (!ec && std::filesystem::remove(bundle, ec))
-                    LOG_INFO("renderer: shader cache cleanup: removed startup bundle {}, the shader pack replaces it ({} bytes freed)",
-                        bundle.filename().string(), bundleBytes);
-                auto* store = LocalShaderStore();
-                if (!store || !store->Writable() || !portableShaderPack) return;
-                const auto before = store->GetStats();
-                std::string error;
-                const auto dropped = store->CompactCovered([pack = portableShaderPack.get()](bool pixel, uint64_t hash) {
-                    return pack->Contains(pixel, hash);
-                }, &error);
-                const auto after = store->GetStats();
-                if (dropped)
-                    LOG_INFO("renderer: shader cache cleanup: dropped {} shader store records the shader pack holds, kept {} ({} bytes freed)",
-                        dropped, after.records, before.fileBytes > after.fileBytes ? before.fileBytes - after.fileBytes : 0);
-                if (!error.empty())
-                    LOG_WARNING("renderer: shader store compaction failed: {}", error);
-            }
             bool initializationModuleFailure = false;
             bool InitFailure(const char* stage, uint64_t bytes = 0, int slot = -1) noexcept
             {
@@ -2153,7 +1777,11 @@ namespace gpu::renderer
                 if (!device || !queue)
                     return InitFailure("device_or_queue");
                 cacheIdentity = xenos::cache::MakeIdentity(vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12, xenos::DxcIdentity());
-                // Metal translates the same SPIR-V as Vulkan, so both read one pack.
+                if (vulkan && !nativeVulkan) {
+                    // Metal re-optimizes translated MSL; see SetSpirvOptimizationLevel.
+                    xenos::SetSpirvOptimizationLevel(1);
+                    cacheIdentity.options = xenos::cache::MetalOptions();
+                }
 
                 // Optional collection resources are prepared before the game loop.
                 // Enabling collection later never compiles or maps on a draw; an
@@ -2204,25 +1832,10 @@ namespace gpu::renderer
                     }
                     g.fence = device->createCommandFence();
                     if (!g.fence) return InitFailure("command_fence.create", 0, i);
-                    // SPIR-V constant reads add their offset to the low address word
-                    // only (common_hlsl.h XeBankAddress), so the ring and 4 KiB of
-                    // slack must sit inside one 4 GiB window. A replacement cannot
-                    // overlap the rejected buffer, so it never straddles the same boundary.
-                    std::vector<std::unique_ptr<RenderBuffer>> straddling;
-                    for (;;) {
-                        g.uploadRing = device->createBuffer(RenderBufferDesc::UploadBuffer(kUploadRingSize, vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE | RenderBufferFlag::INDEX | RenderBufferFlag::STORAGE : RenderBufferFlag::NONE));
-                        if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
-                        if (!vulkan) break;
-                        const uint64_t address = g.uploadRing->getDeviceAddress();
-                        if (!address) return InitFailure("upload_ring.device_address", kUploadRingSize, i);
-                        if ((address >> 32) == ((address + kUploadRingSize + 4095) >> 32)) break;
-                        LOG_INFO("renderer: upload ring {} at {:#x} straddles a 4 GiB boundary; reallocating", i, address);
-                        if (straddling.size() == 3) return InitFailure("upload_ring.window", kUploadRingSize, i);
-                        straddling.push_back(std::move(g.uploadRing));
-                    }
+                    g.uploadRing = device->createBuffer(RenderBufferDesc::UploadBuffer(kUploadRingSize, vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE | RenderBufferFlag::INDEX | RenderBufferFlag::STORAGE : RenderBufferFlag::NONE));
+                    if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
                     g.uploadMapped = static_cast<uint8_t*>(g.uploadRing->map());
                     if (!g.uploadMapped) return InitFailure("upload_ring.map", kUploadRingSize, i);
-                    g.uploadGeneration = ++uploadGenerations;
                 }
                 if (!hostOcclusion)
                     for (auto& g : gpuSlots) g.occlusionQueries.reset();
@@ -2231,28 +1844,14 @@ namespace gpu::renderer
                     !hostOcclusion ? "fake" : occlusionMode == gpu::occlusion::Mode::Strict ? "host-strict" : "host-fast",
                     device->getCapabilities().occlusionQueryPrecise, getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "unset");
                 BindGpuSlot();
-                const auto vertexFlags = RenderBufferFlag::STORAGE |
-                    (vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE : RenderBufferFlag::NONE);
-                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, vertexFlags));
+                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, RenderBufferFlag::STORAGE));
                 if (!vertexArena) return InitFailure("vertex_arena.create", gpu::render_arena::kVertexArenaSize);
-                if (vulkan && !vertexArena->getDeviceAddress())
-                    return InitFailure("vertex_arena.device_address");
                 arenaMapped = static_cast<uint8_t*>(vertexArena->map());
                 if (!arenaMapped) return InitFailure("vertex_arena.map", gpu::render_arena::kVertexArenaSize);
                 readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(kReadbackSize));
                 if (!readback) return InitFailure("readback.create", kReadbackSize);
                 resolveReadback = getenv("LO_RESOLVE_READBACK") != nullptr;
                 textureRevalidate = getenv("LO_TEXTURE_STATIC") == nullptr;
-                {
-                    // Mali Vulkan drivers cannot create BC images (#214).
-                    // LO_TEXTURE_BC=0 forces the CPU decode on any device.
-                    const char* bcOverride = getenv("LO_TEXTURE_BC");
-                    const bool deviceBc = video::TextureCompressionBC();
-                    textureBcFallback = !deviceBc || (bcOverride && strcmp(bcOverride, "0") == 0);
-                    LOG_INFO("renderer: BC textures {} (device bc={} LO_TEXTURE_BC={})",
-                        textureBcFallback ? "decoded to RGBA8 on the CPU" : "native",
-                        deviceBc ? 1 : 0, bcOverride ? bcOverride : "unset");
-                }
                 auto enabled=[](const char* key){const char* value=getenv(key);return value&&strcmp(value,"1")==0;};
                 bloomPrefilterEnabled = !enabled("LO_DISABLE_BLOOM_PREFILTER");
                 temporalExperiment = enabled("LO_TEMPORAL_EXPERIMENT");
@@ -2313,8 +1912,7 @@ namespace gpu::renderer
                 staticSet0 = setBuilders[0].create(device);
                 if (!staticSet0) return InitFailure("vertex_fetch_set.create");
                 for (uint32_t i = 0; i < (vulkan?1:kVertexFetchSlots); i++)
-                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(),
-                        vulkan ? 16 : gpu::render_arena::kVertexArenaSize);
+                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), gpu::render_arena::kVertexArenaSize);
                 defaultSampler = device->createSampler(sampling::Describe(sampling::DefaultKey));
                 if (!defaultSampler) return InitFailure("default_sampler.create");
                 for (uint32_t i = 0; i < kSamplerPalette; i++)
@@ -2363,16 +1961,45 @@ namespace gpu::renderer
 
                 rectListExpansion = !(getenv("LO_RECT_LIST_GS") && device->getCapabilities().geometryShader);
                 if (!rectListExpansion) CompileRectListGs();
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage BEGIN: CompileBlitShaders");
+#endif
                 CompileBlitShaders();
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage END: CompileBlitShaders");
+#endif
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage BEGIN: CompileSceneCopyPromotionShaders");
+#endif
                 CompileSceneCopyPromotionShaders();
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage END: CompileSceneCopyPromotionShaders");
+#endif
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage BEGIN: CompileTransferShader");
+#endif
                 CompileTransferShader();
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage END: CompileTransferShader");
+#endif
                 if (!rectListExpansion && !rectListGs) return InitFailure("rect_list_shader.create");
                 if (!blitVs || !blitPs) return InitFailure("blit_shader.create");
                 if (!transferPs) return InitFailure("transfer_shader.create");
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage BEGIN: PrepareKnownShaders");
+#endif
                 PrepareKnownShaders();
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage END: PrepareKnownShaders");
+#endif
                 if (initializationModuleFailure) return InitFailure("known_shaders.prepare");
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage BEGIN: PrepareKnownPipelines");
+#endif
                 PrepareKnownPipelines();
-                StartLibraryPrecompile();
+#if defined(__ANDROID__)
+                if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage END: PrepareKnownPipelines");
+#endif
                 taa_collection::SetDevice(nativeVulkan ? "vulkan" : vulkan ? "metal" : "d3d12", device->getDescription().name, device->getDescription().driverVersion);
                 const auto dxcStats = xenos::GetDxcStatistics();
                 LOG_INFO("renderer: startup DXC actual calls {}, succeeded {}, deterministic rejections {}, infrastructure failures {}",
@@ -2511,7 +2138,6 @@ namespace gpu::renderer
             {
                 FlushMotionReplayQueue();
                 dst.sdrProducerFrame = ~0ull;
-                dst.hdrValid = false;
                 consecutiveResolveCopies.Invalidate();
                 // Only the 32-bit classes share a word layout; wider ones are left alone.
                 if (srcClass > kClass7e3 || dstClass > kClass7e3)
@@ -2614,37 +2240,11 @@ namespace gpu::renderer
                 desc.pipelineLayout = pipelineLayout.get(); desc.vertexShader = blitVs.get(); desc.pixelShader = ps;
                 desc.depthEnabled = false; desc.depthWriteEnabled = false; desc.depthFunction = RenderComparisonFunction::ALWAYS;
                 desc.depthTargetFormat = RenderFormat::UNKNOWN; desc.renderTargetFormat[0] = format;
-                desc.renderTargetBlend[0] = RenderBlendDesc::Copy();
-                desc.renderTargetBlend[0].renderTargetWriteMask = rgb ? 0x7 : 0xF; // The RGB composite keeps alpha.
+                desc.renderTargetBlend[0] = RenderBlendDesc::Copy(); desc.renderTargetBlend[0].renderTargetWriteMask = 0xF;
                 desc.renderTargetCount = 1; desc.cullMode = RenderCullMode::NONE; desc.primitiveTopology = RenderPrimitiveTopology::TRIANGLE_LIST;
                 auto pipeline = device->createGraphicsPipeline(desc);
                 if (!pipeline) return nullptr;
                 auto* result = pipeline.get(); cache.emplace(uint32_t(format), std::move(pipeline)); return result;
-            }
-
-            // Takes a matching idle image or allocates one. The image keeps its
-            // own tracked layout; layout UNKNOWN only forces the next barrier.
-            void AcquirePromotionImage(HostTexture& tex, RenderTextureFlags flags)
-            {
-                tex.poolFlags = flags;
-                tex.layout = RenderTextureLayout::UNKNOWN;
-                const auto pooled = std::find_if(promotionPool.begin(), promotionPool.end(), [&](const PooledTexture& entry) {
-                    return entry.format == tex.format && entry.width == tex.width && entry.height == tex.height && entry.flags == flags;
-                });
-                if (pooled != promotionPool.end()) {
-                    tex.texture = std::move(pooled->texture);
-                    promotionPool.erase(pooled);
-                    return;
-                }
-                tex.texture = device->createTexture(RenderTextureDesc::Texture2D(tex.width, tex.height, 1, tex.format, flags));
-            }
-
-            // Called at slot completion: the GPU no longer uses the image.
-            bool ReturnPromotionImage(HostTexture& tex)
-            {
-                if (!tex.poolFlags || !tex.texture || promotionPool.size() >= kPromotionPoolLimit) return false;
-                promotionPool.push_back({std::move(tex.texture), tex.format, tex.width, tex.height, tex.poolFlags, frame});
-                return true;
             }
 
             std::unique_ptr<HostTexture> CreatePromotedTarget(const HostTexture& source, resolution::Size output)
@@ -2655,28 +2255,31 @@ namespace gpu::renderer
                 target->resolutionSize = output;
                 target->width = std::max(1u, target->ScaleX(target->guestWidth));
                 target->height = std::max(1u, target->ScaleY(target->guestHeight));
-                AcquirePromotionImage(*target, RenderTextureFlag::RENDER_TARGET);
+                target->texture = device->createTexture(RenderTextureDesc::Texture2D(target->width, target->height, 1,
+                    target->format, RenderTextureFlag::RENDER_TARGET));
+                target->layout = RenderTextureLayout::UNKNOWN;
                 if (!target->texture) return nullptr;
                 return target;
             }
 
             std::unique_ptr<HostTexture> CreateSceneCopyScratch(const HostTexture& source, resolution::Size output)
             {
-                // Provider output has no guest pitch padding. The FSR SDK writes
-                // linear FP16 here and the RGB-only composite encodes it; XeSS
-                // writes the RGBA8 input format. The composite samples either
-                // into the destination's original format.
+                // Provider output has no guest pitch padding. FSR's encoded
+                // output is R8 even when the SDR guest destination uses FP16;
+                // the RGB-only composite samples it into that original format.
                 auto scratch = std::make_unique<HostTexture>();
                 scratch->allocationSerial = ++nextTargetAllocation;
-                scratch->format = activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ? RenderFormat::R16G16B16A16_FLOAT :
-                    activePlan.requestedUpscaler == upscaling::Upscaler::Xess ? RenderFormat::R8G8B8A8_UNORM : source.format;
+                scratch->format = activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ?
+                    RenderFormat::R8G8B8A8_UNORM : source.format;
                 scratch->guestWidth = scratch->width = std::max(1u, output.width);
                 scratch->guestHeight = scratch->height = std::max(1u, output.height);
                 scratch->resolutionSize = output;
                 // MetalFX writes its output as a render target.
                 const auto scratchFlags = RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS |
                     (activePlan.requestedUpscaler == upscaling::Upscaler::MetalFx ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE);
-                AcquirePromotionImage(*scratch, scratchFlags);
+                scratch->texture = device->createTexture(RenderTextureDesc::Texture2D(scratch->width, scratch->height, 1,
+                    scratch->format, scratchFlags));
+                scratch->layout = RenderTextureLayout::UNKNOWN;
                 if (!scratch->texture) return nullptr;
                 return scratch;
             }
@@ -2699,63 +2302,34 @@ namespace gpu::renderer
                         kUploadRingSize, sizeof(SharedConstants))) return reject();
                 auto promoted = CreatePromotedTarget(color, output);
                 auto scratch = CreateSceneCopyScratch(color, output);
-                // Unused images go back to the pool through this slot.
-                const auto rejectImages = [&] {
-                    for (auto* image : {&promoted, &scratch})
-                        if (*image) Gpu().retiredTextures.push_back(std::move(*image));
-                    return reject();
-                };
-                if (!promoted || !scratch) return rejectImages();
-                const auto scale = [&](const HostTexture& src, bool encodeLinear) {
+                auto composite = CreatePromotedTarget(color, output);
+                if (!promoted || !scratch || !composite) return reject();
+                const auto scale = [&](const HostTexture& src) {
                     SharedConstants constants{};
                     constants.transfer[0] = std::bit_cast<uint32_t>(float(src.width) / float(promoted->width));
                     constants.transfer[1] = std::bit_cast<uint32_t>(float(src.height) / float(promoted->height));
-                    constants.transfer[2] = encodeLinear ? 1u : 0u;
                     return Upload(&constants, sizeof(constants));
                 };
-                const uint64_t fallbackConstants = scale(color, false);
-                const uint64_t rgbConstants = scale(*promoted, activePlan.requestedUpscaler == upscaling::Upscaler::Fsr);
-                if (fallbackConstants == UINT64_MAX || rgbConstants == UINT64_MAX) return rejectImages();
+                const uint64_t fallbackConstants = scale(color);
+                const uint64_t rgbConstants = scale(*promoted);
+                if (fallbackConstants == UINT64_MAX || rgbConstants == UINT64_MAX) return reject();
                 auto* fallbackSet = AcquireSet(1);
                 auto* rgbSet = AcquireSet(1);
-                if (!fallbackSet || !rgbSet) return rejectImages();
+                if (!fallbackSet || !rgbSet) return reject();
                 fallbackSet->setTexture(0, color.texture.get(), RenderTextureLayout::SHADER_READ);
                 fallbackSet->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
-                // The RGB composite writes into the promoted target itself, so
-                // that target is never bound as a texture here.
-                rgbSet->setTexture(0, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
+                rgbSet->setTexture(0, promoted->texture.get(), RenderTextureLayout::SHADER_READ);
                 rgbSet->setTexture(1, scratch->texture.get(), RenderTextureLayout::SHADER_READ);
-                for (auto* image : {&sceneCopyPromotion.preparedPromoted, &sceneCopyPromotion.scratch})
-                    if (*image) Gpu().retiredTextures.push_back(std::move(*image));
                 sceneCopyPromotion = {};
                 sceneCopyPromotion.key = key; sceneCopyPromotion.frame = frame; sceneCopyPromotion.epoch = activePlan.geometryEpoch;
                 sceneCopyPromotion.sourceAllocation = color.allocationSerial;
-                sceneCopyPromotion.inputs = inputs; sceneCopyPromotion.scratch = std::move(scratch);
+                sceneCopyPromotion.inputs = inputs; sceneCopyPromotion.scratch = std::move(scratch); sceneCopyPromotion.composite = std::move(composite);
                 sceneCopyPromotion.srOptions = frameSrOptions;
                 sceneCopyPromotion.fallbackSet = fallbackSet; sceneCopyPromotion.rgbSet = rgbSet;
                 sceneCopyPromotion.fallbackConstants = fallbackConstants; sceneCopyPromotion.rgbConstants = rgbConstants;
                 // parkedLow is installed by Activate after the map identity check.
                 sceneCopyPromotion.preparedPromoted = std::move(promoted);
                 sceneCopyPromotion.prepared = true;
-                if (hdrSceneEnabled.load(std::memory_order_relaxed)) {
-                    // The consumer's color input is its own copy; identify the
-                    // scene resolve through the observed color resolve instead.
-                    const auto& observed = temporalScene.Color();
-                    auto* rs = temporalScene.Ready() ? FindResolved(observed.address, observed.format) : nullptr;
-                    const bool found = rs && rs->tex && rs->writeOrdinal == observed.ordinal && rs->hdrTex && rs->hdrTex->texture &&
-                        rs->hdrFrame == frame && rs->hdrWriteOrdinal == rs->writeOrdinal && !rs->hdrGain;
-                    if (found) {
-                        sceneCopyPromotion.hdrSource = rs->hdrTex->texture.get();
-                        sceneCopyPromotion.hdrSourceWidth = rs->hdrTex->width;
-                        sceneCopyPromotion.hdrSourceHeight = rs->hdrTex->height;
-                        sceneCopyPromotion.hdrSourceFrame = frame;
-                    }
-                    static uint32_t promotionHdrLogs = 0;
-                    if (promotionHdrLogs++ < 8)
-                        LOG_INFO("renderer HDR: promotion source frame={} found={} resolve={} ordinal_match={} hdr_frame={} hdr_ordinal={}",
-                            frame, found, rs != nullptr, rs && rs->writeOrdinal == observed.ordinal,
-                            rs ? rs->hdrFrame : 0, rs ? rs->hdrWriteOrdinal : 0);
-                }
                 return true;
             }
 
@@ -2770,11 +2344,7 @@ namespace gpu::renderer
                 }
             }
 
-            // With limitToRects, draws only inside `rects`. An empty list records
-            // no draw but still counts as a write: the guest copy that follows
-            // replaces those pixels.
-            bool DrawPromotionResample(HostTexture& destination, RenderDescriptorSet* set, uint64_t constants, bool rgb,
-                std::span<const RenderRect> rects = {}, bool limitToRects = false)
+            bool DrawPromotionResample(HostTexture& destination, RenderDescriptorSet* set, uint64_t constants, bool rgb)
             {
                 destination.sdrProducerFrame = ~0ull;
                 auto* pipeline = GetSceneCopyPromotionPipeline(destination.format, rgb);
@@ -2782,18 +2352,13 @@ namespace gpu::renderer
                 Transition(destination, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                 commandList->setFramebuffer(GetFramebuffer(&destination, nullptr));
                 RenderViewport viewport(0.0f, 0.0f, float(destination.width), float(destination.height));
-                const RenderRect full{0, 0, int32_t(destination.width), int32_t(destination.height)};
-                commandList->setViewports(viewport); commandList->setScissors(full);
+                RenderRect scissor{0, 0, int32_t(destination.width), int32_t(destination.height)};
+                commandList->setViewports(viewport); commandList->setScissors(scissor);
                 commandList->setPipeline(pipeline); commandList->setGraphicsPipelineLayout(pipelineLayout.get());
                 SetPromotionConstants(constants); commandList->setGraphicsDescriptorSet(staticSet0.get(), 0);
                 commandList->setGraphicsDescriptorSet(set, 1); commandList->setGraphicsDescriptorSet(AcquireSet(2), 2);
                 commandList->setGraphicsDescriptorSet(AcquireSet(3), 3); if (vulkan) commandList->setGraphicsDescriptorSet(staticSamplerSet.get(), 4);
-                if (!limitToRects) commandList->drawInstanced(3, 1, 0, 0);
-                else for (const auto& rect : rects) {
-                    commandList->setScissors(rect);
-                    commandList->drawInstanced(3, 1, 0, 0);
-                }
-                if (limitToRects) commandList->setScissors(full);
+                commandList->drawInstanced(3, 1, 0, 0);
 #if defined(LO_GPU_PLUME)
                 HandleFsrAlphaRgbWriter(destination, "promotion_resample_rgb");
 #endif
@@ -2802,7 +2367,7 @@ namespace gpu::renderer
 
             bool ActivateSceneCopyDestination(HostTexture*& color, HostTexture*& rasterTarget,
                 RenderViewport& rasterViewport, RenderRect& physicalScissor,
-                const RenderViewport& guestViewport, const RenderRect& guestScissor, const float* replacedQuad)
+                const RenderViewport& guestViewport, const RenderRect& guestScissor)
             {
                 auto& promotion = sceneCopyPromotion;
                 const auto reject = [&] {
@@ -2817,25 +2382,7 @@ namespace gpu::renderer
                 it->second = std::move(promotion.preparedPromoted);
                 promotion.active = it->second.get(); promotion.activeMapping = true;
                 Transition(*promotion.parkedLow, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
-                // A scene copy that replaces every channel overwrites the old
-                // contents under its quad, so resample them only into the rest
-                // of the target (guest tile padding and a thin edge margin).
-                const auto& active = *promotion.active;
-                const auto uncovered = scene_copy_promotion::UncoveredPixels(active.width, active.height,
-                    replacedQuad ? scene_copy_promotion::CoveredPixels(replacedQuad[0], replacedQuad[1],
-                        replacedQuad[2], replacedQuad[3],
-                        double(active.resolutionSize.width) / 1280.0, double(active.resolutionSize.height) / 720.0,
-                        {active.ScaleX(uint32_t(std::max(guestScissor.left, 0))), active.ScaleY(uint32_t(std::max(guestScissor.top, 0))),
-                         active.ScaleX(uint32_t(std::max(guestScissor.right, 0))), active.ScaleY(uint32_t(std::max(guestScissor.bottom, 0)))},
-                        active.width, active.height) : scene_copy_promotion::PixelRect{});
-                std::array<RenderRect, 4> fallbackRects{};
-                for (uint32_t i = 0; i < uncovered.count; ++i) {
-                    const auto& r = uncovered.rects[i];
-                    fallbackRects[i] = RenderRect{int32_t(r.left), int32_t(r.top), int32_t(r.right), int32_t(r.bottom)};
-                }
-                if (!DrawPromotionResample(*promotion.active, promotion.fallbackSet, promotion.fallbackConstants, false,
-                        std::span<const RenderRect>(fallbackRects.data(), uncovered.count), replacedQuad != nullptr)) {
-                    Gpu().retiredTextures.push_back(std::move(it->second));
+                if (!DrawPromotionResample(*promotion.active, promotion.fallbackSet, promotion.fallbackConstants, false)) {
                     it->second = std::move(promotion.parkedLow); promotion.active = nullptr; promotion.activeMapping = false;
                     return reject();
                 }
@@ -2855,39 +2402,6 @@ namespace gpu::renderer
                 return true;
             }
 
-            // Draws the deferred restore resample into the owed target. It uploads
-            // constants and may rotate slots, so call it only where no guest draw
-            // has borrowed the current slot (as the restore itself is).
-            bool SettleRestoreDebt()
-            {
-                if (!restoreDebt.target) return true;
-                auto& target = *restoreDebt.target;
-                auto& source = *restoreDebt.source;
-                if (!Begin()) return false;
-                SharedConstants constants{};
-                constants.transfer[0] = std::bit_cast<uint32_t>(float(source.width) / float(target.width));
-                constants.transfer[1] = std::bit_cast<uint32_t>(float(source.height) / float(target.height));
-                const uint64_t offset = Upload(&constants, sizeof(constants));
-                auto* set = offset == UINT64_MAX ? nullptr : AcquireSet(1);
-                bool drawn = false;
-                if (set) {
-                    set->setTexture(0, source.texture.get(), RenderTextureLayout::SHADER_READ);
-                    set->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
-                    Transition(source, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
-                    drawn = DrawPromotionResample(target, set, offset, false);
-                }
-                consecutiveResolveCopies.Invalidate();
-                DropRestoreDebt();
-                // Losing the resample leaves stale pixels behind; suppress the plan.
-                if (!drawn) FailCurrentPlan(frame_plan::FailureReason::InvalidInput);
-                return drawn;
-            }
-            void DropRestoreDebt()
-            {
-                if (restoreDebt.source) Gpu().retiredTextures.push_back(std::move(restoreDebt.source));
-                restoreDebt = {};
-            }
-
             bool RestoreSceneCopyDestination(const char* reason)
             {
                 auto& promotion = sceneCopyPromotion;
@@ -2901,18 +2415,24 @@ namespace gpu::renderer
                 if (!promotion.active || !promotion.parkedLow) return fail();
                 auto it = renderTargets.find(promotion.key);
                 if (it == renderTargets.end() || it->second.get() != promotion.active) return fail();
-                // The low-resolution target goes back into the map owing its
-                // pixels; the resample is drawn only when something needs them.
-                if (!SettleRestoreDebt()) return fail();
-                auto& low = *promotion.parkedLow;
-                low.sdrProducerFrame = ~0ull;
-#if defined(LO_GPU_PLUME)
-                HandleFsrAlphaRgbWriter(low, "promotion_resample_rgb");
-#endif
-                restoreDebt.target = &low;
-                restoreDebt.base = promotion.key.base;
-                restoreDebt.source = std::move(it->second);
+                if (!Begin()) return false;
+                SharedConstants constants{};
+                constants.transfer[0] = std::bit_cast<uint32_t>(float(promotion.active->width) / float(promotion.parkedLow->width));
+                constants.transfer[1] = std::bit_cast<uint32_t>(float(promotion.active->height) / float(promotion.parkedLow->height));
+                // Upload may rotate slots. Acquire descriptors and record
+                // barriers only afterwards; callers have not borrowed targets.
+                const uint64_t offset = Upload(&constants, sizeof(constants));
+                if (offset == UINT64_MAX) return fail();
+                auto* restoreSet = AcquireSet(1);
+                if (!restoreSet) return fail();
+                restoreSet->setTexture(0, promotion.active->texture.get(), RenderTextureLayout::SHADER_READ);
+                restoreSet->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
+                Transition(*promotion.active, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
+                if (!DrawPromotionResample(*promotion.parkedLow, restoreSet, offset, false)) return fail();
+                auto retired = std::move(it->second);
                 it->second = std::move(promotion.parkedLow);
+                if (retired) Gpu().retiredTextures.push_back(std::move(retired));
+                if (promotion.composite) Gpu().retiredTextures.push_back(std::move(promotion.composite));
                 if (promotion.scratch) Gpu().retiredTextures.push_back(std::move(promotion.scratch));
                 static const char* loggedReason = nullptr;
                 static uint32_t loggedRepeats = 0;
@@ -3191,7 +2711,7 @@ namespace gpu::renderer
                 TraceFsrAlphaBridge(std::move(event));
             }
             template<class SrController>
-            bool RecordSceneCopyDlssUsing(SrController& controller, HostTexture*& color, [[maybe_unused]] HostTexture*& rasterTarget)
+            bool RecordSceneCopyDlssUsing(SrController& controller, HostTexture*& color, HostTexture*& rasterTarget)
             {
                 auto& promotion = sceneCopyPromotion;
                 if (!promotion.activeMapping || !Gpu().srIsolated || !Gpu().srContinuation) return false;
@@ -3280,7 +2800,8 @@ namespace gpu::renderer
                                     promotion.inputs.motion.texture, promotion.inputs.motionInvalidity.texture})
                     if (image) barriers.emplace_back(image, (!nativeVulkan || activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) ?
                         RenderTextureLayout::SHADER_READ : RenderTextureLayout::GENERAL);
-                barriers.emplace_back(promotion.scratch->texture.get(), RenderTextureLayout::GENERAL);
+                barriers.emplace_back(promotion.scratch->texture.get(), activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ?
+                    RenderTextureLayout::COPY_DEST : RenderTextureLayout::GENERAL);
                 // The scene-copy input only borrows this image. Hold the lease in
                 // the consuming slot before its first prefix command; the producer
                 // slot continues to own any earlier fetch/crop commands.
@@ -3431,22 +2952,21 @@ namespace gpu::renderer
                     }
                     return false;
                 }
-                auto it = renderTargets.find(promotion.key);
-                if (it == renderTargets.end() || it->second.get() != promotion.active) {
-                    if (evidence) evidence->reason = "composite_target_missing";
-                    return false;
-                }
-                // SR RGB goes straight into the promoted target: the RGB-only
-                // write mask keeps the guest copy's alpha, and the scissor keeps
-                // guest tile padding outside the provider output.
-                const std::array<RenderRect, 1> srRect{RenderRect{0, 0,
-                    int32_t(std::min(promotion.scratch->width, promotion.active->width)),
-                    int32_t(std::min(promotion.scratch->height, promotion.active->height))}};
-                if (!DrawPromotionResample(*promotion.active, promotion.rgbSet, promotion.rgbConstants, true, srRect, true)) {
+                Transition(*promotion.active, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
+                if (!DrawPromotionResample(*promotion.composite, promotion.rgbSet, promotion.rgbConstants, true)) {
                     if (evidence) evidence->reason = "composite_failed";
                     DisableDlssRequest(frame_plan::FailureReason::InvalidInput);
                     return false;
                 }
+                auto it = renderTargets.find(promotion.key);
+                if (it == renderTargets.end() || it->second.get() != promotion.active) {
+                    if (evidence) { evidence->compositeSucceeded = true; evidence->reason = "composite_target_missing"; }
+                    return false;
+                }
+                auto fallback = std::move(it->second); it->second = std::move(promotion.composite);
+                promotion.active = it->second.get(); color = promotion.active;
+                if (rasterTarget == fallback.get()) rasterTarget = color;
+                Gpu().retiredTextures.push_back(std::move(fallback));
                 promotion.srApplied = true;
                 RecordFgUiScene(*color);
                 const bool diagnosticSnapshot = vulkan && !fgSnapshotAttempted && fgSnapshotRequestedFrame == frame;
@@ -4033,7 +3553,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // stored together, after every other count.
             void WriteOcclusionRecords(const std::vector<gpu::occlusion::Write>& writes)
             {
-                if (!writes.empty()) g_commandProcessor.AdvanceSyncEpoch();
                 for (const auto& write : writes) {
                     if (!write.apply) continue;
                     auto* words = reinterpret_cast<uint32_t*>(Phys(write.address));
@@ -4041,7 +3560,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     words[0] = r.totalA; words[1] = r.totalB;
                     words[2] = r.zfailA; words[3] = r.zfailB;
                     words[6] = r.stencilFailA; words[7] = r.stencilFailB;
-                    os::AtomicRef<uint64_t>(*reinterpret_cast<uint64_t*>(words + 4)).store(
+                    std::atomic_ref<uint64_t>(*reinterpret_cast<uint64_t*>(words + 4)).store(
                         uint64_t(r.zpassA) | (uint64_t(r.zpassB) << 32), std::memory_order_release);
                 }
             }
@@ -4050,15 +3569,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             bool OcclusionQueryEvent(uint32_t address)
             {
                 if (!hostOcclusion || (address & 0x1F)) return false;
-                if (gpu::occlusion::IsBeginRecord(address)) {
-                    uint64_t owner = 0;
-                    {
-                        std::lock_guard lock(g_occlusionOwnerMutex);
-                        const auto known = g_occlusionOwners.find(gpu::occlusion::SlotOf(address));
-                        if (known != g_occlusionOwners.end()) owner = known->second;
-                    }
-                    WriteOcclusionRecords({occlusion.Begin(address, owner)});
-                }
+                if (gpu::occlusion::IsBeginRecord(address)) WriteOcclusionRecords({occlusion.Begin(address)});
                 else if (auto end = occlusion.End(address)) WriteOcclusionRecords({*end});
                 return true;
             }
@@ -4202,30 +3713,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // Release read-only depth framebuffers before retired guest depth.
                 s.fsrAlphaBatches.clear();
 #endif
-                // Idle promotion images (SR off, resized) leave through the
-                // normal path below, which also erases their framebuffers.
-                std::erase_if(promotionPool, [&](PooledTexture& entry) {
-                    if (frame - entry.idleFrame <= kPromotionPoolIdleFrames) return false;
-                    auto idle = std::make_unique<HostTexture>();
-                    idle->texture = std::move(entry.texture);
-                    s.retiredTextures.push_back(std::move(idle));
-                    return true;
-                });
                 if (motionReplay) {
                     for (const auto& texture : s.retiredTextures)
                         motionReplay->ReleaseDepthAfterGpuCompletion(texture->texture.get());
                     motionReplay->ReleaseCompletedThrough(s.motionSerial);
                 }
                 for (const auto& texture : s.retiredTextures) {
-                    // A pooled image keeps its framebuffers for the next use.
-                    if (ReturnPromotionImage(*texture)) continue;
                     if (nativeVulkan && texture && texture->texture && vk_object_trace::Permit()) {
                         const auto& image = *static_cast<const VulkanTexture*>(texture->texture.get());
                         std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer_retired event=fence_completed_release slot=%u allocation=%llu image=0x%llx view=0x%llx temporal_serial=%llu sr_serial=%llu\n",
                             i, vk_object_trace::Id(texture->allocationSerial), vk_object_trace::Id(image.vk),
                             vk_object_trace::Id(image.imageView), vk_object_trace::Id(s.temporalSerial), vk_object_trace::Id(s.srSubmissionSerial));
                     }
-                    lastFramebuffer = nullptr;
                     for (auto fb = framebuffers.begin(); fb != framebuffers.end();)
                         if (fb->first.first == texture->texture.get() || fb->first.second == texture->texture.get())
                             fb = framebuffers.erase(fb);
@@ -4236,12 +3735,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 s.retiredTextures.clear();
                 s.samplerVersions.clear();
                 s.bloomPrefilterUsed = 0;
-                s.aoUses.clear();
-                if (ambientOcclusion) ambientOcclusion->ReleaseCompletedThrough(s.aoSerial);
                 if(temporalHistory)temporalHistory->ReleaseCompletedThrough(s.temporalSerial);
                 else if(sparseCollector)sparseCollector->ReleaseCompleted();
                 if(hdrTemporalHistory)hdrTemporalHistory->ReleaseCompletedThrough(s.hdrTemporalSerial);
-                if(sceneTaaHdrHistory)sceneTaaHdrHistory->ReleaseCompletedThrough(s.sceneTaaHdrSerial);
 #if defined(LO_GPU_PLUME)
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
                 if (dlssController && s.srSubmissionSerial)
@@ -4257,7 +3753,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 s.dlssSubmit = {};
                 sceneAABusy=false;
                 s.uploadOffset = 0;
-                s.uploadGeneration = ++uploadGenerations;
                 for (auto& used : s.setPoolUsed)
                     used = 0;
                 uploadedConstants[i] = {};
@@ -4404,10 +3899,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (Gpu().srIsolatedAccepted) lists[listCount++] = Gpu().srIsolated.get();
                     if (Gpu().srContinuationOpen) lists[listCount++] = Gpu().srContinuation.get();
                 }
-                Gpu().aoSerial = ambientOcclusion ? ambientOcclusion->RecordedSerial() : 0;
                 Gpu().temporalSerial = temporalHistory ? temporalHistory->RecordedSerial() : 0;
                 Gpu().hdrTemporalSerial = hdrTemporalHistory ? hdrTemporalHistory->RecordedSerial() : 0;
-                Gpu().sceneTaaHdrSerial = sceneTaaHdrHistory ? sceneTaaHdrHistory->RecordedSerial() : 0;
                 Gpu().motionSerial = motionReplay ? motionReplay->RecordedSerial() : 0;
                 bool submitted = true;
 #if defined(LO_GPU_PLUME)
@@ -4560,7 +4053,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Out of space mid-frame: finish what we have and start over.
                     if (!Flush() || !Begin()) return UINT64_MAX;
                     offset = 0;
-                    Gpu().uploadGeneration = ++uploadGenerations; // Rewound even if Begin did not recycle the slot.
                     if (size > kUploadRingSize)
                         return UINT64_MAX;
                 }
@@ -4766,198 +4258,62 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
             }
 
-            std::filesystem::path RecipePath() const
-            {
-                return std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
-            }
-
-            // The shipped recipe corpus: LO_PIPELINE_CORPUS, else pipelines_corpus.bin
-            // beside the opened shader pack or in the pack's install locations.
-            std::filesystem::path CorpusPath()
-            {
-                if (const char* configured = getenv("LO_PIPELINE_CORPUS"); configured && *configured)
-                    return configured;
-                std::vector<std::filesystem::path> directories;
-                if (!portableShaderPackPath.empty()) directories.push_back(portableShaderPackPath.parent_path());
-                for (const auto& pack : xenos::portable_pack::CandidatePaths(PortablePackFlavor()))
-                    directories.push_back(pack.parent_path());
-                for (const auto& directory : directories) {
-                    std::error_code ec;
-                    if (auto path = directory / "pipelines_corpus.bin"; std::filesystem::is_regular_file(path, ec)) return path;
-                }
-                return {};
-            }
-
-            // Version 1 files are normalized. The corpus may come from another
-            // translator version: its keys name guest shaders, and a recipe whose
-            // shaders are not available is skipped like any other.
-            gpu::pipeline_cache::LoadResult LoadRecipes(const std::filesystem::path& path, bool corpus)
-            {
-                auto loaded = gpu::pipeline_cache::Load(path, corpus ? gpu::pipeline_cache::kAnyShaderVersion : xenos::cache::Version,
-                    kPipelineRecipeVersion, ValidPipelineRecipe, kOldestPipelineRecipeVersion);
-                if (!loaded.error.empty()) LOG_WARNING("renderer: ignoring pipeline recipes {}: {}", path.string(), loaded.error);
-                return loaded;
-            }
-
-            // Which known recipes startup builds; scene loads prefetch the others.
-            // Default: the player's learned recipes, and corpus recipes that are
-            // common (untagged, drawn outside any scene, or in at least
-            // LO_PIPELINE_PREBUILD_SCENES scenes, default 4). LO_PIPELINE_PREBUILD=all
-            // builds every recipe, =common applies the common rule to learned ones too.
-            static bool PrebuildAtStartup(const RecipeEntry& entry)
-            {
-                enum class Mode { All, Learned, Common };
-                static const Mode mode = [] {
-                    const std::string_view value = getenv("LO_PIPELINE_PREBUILD") ? getenv("LO_PIPELINE_PREBUILD") : "";
-                    return value == "all" ? Mode::All : value == "common" ? Mode::Common : Mode::Learned;
-                }();
-                static const size_t threshold = [] {
-                    const char* value = getenv("LO_PIPELINE_PREBUILD_SCENES");
-                    return value ? std::max<size_t>(1, strtoul(value, nullptr, 10)) : size_t(4);
-                }();
-                if (mode == Mode::All || (mode == Mode::Learned && entry.learned)) return true;
-                const size_t count = entry.scenes.Count();
-                return count == 0 || count >= threshold || entry.scenes.Contains(gpu::pipeline_cache::kNoScene);
-            }
-
-            // The shaders of a recipe in the shader maps. Pack shaders without a module
-            // yet are added to `load` and make the recipe Loading. Rect-list variants
-            // are built from guest microcode at the first draw.
-            enum class RecipeShaderState { Ready, Loading, Unavailable };
-            RecipeShaderState FindRecipeShaders(const PipelineKey& key, Shader*& vs, Shader*& ps,
-                std::vector<std::pair<bool, uint64_t>>* load)
-            {
-                bool loading = false, unavailable = false;
-                auto find = [&](bool pixel, uint64_t hash) -> Shader* {
-                    auto& map = shaders[pixel ? 1 : 0];
-                    if (const auto it = map.find(hash); it != map.end()) {
-                        unavailable |= !it->second.valid;
-                        return &it->second;
-                    }
-                    if (portableShaderPack && portableShaderPack->Contains(pixel, hash)) {
-                        loading = true;
-                        if (load) load->emplace_back(pixel, hash);
-                    } else {
-                        unavailable = true;
-                    }
-                    return nullptr;
-                };
-                vs = find(false, key.vs);
-                ps = key.ps ? find(true, key.ps) : nullptr;
-                if (unavailable) return RecipeShaderState::Unavailable;
-                if (loading) return RecipeShaderState::Loading;
-                if (key.prim == 8 && rectListExpansion && !vs->rectList) return RecipeShaderState::Unavailable;
-                return RecipeShaderState::Ready;
-            }
-
-            // A worker thread's own reader of the open pack: Reader::Get decompresses
-            // a block under its lock, so sharing one stalls the render thread's loads.
-            // Null when it cannot be opened; the caller then uses the shared one.
-            std::unique_ptr<xenos::portable_pack::Reader> OpenPackReader() const
-            {
-                try {
-                    if (!portableShaderPackPath.empty())
-                        return std::make_unique<xenos::portable_pack::Reader>(portableShaderPackPath,
-                            portableShaderPackContract, PortablePackFormat());
-                } catch (const std::exception& e) { LOG_WARNING("renderer: worker shader pack reader: {}", e.what()); }
-                return nullptr;
-            }
-
-            // Startup: makes pack shader modules on worker threads (MSL compilation on
-            // Metal is the slow part) and publishes them in the shader maps.
-            void LoadPackShaders(std::vector<std::pair<bool, uint64_t>> wanted)
-            {
-                std::sort(wanted.begin(), wanted.end());
-                wanted.erase(std::unique(wanted.begin(), wanted.end()), wanted.end());
-                const auto pack = portableShaderPack;
-                if (wanted.empty() || !pack) return;
-                struct Load { xenos::TranslatedShader info; std::unique_ptr<RenderShader> module; };
-                std::vector<Load> loads(wanted.size());
-                std::atomic<size_t> next{0};
-                auto work = [&] {
-                    const auto own = OpenPackReader();
-                    auto& reader = own ? *own : *pack;
-                    for (size_t i; (i = next.fetch_add(1)) < wanted.size();) {
-                        try {
-                            if (auto record = reader.Get(wanted[i].first, wanted[i].second)) {
-                                loads[i].module = device->createShader(record->binary.data(), record->binary.size(), "main", renderFormat);
-                                loads[i].info = std::move(record->info);
-                            }
-                        } catch (const std::exception& e) {
-                            LOG_WARNING("renderer: portable shader {}_{:016x}: {}", wanted[i].first ? "ps" : "vs", wanted[i].second, e.what());
-                        }
-                    }
-                };
-                const unsigned logical = std::max(1u, std::thread::hardware_concurrency());
-                std::vector<std::thread> threads;
-                for (size_t t = 1; t < std::min<size_t>(logical, wanted.size()); ++t) threads.emplace_back(work);
-                work();
-                for (auto& thread : threads) thread.join();
-                for (size_t i = 0; i < wanted.size(); ++i) {
-                    // A failed record leaves no entry; the draw-time path handles it.
-                    auto& map = shaders[wanted[i].first ? 1 : 0];
-                    if (!loads[i].module || map.contains(wanted[i].second)) continue;
-                    auto& entry = map[wanted[i].second];
-                    entry.info = std::move(loads[i].info);
-                    entry.shader = std::move(loads[i].module);
-                    entry.valid = true;
-                }
-            }
-
             void PrepareKnownPipelines()
             {
                 pipelineCacheEnabled = !shaderCacheDir.empty() && !getenv("LO_NO_PIPELINE_CACHE");
                 if (!pipelineCacheEnabled) return;
-                const std::string driverCache = LoadDriverPipelineCache();
-                const auto learned = LoadRecipes(RecipePath(), false);
-                const auto corpusPath = CorpusPath();
-                const auto corpus = corpusPath.empty() ? gpu::pipeline_cache::LoadResult{} : LoadRecipes(corpusPath, true);
-                {
-                    std::lock_guard lock(pipelineRecipeMutex);
-                    for (const auto& record : learned.records) {
-                        auto& entry = knownRecipes[record.key];
-                        entry.scenes.Merge(record.scenes);
-                        entry.learned = true;
-                    }
-                    learnedRecipes = learned.records.size();
-                    for (const auto& record : corpus.records) knownRecipes[record.key].scenes.Merge(record.scenes);
-                    corpusRecipes = corpus.records.size();
-                }
-                // An older file version is rewritten at the next save.
-                pipelineRecipesDirty = learned.migrated && !learned.records.empty();
-                for (const auto& [key, entry] : knownRecipes) {
-                    pipelineShadersSeen[0].insert(key.vs);
-                    pipelineShadersSeen[1].insert(key.ps);
-                }
-                if (!corpusPath.empty())
-                    LOG_INFO("renderer: pipeline corpus {}: {} recipes, {} known in total", corpusPath.string(),
-                        corpus.records.size(), knownRecipes.size());
-                scenePrefetchEnabled = !getenv("LO_NO_PIPELINE_PREFETCH");
+                const auto path = std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
+                const auto loaded = gpu::pipeline_cache::Load(path, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
+                if (!loaded.error.empty()) LOG_WARNING("renderer: ignoring pipeline recipes: {}", loaded.error);
+                for (const auto& key : loaded.keys) pipelineRecipes.insert(key);
                 // Learning remains enabled when eager creation is skipped.
                 if (getenv("LO_NO_PIPELINE_PREPARE") || getenv("LO_NO_SHADER_PREPARE") ||
                     settings::GetConfig().skipShaderPrebuild || video::ShaderPreparationSkipped()) return;
                 struct Job { PipelineKey key; Shader* vs; Shader* ps; std::unique_ptr<RenderPipeline> pipeline; };
                 std::vector<Job> jobs;
-                size_t missingShaders = 0, failed = 0, deferred = 0;
+                size_t missingShaders = 0, failed = 0;
                 const auto started = std::chrono::steady_clock::now();
                 try {
-                    std::vector<PipelineKey> wanted;
-                    std::vector<std::pair<bool, uint64_t>> load;
-                    for (const auto& [key, entry] : knownRecipes) {
-                        if (!PrebuildAtStartup(entry)) { ++deferred; continue; }
-                        Shader* vs = nullptr;
-                        Shader* ps = nullptr;
-                        if (FindRecipeShaders(key, vs, ps, &load) == RecipeShaderState::Unavailable) { ++missingShaders; continue; }
-                        wanted.push_back(key);
-                    }
-                    CheckPreparationCancel();
-                    LoadPackShaders(std::move(load));
-                    for (const auto& key : wanted) {
+                    // A startup bundle is immutable. Restore shaders learned after it
+                    // was published before attempting the pipelines that reference them.
+                    size_t learnedReady=0, learnedUnavailable=0;
+                    std::set<std::pair<bool,uint64_t>> visited;
+                    auto restoreDependency = [&](bool pixel,uint64_t hash) {
+                        if(!hash||!visited.emplace(pixel,hash).second)return;
                         CheckPreparationCancel();
-                        Shader* vs = nullptr;
-                        Shader* ps = nullptr;
-                        if (FindRecipeShaders(key, vs, ps, nullptr) != RecipeShaderState::Ready) { ++missingShaders; continue; }
-                        jobs.push_back({key, vs, ps, {}});
+                        auto& cache=shaders[pixel?1:0];
+                        auto existing=cache.find(hash);
+                        if(existing!=cache.end()&&existing->second.valid)return;
+                        if(TryLoadPortableShader(pixel,hash))return;
+                        std::vector<uint32_t> words;
+                        const auto path=std::filesystem::path(shaderCacheDir)/"source"/fmt::format("{}_{:016x}.bin",pixel?"ps":"vs",hash);
+                        if(!xenos::resources::ReadLearnedSource(path,hash,words)){++learnedUnavailable;return;}
+                        try {
+                            Shader* shader=GetShader(pixel,words.data(),uint32_t(words.size()),hash);
+                            if(shader&&shader->valid)++learnedReady;else ++learnedUnavailable;
+                        } catch(const std::exception& e) {
+                            ++learnedUnavailable;
+                            LOG_WARNING("renderer: learned shader restore {:016x}: {}",hash,e.what());
+                        }
+                    };
+                    for(const auto& key:loaded.keys){restoreDependency(false,key.vs);restoreDependency(true,key.ps);}
+                    LOG_INFO("renderer: learned pipeline dependencies: {} restored, {} unavailable",learnedReady,learnedUnavailable);
+                    for (const auto& key : loaded.keys) {
+                        CheckPreparationCancel();
+                        const auto vs = shaders[0].find(key.vs), ps = shaders[1].find(key.ps);
+                        // Learned rectangle variants can be restored without guest microcode.
+#if defined(__ANDROID__)
+                        if (key.prim == 8 && rectListExpansion && vs != shaders[0].end() && vs->second.valid)
+                            LoadRectListShader(vs->second, key.vs);
+#endif
+                        if (vs == shaders[0].end() || !vs->second.valid ||
+                            (key.prim == 8 && rectListExpansion && !vs->second.rectList) ||
+                            (key.ps && (ps == shaders[1].end() || !ps->second.valid))) { ++missingShaders;
+#if defined(__ANDROID__)
+                            if(missingShaders<=12)LOG_INFO("Android pipeline preparation miss: vs={:016x} ps={:016x} prim={} vsValid={} psValid={} rectVariant={}",key.vs,key.ps,key.prim,vs!=shaders[0].end()&&vs->second.valid,!key.ps||(ps!=shaders[1].end()&&ps->second.valid),vs!=shaders[0].end()&&bool(vs->second.rectList));
+#endif
+                            continue; }
+                        jobs.push_back({key, &vs->second, key.ps ? &ps->second : nullptr, {}});
                     }
                     const unsigned logical = std::thread::hardware_concurrency();
                     const size_t count = xenos::preparation::WorkerCount(logical, jobs.size(),
@@ -4973,247 +4329,20 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         }, [&](size_t i) {
                             auto& job = jobs[i];
                             if (!job.pipeline) ++failed;
-                            else { preparedPipelineKeys.insert(job.key); pipelines.emplace(job.key, PipelineSlot{ std::move(job.pipeline) }); }
+                            else { preparedPipelineKeys.insert(job.key); pipelines.emplace(job.key, std::move(job.pipeline)); }
                             video::SetShaderPreparationProgress(uint32_t(++done), uint32_t(jobs.size()),
                                 video::PreparationStage::Pipelines, video::PreparationUnit::Pipelines);
                             return !video::ShaderPreparationSkipped();
                         }, [] { video::PumpEvents(); return !video::ShaderPreparationSkipped(); });
-                    LOG_INFO("renderer: pipeline preparation: {} recipes, {} ready, {} missing shaders, {} failed, {} left to scene prefetch, {} workers, {:.0f} ms, driver cache {}",
-                        knownRecipes.size(), preparedPipelineKeys.size(), missingShaders, failed, deferred, stats.startedWorkers,
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count(), driverCache);
+                    LOG_INFO("renderer: pipeline preparation: {} recipes, {} ready, {} missing shaders, {} failed, {} workers, {:.0f} ms",
+                        loaded.keys.size(), preparedPipelineKeys.size(), missingShaders, failed, stats.startedWorkers,
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count());
                 } catch (const xenos::preparation::Cancelled&) {
                     LOG_INFO("renderer: pipeline preparation skipped by user request");
                 } catch (const std::exception& e) {
                     LOG_WARNING("renderer: pipeline preparation stopped: {}", e.what());
                 }
                 video::SetShaderPreparationProgress(0, 0);
-                // A cold prebuild filled the driver cache; keep it even if no new recipe
-                // follows. Synchronous, so a quick exit cannot cut the write short.
-                SaveDriverPipelineCache(true);
-            }
-
-            // Turns on fast-linked draw-time pipelines and builds the libraries for the
-            // shaders of the known recipes on a background thread.
-            void StartLibraryPrecompile()
-            {
-                fastLinkPipelines = device->getCapabilities().fastLinkPipelines && !getenv("LO_NO_PIPELINE_LIBRARY");
-                LOG_INFO("renderer: graphics pipeline libraries {}", fastLinkPipelines ? "on" :
-                    device->getCapabilities().fastLinkPipelines ? "off (LO_NO_PIPELINE_LIBRARY)" : "unsupported");
-                if (!fastLinkPipelines) return;
-                std::vector<RenderGraphicsPipelineDesc> descs;
-                descs.reserve(knownRecipes.size());
-                // Corpus recipes left to scene prefetch get their libraries too. Their
-                // shader modules are made here, before the library thread starts.
-                const auto started = std::chrono::steady_clock::now();
-                std::vector<std::pair<bool, uint64_t>> load;
-                for (const auto& [key, entry] : knownRecipes) {
-                    Shader* vs = nullptr;
-                    Shader* ps = nullptr;
-                    FindRecipeShaders(key, vs, ps, &load);
-                }
-                std::sort(load.begin(), load.end());
-                load.erase(std::unique(load.begin(), load.end()), load.end());
-                const size_t modules = load.size();
-                LoadPackShaders(std::move(load));
-                if (modules)
-                    LOG_INFO("renderer: pipeline libraries: {} shader modules for known recipes, {:.0f} ms", modules,
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
-                for (const auto& [key, entry] : knownRecipes) {
-                    Shader* vs = nullptr;
-                    Shader* ps = nullptr;
-                    if (FindRecipeShaders(key, vs, ps, nullptr) != RecipeShaderState::Ready) continue;
-                    auto desc = DescribePipeline(key, vs, ps, false);
-                    desc.fastLink = true;
-                    descs.push_back(desc);
-                }
-                if (descs.empty()) return;
-                libraryPrecompile.thread = std::thread([this, descs = std::move(descs)] {
-                    os::SetCurrentThreadName("Pipeline Libraries");
-                    const auto started = std::chrono::steady_clock::now();
-                    size_t done = 0, failed = 0;
-                    for (const auto& desc : descs) {
-                        if (libraryPrecompile.stop) break;
-                        if (!device->prepareGraphicsPipelineLibraries(desc)) ++failed;
-                        ++done;
-                    }
-                    LOG_INFO("renderer: pipeline libraries for {} of {} recipes, {} failed, {:.0f} ms", done, descs.size(), failed,
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
-                });
-            }
-
-            // Enables the backend's persistent pipeline cache, seeded from its file.
-            // Returns a short status for the preparation summary.
-            std::string LoadDriverPipelineCache()
-            {
-                namespace dpc = gpu::driver_pipeline_cache;
-                if (getenv("LO_NO_DRIVER_PIPELINE_CACHE")) return "disabled";
-                // On an M1 Max, archive hits were no faster than Metal's own compiler
-                // cache, and loading the 60 MB archive added about 1.8 s to startup.
-                if (video::IsMetal() && !getenv("LO_METAL_BINARY_ARCHIVE")) return "off (LO_METAL_BINARY_ARCHIVE=1)";
-                const char* name = nativeVulkan ? "pipeline_cache_vk.bin" :
-                    video::IsMetal() ? "pipeline_cache_metal.bin" : "pipeline_cache_dx12.bin";
-                const auto path = std::filesystem::path(shaderCacheDir) / name;
-                const auto started = std::chrono::steady_clock::now();
-                std::vector<uint8_t> data;
-                std::string error, state = "empty";
-                const auto status = dpc::Read(path, data, error);
-                if (status == dpc::ReadStatus::IoError) LOG_WARNING("renderer: driver pipeline cache {}: {}", path.string(), error);
-                if (status == dpc::ReadStatus::TooLarge) state = "over the size cap, replaced";
-#if defined(LO_GPU_PLUME)
-                if (!data.empty() && nativeVulkan) {
-                    const auto& properties = static_cast<const VulkanDevice*>(device)->physicalDeviceProperties;
-                    dpc::VulkanIdentity identity{ properties.vendorID, properties.deviceID, {} };
-                    std::copy(std::begin(properties.pipelineCacheUUID), std::end(properties.pipelineCacheUUID), identity.uuid.begin());
-                    if (!dpc::ValidVulkanHeader(data, identity)) {
-                        state = "from another device or driver, replaced";
-                        data.clear();
-                    }
-                }
-#endif
-                bool accepted = false;
-                if (!device->loadPipelineCache(data.empty() ? nullptr : data.data(), data.size(), accepted))
-                    return "unsupported";
-                if (!data.empty()) state = accepted ? "loaded" : "rejected by the driver, replaced";
-                driverCacheBytes = accepted ? data.size() : 0;
-                driverCachePath = path;
-                return fmt::format("{} {} ({} bytes, {:.0f} ms)", name, state, data.size(),
-                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
-            }
-
-            // Writes the driver cache when it grew. wait: block until written (shutdown).
-            void SaveDriverPipelineCache(bool wait)
-            {
-                if (driverCachePath.empty()) return;
-                if (driverCacheWrite.valid()) {
-                    if (!wait && driverCacheWrite.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-                    if (const auto error = driverCacheWrite.get(); !error.empty())
-                        LOG_WARNING("renderer: driver pipeline cache write: {}", error);
-                }
-                try {
-                    driverCacheWrite = std::async(std::launch::async, [this] { return WriteDriverPipelineCache(); });
-                    if (wait)
-                        if (const auto error = driverCacheWrite.get(); !error.empty())
-                            LOG_WARNING("renderer: driver pipeline cache write: {}", error);
-                } catch (const std::exception& e) { LOG_WARNING("renderer: driver pipeline cache writer: {}", e.what()); }
-            }
-
-            // Any thread: the backends serialize while pipelines are being created.
-            std::string WriteDriverPipelineCache()
-            {
-                namespace dpc = gpu::driver_pipeline_cache;
-                const size_t previous = driverCacheBytes;
-                if (const size_t size = device->getPipelineCacheSize(); size && size <= previous) return {};
-                std::vector<uint8_t> data;
-                if (!device->getPipelineCacheData(data) || data.size() <= previous) return {};
-                if (!dpc::ShouldWrite(data.size(), previous)) {
-                    driverCacheBytes = data.size(); // warn again only after it grows further
-                    return fmt::format("{} bytes exceed the {} MB cap; keeping the file", data.size(), dpc::kMaxBytes >> 20);
-                }
-                std::string error;
-                if (!dpc::Write(driverCachePath, data, error)) return error;
-                driverCacheBytes = data.size();
-                return {};
-            }
-
-            // Caller holds pipelineRecipeMutex or is the render thread.
-            std::vector<gpu::pipeline_cache::Record> LearnedRecipes() const
-            {
-                std::vector<gpu::pipeline_cache::Record> records;
-                records.reserve(learnedRecipes);
-                for (const auto& [key, entry] : knownRecipes)
-                    if (entry.learned) records.push_back({ key, entry.scenes });
-                return records;
-            }
-
-            // Recipes and driver cache before a std::_Exit that skips Shutdown. Runs on
-            // the exiting thread and never waits for GPU work.
-            void FlushCachesForExit()
-            {
-                if (!pipelineCacheEnabled) return;
-                std::vector<gpu::pipeline_cache::Record> snapshot;
-                {
-                    std::lock_guard lock(pipelineRecipeMutex);
-                    snapshot = LearnedRecipes();
-                }
-                const auto recipes = gpu::pipeline_cache::Write(RecipePath(), snapshot, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
-                if (!recipes.ok) LOG_WARNING("renderer: exit recipe write failed: {}", recipes.error);
-                std::string driverError = driverCachePath.empty() ? std::string{} : WriteDriverPipelineCache();
-                if (!driverError.empty()) LOG_WARNING("renderer: exit driver pipeline cache write: {}", driverError);
-                LOG_INFO("renderer: exit flush: {} pipeline recipes, driver cache {} bytes", recipes.written, size_t(driverCacheBytes));
-            }
-
-            // One line per frame with draw-time pipeline creations; one line per
-            // creation with LO_PIPELINE_MISS_LOG=1. tools/pipeline_misses.py sums them.
-            static std::string SceneLabel()
-            {
-                const auto map = debug_menu::GetMapInfo();
-                return fmt::format("map={} battle={}", map.available ? std::to_string(map.id) : std::string("-"),
-                    debug_menu::CurrentBattle());
-            }
-
-            // source: create (built here), claim (a queued job, built here), inline (a
-            // full compile was running; this thread fast-linked) or defer (skipped draw).
-            void NotePipelineMiss(const PipelineKey& key, double ms, bool recipe, const char* source = "create")
-            {
-                const PipelineMiss miss{ key, ms, recipe, pipelineShadersSeen[0].contains(key.vs), pipelineShadersSeen[1].contains(key.ps) };
-                pipelineShadersSeen[0].insert(key.vs);
-                pipelineShadersSeen[1].insert(key.ps);
-                if (!pipelineMissCount++) firstPipelineMiss = miss;
-                pipelineMissMs += ms;
-                if (pipelineMissVerbose)
-                    LOG_INFO("renderer: pipeline miss frame={} {} vs={:016x} ps={:016x} ms={:.2f} recipe={} vs_seen={} ps_seen={} scene={:08x} src={}",
-                        frame, SceneLabel(), key.vs, key.ps, ms, int(miss.recipe), int(miss.vsSeen), int(miss.psSeen), sceneTag, source);
-            }
-
-            void ReportPipelineMisses()
-            {
-                if (pipelineMissCount) {
-                    const auto& first = firstPipelineMiss;
-                    LOG_INFO("renderer: pipeline misses frame={} count={} ms={:.2f} {} first_vs={:016x} first_ps={:016x} first_ms={:.2f} recipe={} vs_seen={} ps_seen={} scene={:08x} prefetched={} prefetch_wait_ms={:.2f}",
-                        frame, pipelineMissCount, pipelineMissMs, SceneLabel(), first.key.vs, first.key.ps, first.ms,
-                        int(first.recipe), int(first.vsSeen), int(first.psSeen), sceneTag, prefetchServed, prefetchWaitMs);
-                } else if (prefetchWaitMs >= 1.0) {
-                    LOG_INFO("renderer: pipeline prefetch waits frame={} prefetched={} prefetch_wait_ms={:.2f} scene={:08x}",
-                        frame, prefetchServed, prefetchWaitMs, sceneTag);
-                }
-                if (const auto& w = workerStats; w.queued || w.built || w.hits || w.skipped || w.shaders)
-                    LOG_INFO("renderer: pipeline workers frame={} {} queued={} built={} hits={} skipped={} shaders={}",
-                        frame, SceneLabel(), w.queued, w.built, w.hits, w.skipped, w.shaders);
-                pipelineMissCount = 0;
-                pipelineMissMs = 0;
-                prefetchServed = 0;
-                prefetchWaitMs = 0;
-                workerStats = {};
-            }
-
-            // Records that a pipeline was drawn in the current scene: a new learned
-            // recipe, or a scene added to a known one.
-            void NoteRecipeUse(const PipelineKey& key)
-            {
-                if (!pipelineCacheEnabled) return;
-                auto it = knownRecipes.find(key);
-                if (it == knownRecipes.end()) {
-                    if (learnedRecipes >= gpu::pipeline_cache::kMaxRecords || !gpu::pipeline_cache::IsValid(key) || !ValidPipelineRecipe(key))
-                        return;
-                    std::lock_guard lock(pipelineRecipeMutex);
-                    it = knownRecipes.emplace(key, RecipeEntry{}).first;
-                }
-                auto& entry = it->second;
-                if (!entry.learned && learnedRecipes >= gpu::pipeline_cache::kMaxRecords) return;
-                if (entry.learned && (entry.scenes.Many() || entry.scenes.Contains(sceneTag))) return;
-                std::lock_guard lock(pipelineRecipeMutex);
-                if (!entry.learned) { entry.learned = true; ++learnedRecipes; pipelineRecipesDirty = true; }
-                pipelineRecipesDirty |= entry.scenes.Add(sceneTag);
-            }
-
-            // Once a frame: a new scene makes every pipeline record its next use.
-            void UpdateSceneTag()
-            {
-                const uint32_t current = debug_menu::CurrentSceneTag();
-                const uint32_t tag = current ? current : gpu::pipeline_cache::kNoScene;
-                if (tag == sceneTag) return;
-                sceneTag = tag;
-                ++sceneSerial;
             }
 
             void SavePipelineRecipes(bool force = false)
@@ -5234,469 +4363,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 if (!pipelineRecipesDirty) return;
                 try {
-                    pipelineWrite = std::async(std::launch::async, [path = RecipePath(), snapshot = LearnedRecipes()] {
+                    std::vector<PipelineKey> snapshot(pipelineRecipes.begin(), pipelineRecipes.end());
+                    const auto path = std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
+                    pipelineWrite = std::async(std::launch::async, [path, snapshot = std::move(snapshot)] {
                         return gpu::pipeline_cache::Write(path, snapshot, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
                     });
                     pipelineRecipesDirty = false;
                 } catch (const std::exception& e) { LOG_WARNING("renderer: pipeline recipe writer: {}", e.what()); }
-                // New recipes mean new driver pipelines; the final write is in Shutdown.
-                if (!force) SaveDriverPipelineCache(false);
-            }
-
-            // ---- scene prefetch ---------------------------------------------------------
-            // A batch ends when each of its recipes was built, found built or dropped.
-            void FinishPrefetchRecipe(PrefetchBatch* batch, bool failed)
-            {
-                if (!batch) return; // a sibling or draw job
-                if (failed) ++batch->failed;
-                if (--batch->remaining == 0)
-                    LOG_INFO("renderer: scene prefetch {:08x} done: {} recipes, {} failed or dropped, {:.0f} ms",
-                        batch->tag, batch->planned, size_t(batch->failed),
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - batch->started).count());
-            }
-
-            // Scene jobs compile full pipelines; sibling and draw jobs build what a
-            // draw-time miss would (fast-linked with pipeline libraries).
-            std::shared_ptr<PrefetchJob> MakePipelineJob(const PipelineKey& key, Shader* vs, Shader* ps,
-                const std::shared_ptr<PrefetchBatch>& batch, PrefetchJob::Kind kind = PrefetchJob::Scene)
-            {
-                auto job = std::make_shared<PrefetchJob>();
-                job->key = key;
-                job->kind = kind;
-                job->desc = DescribeForCreation(key, vs, ps, false, kind != PrefetchJob::Scene && fastLinkPipelines);
-                job->batch = batch;
-                prefetchJobs.emplace(key, job);
-                return job;
-            }
-
-            // Siblings go to the front, the first one first; the oldest ones beyond
-            // kMaxSiblings are dropped.
-            void QueuePrefetchJobs(const std::vector<std::shared_ptr<PrefetchJob>>& jobs)
-            {
-                constexpr size_t kMaxSiblings = 128;
-                if (jobs.empty()) return;
-                StartPrefetchWorkers();
-                {
-                    std::lock_guard lock(prefetchPool.mutex);
-                    for (auto it = jobs.rbegin(); it != jobs.rend(); ++it) {
-                        if ((*it)->kind == PrefetchJob::Sibling) prefetchPool.siblings.push_front(*it);
-                    }
-                    for (const auto& job : jobs) {
-                        if (job->kind == PrefetchJob::Draw) prefetchPool.draw.push_back(job);
-                        else if (job->kind == PrefetchJob::Scene) prefetchPool.scene.push_back(job);
-                    }
-                    auto& siblings = prefetchPool.siblings;
-                    while (siblings.size() > kMaxSiblings) {
-                        const auto old = std::move(siblings.back());
-                        siblings.pop_back();
-                        // A shader job stays: another job may need it and runs it then.
-                        int expected = PrefetchJob::Queued;
-                        if (old->kind != PrefetchJob::Sibling || old->shader ||
-                            !old->state.compare_exchange_strong(expected, PrefetchJob::Taken)) continue;
-                        if (const auto found = prefetchJobs.find(old->key); found != prefetchJobs.end() && found->second == old)
-                            prefetchJobs.erase(found);
-                    }
-                }
-                prefetchPool.wake.notify_all();
-            }
-
-            // Render thread, once a frame: queues the recipes of each scene that
-            // started loading since the last frame. Shader modules the pack still has
-            // to provide are made by the workers first (MSL compilation on Metal).
-            void ProcessScenePrefetch()
-            {
-                std::vector<uint32_t> tags;
-                {
-                    std::lock_guard lock(g_scenePrefetchMutex);
-                    tags.swap(g_scenePrefetchRequests);
-                }
-                if (!scenePrefetchEnabled || !pipelineCacheEnabled) return;
-                for (const uint32_t tag : tags) {
-                    const auto started = std::chrono::steady_clock::now();
-                    auto batch = std::make_shared<PrefetchBatch>();
-                    batch->tag = tag;
-                    batch->started = started;
-                    std::vector<std::shared_ptr<PrefetchJob>> jobs;
-                    std::vector<std::pair<bool, uint64_t>> load;
-                    size_t tagged = 0, ready = 0, queued = 0, unavailable = 0, waiting = 0;
-                    for (const auto& [key, entry] : knownRecipes) {
-                        if (!entry.scenes.Contains(tag)) continue;
-                        ++tagged;
-                        if (pipelines.contains(key)) { ++ready; continue; }
-                        if (prefetchJobs.contains(key)) { ++queued; continue; }
-                        Shader* vs = nullptr;
-                        Shader* ps = nullptr;
-                        switch (FindRecipeShaders(key, vs, ps, &load)) {
-                        case RecipeShaderState::Unavailable: ++unavailable; break;
-                        case RecipeShaderState::Loading: prefetchWaiting.emplace_back(key, batch); ++waiting; break;
-                        case RecipeShaderState::Ready: jobs.push_back(MakePipelineJob(key, vs, ps, batch)); break;
-                        }
-                    }
-                    // Shader jobs go first: the waiting recipes need them.
-                    std::vector<std::shared_ptr<PrefetchJob>> shaderJobs;
-                    for (const auto& [pixel, hash] : load) {
-                        auto& slot = prefetchShaderJobs[pixel ? 1 : 0][hash];
-                        if (slot && slot->kind == PrefetchJob::Sibling && slot->state == PrefetchJob::Queued) {
-                            // A sibling's shader job may have been dropped from its queue.
-                            std::lock_guard lock(prefetchPool.mutex);
-                            slot->kind = PrefetchJob::Scene;
-                            shaderJobs.push_back(slot);
-                        }
-                        if (slot) continue;
-                        slot = std::make_shared<PrefetchJob>();
-                        slot->shader = true;
-                        slot->pixel = pixel;
-                        slot->hash = hash;
-                        slot->pack = portableShaderPack;
-                        shaderJobs.push_back(slot);
-                    }
-                    batch->planned = jobs.size() + waiting;
-                    batch->remaining = batch->planned;
-                    LOG_INFO("renderer: scene prefetch {:08x}: {} recipes, {} ready, {} already queued, {} unavailable shaders, {} new jobs, {} waiting for {} shaders, setup {:.1f} ms",
-                        tag, tagged, ready, queued, unavailable, jobs.size(), waiting, shaderJobs.size(),
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
-                    QueuePrefetchJobs(shaderJobs);
-                    QueuePrefetchJobs(jobs);
-                }
-            }
-
-            void StartPrefetchWorkers()
-            {
-                if (!prefetchPool.workers.empty()) return;
-                // Half the threads: the game keeps loading and running beside them.
-                const unsigned logical = std::thread::hardware_concurrency();
-                size_t count = std::max<size_t>(1, std::min<size_t>(xenos::preparation::HostWorkerCap(logical), logical / 2));
-                if (const char* value = getenv("LO_PIPELINE_PREFETCH_WORKERS")) count = std::max<size_t>(1, strtoul(value, nullptr, 10));
-                prefetchPool.smallCap = std::max<size_t>(1, std::min(drawWorkerCap, count));
-                for (size_t i = 0; i < count; ++i)
-                    prefetchPool.workers.emplace_back([this] { PrefetchWorker(); });
-                LOG_INFO("renderer: pipeline workers: {}, {} for draw-time jobs; siblings {}, skipped draws {}", count,
-                    prefetchPool.smallCap, !pipelineSiblings ? "off" : video::IsMetal() && !getenv("LO_PIPELINE_SIBLINGS") ? "off on Metal" : "on",
-                    pipelineAsync ? "on (LO_PIPELINE_ASYNC)" : "off");
-            }
-
-            // Under the pool mutex: the next job by priority whose kind has a free
-            // worker, already marked running. Null when none may start.
-            std::shared_ptr<PrefetchJob> NextPrefetchJob()
-            {
-                auto& pool = prefetchPool;
-                for (auto* queue : { &pool.draw, &pool.scene, &pool.siblings }) {
-                    while (!queue->empty()) {
-                        const auto& front = queue->front();
-                        const bool drawTime = front->kind != PrefetchJob::Scene;
-                        // A job promoted for a skipped draw runs from the draw queue.
-                        if (front->state != PrefetchJob::Queued || (queue != &pool.draw && front->kind == PrefetchJob::Draw)) {
-                            queue->pop_front();
-                            continue;
-                        }
-                        if (drawTime && pool.runningSmall >= pool.smallCap) break;
-                        auto job = std::move(queue->front());
-                        queue->pop_front();
-                        int expected = PrefetchJob::Queued;
-                        if (!job->state.compare_exchange_strong(expected, PrefetchJob::Running)) continue; // taken by a draw
-                        if (drawTime) ++pool.runningSmall;
-                        return job;
-                    }
-                }
-                return nullptr;
-            }
-
-            void PrefetchWorker()
-            {
-                os::SetCurrentThreadName("Pipeline Worker");
-                std::unique_ptr<xenos::portable_pack::Reader> reader;
-                bool readerTried = false;
-                for (;;) {
-                    std::shared_ptr<PrefetchJob> job;
-                    bool drawTime = false;
-                    {
-                        std::unique_lock lock(prefetchPool.mutex);
-                        prefetchPool.wake.wait(lock, [&] { return prefetchPool.stop || (job = NextPrefetchJob()) != nullptr; });
-                        if (prefetchPool.stop) return;
-                        drawTime = job->kind != PrefetchJob::Scene;
-                    }
-                    if (job->shader || job->needVs || job->needPs)
-                        if (!std::exchange(readerTried, true)) reader = OpenPackReader();
-                    xenos::portable_pack::Reader* pack = reader ? reader.get() : nullptr;
-                    if (job->shader) {
-                        LoadShaderJob(*job, pack);
-                    } else if (!job->needVs && !job->needPs) {
-                        try { job->pipeline = device->createGraphicsPipeline(job->desc); }
-                        catch (const std::exception& e) { LOG_WARNING("renderer: scene prefetch: {}", e.what()); }
-                    } else if ((!job->needVs || NeedShaderJob(*job->needVs, pack)) && (!job->needPs || NeedShaderJob(*job->needPs, pack))) {
-                        // Rect-list siblings never reach here with an unloaded VS.
-                        static Shader unloaded;
-                        auto desc = DescribeForCreation(job->key, job->vs ? job->vs : &unloaded,
-                            job->key.ps ? (job->ps ? job->ps : &unloaded) : nullptr, false, job->desc.fastLink);
-                        if (job->needVs) desc.vertexShader = job->needVs->raw;
-                        if (job->needPs) desc.pixelShader = job->needPs->raw;
-                        try { job->pipeline = device->createGraphicsPipeline(desc); }
-                        catch (const std::exception& e) { LOG_WARNING("renderer: pipeline worker: {}", e.what()); }
-                    }
-                    FinishJob(*job, drawTime);
-                    if (drawTime) prefetchPool.wake.notify_all(); // a capped job may start now
-                    if (!job->shader) FinishPrefetchRecipe(job->batch.get(), !job->pipeline);
-                }
-            }
-
-            // Any thread: makes a shader job's module, through the given reader or the
-            // job's shared one.
-            void LoadShaderJob(PrefetchJob& job, xenos::portable_pack::Reader* reader)
-            {
-                try {
-                    if (auto record = (reader ? *reader : *job.pack).Get(job.pixel, job.hash)) {
-                        job.module = device->createShader(record->binary.data(), record->binary.size(), "main", renderFormat);
-                        job.raw = job.module.get();
-                        job.info = std::move(record->info);
-                    }
-                } catch (const std::exception& e) {
-                    LOG_WARNING("renderer: pipeline worker shader {}_{:016x}: {}", job.pixel ? "ps" : "vs", job.hash, e.what());
-                }
-            }
-
-            void FinishJob(PrefetchJob& job, bool drawTime)
-            {
-                {
-                    // Under the mutex so a waiting draw cannot miss the wakeup.
-                    std::lock_guard lock(prefetchPool.mutex);
-                    job.state = PrefetchJob::Done;
-                    ++prefetchPool.completed;
-                    if (drawTime) --prefetchPool.runningSmall;
-                }
-                prefetchPool.finished.notify_all();
-            }
-
-            // Any thread: the module of a shader job another job needs, running the job
-            // here when it is still queued and waiting while another thread runs it.
-            bool NeedShaderJob(PrefetchJob& job, xenos::portable_pack::Reader* reader)
-            {
-                int expected = PrefetchJob::Queued;
-                if (job.state.compare_exchange_strong(expected, PrefetchJob::Running)) {
-                    LoadShaderJob(job, reader);
-                    FinishJob(job, false);
-                } else {
-                    std::unique_lock lock(prefetchPool.mutex);
-                    prefetchPool.finished.wait(lock, [&] { return job.state == PrefetchJob::Done; });
-                }
-                return job.raw != nullptr;
-            }
-
-            // Render thread: a finished pack shader into the shader map. A module made
-            // twice may have been used by a build, so the spare one is kept.
-            bool PublishShaderJob(PrefetchJob& job)
-            {
-                if (!job.module) return false;
-                auto& map = shaders[job.pixel ? 1 : 0];
-                if (map.contains(job.hash)) {
-                    orphanShaders.push_back(std::move(job.module));
-                    return false;
-                }
-                auto& entry = map[job.hash];
-                entry.info = std::move(job.info);
-                entry.shader = std::move(job.module);
-                entry.valid = true;
-                ++workerStats.shaders;
-                return true;
-            }
-
-            // Render thread, before loading a pack shader itself: the module of a
-            // worker's job for it (run here if still queued, waited for if running), so
-            // each shader has one module. False: load it here.
-            bool TakeShaderJob(bool pixel, uint64_t hash)
-            {
-                auto& jobs = prefetchShaderJobs[pixel ? 1 : 0];
-                const auto found = jobs.find(hash);
-                if (found == jobs.end()) return false;
-                const auto job = found->second;
-                jobs.erase(found);
-                prefetchShadersChanged = true; // recipes waiting for it may go ahead
-                NeedShaderJob(*job, nullptr);
-                return PublishShaderJob(*job);
-            }
-
-            // Render thread: publishes finished shader modules, queues the recipes
-            // that were waiting for them and moves finished pipelines into the draw cache.
-            void HarvestPrefetch()
-            {
-                const uint64_t completed = prefetchPool.completed;
-                if (completed == prefetchHarvested && !prefetchShadersChanged) return;
-                prefetchHarvested = completed;
-                bool shadersArrived = std::exchange(prefetchShadersChanged, false);
-                for (int pixel = 0; pixel < 2; ++pixel)
-                    for (auto it = prefetchShaderJobs[pixel].begin(); it != prefetchShaderJobs[pixel].end(); ) {
-                        auto& job = *it->second;
-                        if (job.state != PrefetchJob::Done) { ++it; continue; }
-                        // A draw may have made the same module meanwhile.
-                        PublishShaderJob(job);
-                        shadersArrived = true;
-                        it = prefetchShaderJobs[pixel].erase(it);
-                    }
-                for (auto it = prefetchJobs.begin(); it != prefetchJobs.end(); ) {
-                    auto& job = *it->second;
-                    if (job.state != PrefetchJob::Done) { ++it; continue; }
-                    for (const auto* need : { &job.needVs, &job.needPs })
-                        if (*need) PublishShaderJob(**need);
-                    if (!job.pipeline) failedPrefetch.insert(job.key);
-                    else if (pipelines.try_emplace(job.key, PipelineSlot{ std::move(job.pipeline) }).second &&
-                             job.kind == PrefetchJob::Sibling) {
-                        ++workerStats.built;
-                        if (pipelineMissVerbose) unusedSiblings.insert(job.key);
-                    }
-                    it = prefetchJobs.erase(it);
-                }
-                if (!shadersArrived) return;
-                std::vector<std::shared_ptr<PrefetchJob>> jobs;
-                for (auto it = prefetchWaiting.begin(); it != prefetchWaiting.end(); ) {
-                    const auto& [key, batch] = *it;
-                    Shader* vs = nullptr;
-                    Shader* ps = nullptr;
-                    const bool built = pipelines.contains(key) || prefetchJobs.contains(key);
-                    const auto state = built ? RecipeShaderState::Unavailable : FindRecipeShaders(key, vs, ps, nullptr);
-                    if (state == RecipeShaderState::Loading &&
-                        ((!vs && prefetchShaderJobs[0].contains(key.vs)) || (key.ps && !ps && prefetchShaderJobs[1].contains(key.ps)))) {
-                        ++it;
-                        continue;
-                    }
-                    if (state == RecipeShaderState::Ready) jobs.push_back(MakePipelineJob(key, vs, ps, batch));
-                    else FinishPrefetchRecipe(batch.get(), !built);
-                    it = prefetchWaiting.erase(it);
-                }
-                QueuePrefetchJobs(jobs);
-            }
-
-            // Render thread, on a draw-time miss of key. A queued job is taken over
-            // (Claimed: the caller builds it; waiting would be no faster). A running
-            // job is waited for when it builds the kind of pipeline this thread would;
-            // a full compile is not waited for when a fast link is possible (Inline).
-            // With defer the draw is skipped instead of waiting (Deferred).
-            enum class JobTake { None, Claimed, Inline, Deferred, Served };
-            RenderPipeline* TakePrefetched(const PipelineKey& key, bool defer, JobTake& take)
-            {
-                take = JobTake::None;
-                const auto found = prefetchJobs.find(key);
-                if (found == prefetchJobs.end()) return nullptr;
-                const auto job = found->second;
-                if (defer && job->state != PrefetchJob::Done) {
-                    take = JobTake::Deferred;
-                    std::lock_guard lock(prefetchPool.mutex);
-                    if (job->state == PrefetchJob::Queued && job->kind != PrefetchJob::Draw) {
-                        job->kind = PrefetchJob::Draw; // its old queue entry is skipped
-                        prefetchPool.draw.push_back(job);
-                        prefetchPool.wake.notify_all();
-                    }
-                    return nullptr;
-                }
-                int expected = PrefetchJob::Queued;
-                if (job->state.compare_exchange_strong(expected, PrefetchJob::Taken)) {
-                    prefetchJobs.erase(found);
-                    FinishPrefetchRecipe(job->batch.get(), false);
-                    take = JobTake::Claimed;
-                    return nullptr;
-                }
-                // The finished job is then dropped by HarvestPrefetch.
-                if (job->desc.fastLink != fastLinkPipelines && job->state != PrefetchJob::Done) {
-                    take = JobTake::Inline;
-                    return nullptr;
-                }
-                const auto started = std::chrono::steady_clock::now();
-                {
-                    std::unique_lock lock(prefetchPool.mutex);
-                    prefetchPool.finished.wait(lock, [&] { return job->state == PrefetchJob::Done; });
-                }
-                prefetchWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
-                prefetchJobs.erase(key);
-                for (const auto* need : { &job->needVs, &job->needPs })
-                    if (*need) PublishShaderJob(**need);
-                if (!job->pipeline) return nullptr;
-                ++prefetchServed;
-                take = JobTake::Served;
-                auto& slot = pipelines.try_emplace(key, PipelineSlot{ std::move(job->pipeline) }).first->second;
-                return slot.pipeline.get();
-            }
-
-            // Render thread, on a draw-time miss: queues known recipes that share key's
-            // PS, then those that share its VS (same formats and primitive first);
-            // recipes drawn in the current scene go first within each.
-            void QueuePipelineSiblings(const PipelineKey& key)
-            {
-                constexpr size_t kPerMiss = 16;
-                // Not on Metal unless LO_PIPELINE_SIBLINGS=1: a pipeline is cheap there and
-                // a shader module (MSL compilation) is not, and sibling modules made on the
-                // workers held up this thread's own (M1 Max: a 0.75 s first map frame took 4.9 s).
-                static const bool metalSiblings = getenv("LO_PIPELINE_SIBLINGS") != nullptr;
-                if (!pipelineSiblings || !pipelineCacheEnabled || (video::IsMetal() && !metalSiblings)) return;
-                if (!siblingIndex.built) {
-                    siblingIndex.built = true;
-                    for (const auto& [recipe, entry] : knownRecipes) {
-                        if (pipelines.contains(recipe)) continue;
-                        const auto index = uint32_t(siblingIndex.recipes.size());
-                        siblingIndex.recipes.emplace_back(recipe, &entry);
-                        siblingIndex.byVs[recipe.vs].push_back(index);
-                        if (recipe.ps) siblingIndex.byPs[recipe.ps].push_back(index);
-                    }
-                }
-                const auto vsFamily = siblingIndex.byVs.find(key.vs);
-                const auto psFamily = key.ps ? siblingIndex.byPs.find(key.ps) : siblingIndex.byPs.end();
-                if (vsFamily == siblingIndex.byVs.end() && psFamily == siblingIndex.byPs.end()) return;
-                std::vector<std::shared_ptr<PrefetchJob>> jobs, shaderJobs;
-                size_t picked = 0;
-                // The shader job for a pack shader, queued with the siblings if new.
-                const auto shaderJob = [&](bool pixel, uint64_t hash) {
-                    auto& slot = prefetchShaderJobs[pixel ? 1 : 0][hash];
-                    if (!slot) {
-                        slot = std::make_shared<PrefetchJob>();
-                        slot->kind = PrefetchJob::Sibling;
-                        slot->shader = true;
-                        slot->pixel = pixel;
-                        slot->hash = hash;
-                        slot->pack = portableShaderPack;
-                        shaderJobs.push_back(slot);
-                    }
-                    return slot;
-                };
-                const auto consider = [&](uint32_t index) {
-                    const auto& [sibling, entry] = siblingIndex.recipes[index];
-                    if (sibling == key || pipelines.contains(sibling) || prefetchJobs.contains(sibling) ||
-                        failedPrefetch.contains(sibling)) return;
-                    Shader* vs = nullptr;
-                    Shader* ps = nullptr;
-                    switch (FindRecipeShaders(sibling, vs, ps, nullptr)) {
-                    case RecipeShaderState::Unavailable: return;
-                    case RecipeShaderState::Ready: jobs.push_back(MakePipelineJob(sibling, vs, ps, nullptr, PrefetchJob::Sibling)); break;
-                    case RecipeShaderState::Loading: {
-                        // Rect-list variants are built from guest microcode at the first draw.
-                        if (sibling.prim == 8 && rectListExpansion && !vs) return;
-                        auto job = std::make_shared<PrefetchJob>();
-                        job->key = sibling;
-                        job->kind = PrefetchJob::Sibling;
-                        job->desc.fastLink = fastLinkPipelines;
-                        job->vs = vs;
-                        job->ps = ps;
-                        if (!vs) job->needVs = shaderJob(false, sibling.vs);
-                        if (sibling.ps && !ps) job->needPs = shaderJob(true, sibling.ps);
-                        prefetchJobs.emplace(sibling, job);
-                        jobs.push_back(std::move(job));
-                        break;
-                    }
-                    }
-                    ++picked;
-                };
-                // Rank 0 first: drawn in this scene and, for the VS family, same formats and primitive.
-                const auto scan = [&](const std::vector<uint32_t>& family, bool vsFamilyRank) {
-                    for (int rank = 0; rank < 4 && picked < kPerMiss; ++rank)
-                        for (const uint32_t index : family) {
-                            if (picked >= kPerMiss) break;
-                            const auto& [sibling, entry] = siblingIndex.recipes[index];
-                            const bool similar = !vsFamilyRank || (sibling.rtFormat == key.rtFormat &&
-                                sibling.depthFormat == key.depthFormat && sibling.prim == key.prim);
-                            if ((entry->scenes.Contains(sceneTag) ? 0 : 2) + (similar ? 0 : 1) == rank) consider(index);
-                        }
-                };
-                if (psFamily != siblingIndex.byPs.end()) scan(psFamily->second, false);
-                if (vsFamily != siblingIndex.byVs.end()) scan(vsFamily->second, true);
-                workerStats.queued += uint32_t(picked);
-                jobs.insert(jobs.end(), shaderJobs.begin(), shaderJobs.end());
-                QueuePrefetchJobs(jobs);
             }
 
             #include "shader/portable_shader_pack_renderer.inl"
@@ -5704,26 +4377,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             void PrepareKnownShaders()
             {
                 video::ResetShaderPreparationSkip();
-                // A process killed while writing a startup bundle leaves its temporary file.
-                if (!shaderCacheDir.empty())
-                    for (const char* bundle : {"startup_vk12_v1.bundle", "startup_dxil_v1.bundle"})
-                        os::RemoveStaleSiblings(std::filesystem::path(shaderCacheDir) / bundle, L".tmp-");
+                // Platform diagnostics can initialize the renderer before a game is loaded.
+                // Never construct/hash a guest image span in that state.
+                if (!XexLoader::s_imageBase ||
+                    XexLoader::s_imageSize < xenos::portable_pack::RuntimeXexBytes ||
+                    XexLoader::UnboundIdentityPrefix().size() != xenos::portable_pack::RuntimeXexBytes) {
+                    LOG_INFO("renderer: game shader preparation skipped: no loaded executable");
+                    return;
+                }
                 try {
                 // The local startup bundle keys on this prefix as bound in guest memory.
                 const auto xex = std::span<const uint8_t>(static_cast<const uint8_t*>(g_memory.Translate(XexLoader::s_imageBase)), xenos::portable_pack::RuntimeXexBytes);
                 // A distribution pack is independent of the writable local cache, the local
                 // DXC identity and the host addresses that import binding wrote into the image.
                 const auto unboundXex = XexLoader::UnboundIdentityPrefix();
-                if (TryOpenPortableShaderPack(unboundXex)) {
-                    // Per-shader files of older translator versions can never be read again.
-                    if (!shaderCacheDir.empty()) {
-                        if (const auto removed = RemoveLegacyShaderCacheFiles(false))
-                            LOG_INFO("renderer: removed {} per-shader cache files of older translator versions", removed);
-                        RemovePackCoveredShaderCache();
-                    }
-                    ResetTimers();
-                    return;
-                }
+                if (TryOpenPortableShaderPack(unboundXex)) { ResetTimers(); return; }
                 if (shaderCacheDir.empty() || getenv("LO_NO_SHADER_PREPARE") || settings::GetConfig().skipShaderPrebuild) {
                     LOG_INFO("renderer: shader preparation skipped by configuration or environment");
                     return;
@@ -5744,21 +4412,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     !getenv("LO_SHADER_HLSL_DIR") && !retryFailures;
                 LOG_INFO("renderer: shader startup cache: {}, compiler identity {}", bundlePath.string(),
                     compilerIdentity.empty() ? "unavailable (persistent reuse disabled)" : compilerIdentity);
-                // The first start with the one-file store runs one preparation pass
-                // even on a bundle hit: it moves this format's per-shader files into
-                // the store (no DXC for valid files) and then deletes them.
-                bool moveLegacyFiles = false;
-                if (reuseBundle && !std::filesystem::exists(xenos::cache::ShaderStore::PathFor(shaderCacheDir, cacheIdentity.format))) {
-                    std::error_code ec;
-                    for (const auto& file : std::filesystem::directory_iterator(shaderCacheDir, ec)) {
-                        const auto legacy = xenos::cache::ParseLegacyShaderCacheFile(file.path().filename().string());
-                        if (legacy && legacy->extension == xenos::cache::Extension(cacheIdentity.format)) { moveLegacyFiles = true; break; }
-                    }
-                    if (moveLegacyFiles)
-                        LOG_INFO("renderer: moving per-shader cache files into the shader store (one-time preparation pass)");
-                }
                 BeginPortableShaderExport(unboundXex);
-                if (reuseBundle && !moveLegacyFiles) {
+                if (reuseBundle) {
                     uint32_t modules = 0, cachedFailures = 0;
                     double moduleMs = 0;
                     // Metal module creation (SPIR-V to MSL plus the Metal compiler)
@@ -5778,10 +4433,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     const bool lazyModules = parallelModules && !getenv("LO_SHADER_EAGER_MODULES");
                     std::unordered_set<uint64_t> wantedModules[2];
                     if (lazyModules && !getenv("LO_NO_PIPELINE_CACHE")) {
-                        auto recipes = LoadRecipes(RecipePath(), false).records;
-                        if (const auto corpus = CorpusPath(); !corpus.empty())
-                            for (const auto& record : LoadRecipes(corpus, true).records) recipes.push_back(record);
-                        for (const auto& [key, scenes] : recipes) {
+                        const auto recipes = gpu::pipeline_cache::Load(
+                            std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin"),
+                            xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
+                        for (const auto& key : recipes.keys) {
                             wantedModules[0].insert(key.vs);
                             if (key.ps) wantedModules[1].insert(key.ps);
                         }
@@ -5868,8 +4523,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
                         LOG_INFO("renderer: startup bundle fallback: {}", e.what());
                     }
-                } else if (!moveLegacyFiles)
-                    LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
+                } else LOG_INFO("renderer: startup bundle bypass: explicit scan/dump/retry or unavailable compiler identity");
                 BeginPortableShaderExport(unboundXex); // Discard any partial export after transactional bundle rejection.
                 video::SetShaderPreparationProgress(0, 1, video::PreparationStage::CacheValidation, video::PreparationUnit::Files);
                 video::PumpEvents();
@@ -5982,8 +4636,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     bool compiled = false;
                     bool deterministicFailure = false;
                     bool cachedFailure = false;
-                    bool storeHit = false;
-                    bool migrated = false;
                     // Device module built on the worker (Metal only, see below).
                     std::unique_ptr<RenderShader> module;
                     uint64_t moduleUs = 0;
@@ -6016,6 +4668,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         item.sourceUs = std::chrono::duration_cast<std::chrono::microseconds>(
                             std::chrono::steady_clock::now() - sourceStarted).count();
 
+                        const auto cacheStarted = std::chrono::steady_clock::now();
+                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
+                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
+                        item.cacheChecked = true;
+                        item.bytecode = xenos::cache::ReadBinary(item.cachePath, item.pixel, item.hash, cacheIdentity, &item.cachePresent);
+                        item.cacheValid = !item.bytecode.empty();
+                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
+                            std::chrono::steady_clock::now() - cacheStarted).count();
+
                         std::vector<uint32_t> swapped(words.size());
                         std::transform(words.begin(), words.end(), swapped.begin(), [](uint32_t word) { return ByteSwap(word); });
                         const auto translateStarted = std::chrono::steady_clock::now();
@@ -6025,22 +4686,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (const char* hlslDir = getenv("LO_SHADER_HLSL_DIR"))
                             std::ofstream(fmt::format("{}/{}_{:016x}.hlsl", hlslDir,
                                 item.pixel ? "ps" : "vs", item.hash)) << item.info.hlsl;
-
-                        // The store is keyed by the generated HLSL, so a translator change
-                        // that leaves this shader's HLSL alone keeps its binary.
-                        const auto cacheStarted = std::chrono::steady_clock::now();
-                        item.cachePath = (std::filesystem::path(shaderCacheDir) /
-                            xenos::cache::FileName(item.pixel, item.hash, cacheIdentity)).string();
-                        item.cacheChecked = true;
-                        const auto inputDigest = xenos::cache::CompileInputDigest(item.info.hlsl, item.pixel, cacheIdentity);
-                        auto stored = FindCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath);
-                        item.bytecode = std::move(stored.binary);
-                        item.cachePresent = stored.storeHit || stored.legacyPresent;
-                        item.cacheValid = !item.bytecode.empty();
-                        item.storeHit = stored.storeHit;
-                        item.migrated = stored.legacyHit;
-                        item.cacheUs = std::chrono::duration_cast<std::chrono::microseconds>(
-                            std::chrono::steady_clock::now() - cacheStarted).count();
 
                         if (!item.cacheValid) {
                             const auto failurePath = item.cachePath + ".failed";
@@ -6070,7 +4715,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             } else {
                                 item.bytecode = std::move(compiled.bytecode);
                                 item.compiled = true;
-                                StoreCompiledShader(item.pixel, item.hash, inputDigest, item.cachePath,
+                                xenos::cache::WriteBinary(item.cachePath, item.pixel, item.hash, cacheIdentity,
                                     item.bytecode, &item.cacheWriteError);
                             }
                         }
@@ -6095,7 +4740,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 uint32_t done = 0, failed = 0, modulesReady = 0, modulesFailed = 0;
                 size_t cacheHits = 0, cacheMissing = 0, cacheInvalid = 0, compileAttempts = 0, compiledCount = 0, cachedFailureCount = 0;
-                size_t storeHits = 0, migratedCount = 0, cacheWriteFailures = 0;
                 uint64_t sourceUs = 0, cacheUs = 0, translateUs = 0, compileUs = 0, moduleUs = 0;
                 auto install = [&](PreparedSource item) {
                     sourceUs += item.sourceUs;
@@ -6103,9 +4747,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     translateUs += item.translateUs;
                     compileUs += item.compileUs;
                     cacheHits += item.cacheValid;
-                    storeHits += item.storeHit;
-                    migratedCount += item.migrated;
-                    cacheWriteFailures += !item.cacheWriteError.empty();
                     cacheMissing += item.cacheChecked && !item.cachePresent;
                     cacheInvalid += item.cacheChecked && item.cachePresent && !item.cacheValid;
                     compileAttempts += item.compileAttempted;
@@ -6200,19 +4841,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_INFO("renderer: startup bundle published: {} records, {} bytes", done, std::filesystem::file_size(bundlePath));
                     } catch (const std::exception& e) { LOG_WARNING("renderer: startup bundle not published: {}", e.what()); }
                 }
-                if (auto* store = LocalShaderStore(); store && done == jobs.size() && !queueStats.cancelled &&
-                    !video::ShaderPreparationSkipped() && !initializationModuleFailure) {
-                    // Every prepared shader is in the store now, so this format's
-                    // per-shader files are redundant; records no shader used drop out.
-                    const auto stats = store->GetStats();
-                    const bool complete = stats.writable && !cacheWriteFailures;
-                    const auto removed = RemoveLegacyShaderCacheFiles(complete);
-                    std::string compactError;
-                    const auto dropped = complete ? store->CompactUnused(64ull << 20, &compactError) : 0;
-                    LOG_INFO("renderer: shader store: {} hits, {} moved from per-shader files, {} compiled; {} old per-shader files removed, {} unused records dropped{}",
-                        storeHits, migratedCount, compiledCount, removed, dropped,
-                        compactError.empty() ? std::string{} : "; compaction failed: " + compactError);
-                }
                 if (done) {
                     LOG_INFO("renderer: shader cache: {} valid, {} missing, {} invalid; {} DXC attempts, {} compiled",
                         cacheHits, cacheMissing, cacheInvalid, compileAttempts, compiledCount);
@@ -6253,10 +4881,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     debugShaderSources->Observe(!pixel, hash, words, count, frame);
                 auto& cache = shaders[pixel ? 1 : 0];
                 auto it = cache.find(hash);
-                if (it == cache.end()) {
-                    ScopedTimer loadTimer{ tShader, cpuTimingEnabled };
-                    if (TryLoadPortableShader(pixel, hash)) it = cache.find(hash);
-                }
+                if (it == cache.end() && TryLoadPortableShader(pixel, hash)) it = cache.find(hash);
                 if (it != cache.end() && !it->second.valid && !it->second.retry.Ready()) return nullptr;
                 if (it != cache.end() && it->second.valid) {
                     if (!debugCaptureDir.empty() && it->second.valid && it->second.info.hlsl.empty()) {
@@ -6296,17 +4921,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
                 std::vector<uint8_t> dxil;
                 std::string cachePath;
-                xenos::cache::InputDigest inputDigest{};
                 if (!shaderCacheDir.empty())
                 {
-                    // The store keys on the generated HLSL, so a changed translation never
-                    // resurrects a stale binary; cachePath names the pre-store file and
-                    // the failure diagnostic.
+                    // The cache name carries a translator version so changes to the
+                    // generated HLSL don't resurrect stale DXIL.
                     cachePath = (std::filesystem::path(shaderCacheDir) / xenos::cache::FileName(pixel, hash, cacheIdentity)).string();
-                    inputDigest = xenos::cache::CompileInputDigest(entry.info.hlsl, pixel, cacheIdentity);
-                    auto stored = FindCompiledShader(pixel, hash, inputDigest, cachePath);
-                    dxil = std::move(stored.binary);
-                    if (stored.legacyPresent && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
+                    bool present = false;
+                    dxil = xenos::cache::ReadBinary(cachePath, pixel, hash, cacheIdentity, &present);
+                    if (present && dxil.empty()) SHADER_LOG_WARNING("cache-invalid", RendererByteFnv, "renderer: ignoring invalid/foreign shader cache {}", cachePath);
                 }
                 if (dxil.empty())
                 {
@@ -6336,7 +4958,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     dxil = std::move(compiled.bytecode);
                     if (!cachePath.empty()) {
                         std::string error;
-                        if (!StoreCompiledShader(pixel, hash, inputDigest, cachePath, dxil, &error))
+                        if (!xenos::cache::WriteBinary(cachePath, pixel, hash, cacheIdentity, dxil, &error))
                             SHADER_LOG_WARNING("cache-write-failed", None, "renderer: shader cache write failed: {}", error);
                     }
                 }
@@ -6359,35 +4981,37 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return entry.valid ? &entry : nullptr;
             }
 
-            RenderShader* HdrToneShader(Shader& entry, const uint32_t* words, uint32_t count)
-            {
-                if (entry.hdrShaderAttempted) return entry.hdrShader.get();
-                entry.hdrShaderAttempted = true;
-                std::vector<uint32_t> swapped(count);
-                for (uint32_t i = 0; i < count; ++i) swapped[i] = ByteSwap(words[i]);
-                auto translated = xenos::TranslateShader(swapped.data(), count, true);
-                if (!translated.errors.empty() || !hdr_scene::RewriteTonemap(translated.hlsl)) {
-                    LOG_WARNING("renderer HDR: tone-map translation changed; SDR fallback");
-                    return nullptr;
-                }
-                const auto compiled = xenos::CompileCachedHlsl(translated.hlsl, "main", "ps_6_0", binaryFormat);
-                if (!compiled.ok) {
-                    LOG_WARNING("renderer HDR: tone-map variant compile failed: {}", compiled.errors);
-                    return nullptr;
-                }
-                try {
-                    entry.hdrShader = device->createShader(compiled.bytecode.data(), compiled.bytecode.size(),
-                        "main", renderFormat);
-                } catch (const std::exception& error) {
-                    LOG_WARNING("renderer HDR: tone-map module creation failed: {}", error.what());
-                }
-                return entry.hdrShader.get();
+#if defined(__ANDROID__)
+            xenos::cache::Identity RectListIdentity() const {
+                auto identity = cacheIdentity;
+                identity.variant = "android-rect-list-expansion-v1";
+                return identity;
             }
-
+            std::filesystem::path RectListPath(uint64_t hash) const {
+                return std::filesystem::path(shaderCacheDir) / "rect-list" /
+                    xenos::cache::FileName(false, hash, RectListIdentity());
+            }
+            bool LoadRectListShader(Shader& vs, uint64_t hash) {
+                if (vs.rectList) return true;
+                if (shaderCacheDir.empty()) return false;
+                auto binary = xenos::cache::ReadBinary(RectListPath(hash), false, hash, RectListIdentity());
+                if (binary.empty()) return false;
+                try {
+                    vs.rectList = device->createShader(binary.data(), binary.size(), "main", renderFormat);
+                    return vs.rectList != nullptr;
+                } catch (const std::exception& e) {
+                    LOG_WARNING("renderer: rectangle variant restore failed: {}", e.what());
+                    return false; // Normal first-use compilation remains available.
+                }
+            }
+#endif
             bool PrepareRectListShader(Shader& vs, const uint32_t* words, uint32_t count, uint64_t hash)
             {
                 if (vs.rectList) return true;
                 if (vs.rectListFailed) return false;
+#if defined(__ANDROID__)
+                if (LoadRectListShader(vs, hash)) return true;
+#endif
                 vs.rectListFailed = true;
                 std::vector<uint32_t> swapped(count);
                 for (uint32_t i = 0; i < count; i++)
@@ -6411,6 +5035,16 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     return false;
                 }
                 vs.rectListFailed = vs.rectList == nullptr;
+#if defined(__ANDROID__)
+                if (!vs.rectListFailed && !shaderCacheDir.empty()) {
+                    std::error_code directoryError;
+                    std::filesystem::create_directories(RectListPath(hash).parent_path(), directoryError);
+                    std::string error;
+                    if (directoryError || !xenos::cache::WriteBinary(RectListPath(hash), false, hash,
+                        RectListIdentity(), compiled.bytecode, &error))
+                        LOG_WARNING("renderer: rectangle variant cache write failed: {}", directoryError ? directoryError.message() : error);
+                }
+#endif
                 return !vs.rectListFailed;
             }
 
@@ -6545,26 +5179,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             bool ApplyInternalResolution()
             {
                 if (video::GpuWorkStopped()) return false;
-                if (framePlanGeneration.load(std::memory_order_acquire) != activePlanGeneration) {
+                frame_plan::FramePlan selected;
+                bool failed = false;
+                {
                     std::lock_guard lock(framePlanMutex);
-                    activePlan = committedPlan;
-                    activePlanFailed = activePlan.geometryEpoch != 0 && failedPlanEpochs.contains(activePlan.geometryEpoch);
-                    activePlanGeneration = framePlanGeneration.load(std::memory_order_relaxed);
+                    selected = committedPlan;
+                    failed = selected.geometryEpoch != 0 && failedPlanEpochs.contains(selected.geometryEpoch);
                 }
-                if (activePlanFailed)
+                activePlan = selected;
+                if (failed)
                     return false;
-                const frame_plan::FramePlan& selected = activePlan;
                 const resolution::Size requested{selected.width, selected.height};
                 const bool first = appliedPlanEpoch == ~0ull;
                 const bool requestChanged = requested != requestedInternalSize;
-                // Snapshot once per renderer frame, before borrowing draw attachments.
-                // BeginFrame reads the setting only on the first draw of a frame.
-                if (shadowConfigFrame != frame) {
-                    shadowConfigFrame = frame;
-                    shadowConfigValue = settings::GetConfig().shadowResolution;
-                }
-                const auto desiredShadow = shadowState.BeginFrame(frame, shadowConfigValue);
-                const bool shadowChanged = desiredShadow != shadowResolution;
                 const bool epochChanged = selected.geometryEpoch != appliedPlanEpoch;
                 const bool recreateFeature =
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -6576,13 +5203,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     ((srReconfigureFrame != ~0ull && srReconfigureFrame != frame) ||
                       (epochChanged && temporalUpscaler->HasFeatureState()));
 #endif
-                if (!epochChanged && !requestChanged && !first && !recreateFeature && !shadowChanged) return true;
+                if (!epochChanged && !requestChanged && !first && !recreateFeature) return true;
                 requestedInternalSize = requested;
                 const auto effective = requested;
                 // No guest draw attachments, upload offsets or descriptors have
                 // been borrowed yet. Reconfigure here, never in a scene-copy draw.
                 // Keep the NGX session/parameters, releasing only the old feature.
-                if (effective != internalSize || recreateFeature || shadowChanged) {
+                if (effective != internalSize || recreateFeature) {
                     if (!Flush() || !WaitForGpu() || !video::WaitForPresentGpu()) return false;
                     if (recreateFeature) {
 #if defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -6599,7 +5226,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         srReconfigureFrame = ~0ull;
                     }
                 }
-                if (effective != internalSize || shadowChanged) {
+                if (effective != internalSize) {
                     // active points into renderTargets; parked/scratch may also
                     // be referenced by completed NGX lists. Clear only after the
                     // drain, before destroying the map it points into.
@@ -6611,10 +5238,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (fsrAlphaBridge) fsrAlphaBridge->DiscardUnsubmitted();
 #endif
                     sceneCopyPromotion = {};
-                    restoreDebt = {};
-                    promotionPool.clear();
                     framebuffers.clear();
-                    lastFramebuffer = nullptr;
                     renderTargets.clear();
                     resolved.clear();
                     tileOwner.clear();
@@ -6625,9 +5249,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     sceneAAConfigFrame = ~0ull;
                     ++temporalEpoch;
                 }
-                if (shadowChanged) LOG_INFO("renderer: shadow resolution requested={}x effective={}x allocation_fallback={}",
-                    shadowState.Requested(), desiredShadow, shadowState.Failed());
-                shadowResolution = desiredShadow;
                 internalSize = effective;
                 appliedPlanEpoch = selected.geometryEpoch;
                 LOG_INFO("renderer: internal resolution f{} plan={} epoch={} requested={}x{} effective={}x{} cpu_readback={} allocation_fallback={}",
@@ -6643,7 +5264,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     std::lock_guard lock(framePlanMutex);
                     if (!failedPlanEpochs.emplace(activePlan.geometryEpoch).second)
                         return;
-                    framePlanGeneration.fetch_add(1, std::memory_order_release);
                 }
                 const uint32_t fallback = activePlan.height > 720 ? std::max(720u, activePlan.height * 3 / 4) : 720u;
                 if (reason == frame_plan::FailureReason::Unknown)
@@ -6678,33 +5298,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return committedPlan.geometryEpoch != 0 && failedPlanEpochs.contains(committedPlan.geometryEpoch);
             }
 
-            void FailSurfaceAllocation(bool shadow)
-            {
-                if (shadow && shadowResolution > 1) {
-                    // Retry at 1x next renderer frame without poisoning the CPU
-                    // scene plan (which may already be at its minimum size).
-                    shadowState.AllocationFailed();
-                    return;
-                }
-                FailCurrentPlan();
-            }
-
-            // Last catalog role per attachment kind (color, depth); draws reuse targets.
-            struct CatalogRoleCache { uint64_t key = ~0ull, generation = 0; resolution::TargetRole role{}; } catalogRoleCache[2];
             HostTexture* GetRenderTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool depth)
             {
                 // EDRAM targets have no intrinsic height and ours is only guessed
                 // from the scissor, so draws and resolves may disagree on it: key
                 // by tile base, format and pitch only and grow the texture when a
                 // taller extent shows up.
-                auto& cachedRole = catalogRoleCache[depth];
-                const uint64_t roleKey = (uint64_t(base) << 32) | pitch;
-                if (const uint64_t generation = catalogGeneration.load(std::memory_order_acquire);
-                    cachedRole.key != roleKey || cachedRole.generation != generation)
-                    cachedRole = {roleKey, generation, ResolveCatalogRole(base, pitch)};
-                const auto role = cachedRole.role;
-                if (role == resolution::TargetRole::Shadow && shadowState.Failed() && shadowResolution > 1) return nullptr;
-                height = resolution::TargetGuestHeight(role, height);
+                height = std::clamp<uint32_t>((height + 31) & ~31u, 32, 2048);
                 // Depth formats (D24S8 / D24FS8) alias the same tiles and share our
                 // host format, so they are one target.
                 // One host texture per (base, pitch, storage class).
@@ -6715,8 +5315,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 uint32_t effectiveHeight = height;
                 if (it != renderTargets.end())
                     effectiveHeight = std::max(effectiveHeight, it->second->guestHeight);
+                const auto role = ResolveCatalogRole(base, pitch);
                 const resolution::Size legacySize{activePlan.legacyWidth,activePlan.legacyHeight};
-                resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize, shadowResolution);
+                resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize);
                 if (sceneCopyPromotion.activeMapping && key == sceneCopyPromotion.key && sceneCopyPromotion.frame == frame &&
                     sceneCopyPromotion.epoch == activePlan.geometryEpoch)
                     desiredSize = {activePlan.output.width, activePlan.output.height};
@@ -6726,12 +5327,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // A catalog publication can arrive after a target's first
                     // use. Test its effective mapping before returning a cache
                     // hit so the old native/square allocation is never reused.
-                    if (it->second->guestHeight >= height && it->second->resolutionSize == desiredSize) {
-                        it->second->shadowMap = role == resolution::TargetRole::Shadow;
+                    if (it->second->guestHeight >= height && it->second->resolutionSize == desiredSize)
                         return it->second.get();
-                    }
-                    // The growth copy below reads the old pixels.
-                    if (it->second.get() == restoreDebt.target) SettleRestoreDebt();
                     oldTarget = std::move(it->second);
                     renderTargets.erase(it);
                 }
@@ -6743,14 +5340,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 tex->guestWidth = pitch;
                 tex->guestHeight = effectiveHeight;
                 tex->resolutionSize = desiredSize;
-                tex->shadowMap = role == resolution::TargetRole::Shadow;
                 tex->width = std::max(1u, tex->ScaleX(pitch));
                 tex->height = std::max(1u, tex->ScaleY(effectiveHeight));
                 RenderTextureDesc desc = RenderTextureDesc::Texture2D(tex->width, tex->height, 1, tex->format, depth ? RenderTextureFlag::DEPTH_TARGET : RenderTextureFlag::RENDER_TARGET);
                 tex->texture = device->createTexture(desc);
                 tex->layout = RenderTextureLayout::UNKNOWN;
                 if (!tex->texture) {
-                    FailSurfaceAllocation(tex->shadowMap);
+                    FailCurrentPlan();
                     LOG_ERROR("renderer: render target allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", pitch, effectiveHeight, tex->width, tex->height);
                     if (oldTarget) Gpu().retiredTextures.push_back(std::move(oldTarget));
                     return nullptr;
@@ -6780,7 +5376,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                 }
                 if (oldTarget) Gpu().retiredTextures.push_back(std::move(oldTarget));
-                LOG_INFO("renderer: new {} target base={:#x} fmt={} guest={}x{} physical={}x{} scale={}x{} shadow={}", depth ? "depth" : "color", base, format, pitch, effectiveHeight, tex->width, tex->height, tex->resolutionSize.width, tex->resolutionSize.height, tex->shadowMap);
+                LOG_INFO("renderer: new {} target base={:#x} fmt={} guest={}x{} physical={}x{} scale={}x{}", depth ? "depth" : "color", base, format, pitch, effectiveHeight, tex->width, tex->height, tex->resolutionSize.width, tex->resolutionSize.height);
                 HostTexture* result = tex.get();
                 renderTargets.emplace(key, std::move(tex));
                 return result;
@@ -6795,10 +5391,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // pixels. In the tank intro the title restores the saved scene as
             // fixed 2_10_10_10, then blends light into the same tiles as 7e3.
             // Skipping that transfer retains the old white attenuation clear.
-            // touchesColor is false for draws that leave colour alone (depth-only
-            // passes); an owed target keeps its debt through them.
-            HostTexture* AcquireColorTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool forRead = false,
-                bool touchesColor = true)
+            HostTexture* AcquireColorTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool forRead = false)
             {
                 const uint32_t colorClass = ColorClassOf(format);
                 HostTexture* target = GetRenderTarget(base, format, pitch, height, false);
@@ -6806,21 +5399,16 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // behavior remains opt-in for diagnostic A/B runs (=read); =0/none
                 // disables transfers entirely.
                 static const char* transferMode = getenv("LO_EDRAM_TRANSFER") ? getenv("LO_EDRAM_TRANSFER") : "draw";
-                static const bool transferNever = strcmp(transferMode, "0") == 0 || strcmp(transferMode, "none") == 0;
-                static const bool transferOnDraw = strcmp(transferMode, "draw") == 0;
-                const bool doTransfer = !transferNever && (forRead || transferOnDraw);
-                auto [owner, firstOwner] = tileOwner.try_emplace({ base, pitch }, colorClass);
-                if (doTransfer && !firstOwner && owner->second != colorClass)
+                const bool doTransfer = strcmp(transferMode, "0") != 0 && strcmp(transferMode, "none") != 0 &&
+                    (forRead || strcmp(transferMode, "draw") == 0);
+                auto owner = tileOwner.find({ base, pitch });
+                if (doTransfer && owner != tileOwner.end() && owner->second != colorClass)
                 {
                     auto prev = renderTargets.find(RenderTargetKey{ base, owner->second, pitch, 0, false });
-                    if (prev != renderTargets.end() && prev->second && prev->second->texture && target && target->texture) {
-                        // The transfer reads the old owner and may cover only part of the new one.
-                        if (prev->second.get() == restoreDebt.target || target == restoreDebt.target) SettleRestoreDebt();
+                    if (prev != renderTargets.end() && prev->second && prev->second->texture && target && target->texture)
                         TransferRegion(*prev->second, *target, owner->second, colorClass);
-                    }
                 }
-                owner->second = colorClass;
-                if (target && target == restoreDebt.target && (touchesColor || forRead)) SettleRestoreDebt();
+                tileOwner[{ base, pitch }] = colorClass;
                 return target;
             }
 
@@ -6829,13 +5417,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (color) MarkFgWritable(*color, "color_framebuffer");
                 if (depth) MarkFgWritable(*depth, "depth_framebuffer");
                 auto key = std::make_pair(color ? color->texture.get() : nullptr, depth ? depth->texture.get() : nullptr);
-                if (lastFramebuffer && key == lastFramebufferKey)
-                    return lastFramebuffer;
                 auto it = framebuffers.find(key);
-                if (it != framebuffers.end()) {
-                    lastFramebufferKey = key;
-                    return lastFramebuffer = it->second.get();
-                }
+                if (it != framebuffers.end())
+                    return it->second.get();
                 if (nativeVulkan && vk_object_trace::Permit()) {
                     const auto* c = static_cast<const VulkanTexture*>(key.first);
                     const auto* d = static_cast<const VulkanTexture*>(key.second);
@@ -7064,31 +5648,20 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             view->guestWidth = width;
                             view->guestHeight = height;
                             view->resolutionSize = rs->tex->resolutionSize;
-                            view->shadowMap = rs->tex->shadowMap;
                             view->width = physicalWidth;
                             view->height = physicalHeight;
                             view->texture = device->createTexture(RenderTextureDesc::Texture2D(physicalWidth, physicalHeight, 1, view->format));
                         }
                         if (!view->texture) {
-                            FailSurfaceAllocation(rs->tex->shadowMap);
+                            FailCurrentPlan();
                             LOG_ERROR("renderer: fetch view allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", width, height, physicalWidth, physicalHeight);
                             return nullptr;
                         }
-                        view->shadowMap = rs->tex->shadowMap;
-                        // Every resolve write takes a new global ordinal (a fresh
-                        // allocation has none), so an unchanged stamp means the
-                        // view still holds this exact copy.
-                        if (!rs->writeOrdinal || view->viewSourceOrdinal != rs->writeOrdinal ||
-                            view->viewSource != rs->tex->texture.get() || view->viewSourceAllocation != rs->tex->allocationSerial) {
-                            Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
-                            Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
-                            RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
-                            commandList->copyTextureRegion(RenderTextureCopyLocation::Subresource(view->texture.get()),
-                                RenderTextureCopyLocation::Subresource(rs->tex->texture.get()), 0, 0, 0, &box);
-                            view->viewSourceOrdinal = rs->writeOrdinal;
-                            view->viewSource = rs->tex->texture.get();
-                            view->viewSourceAllocation = rs->tex->allocationSerial;
-                        }
+                        Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                        Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                        RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
+                        commandList->copyTextureRegion(RenderTextureCopyLocation::Subresource(view->texture.get()),
+                            RenderTextureCopyLocation::Subresource(rs->tex->texture.get()), 0, 0, 0, &box);
                         if (taa_collection::Enabled())
                             view->bindingProducer.Copy(rs->tex->bindingProducer, taa_collection::ConsentEpoch(), frame, true);
                         Transition(*view, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
@@ -7125,6 +5698,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     textures.erase(it);
                 }
 
+                AndroidStallTimer androidTimer{"texture preparation"};
                 ScopedTimer timer{ tTexture, cpuTimingEnabled };
                 nTexture++;
                 TextureFormatInfo fi;
@@ -7227,6 +5801,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 decode(src, pitchBlocks, packedOffset, blocksX, blocksY, faces, staging.data(), rowPitch);
 
                 auto tex = std::make_unique<HostTexture>();
+                tex->format = fi.host;
                 tex->width = width;
                 tex->height = height;
                 tex->guestAddress = sourceAddress;
@@ -7276,52 +5851,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     tex->mipAddress = mipAddress;
                     tex->mipBytes = std::max(tex->mipBytes, uint32_t(mipBytes));
                 }
-                // Without device BC support the guest side above stays on 4x4
-                // blocks; each uploaded level is decoded into an RGBA8 staging
-                // of the same texel size and the host texture is RGBA8 (#214).
-                const bool expandBc = textureBcFallback && gpu::bc_decode::IsBcFormat(format);
-                const RenderFormat hostFormat = expandBc ? RenderFormat::R8G8B8A8_UNORM : fi.host;
-                uint32_t uploadBpp = hostBpp, uploadBlockWidth = fi.blockWidth, uploadFaceRows = blocksY;
-                std::vector<uint8_t> expanded;
-                if (expandBc)
-                {
-                    std::vector<UploadLevel> hostLevels;
-                    size_t expandedBytes = 0;
-                    for (size_t level = 0; level < levels.size(); ++level)
-                    {
-                        const uint32_t pitch = (levels[level].width * 4 + 255) & ~255u;
-                        const size_t levelOffset = level == 0 ? 0 : (expandedBytes + 511) & ~size_t(511);
-                        expandedBytes = levelOffset + size_t(pitch) * levels[level].height * (level == 0 ? faces : 1u);
-                        hostLevels.push_back({levels[level].width, levels[level].height, pitch, levelOffset});
-                    }
-                    if (expandedBytes > kUploadRingSize)
-                    {
-                        LOG_WARNING("renderer: decoded BC texture exceeds upload ring fmt={} {}x{} uploadBytes={}",
-                            format, texWidth, texHeight, expandedBytes);
-                        return nullptr;
-                    }
-                    expanded.resize(expandedBytes);
-                    for (uint32_t f = 0; f < faces; f++)
-                        gpu::bc_decode::DecodeImage(format, staging.data() + size_t(f) * rowPitch * blocksY, rowPitch,
-                            blocksX, blocksY, expanded.data() + size_t(f) * hostLevels[0].rowPitch * texHeight, hostLevels[0].rowPitch);
-                    for (size_t level = 1; level < levels.size(); ++level)
-                        gpu::bc_decode::DecodeImage(format, staging.data() + levels[level].offset, levels[level].rowPitch,
-                            levels[level].width / 4, levels[level].height / 4, expanded.data() + hostLevels[level].offset, hostLevels[level].rowPitch);
-                    levels = std::move(hostLevels);
-                    rowPitch = levels[0].rowPitch;
-                    uploadBpp = 4;
-                    uploadBlockWidth = 1;
-                    uploadFaceRows = texHeight;
-                }
-                const std::vector<uint8_t>& upload = expandBc ? expanded : staging;
-                tex->format = hostFormat;
                 tex->guestHash = SampledGuestHash(*tex);
                 tex->guestFullHash = FullGuestHash(*tex);
                 tex->nextFullScanFrame = texture_cache::FirstFullScanFrame(frame, tex->guestAddress);
                 if (dimension == 3)
-                    tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, hostFormat, RenderTextureFlag::CUBE));
+                    tex->texture = device->createTexture(RenderTextureDesc::Texture(RenderTextureDimension::TEXTURE_2D, texWidth, texHeight, 1, 1, 6, fi.host, RenderTextureFlag::CUBE));
                 else
-                    tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texWidth, texHeight, uint32_t(levels.size()), hostFormat));
+                    tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texWidth, texHeight, uint32_t(levels.size()), fi.host));
                 tex->layout = RenderTextureLayout::UNKNOWN;
                 if (!tex->texture)
                 {
@@ -7329,21 +5865,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     return nullptr;
                 }
 
-                texBytes += upload.size();
-                uint64_t offset = Upload(upload.data(), upload.size(), 512);
+                texBytes += staging.size();
+                uint64_t offset = Upload(staging.data(), staging.size(), 512);
                 if (offset == UINT64_MAX)
                     return nullptr;
                 Transition(*tex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
                 for (uint32_t f = 0; f < faces; f++)
                     commandList->copyTextureRegion(
                         RenderTextureCopyLocation::Subresource(tex->texture.get(), 0, f),
-                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, hostFormat, texWidth, texHeight, 1, (rowPitch / uploadBpp) * uploadBlockWidth,
-                            offset + uint64_t(f) * rowPitch * uploadFaceRows));
+                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, fi.host, texWidth, texHeight, 1, (rowPitch / hostBpp) * fi.blockWidth,
+                            offset + uint64_t(f) * rowPitch * blocksY));
                 for (uint32_t level = 1; level < levels.size(); ++level)
                     commandList->copyTextureRegion(
                         RenderTextureCopyLocation::Subresource(tex->texture.get(), level, 0),
-                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, hostFormat, levels[level].width, levels[level].height, 1,
-                            (levels[level].rowPitch / uploadBpp) * uploadBlockWidth, offset + levels[level].offset));
+                        RenderTextureCopyLocation::PlacedFootprint(uploadRing, fi.host, levels[level].width, levels[level].height, 1,
+                            (levels[level].rowPitch / hostBpp) * fi.blockWidth, offset + levels[level].offset));
                 Transition(*tex, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
 
                 HostTexture* result = tex.get();
@@ -7392,15 +5928,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
             }
 
-            // Factors 12-15 read the RB_BLEND_RED..ALPHA constant (enemy fade-in, #219).
-            static bool UsesBlendConstant(uint32_t blend)
-            {
-                for (uint32_t shift : { 0u, 8u, 16u, 24u })
-                    if (const uint32_t f = (blend >> shift) & 0x1F; f >= 12 && f <= 15)
-                        return true;
-                return false;
-            }
-
             static RenderBlendOperation BlendOp(uint32_t op)
             {
                 switch (op)
@@ -7421,83 +5948,44 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return table[f & 7];
             }
 
-            // drawKey is the draw's raw state; pipelines and recipes use its normalized form.
-            // mayDefer: with LO_PIPELINE_ASYNC=1 the draw may be skipped (nullptr and
-            // pipelineDeferred) while a worker builds its pipeline.
-            RenderPipeline* GetPipeline(const PipelineKey& drawKey, Shader* vs, Shader* ps, RenderFormat, RenderFormat, bool mayDefer = false)
+            RenderPipeline* GetPipeline(const PipelineKey& key, Shader* vs, Shader* ps, RenderFormat, RenderFormat)
             {
-                const PipelineKey key = gpu::pipeline_cache::Normalize(drawKey);
                 auto it = pipelines.find(key);
-                const auto hit = [&] {
-                    if (it->second.sceneSerial != sceneSerial) {
-                        it->second.sceneSerial = sceneSerial;
-                        NoteRecipeUse(key);
-                    }
-                    if (!unusedSiblings.empty() && unusedSiblings.erase(key)) ++workerStats.hits;
-                    return it->second.pipeline.get();
-                };
-                if (it != pipelines.end()) return hit();
+                if (it != pipelines.end()) {
+                    return it->second.get();
+                }
                 ScopedTimer timer{ tPipeline, cpuTimingEnabled };
-                if (!prefetchPool.workers.empty()) {
-                    HarvestPrefetch();
-                    if (it = pipelines.find(key); it != pipelines.end()) return hit();
-                }
-                const bool defer = mayDefer && pipelineAsync;
-                const auto started = std::chrono::steady_clock::now();
-                // Siblings first: workers build them while this thread builds or waits.
-                // Not again for a draw skipped while its pipeline builds.
-                if (!(defer && prefetchJobs.contains(key))) QueuePipelineSiblings(key);
-                JobTake take = JobTake::None;
-                if (!prefetchJobs.empty())
-                    if (RenderPipeline* prefetched = TakePrefetched(key, defer, take)) {
-                        pipelines[key].sceneSerial = sceneSerial;
-                        NoteRecipeUse(key);
-                        return prefetched;
-                    }
-                if (take == JobTake::Deferred) {
-                    ++workerStats.skipped;
-                    pipelineDeferred = true;
-                    return nullptr;
-                }
                 nPipeline++;
                 if (gpuStatsEnabled) ++runtimePipelineCreates;
-                const auto elapsed = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(); };
-                if (defer && take == JobTake::None && !failedPrefetch.contains(key)) {
-                    QueuePrefetchJobs({ MakePipelineJob(key, vs, ps, nullptr, PrefetchJob::Draw) });
-                    NotePipelineMiss(key, elapsed(), knownRecipes.contains(key), "defer");
-                    ++workerStats.skipped;
-                    pipelineDeferred = true;
-                    return nullptr;
-                }
-                auto pipeline = CreatePipeline(key, vs, ps, true, fastLinkPipelines);
-                NotePipelineMiss(key, elapsed(), knownRecipes.contains(key),
-                    take == JobTake::Claimed ? "claim" : take == JobTake::Inline ? "inline" : "create");
+                auto pipeline = CreatePipeline(key, vs, ps, true);
                 RenderPipeline* result = pipeline.get();
                 // A failed speculative creation must not poison the draw cache.
                 if (result) {
-                    pipelines.emplace(key, PipelineSlot{ std::move(pipeline), sceneSerial });
-                    NoteRecipeUse(key);
+                    pipelines.emplace(key, std::move(pipeline));
+                    if (pipelineCacheEnabled && pipelineRecipes.size() < gpu::pipeline_cache::kMaxRecords &&
+                        gpu::pipeline_cache::IsValid(key) && ValidPipelineRecipe(key) && pipelineRecipes.insert(key).second)
+                        pipelineRecipesDirty = true;
                 }
                 return result;
             }
 
-            // Only exact game-state pipelines get a persistent name; the variant
-            // paths edit DescribePipeline's result and stay unnamed.
-            RenderGraphicsPipelineDesc DescribeForCreation(const PipelineKey& key, Shader* vs, Shader* ps, bool trace, bool fastLink)
-            {
-                auto desc = DescribePipeline(key, vs, ps, trace);
-                desc.cacheKey = gpu::pipeline_cache::detail::Hash(gpu::pipeline_cache::detail::Encode(key)) | 1;
-                desc.fastLink = fastLink;
-                return desc;
-            }
-
-            std::unique_ptr<RenderPipeline> CreatePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace, bool fastLink = false)
+            std::unique_ptr<RenderPipeline> CreatePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace)
             {
                 if (nativeVulkan && key.prim == 1 && vs && vs->shader && vk_object_trace::Permit())
                     std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer event=point_pipeline vs_hash=0x%llx module=0x%llx uses_point_size_metadata=%u color_mask=%u depth_format=%u\n",
                         vk_object_trace::Id(key.vs), vk_object_trace::Id(static_cast<const VulkanShader*>(vs->shader.get())->vk),
                         unsigned(vs->info.usesPointSize), key.colorMask, key.depthFormat);
-                return device->createGraphicsPipeline(DescribeForCreation(key, vs, ps, trace, fastLink));
+                AndroidStallTimer androidTimer{"graphics pipeline creation"};
+#if defined(__ANDROID__)
+                const auto began=std::chrono::steady_clock::now();
+                auto result=device->createGraphicsPipeline(DescribePipeline(key, vs, ps, trace));
+                const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-began).count();
+                // Only draw-path stalls: preparation workers never read frame/recipe containers.
+                if(trace&&ms>=16){static uint32_t reports=0;if(reports++<32)LOG_INFO("Android runtime pipeline hitch: ms={} frame={} vs={:016x} ps={:016x} prim={} learned={} prepared={} (creation preserved)",ms,frame,key.vs,key.ps,key.prim,pipelineRecipes.contains(key),preparedPipelineKeys.contains(key));}
+                return result;
+#else
+                return device->createGraphicsPipeline(DescribePipeline(key, vs, ps, trace));
+#endif
             }
             RenderGraphicsPipelineDesc DescribePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace)
             {
@@ -7522,7 +6010,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 desc.depthTargetFormat = depthFormat;
                 desc.depthBias = key.depthBias;
                 desc.slopeScaledDepthBias = std::bit_cast<float>(key.slopeBias);
-                if (trace && getenv("LO_TRACE_POLYGON_OFFSET") && (key.depthBias || key.slopeBias))
+                if (trace && getenv("LO_TRACE_POLYGON_OFFSET") && (key.modeCull & 0x3800))
                 {
                     static uint32_t reports = 0;
                     if (reports++ < 128)
@@ -7555,9 +6043,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_WARNING("renderer: distinct front/back stencil masks {:#x}/{:#x}", key.stencilRefMask, key.stencilRefMaskBack);
                 }
 
-                // Nothing is written without a color mask; such a draw is unblended
-                // (gpu::pipeline_cache::Normalize relies on it).
-                uint32_t blend = (key.colorMask & 0xF) ? key.blend : gpu::pipeline_cache::kNoBlend;
+                uint32_t blend = key.blend;
                 RenderBlendDesc& rt = desc.renderTargetBlend[0];
                 rt.srcBlend = BlendFactor(blend & 0x1F);
                 rt.blendOp = BlendOp((blend >> 5) & 7);
@@ -7570,7 +6056,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 static const bool noBlend = getenv("LO_NO_BLEND") != nullptr; // debugging
                 if (noBlend)
                     rt.blendEnabled = false;
-                desc.dynamicBlendConstantsEnabled = rt.blendEnabled && UsesBlendConstant(blend);
                 rt.renderTargetWriteMask = uint8_t(key.colorMask & 0xF);
                 desc.renderTargetFormat[0] = rtFormat;
                 desc.renderTargetCount = rtFormat != RenderFormat::UNKNOWN ? 1 : 0;
@@ -7611,36 +6096,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             // ---- vertex buffers ------------------------------------------------------------
-            // A cached vertex/index source is compared with its snapshot once per
-            // sync epoch. Between two sync points only an unsynchronized guest CPU
-            // write racing the GPU can change memory a draw already read; such a
-            // write is seen at the next epoch instead of at the next draw.
-            // LO_REVALIDATE_EVERY_DRAW=1 compares on every draw; LO_REVALIDATE_VERIFY=1
-            // compares skipped sources too and logs mismatches.
-            uint64_t revalidationChecks = 0, revalidationSkips = 0, revalidationMismatches = 0;
-            uint64_t revalidationEpoch = 0;
-            template<class Matches>
-            bool SourceMatches(uint64_t& validatedEpoch, Matches&& matches, uint32_t address)
-            {
-                static const bool everyDraw = [] { const char* v = getenv("LO_REVALIDATE_EVERY_DRAW"); return v && strcmp(v, "0") != 0; }();
-                static const bool verify = [] { const char* v = getenv("LO_REVALIDATE_VERIFY"); return v && strcmp(v, "0") != 0; }();
-                const uint64_t epoch = g_commandProcessor.SyncEpoch();
-                if (!everyDraw && validatedEpoch == epoch) {
-                    ++revalidationSkips;
-                    if (!verify || matches()) return true;
-                    static uint32_t reported = 0;
-                    if (reported++ < 32)
-                        LOG_ERROR("renderer: source {:#x} changed within sync epoch {} (frame {})", address, epoch, frame);
-                    ++revalidationMismatches;
-                    validatedEpoch = 0;
-                    return false;
-                }
-                ++revalidationChecks;
-                const bool ok = matches();
-                validatedEpoch = ok ? epoch : 0;
-                return ok;
-            }
-
             // Returns the arena offset of the swapped copy of a guest vertex buffer.
             uint64_t GetVertexBuffer(uint32_t address, uint32_t sizeDwords, uint32_t endian)
             {
@@ -7661,8 +6116,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     const bool matches = [&] {
                         VertexStageTimer timer(vertexTiming.match, vertexTimingEnabled, address, bytes);
-                        return SourceMatches(it->second.validatedEpoch,
-                            [&] { return it->second.content.Matches(guest, bytes); }, address);
+                        return it->second.content.Matches(guest, bytes);
                     }();
                     if (gpu::render_arena::VertexCacheReusable(matches))
                     {
@@ -7693,7 +6147,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint64_t offset = gpu::render_arena::SlotBase(allocSlot) + local;
                 local += needed;
                 VertexEntry entry{ offset, {}, frame, uint8_t(allocSlot) };
-                entry.validatedEpoch = g_commandProcessor.SyncEpoch();
                 {
                     VertexStageTimer timer(vertexTiming.capture, vertexTimingEnabled, address, bytes);
                     entry.content.Capture(guest, bytes);
@@ -7883,12 +6336,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // must not retire the color pointer we just borrowed.
                     const RenderTargetKey drawKey{colorInfo & 0xFFF, ColorClassOf((colorInfo >> 16) & 0xF), pitch, 0, false};
                     if (!PreparePromotionAccess(drawKey, rtHeight, (depthControl & 3) != 0)) return;
-                    // A colour clear rectangle is replayed into every view of its
-                    // tiles after the draw, when settling would rotate a borrowed slot.
-                    const bool touchesColor = colorWrites && (Reg(REG_RB_COLOR_MASK) & 0xF) != 0;
-                    if (touchesColor && restoreDebt.target && restoreDebt.base == (colorInfo & 0xFFF) && info.primitiveType == 8 &&
-                        !info.indexed && info.indexCount <= 6 && (Reg(REG_PA_CL_VTE_CNTL) & 0x100) && !SettleRestoreDebt()) return;
-                    color = AcquireColorTarget(colorInfo & 0xFFF, (colorInfo >> 16) & 0xF, pitch, rtHeight, false, touchesColor);
+                    color = AcquireColorTarget(colorInfo & 0xFFF, (colorInfo >> 16) & 0xF, pitch, rtHeight);
                     depth = (depthControl & 3) ? GetRenderTarget(depthInfo & 0xFFF, (depthInfo >> 16) & 1, pitch, rtHeight, true) : nullptr;
                     if (!color || !color->texture || ((depthControl & 3) && (!depth || !depth->texture))) {
                         ++drops.pitch;
@@ -7918,7 +6366,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         color->clearedFrame = frame;
                         commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                         commandList->clearColor(0, loud ? RenderColor(1.0f, 0.0f, 1.0f, 1.0f) : RenderColor(0.0f, 0.0f, 0.0f, 0.0f));
-                        color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                         HandleFsrAlphaRgbWriter(*color, "debug_clear_rt");
 #endif
@@ -7951,11 +6398,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         key.depthControl = (key.depthControl & ~0x70u) | (7u << 4);
                 }
                 key.modeCull = Reg(REG_PA_SU_SC_MODE_CNTL) & 0x3807;
-                if (depth && (depthControl & 6) == 6)
-                {
-                    if (depthDrawFrame != frame) { depthDrawFrame = frame; depthDraws = 0; }
-                    ++depthDraws;
-                }
                 if (depth && (depthControl & 2))
                 {
                     // The supported polygonal draws are triangles, fans, strips
@@ -7986,17 +6428,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 key.colorMask = colorWrites ? (Reg(REG_RB_COLOR_MASK) & 0xF) : 0;
                 key.prim = info.primitiveType;
-                key.rtFormat = uint32_t(draw_attachment::DepthOnly(key.colorMask, depth != nullptr) &&
-                    !(depth && draw_attachment::KeepColorForDepthOnly() &&
-                      color->width == depth->width && color->height == depth->height)
+                key.rtFormat = uint32_t(draw_attachment::DepthOnly(key.colorMask, depth != nullptr)
                     ? RenderFormat::UNKNOWN : color->format);
                 key.depthFormat = depth ? uint32_t(depth->format) : 0;
                     pipelineLookupTimer.AddTo(tPipelineLookup);
                 }
-                RenderPipeline* pipeline = GetPipeline(key, vs, ps, color->format, depth ? depth->format : RenderFormat::UNKNOWN, true);
+                RenderPipeline* pipeline = GetPipeline(key, vs, ps, color->format, depth ? depth->format : RenderFormat::UNKNOWN);
                 if (!pipeline)
                 {
-                    if (std::exchange(pipelineDeferred, false)) return; // skipped while it builds
                     drops.pipeline++;
                     drops.primMask |= 1u << (info.primitiveType & 31);
                     return;
@@ -8006,9 +6445,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // catalog mapping while the pixel shader still writes depth.
                 const bool depthOnlyRaster = draw_attachment::DepthOnly(key.colorMask, depth != nullptr);
                 HostTexture* rasterTarget = depthOnlyRaster ? depth : color;
-                // Same-size targets may keep the color attachment (see KeepColorForDepthOnly).
-                const bool depthOnlyKeepsColor = depthOnlyRaster && draw_attachment::KeepColorForDepthOnly() &&
-                    color->width == depth->width && color->height == depth->height;
 
                 // Constants.
                 render_batch::CpuTimer<> tConst0(cpuTimingEnabled);
@@ -8034,55 +6470,37 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 } else {
                     for (uint32_t bank = 0; bank < 2; ++bank) {
                         const uint64_t generation = g_commandProcessor.ConstantGeneration(bank);
-                        auto& snapshot = constantSnapshot[bank];
                         const bool refresh = generation != constantSnapshotGeneration[bank];
-                        uint64_t changedBlocks = g_commandProcessor.UpdateConstantSnapshot(bank, snapshot);
-                        constantSnapshotGeneration[bank] = generation;
-                        if (refresh || changedBlocks) ++constantSnapshotVersion[bank];
-                        if (verifyConstants) {
+                        bool snapshotChanged = refresh;
+                        if (refresh) {
+                            constantFallbackCount[bank] = g_commandProcessor.ReadConstantBank(
+                                bank, constantSnapshot[bank], constantFallbackOffsets[bank]);
+                            constantSnapshotGeneration[bank] = generation;
+                            ++constantSnapshotVersion[bank];
+                        } else if (g_commandProcessor.RefreshConstantFallbacks(bank,
+                            constantFallbackOffsets[bank], constantFallbackCount[bank],
+                            constantSnapshot[bank], constantSnapshotVersion[bank])) {
+                            snapshotChanged = true;
+                        }
+                        if (!refresh && verifyConstants) {
                             uint32_t check[256 * 4];
                             g_commandProcessor.ReadRegisters(REG_ALU_CONSTANTS + bank * 256 * 4, 256 * 4, check);
-                            if (std::memcmp(check, snapshot.values, sizeof(check)) != 0) {
+                            if (std::memcmp(check, constantSnapshot[bank], sizeof(check)) != 0) {
                                 static uint32_t reported = 0;
                                 if (reported++ < 16)
-                                    LOG_ERROR("renderer: {} constants changed without a generation change or dirty block (frame {})",
+                                    LOG_ERROR("renderer: {} constants changed without a generation change (frame {})",
                                         bank ? "pixel" : "vertex", frame);
-                                std::memcpy(snapshot.values, check, sizeof(check));
-                                snapshot.valid = false;
+                                std::memcpy(constantSnapshot[bank], check, sizeof(check));
                                 ++constantSnapshotVersion[bank];
-                                changedBlocks = ~0ull;
+                                snapshotChanged = true;
                             }
                         }
-                        if (drawConstantsModified[bank]) {
-                            std::memcpy(drawConstants[bank], snapshot.values, sizeof(drawConstants[bank]));
+                        if (snapshotChanged || drawConstantsModified[bank]) {
+                            std::memcpy(drawConstants[bank], constantSnapshot[bank], sizeof(drawConstants[bank]));
                             drawConstantsModified[bank] = false;
-                        } else {
-                            // An unmodified copy equals the snapshot outside the changed blocks.
-                            constexpr size_t kBlock = ConstantBankSnapshot::kBlockWords;
-                            for (uint64_t blocks = changedBlocks; blocks; blocks &= blocks - 1) {
-                                const size_t first = size_t(std::countr_zero(blocks)) * kBlock;
-                                std::memcpy(drawConstants[bank] + first, snapshot.values + first, kBlock * sizeof(uint32_t));
-                            }
                         }
                         constantGeneration[bank] = constantSnapshotVersion[bank];
                     }
-                }
-                // Player DoF/bloom settings edit the tone-map draw's constant copy.
-                // DoF weight w = curve^c4 * c5 (c5.x near, c5.y far) blends the
-                // sharp tap by (c255.y - w) with the blurred tap by w * c6, so
-                // scaling c5 fades the blur without darkening the sharp term.
-                // c7.x gates the additive bloom. The FSR alpha replay reads the
-                // same copy; the next draw restores it from the snapshot.
-                if (key.ps == color_qualification::kTonemapPS) {
-                    const auto post = settings::GetConfig();
-                    if (post.depthOfFieldPercent < 100) {
-                        const float scale = float(post.depthOfFieldPercent) / 100.0f;
-                        for (const unsigned component : {0u, 1u})
-                            psConstants[5 * 4 + component] = std::bit_cast<uint32_t>(
-                                std::bit_cast<float>(psConstants[5 * 4 + component]) * scale);
-                    }
-                    if (!post.bloom) psConstants[7 * 4] = 0;
-                    if (post.depthOfFieldPercent < 100 || !post.bloom) drawConstantsModified[1] = true;
                 }
                 // Diagnostic selection uses only GPU draw constants, not the CPU
                 // presented-swap counter. Shader/layout recognition is deliberately
@@ -8090,24 +6508,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 render_batch::CpuTimer<> taaInit(cpuTimingEnabled);
                 if(sceneAAConfigFrame!=frame) {
                     sceneAAConfigFrame=frame;
-                    const uint32_t requestedAo = settings::GetConfig().ambientOcclusion;
-                    const uint32_t selectedAo = requestedAo <= 2 ? requestedAo : 0;
-                    if (aoMode != selectedAo) {
-                        aoMode = selectedAo;
-                        LOG_INFO("renderer: ambient occlusion mode={}", aoMode);
-                        if (temporalHistory) temporalHistory->Reset();
-                        if (hdrTemporalHistory) hdrTemporalHistory->Reset();
-                if (sceneTaaHdrHistory) sceneTaaHdrHistory->Reset();
-                        ++temporalEpoch;
-                    }
-                    aoActive = aoMode != 0 && !resolveReadback && !aoInitFailed;
-                    if (aoActive && !ambientOcclusion) {
-                        ambientOcclusion = std::make_unique<ao::AmbientOcclusion>();
-                        if (!ambientOcclusion->Init(device)) {
-                            LOG_ERROR("renderer: AO initialization failed: {}", ambientOcclusion->LastError());
-                            ambientOcclusion.reset(); aoInitFailed = true; aoActive = false;
-                        }
-                    }
                     frameSrOptions = {};
                     if (activePlan.requestedUpscaler == upscaling::Upscaler::Fsr) {
                         const uint32_t percent = std::min(settings::GetConfig().fsrSharpnessPercent, 100u);
@@ -8162,22 +6562,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             LOG_ERROR("renderer: HDR temporal candidate initialization failed");
                         }
                     }
-                    if (temporalExperiment && hdrSceneEnabled.load(std::memory_order_relaxed) && !sceneTaaHdrHistory && !sceneTaaHdrInitFailed) {
-                        sceneTaaHdrHistory = std::make_unique<temporal::HistoryOwner>();
-                        if (!sceneTaaHdrHistory->Init(device, {}, true)) {
-                            sceneTaaHdrHistory.reset(); sceneTaaHdrInitFailed = true;
-                            LOG_ERROR("renderer: HDR scene TAA twin initialization failed; HDR pauses under TAA");
-                        }
-                    }
                 }
                 const bool temporalActive = temporal::TemporalConsumerActive(temporalExperiment, temporalInputProbe, dlssSrRequested, nativeFgInputs);
-                const bool trackTemporalScene = !debugCaptureDir.empty() || temporalActive || activeSpatialAA || aoActive;
+                const bool trackTemporalScene = !debugCaptureDir.empty() || temporalActive || activeSpatialAA;
                 if (trackTemporalScene && temporalScene.Frame() != frame) {
-                    static const bool traceAo = std::getenv("LO_AO_TRACE") != nullptr;
-                    static uint32_t aoTraceFrames = 0;
-                    if (aoActive && traceAo && frame % 120 == 0 && aoTraceFrames++ < 32)
-                        LOG_INFO("renderer: AO scene frame={} draws={} depth={} color={} copies={} reason={}", temporalScene.Frame(),
-                            temporalScene.Draws(), temporalScene.Depth().ordinal, temporalScene.Color().ordinal, temporalScene.Copies(), uint32_t(temporalScene.Reason()));
                     const auto now = std::chrono::steady_clock::now();
                     srFrameDeltaMilliseconds = srTimedFrame == ~0ull ? 0.0f :
                         std::chrono::duration<float, std::milli>(now - srFrameTime).count();
@@ -8227,11 +6615,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalHistory->BeginFrame(frame,temporalEpoch,
                         taa_collection::DiagnosticsActive() || (diagnosticStart&&frame>=diagnosticFrame&&temporalFramesLogged<256) || (withTrace&&resolveTraceRemaining));
                     if (hdrTemporalHistory) hdrTemporalHistory->BeginFrame(frame, temporalEpoch, resolveTraceRemaining != 0);
-                    if (sceneTaaHdrHistory) sceneTaaHdrHistory->BeginFrame(frame, temporalEpoch, false);
                     const bool gpuTiming = motionOptions.timing || (taaLiveApplied && taaLiveOptions.gpu_timing);
                     temporalHistory->EnableGpuTiming(gpuTiming);
                     if (hdrTemporalHistory) hdrTemporalHistory->EnableGpuTiming(gpuTiming);
-                    if (sceneTaaHdrHistory) sceneTaaHdrHistory->EnableGpuTiming(gpuTiming);
                     if (motionOptions.enabled) {
                         render_batch::CpuTimer<> mvTimer(motionOptions.timing);
                         drawTemporalTracker.BeginFrame(frame, temporalEpoch);
@@ -8257,18 +6643,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 std::optional<temporal::TemporalFrameInputs> nativeFgSceneCopyInputs;
                 std::shared_ptr<fsr_alpha::MaskLease> selectedFsrMaskLease;
                 bool sceneAARecorded=false,temporalAARecorded=false,hdrTonemapRecorded=false;
-                ao::Output sceneAo{};
-                RenderTexture* sceneAoSource = nullptr;
-                // Upload/descriptor reservations can Flush while this draw is being
-                // prepared. Keep the final consumer slot, not only the producer.
-                struct RetainAoConsumer {
-                    Renderer* owner; ao::Output& output;
-                    ~RetainAoConsumer() { if (output.lifetime) owner->Gpu().aoUses.push_back(output.lifetime); }
-                } retainAo{this,sceneAo};
                 std::optional<temporal::SceneAnchor> temporalDrawAnchor;
 
                 SharedConstants shared{};
-                if (vulkan) shared.vertexArenaAddress = vertexArena->getDeviceAddress();
                 for (uint32_t i = 0; i < 8; i++) shared.bools[i] = Reg(REG_BOOL_CONSTANTS + i);
                 for (uint32_t i = 0; i < 32; i++) shared.loops[i] = Reg(REG_LOOP_CONSTANTS + i);
                 shared.transfer[0] = Reg(REG_PA_SU_POINT_SIZE);
@@ -8321,11 +6698,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 RenderViewport rasterViewport = viewport;
                 rasterViewport.x *= rasterScaleX; rasterViewport.y *= rasterScaleY;
                 rasterViewport.width *= rasterScaleX; rasterViewport.height *= rasterScaleY;
-                if (depth && depth->shadowMap) {
-                    static uint32_t shadowRasterLogs = 0;
-                    if (shadowRasterLogs++ < 4) LOG_INFO("renderer: shadow raster mask={} depth_only={} viewport=({},{} {}x{}) scale={}x{}",
-                        key.colorMask, depthOnlyRaster, rasterViewport.x, rasterViewport.y, rasterViewport.width, rasterViewport.height, rasterScaleX, rasterScaleY);
-                }
                 render_batch::CpuTimer<> taaJitter(cpuTimingEnabled);
                 const bool constantScreenSample = key.vs == 0xe810cfacc107fd3cull &&
                     key.ps == 0xfe31f3d6588fde95ull && ps &&
@@ -8340,7 +6712,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // bda also appears with a different camera. Reviewed sky pairs
                 // require a scene camera observed before the draw instead of
                 // self-anchoring it.
-                if((temporalActive||activeSpatialAA||aoActive)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
+                if((temporalActive||activeSpatialAA)&&temporalSlot>=0&&!temporal::RequiresEarlierSceneAnchor(key.vs, key.ps)&&
                     temporalViewport&&depth&&(depthControl&4)) {
                     temporal::SceneAnchor anchor;
                     std::copy_n(vsConstants+temporalSlot*4,16,anchor.vpBits.begin());
@@ -8349,10 +6721,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalDrawAnchor=anchor;
                 }
                 const auto* jitterAnchor = temporalDrawAnchor ? &*temporalDrawAnchor :
-                    !temporalScene.Draws() ? nullptr : temporalSlot >= 0 && temporalSlot <= 252 ?
-                    &temporalScene.AnchorFor(vsConstants + temporalSlot * 4) : &temporalScene.Anchor();
+                    (temporalScene.Draws() ? &temporalScene.Anchor() : nullptr);
                 std::optional<temporal::SceneResolve> jitterSampledDepth;
-                const bool jitterShadowPair = temporal::IsShadowProjectionPair(key.vs, key.ps);
+                const bool jitterShadowPair = key.vs == 0x99c2b4b0960a9ccdull && key.ps == 0xd55a20d004031279ull;
                 if (temporalActive && temporalJitter && jitterShadowPair)
                 {
                     const uint32_t fetch0 = Reg(REG_FETCH_CONSTANTS), fetch1 = Reg(REG_FETCH_CONSTANTS + 1);
@@ -8441,8 +6812,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalActive && temporalJitter && !diagnosticMaterialBypass, temporalViewport, jitterAnchor,
                     depth ? depth->allocationSerial : 0,
                     {rasterViewport.x, rasterViewport.y, rasterViewport.width, rasterViewport.height},
-                    vsConstants, psConstants, &temporalScene.DepthFor(jitterSampledDepth ? &*jitterSampledDepth : nullptr),
-                    jitterSampledDepth ? &*jitterSampledDepth : nullptr,
+                    vsConstants, psConstants, &temporalScene.Depth(), jitterSampledDepth ? &*jitterSampledDepth : nullptr,
                     ActiveTaaOptions().jitter_scale, dlssSrRequested ? &frameRasterJitter : nullptr,
                     constantScreenSample);
                 // Jitter writes the draw's constant copy; the next draw restores it.
@@ -8534,11 +6904,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         // RB_COLOR_INFO.color_exp_bias (signed 6 bits at +20) scales what
                         // the hardware writes to EDRAM; log which values the title uses.
                         const int32_t bias = int32_t(colorInfo << 6) >> 26;
-                        static std::bitset<16 * 64> seenBias;
-                        if (const size_t seen = (cfmt << 6) | (uint32_t(bias) & 63); !seenBias.test(seen)) {
-                            seenBias.set(seen);
+                        static std::set<int32_t> seenBias;
+                        if (seenBias.insert(bias | (int32_t(cfmt) << 8)).second)
                             LOG_INFO("renderer: colour format {} uses exp_bias {}", cfmt, bias);
-                        }
                     }
                     float m = 1.0f;            // 8_8_8_8, 8_8_8_8_GAMMA, 2_10_10_10, _AS_10_10_10_10
                     if (cfmt == 3 || cfmt == 12) m = 31.875f;   // 2_10_10_10_FLOAT (7e3)
@@ -8651,20 +7019,19 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // This shader fetches float4 positions from slot 95 with 32-byte stride.
                 // Restrict to two triangles forming a rectangle; viewport size alone
                 // cannot justify treating an arbitrary fullscreen-looking draw as a copy.
-                uint32_t fullCopyReason=0;std::string fullCopyVertices;float fullCopyBounds[4]{};
+                uint32_t fullCopyReason=0;std::string fullCopyVertices;
                 bool fullSceneCopy = false;
                 {
                     render_batch::CpuTimer<> sceneCopyTimer(cpuTimingEnabled);
-                    // The fade quad (PS 234e writes c0) is depth tested against the scene.
-                    const auto fullScreenQuad = [&](uint64_t pixelShader, RenderBlend source, RenderBlend destination, uint32_t depthMask) {
+                    fullSceneCopy = [&]() {
                     auto reject=[&](uint32_t why){fullCopyReason=why;return false;};
-                    if(key.vs!=0x8bbd4da701845d16ull||key.ps!=pixelShader||
+                    if(key.vs!=0x8bbd4da701845d16ull||key.ps!=0xcda578aef1724fdcull||
                        info.primitiveType!=4||!info.indexed||info.indexCount!=6||info.indexBufferWords<6||
                        viewport.x!=0||viewport.y!=0||viewport.width<=0||viewport.height<=0||viewport.width>pitch||viewport.height>rtHeight||
-                       key.colorMask!=15||(depthControl&depthMask)||shared.vtxFmt!=4||
+                       key.colorMask!=15||(depthControl&3)||shared.vtxFmt!=4||
                        (key.modeCull&3)|| (Reg(REG_RB_COLORCONTROL)&8))return reject(1);
                     const uint32_t blend=key.blend;
-                    if(BlendFactor(blend&31)!=source||BlendFactor((blend>>8)&31)!=destination||
+                    if(BlendFactor(blend&31)!=RenderBlend::ONE||BlendFactor((blend>>8)&31)!=RenderBlend::ZERO||
                        BlendOp((blend>>5)&7)!=RenderBlendOperation::ADD)return reject(2);
                     int l=scissorTl&0x3fff,t=(scissorTl>>16)&0x3fff,r=scissorBr&0x3fff,b=(scissorBr>>16)&0x3fff;
                     const uint32_t window=Reg(REG_PA_SC_WINDOW_OFFSET);
@@ -8694,20 +7061,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         masks[i/3]|=1u<<((right?1:0)+(bottom?2:0));
                     }
                     fullCopyVertices+=fmt::format(" bounds=({:g},{:g},{:g},{:g}) masks={}/{}",xmin,ymin,xmax,ymax,masks[0],masks[1]);
-                    fullCopyBounds[0]=xmin;fullCopyBounds[1]=ymin;fullCopyBounds[2]=xmax;fullCopyBounds[3]=ymax;
                     unsigned common=masks[0]&masks[1];fullCopyReason=10;return std::popcount(masks[0])==3&&std::popcount(masks[1])==3&&
                         (masks[0]|masks[1])==15&&(common==9||common==6);
-                };
-                    fullSceneCopy = fullScreenQuad(0xcda578aef1724fdcull, RenderBlend::ONE, RenderBlend::ZERO, 3);
-                    if (aoActive && key.ps == 0x234ee3faaf1ba953ull && temporalScene.Frame() == frame && temporalScene.Draws() &&
-                        rasterViewport.width == temporalScene.Anchor().viewport.width && rasterViewport.height == temporalScene.Anchor().viewport.height &&
-                        fullScreenQuad(key.ps, RenderBlend::SRC_ALPHA, RenderBlend::INV_SRC_ALPHA, 5)) {
-                        if (sceneFadeFrame != frame) { sceneFadeFrame = frame; sceneFadeTransmittance = 1; }
-                        const float alpha = std::bit_cast<float>(psConstants[3]);
-                        sceneFadeTransmittance *= 1 - (alpha > 0 ? std::min(alpha, 1.0f) : 0.0f);
-                        static uint32_t fadeLogs = 0;
-                        if (fadeLogs++ < 4) LOG_INFO("renderer: AO scene fade frame={} alpha={} left={}", frame, alpha, sceneFadeTransmittance);
-                    }
+                }();
                 if(key.vs==0x8bbd4da701845d16ull&&key.ps==0xcda578aef1724fdcull) {
                     static const uint64_t start=getenv("LO_SCENE_AA_LOG_START_FRAME")?strtoull(getenv("LO_SCENE_AA_LOG_START_FRAME"),nullptr,10):~0ull;
                     if(frame>=start&&frame-start<128)SHADER_LOG_INFO("scene-aa", None, "renderer scene AA guard f{} full={} reason={} mode={} jitter={} blend={:#x} mask={} vtx={} prim={} n={} cull={:#x} ctl={:#x} vp=({},{},{},{}) extent={}x{} fetch95={:08x},{:08x} quad={} ",frame,fullSceneCopy,fullCopyReason,sceneAAMode,temporalJitter,key.blend,key.colorMask,shared.vtxFmt,info.primitiveType,info.indexCount,key.modeCull,Reg(REG_RB_COLORCONTROL),viewport.x,viewport.y,viewport.width,viewport.height,pitch,rtHeight,Reg(REG_FETCH_CONSTANTS+190),Reg(REG_FETCH_CONSTANTS+191),fullCopyVertices);
@@ -8847,15 +7203,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     source->writeX == 0 && source->writeY == 0 &&
                                     source->writeWidth == tex->width && source->writeHeight == tex->height &&
                                     source->tex->width == tex->width && source->tex->height == tex->height};
-                            static const bool traceAoCopy = std::getenv("LO_AO_TRACE") != nullptr;
-                            static uint32_t aoTraceCopies = 0;
-                            if (aoActive && traceAoCopy && frame % 120 == 0 && aoTraceCopies++ < 32) {
-                                const auto* source = FindResolved(address, format);
-                                LOG_INFO("renderer: AO copy frame={} full={} format={} found={} sdr={} ordinal={} extent={}x{} viewport={}x{} anchor={}x{} rb_identity={}",
-                                    frame, fullSceneCopy, format, bool(source), source ? source->sdrWriteOrdinal : 0, source ? source->writeOrdinal : 0,
-                                    tex->width, tex->height, rasterViewport.width, rasterViewport.height, temporalScene.Anchor().viewport.width, temporalScene.Anchor().viewport.height,
-                                    color_qualification::CheckNetIdentityRBSwap(fetch[0], fetch[3], source ? source->swapRedBlue : false));
-                            }
                         }
                         HostTexture* bloomFiltered = nullptr;
                         RenderTexture* bloomPrefilterInput = nullptr;
@@ -8948,80 +7295,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         RenderTexture* temporalDisplay=nullptr;
                         RenderFormat temporalDisplayFormat=tex->format;
                         bool temporalDisplayFromHistory = false;
-                        RenderTexture* aoColor = nullptr;
-                        RenderTexture* sceneInput = tex->texture.get();
                         if(temporalSceneCopy && fullSceneCopy && s==ps && slot==0 &&
                            rasterViewport.width==tex->width && rasterViewport.height==tex->height &&
                            rasterViewport.width==temporalScene.Anchor().viewport.width && rasterViewport.height==temporalScene.Anchor().viewport.height) {
                             render_batch::CpuTimer<> taaResolve(cpuTimingEnabled);
                             temporalScene.ObserveColor(*temporalSceneCopy);
-                            const float aoVisible = sceneFadeFrame == frame ? sceneFadeTransmittance : 1;
-                            if (aoActive && ambientOcclusion && aoVisible > 0 && temporalScene.Ready() && tex->format == RenderFormat::R8G8B8A8_UNORM) {
-                                const auto& observedDepth = temporalScene.Depth();
-                                // SceneObservation stores a resolve format, including
-                                // kDepthResolveTag; FindResolved expects a guest fetch
-                                // format (22/23 for depth) and cannot use this identity.
-                                ResolvedSurface* sourceDepth = nullptr;
-                                if (auto found = resolved.find(observedDepth.address); found != resolved.end())
-                                    for (auto& candidate : found->second)
-                                        if (candidate.destFormat == observedDepth.format) { sourceDepth = &candidate; break; }
-                                auto* sourceColor = FindResolved(temporalSceneCopy->address, temporalSceneCopy->format);
-                                static const bool traceAoInputs = std::getenv("LO_AO_TRACE") != nullptr;
-                                static uint32_t aoTraceInputs = 0;
-                                if (traceAoInputs && frame % 120 == 0 && aoTraceInputs++ < 32)
-                                    LOG_INFO("renderer: AO inputs frame={} depth_found={} depth_frame={} depth_ord={}/{} full={} depth_format={} depth_size={}x{} color_match={}",
-                                        frame, bool(sourceDepth && sourceDepth->tex), sourceDepth ? sourceDepth->frame : 0,
-                                        sourceDepth ? sourceDepth->writeOrdinal : 0, observedDepth.ordinal, observedDepth.fullExtent,
-                                        sourceDepth && sourceDepth->tex ? uint32_t(sourceDepth->tex->format) : 0,
-                                        sourceDepth && sourceDepth->tex ? sourceDepth->tex->width : 0, sourceDepth && sourceDepth->tex ? sourceDepth->tex->height : 0,
-                                        sourceColor && sourceColor->tex.get() == tex);
-                                if (sourceDepth && sourceDepth->tex && sourceDepth->frame == frame &&
-                                    sourceDepth->writeOrdinal == observedDepth.ordinal && observedDepth.fullExtent &&
-                                    sourceDepth->tex->format == RenderFormat::R32_FLOAT &&
-                                    sourceDepth->tex->width == tex->width && sourceDepth->tex->height == tex->height &&
-                                    sourceColor && sourceColor->tex.get() == tex && sourceColor->frame == frame &&
-                                    sourceColor->writeOrdinal == temporalSceneCopy->ordinal &&
-                                    sourceColor->sdrWriteOrdinal != 0 && sourceColor->sdrWriteOrdinal == sourceColor->writeOrdinal &&
-                                    color_qualification::CheckNetIdentityRBSwap(fetch[0], fetch[3], sourceColor->swapRedBlue)) {
-                                    temporal::Matrix vp{};
-                                    for (uint32_t i=0;i<16;++i) vp[i]=std::bit_cast<float>(temporalScene.Anchor().vpBits[i]);
-                                    auto camera = temporal::Camera::Create(vp,temporalScene.Anchor().viewport);
-                                    if (camera) {
-                                        Transition(*tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
-                                        Transition(*sourceDepth->tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
-                                        ao::Inputs inputs;
-                                        inputs.color=tex->texture.get();inputs.depth=sourceDepth->tex->texture.get();
-                                        inputs.camera=&*camera;inputs.width=tex->width;inputs.height=tex->height;
-                                        inputs.mode=static_cast<ao::Mode>(aoMode);
-                                        inputs.strength*=aoVisible;
-                                        if (actualRasterJitterCaptured) {inputs.jitterX=actualRasterJitter.pixelX;inputs.jitterY=actualRasterJitter.pixelY;}
-                                        static const char* aoDebug=std::getenv("LO_AO_DEBUG");
-                                        if (aoDebug) {
-                                            if (std::string_view(aoDebug)=="ao") inputs.debug=ao::Debug::Visibility;
-                                            else if (std::string_view(aoDebug)=="normals") inputs.debug=ao::Debug::Normals;
-                                            else if (std::string_view(aoDebug)=="depth") inputs.debug=ao::Debug::Depth;
-                                        }
-                                        if (sourceColor->hdrTex && sourceColor->hdrTex->texture && sourceColor->hdrFrame == frame &&
-                                            sourceColor->hdrWriteOrdinal == sourceColor->writeOrdinal &&
-                                            sourceColor->hdrTex->width == tex->width && sourceColor->hdrTex->height == tex->height) {
-                                            Transition(*sourceColor->hdrTex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
-                                            inputs.hdrColor=sourceColor->hdrTex->texture.get();
-                                        }
-                                        sceneAo=ambientOcclusion->Record(commandList,inputs);
-                                        if (sceneAo.color) {
-                                            sceneAoSource=tex->texture.get();sceneInput=aoColor=sceneAo.color;
-                                            Gpu().aoUses.push_back(sceneAo.lifetime);
-                                            static uint32_t aoLogs = 0;
-                                            if (aoLogs++ < 4) LOG_INFO("renderer: AO applied mode={} frame={} size={}x{} color_ordinal={} depth_ordinal={} hdr={}",
-                                                aoMode, frame, tex->width, tex->height, sourceColor->writeOrdinal, observedDepth.ordinal, bool(sceneAo.hdrColor));
-                                            if (resolveTraceRemaining) QueueResolveTrace(aoColor,tex->format,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0040u);
-                                        } else {
-                                            static uint32_t failures=0;
-                                            if (failures++<8) LOG_WARNING("renderer: AO bypass: {}",ambientOcclusion->LastError());
-                                        }
-                                    }
-                                }
-                            }
                             if ((temporalInputProbe || dlssSrRequested || nativeFgInputs) && temporalHistory && temporalScene.Ready() &&
                                 tex->format==RenderFormat::R8G8B8A8_UNORM) {
                                 Transition(*tex,RenderTextureLayout::COPY_SOURCE,RenderBarrierStage::COPY);
@@ -9109,8 +7387,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                             drawTemporalTracker.Failed() ? 1 : 0, motionInitFailed ? 1 : 0, mvError);
                                     }
                                 };
-                                if (aoColor) commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(aoColor,RenderTextureLayout::COPY_SOURCE));
-                                if (!temporalHistory->CaptureColorInputs(commandList, sceneInput, temporalScene, activePlan, sample,
+                                if (!temporalHistory->CaptureColorInputs(commandList, tex->texture.get(), temporalScene, activePlan, sample,
                                         qualifiedEncoding, motionOptions.consume ? &motionView : nullptr,
                                         srTimeReset ? temporal::TemporalResetReason::FrameDiscontinuity : temporal::TemporalResetReason::None,
                                         // Camera/depth reconstruction is independent of optional
@@ -9220,8 +7497,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 const double jx = temporalJitter ? sample.pixelX : 0, jy = temporalJitter ? sample.pixelY : 0;
                                 FinishMotion(temporalHistory.get());
                                 const bool consumeMotion = motionOptions.consume && (!taaLiveApplied || taaLiveOptions.mv_consume);
-                                if (aoColor) commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(aoColor,RenderTextureLayout::COPY_SOURCE));
-                                temporalDisplay=temporalHistory->ResolveColor(commandList,sceneInput,temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
+                                temporalDisplay=temporalHistory->ResolveColor(commandList,tex->texture.get(),temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
                                     consumeMotion ? &motionView : nullptr, motionOptions.debug, &ActiveTaaOptions());
                                 if (taaLiveDirectory) {
                                     taaLiveResolvedFrame=frame;taaLiveWidth=tex->width;taaLiveHeight=tex->height;
@@ -9232,34 +7508,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                     taaLiveOutputFormat=temporalDisplay?temporalHistory->OutputFormat():RenderFormat::UNKNOWN;
                                 }
                                 if (motionOptions.consume && motionView.ready && motionReplay) motionReplay->RecordConsumerUse();
-                                // HDR twin: the same TAA on the extended-gamma resolve (AO's
-                                // FP16 output when AO ran), raw domain, own history.
-                                if (temporalDisplay && sceneTaaHdrHistory && hdrSceneEnabled.load(std::memory_order_relaxed)) {
-                                    RenderTexture* hdrInput=nullptr; HostTexture* hdrHost=nullptr;
-                                    if (aoColor) hdrInput=sceneAo.hdrColor;
-                                    else if (auto* sourceColor=FindResolved(temporalSceneCopy->address,temporalSceneCopy->format);
-                                             sourceColor && sourceColor->tex.get()==tex && sourceColor->hdrTex && sourceColor->hdrTex->texture &&
-                                             sourceColor->hdrFrame==frame && sourceColor->hdrWriteOrdinal==sourceColor->writeOrdinal &&
-                                             sourceColor->hdrTex->width==tex->width && sourceColor->hdrTex->height==tex->height) {
-                                        hdrHost=sourceColor->hdrTex.get(); hdrInput=hdrHost->texture.get();
-                                    }
-                                    if (hdrInput) {
-                                        if (hdrHost) Transition(*hdrHost,RenderTextureLayout::COPY_SOURCE,RenderBarrierStage::COPY);
-                                        else commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(hdrInput,RenderTextureLayout::COPY_SOURCE));
-                                        sceneTaaHdrOutput=sceneTaaHdrHistory->ResolveColor(commandList,hdrInput,temporalScene,jx,jy,temporalAllowHistory && !hdrTonemapApplied,temporalStableGrid,sceneAAMode==3,
-                                            consumeMotion ? &motionView : nullptr, motionOptions.debug, &ActiveTaaOptions());
-                                        if (hdrHost) Transition(*hdrHost,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
-                                        else commandList->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(hdrInput,RenderTextureLayout::SHADER_READ));
-                                        if (sceneTaaHdrOutput) { sceneTaaHdrFrame=frame; sceneTaaHdrSource=tex->texture.get(); sceneTaaSdrOutput=temporalDisplay; }
-                                    }
-                                    static uint32_t hdrTaaLogs=0;
-                                    if (hdrTaaLogs<8 && (sceneTaaHdrFrame==frame || hdrTaaLogs==0)) {
-                                        ++hdrTaaLogs;
-                                        LOG_INFO("renderer HDR: scene TAA twin frame={} input={} recorded={} reused={}",
-                                            frame,hdrInput?(aoColor?"ao":"resolve"):"none",sceneTaaHdrFrame==frame,
-                                            sceneTaaHdrFrame==frame && sceneTaaHdrHistory->Reused());
-                                    }
-                                }
                                 Transition(*tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
                                 if(temporalDisplay) {
                                     temporalDisplayFormat=temporalHistory->OutputFormat();
@@ -9278,7 +7526,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         QueueResolveTrace(temporalHistory->CurrentReactiveMask(),RenderFormat::R8_UNORM,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0006u);
                                 }
                             }
-                            if (aoColor) commandList->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(aoColor,RenderTextureLayout::SHADER_READ));
                             if(!temporalDisplay && activeSpatialAA && sceneProcessor && !sceneAABusy &&
                                sceneAAAppliedFrame!=frame && temporalScene.Ready() &&
                                (sceneAAMode==1||sceneAAMode==2||sceneAAMode==3) && tex->format==RenderFormat::R8G8B8A8_UNORM) {
@@ -9287,49 +7534,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                         RenderFormat::R8G8B8A8_UNORM,RenderTextureFlag::RENDER_TARGET));
                                     sceneAAWidth=tex->width;sceneAAHeight=tex->height;
                                 }
-                                if(sceneAAOutput && sceneProcessor->ProcessSceneColor(commandList,sceneInput,sceneAAOutput.get(),
+                                if(sceneAAOutput && sceneProcessor->ProcessSceneColor(commandList,tex->texture.get(),sceneAAOutput.get(),
                                     tex->width,tex->height,static_cast<gpu::Antialiasing>(sceneAAMode==3?2:sceneAAMode))) {
                                     tex->layout=RenderTextureLayout::SHADER_READ;
                                     temporalDisplay=sceneAAOutput.get();sceneAABusy=true;sceneAARecorded=true;
                                     QueueResolveTrace(*tex,0xffff0011u);
                                     QueueResolveTrace(temporalDisplay,RenderFormat::R8G8B8A8_UNORM,tex->width,tex->height,RenderTextureLayout::SHADER_READ,0xffff0012u);
-                                    // The HDR scene gets the same AA on its extended-gamma
-                                    // resolve (AO's FP16 output when AO ran). Without a
-                                    // twin this frame falls back to SDR at the sidecar copy.
-                                    if (hdrSceneEnabled.load(std::memory_order_relaxed)) {
-                                        RenderTexture* hdrInput=nullptr;
-                                        if (aoColor) hdrInput=sceneAo.hdrColor;
-                                        else if (auto* sourceColor=FindResolved(temporalSceneCopy->address,temporalSceneCopy->format);
-                                                 sourceColor && sourceColor->tex.get()==tex && sourceColor->hdrTex && sourceColor->hdrTex->texture &&
-                                                 sourceColor->hdrFrame==frame && sourceColor->hdrWriteOrdinal==sourceColor->writeOrdinal &&
-                                                 sourceColor->hdrTex->width==tex->width && sourceColor->hdrTex->height==tex->height) {
-                                            Transition(*sourceColor->hdrTex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
-                                            hdrInput=sourceColor->hdrTex->texture.get();
-                                        }
-                                        if (hdrInput) {
-                                            if(!sceneAAHdrOutput||sceneAAHdrWidth!=tex->width||sceneAAHdrHeight!=tex->height) {
-                                                sceneAAHdrOutput=device->createTexture(RenderTextureDesc::Texture2D(tex->width,tex->height,1,
-                                                    RenderFormat::R16G16B16A16_FLOAT,RenderTextureFlag::RENDER_TARGET));
-                                                sceneAAHdrWidth=tex->width;sceneAAHdrHeight=tex->height;
-                                            }
-                                            if(sceneAAHdrOutput && sceneProcessor->ProcessSceneColor(commandList,hdrInput,sceneAAHdrOutput.get(),
-                                                tex->width,tex->height,static_cast<gpu::Antialiasing>(sceneAAMode==3?2:sceneAAMode),true)) {
-                                                sceneAAHdrFrame=frame;sceneAAHdrSource=tex->texture.get();
-                                            }
-                                        }
-                                        static uint32_t hdrAaLogs=0;
-                                        if (hdrAaLogs<8 && (sceneAAHdrFrame==frame || hdrAaLogs==0)) {
-                                            ++hdrAaLogs;
-                                            LOG_INFO("renderer HDR: scene AA twin frame={} mode={} input={} recorded={}",
-                                                frame,sceneAAMode,hdrInput?(aoColor?"ao":"resolve"):"none",sceneAAHdrFrame==frame);
-                                        }
-                                    }
                                 }
                             }
                             taaResolve.AddTo(tTaa);
                         }
                         if (diagnosticFullSceneCopy)
-                            QueueResolveTrace(temporalDisplay ? temporalDisplay : sceneInput, temporalDisplay ? temporalDisplayFormat : tex->format,
+                            QueueResolveTrace(temporalDisplay ? temporalDisplay : tex->texture.get(), temporalDisplay ? temporalDisplayFormat : tex->format,
                                 tex->width, tex->height, RenderTextureLayout::SHADER_READ, 0xffff0021u);
                         uint32_t d3 = fetch[3];
                         shared.textureInfo[slot] = ((fetch[0] >> 2) & 0xFF) | (((d3 >> 1) & 0xFFF) << 8);
@@ -9348,12 +7564,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         const bool afEligible = sampling::Eligible(samplerKey, tex->guestBytes != 0,
                             dimension, s == ps && depth && (depthControl & 2) && !(shared.vtxFmt & 1) &&
                                 !((vs->info.textureSlotMask >> slot) & 1),
-                            temporalDisplay || aoColor || bloomFiltered || hdrBinding);
+                            temporalDisplay || bloomFiltered || hdrBinding);
                         const auto samplerIndex = GetSamplerIndex(samplerKey, afEligible);
                         if (!samplerIndex) { failedPlan = true; return; }
                         shared.samplerIndex[slot] = *samplerIndex;
                         samplerKey = ActualSamplerKey(*samplerIndex);
-                        textureBindings[bank][slot] = temporalDisplay ? temporalDisplay : aoColor ? aoColor :
+                        textureBindings[bank][slot] = temporalDisplay ? temporalDisplay :
                             bloomFiltered ? bloomFiltered->texture.get() : hdrBinding ? hdrBinding : tex->texture.get();
                         // Candidate only: a later VS binding or a failed draw
                         // can still replace/cancel it. Confirm after recording.
@@ -9366,12 +7582,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 s == ps ? "ps" : "vs"});
 #if defined(LO_GPU_PLUME)
                         if (s == ps && key.ps == 0xb4b4d54a7a2d6b96ull && slot == 1 && bank == 0 &&
-                            !temporalDisplay && !aoColor && !bloomFiltered && !hdrBinding)
+                            !temporalDisplay && !bloomFiltered && !hdrBinding)
                             alphaPostDepth = AlphaPostDepthInput{tex->texture.get(), tex->format,
                                 tex->width, tex->height, samplerKey};
                         if (s == ps && !alphaBridgeFetches.empty() &&
                             alphaBridgeFetches.back().slot == slot && alphaBridgeFetches.back().bank == bank) {
-                            alphaBridgeFetches.back().substitution = temporalDisplay ? "temporal_display" : aoColor ? "ambient_occlusion" :
+                            alphaBridgeFetches.back().substitution = temporalDisplay ? "temporal_display" :
                                 bloomFiltered ? "bloom_prefilter" : hdrBinding ? "hdr_temporal" : "none";
                             alphaBridgeFetches.back().samplerKey = samplerKey;
                             alphaBridgeFetches.back().prefilterOutput =
@@ -9383,7 +7599,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 #endif
                         if (selectedBinding) {
                             selectedBinding->bank = bank;
-                            if (temporalDisplay || aoColor || bloomFiltered || hdrBinding) {
+                            if (temporalDisplay || bloomFiltered || hdrBinding) {
                                 // No bloom-filtered TextureKind exists. Unknown
                                 // avoids reporting a filtered texture as a direct resolve.
                                 selectedBinding->kind = temporalDisplay ?
@@ -9544,8 +7760,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // Index buffer / primitive conversion. Static geometry skips
                 // ConvertIndices and primitive expansion on an exact-content
                 // hit; the cached output is already post-expansion.
-                auto& converted = indexScratch;
-                if (!info.indexed) converted.clear();
+                auto& indices = indexScratch;
+                if (!info.indexed) indices.clear();
                 bool useIndices = false;
                 RenderFormat indexFormat = RenderFormat::R32_UINT;
                 uint32_t indexCount = info.indexCount;
@@ -9565,9 +7781,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         indexKey = { info.indexBase, indexSrcCount, info.primitiveType,
                             uint8_t(info.index32 ? 1 : 0), uint8_t(info.indexEndian & 3) };
                         auto it = indexCache.find(indexKey);
-                        if (it != indexCache.end() && SourceMatches(it->second.validatedEpoch,
-                            [&] { return it->second.content.Matches(indexSrc, indexSrcBytes); }, info.indexBase))
+                        if (it != indexCache.end() && it->second.content.Matches(indexSrc, indexSrcBytes))
                         {
+                            indices = it->second.data;
                             cachedIndexEntry = &it->second;
                             it->second.lastFrame = frame;
                             if (cpuTimingEnabled) ++indexCacheHits;
@@ -9577,15 +7793,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         else
                         {
                             // Convert below, then replace the cached result.
-                            converted.resize(indexSrcCount);
-                            geometry_prepare::ConvertIndices(indexSrc, converted.data(), indexSrcCount, info.index32, info.indexEndian);
+                            indices.resize(indexSrcCount);
+                            geometry_prepare::ConvertIndices(indexSrc, indices.data(), indexSrcCount, info.index32, info.indexEndian);
                             useIndices = true;
                         }
                     }
                     else
                     {
-                        converted.resize(indexSrcCount);
-                        geometry_prepare::ConvertIndices(indexSrc, converted.data(), indexSrcCount, info.index32, info.indexEndian);
+                        indices.resize(indexSrcCount);
+                        geometry_prepare::ConvertIndices(indexSrc, indices.data(), indexSrcCount, info.index32, info.indexEndian);
                         useIndices = true;
                     }
                 }
@@ -9594,13 +7810,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                 case 13: // quad list -> triangle list
                 {
-                    geometry_prepare::ExpandQuadList(converted, primitiveScratch, useIndices, info.indexCount);
+                    geometry_prepare::ExpandQuadList(indices, primitiveScratch, useIndices, info.indexCount);
                     break;
                 }
                 case 8: // rect list -> six encoded corners per rectangle
                 {
                     if (!rectListExpansion) break;
-                    const uint32_t skipped = xenos::rect_list::ExpandIndices(converted, primitiveScratch, useIndices,
+                    const uint32_t skipped = xenos::rect_list::ExpandIndices(indices, primitiveScratch, useIndices,
                         info.indexCount, Reg(REG_VGT_INDX_OFFSET));
                     if (skipped && rectListSkipped++ < 8)
                         LOG_WARNING("renderer: rect list skipped {} rectangle(s) (non-consecutive indices or vertex range)", skipped);
@@ -9610,14 +7826,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     auto& out = primitiveScratch;
                     out.clear();
-                    uint32_t n = useIndices ? uint32_t(converted.size()) : info.indexCount;
+                    uint32_t n = useIndices ? uint32_t(indices.size()) : info.indexCount;
                     out.reserve(n > 2 ? size_t(n - 2) * 3 : 0);
                     for (uint32_t i = 2; i < n; i++)
                     {
-                        uint32_t a = useIndices ? converted[0] : 0, b = useIndices ? converted[i - 1] : i - 1, c = useIndices ? converted[i] : i;
+                        uint32_t a = useIndices ? indices[0] : 0, b = useIndices ? indices[i - 1] : i - 1, c = useIndices ? indices[i] : i;
                         out.insert(out.end(), { a, b, c });
                     }
-                    converted.swap(out);
+                    indices.swap(out);
                     useIndices = true;
                     break;
                 }
@@ -9632,15 +7848,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Store the post-expansion result against the exact source
                     // bytes; a later identical draw copies it verbatim.
                     geometry_prepare::IndexEntry entry;
-                    entry.data = converted;
+                    entry.data = indices;
                     entry.content.Capture(indexSrc, indexSrcBytes);
                     entry.lastFrame = frame;
-                    entry.validatedEpoch = g_commandProcessor.SyncEpoch();
                     indexCache.emplace(indexKey, std::move(entry));
                     if (cpuTimingEnabled) ++indexCacheMisses;
                 }
-                // A hit uses the cached entry in place, as cachedIndexEntry already does.
-                const std::vector<uint32_t>& indices = cachedIndexEntry ? cachedIndexEntry->data : converted;
                 if (useIndices)
                     indexCount = uint32_t(indices.size());
                 if (indexCount == 0)
@@ -9657,21 +7870,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // promoted fallback and the original guarded draw.
                 uint64_t preparedIndexOffset = UINT64_MAX;
                 if (useIndices) {
-                    // A cache hit reuses its earlier upload while the ring has not
-                    // been rewound since; the data then lives exactly as long as a
-                    // fresh upload's would (until this slot is recycled).
-                    if (cachedIndexEntry && cachedIndexEntry->ringGeneration &&
-                        cachedIndexEntry->ringGeneration == Gpu().uploadGeneration)
-                        preparedIndexOffset = cachedIndexEntry->ringOffset;
-                    else {
-                        preparedIndexOffset = Upload(indices.data(), indices.size() * 4, 16);
-                        if (preparedIndexOffset == UINT64_MAX) return;
-                        if (cachedIndexEntry) {
-                            // Upload may have flushed into another slot; stamp the one holding the data.
-                            cachedIndexEntry->ringOffset = preparedIndexOffset;
-                            cachedIndexEntry->ringGeneration = Gpu().uploadGeneration;
-                        }
-                    }
+                    preparedIndexOffset = Upload(indices.data(), indices.size() * 4, 16);
+                    if (preparedIndexOffset == UINT64_MAX) return;
                 }
 
                 // Record.
@@ -9697,14 +7897,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     const RenderTargetKey promotionKey{colorInfo & 0xFFF, ColorClassOf((colorInfo >> 16) & 0xF), pitch, 0, false};
                     if (PrepareSceneCopyDestination(promotionKey, *color, *dlssSceneCopyInputs)) {
                         sceneCopyPromotion.fsrMaskLease = selectedFsrMaskLease;
-                        // fullSceneCopy pins colour to ONE/ZERO with all channels
-                        // written; with the same alpha factors nothing reads the
-                        // destination under the quad.
-                        const bool replacesAlpha = BlendFactor((key.blend >> 16) & 31) == RenderBlend::ONE &&
-                            BlendFactor((key.blend >> 24) & 31) == RenderBlend::ZERO &&
-                            BlendOp((key.blend >> 21) & 7) == RenderBlendOperation::ADD;
                         scenePromotionActivated = ActivateSceneCopyDestination(color, rasterTarget, rasterViewport, scissor,
-                            viewport, guestScissor, replacesAlpha ? fullCopyBounds : nullptr);
+                            viewport, guestScissor);
                     }
                 }
                 if (!scenePromotionActivated) {
@@ -9746,7 +7940,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // 2x-scaled while the actual depth raster target is fixed-size.
                 // Keeping that unused attachment makes VkFramebuffer invalid
                 // (04533/04534); reducing the depth draw's viewport would hide it.
-                RenderFramebuffer* framebuffer = GetFramebuffer(depthOnlyRaster && !depthOnlyKeepsColor ? nullptr : color, depth);
+                RenderFramebuffer* framebuffer = GetFramebuffer(depthOnlyRaster ? nullptr : color, depth);
                 commandList->setFramebuffer(framebuffer);
                 commandList->setViewports(&rasterViewport, 1);
                 commandList->setScissors(&scissor, 1);
@@ -9847,29 +8041,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 set0 = vulkan ? staticSet0.get() : samplerVersion->descriptors.get();
                 RenderDescriptorSet* set4 = vulkan ? samplerVersion->descriptors.get() : nullptr;
                 commandList->setPipeline(pipeline);
-                // The command list keeps the constant for later rebinds of this
-                // pipeline, e.g. after the motion-vector replay.
-                if (UsesBlendConstant(key.blend))
-                {
-                    float constants[4];
-                    for (uint32_t i = 0; i < 4; i++)
-                        constants[i] = RegF(REG_RB_BLEND_RED + i);
-                    // The host colour factor reads RGB. Constant-alpha factors (14/15)
-                    // match it when no constant-colour factor (12/13) needs RGB.
-                    const uint32_t srcColor = key.blend & 0x1F, dstColor = (key.blend >> 8) & 0x1F;
-                    if (srcColor != 12 && srcColor != 13 && dstColor != 12 && dstColor != 13)
-                        constants[0] = constants[1] = constants[2] = constants[3];
-                    commandList->setBlendConstants(constants);
-                    static float logged[4] = {};
-                    static uint32_t blendConstantLogs = 0;
-                    if (blendConstantLogs < 16 && std::memcmp(logged, constants, sizeof(logged)) != 0)
-                    {
-                        ++blendConstantLogs;
-                        std::memcpy(logged, constants, sizeof(logged));
-                        LOG_INFO("renderer: blend constant f{} blend={:#x} vs={:016x} ps={:016x} rgba=({:g},{:g},{:g},{:g})",
-                            frame, key.blend, key.vs, key.ps, constants[0], constants[1], constants[2], constants[3]);
-                    }
-                }
                 commandList->setGraphicsPipelineLayout(pipelineLayout.get());
                 if (vulkan) {
                     const uint64_t base = uploadRing->getDeviceAddress();
@@ -10034,230 +8205,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     occlusion.DrawMeasured({Gpu().occlusionBatch, occlusionIndex, gpu::occlusion::SampleScale(
                         measured->guestWidth, measured->guestHeight, measured->width, measured->height, (surfaceInfo >> 16) & 3)});
                     LogOcclusionDraw(occlusionIndex, ps != nullptr, measured);
-                }
-                // Keep the guest SDR target untouched. The verified tone-map draw
-                // starts an extended-gamma FP16 copy; later UI/fade draws reproduce
-                // their original blend against it. Any unknown writer invalidates
-                // this frame's HDR resolve instead of presenting mixed content.
-                if (color && color->hdrFrame == frame && color->hdrValid &&
-                    (key.colorMask & 7u) &&
-                    (!hdrSceneEnabled.load(std::memory_order_relaxed) ||
-                     (color->format != RenderFormat::R8G8B8A8_UNORM &&
-                      color->format != RenderFormat::R16G16B16A16_FLOAT)))
-                    color->hdrValid = false;
-                // Frame generation and AA policy is video's, through hdrSceneEnabled;
-                // spatial AA forwards its FP16 twin below. An upscaled (promoted)
-                // target keeps the input resolve for presentation's gain pass instead.
-                if (hdrSceneEnabled.load(std::memory_order_relaxed) && color &&
-                    (color->format == RenderFormat::R8G8B8A8_UNORM ||
-                     color->format == RenderFormat::R16G16B16A16_FLOAT) && (key.colorMask & 7u)) {
-                    bool forwarded = false;
-                    if (activePlan.requestedUpscaler == upscaling::Upscaler::Off &&
-                        fullSceneCopy && !depth && sceneCopyBank == 0 &&
-                        rasterViewport.x == 0 && rasterViewport.y == 0 &&
-                        std::floor(rasterViewport.width) == rasterViewport.width &&
-                        std::floor(rasterViewport.height) == rasterViewport.height &&
-                        rasterViewport.width <= color->width && rasterViewport.height <= color->height &&
-                        scissor.left == 0 && scissor.top == 0 &&
-                        scissor.right >= int32_t(rasterViewport.width) &&
-                        scissor.bottom >= int32_t(rasterViewport.height)) {
-                        const auto copyWidth = uint32_t(rasterViewport.width);
-                        const auto copyHeight = uint32_t(rasterViewport.height);
-                        const uint32_t fetch = Reg(REG_FETCH_CONSTANTS + 1);
-                        const auto* source = FindResolved((fetch >> 12) << 12, fetch & 0x3F);
-                        if (source && source->tex && source->hdrTex && source->hdrTex->texture &&
-                            source->hdrWriteOrdinal == source->writeOrdinal && source->hdrFrame == frame &&
-                            source->hdrTex->width >= copyWidth && source->hdrTex->height >= copyHeight &&
-                            (textureBindings[0][0] == source->tex->texture.get() ||
-                             (sceneAo.color && sceneAo.hdrColor && sceneAoSource == source->tex->texture.get() &&
-                              textureBindings[0][0] == sceneAo.color) ||
-                             (sceneAAOutput && sceneAAHdrOutput && sceneAAHdrFrame == frame &&
-                              sceneAAHdrSource == source->tex->texture.get() &&
-                              textureBindings[0][0] == sceneAAOutput.get()) ||
-                             (sceneTaaHdrOutput && sceneTaaSdrOutput && sceneTaaHdrFrame == frame &&
-                              sceneTaaHdrSource == source->tex->texture.get() &&
-                              textureBindings[0][0] == sceneTaaSdrOutput))) {
-                            if (!color->hdrSidecar || !color->hdrSidecar->texture ||
-                                color->hdrSidecar->width != color->width ||
-                                color->hdrSidecar->height != color->height) {
-                                if (color->hdrSidecar)
-                                    Gpu().retiredTextures.push_back(std::move(color->hdrSidecar));
-                                color->hdrSidecar = std::make_unique<HostTexture>();
-                                auto& sidecar = *color->hdrSidecar;
-                                sidecar.width = color->width; sidecar.height = color->height;
-                                sidecar.format = RenderFormat::R16G16B16A16_FLOAT;
-                                sidecar.texture = device->createTexture(RenderTextureDesc::Texture2D(
-                                    sidecar.width, sidecar.height, 1, sidecar.format,
-                                    RenderTextureFlag::RENDER_TARGET));
-                            }
-                            if (color->hdrSidecar && color->hdrSidecar->texture) {
-                                Transition(*color->hdrSidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
-                                commandList->setFramebuffer(GetFramebuffer(color->hdrSidecar.get(), nullptr));
-                                commandList->clearColor(0, RenderColor(0, 0, 0, 1));
-                                auto* hdrCopySource=sceneAAOutput && textureBindings[0][0]==sceneAAOutput.get() && sceneAAHdrFrame==frame ? sceneAAHdrOutput.get() :
-                                    sceneTaaSdrOutput && textureBindings[0][0]==sceneTaaSdrOutput && sceneTaaHdrFrame==frame ? sceneTaaHdrOutput :
-                                    sceneAo.hdrColor && sceneAoSource==source->tex->texture.get() ? sceneAo.hdrColor : source->hdrTex->texture.get();
-                                if (hdrCopySource==source->hdrTex->texture.get())
-                                    Transition(*source->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
-                                else commandList->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(hdrCopySource,RenderTextureLayout::COPY_SOURCE));
-                                Transition(*color->hdrSidecar, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
-                                RenderBox box{0, 0, int32_t(copyWidth), int32_t(copyHeight), 0, 1};
-                                commandList->copyTextureRegion(
-                                    RenderTextureCopyLocation::Subresource(color->hdrSidecar->texture.get()),
-                                    RenderTextureCopyLocation::Subresource(hdrCopySource),
-                                    0, 0, 0, &box);
-                                color->hdrFrame = frame;
-                                color->hdrValid = true;
-                                color->hdrValidWidth = copyWidth;
-                                color->hdrValidHeight = copyHeight;
-                                forwarded = true;
-                                commandList->setFramebuffer(framebuffer);
-                                commandList->setViewports(&rasterViewport, 1);
-                                commandList->setScissors(&scissor, 1);
-                                commandList->setPipeline(pipeline);
-                                static uint32_t forwardedLogs = 0;
-                                if (forwardedLogs++ < 8)
-                                    LOG_INFO("renderer HDR: full scene copy forwarded frame={} valid={}x{} allocation={}x{} source={}",
-                                        frame, copyWidth, copyHeight, color->width, color->height,
-                                        hdrCopySource == sceneAAHdrOutput.get() ? "scene_aa" : hdrCopySource == sceneTaaHdrOutput ? "scene_taa" :
-                                        hdrCopySource == sceneAo.hdrColor ? "ao" : "resolve");
-                                // Periodic tally: which producer the sidecar followed.
-                                static uint32_t forwardedResolve = 0, forwardedAo = 0, forwardedAa = 0, forwardedTaa = 0;
-                                if (hdrCopySource == sceneAAHdrOutput.get()) ++forwardedAa;
-                                else if (hdrCopySource == sceneTaaHdrOutput) ++forwardedTaa;
-                                else if (hdrCopySource == sceneAo.hdrColor) ++forwardedAo;
-                                else ++forwardedResolve;
-                                if ((forwardedResolve + forwardedAo + forwardedAa + forwardedTaa) % 600 == 0)
-                                    LOG_INFO("renderer HDR: forwarded copies resolve={} ao={} scene_aa={} scene_taa={}", forwardedResolve, forwardedAo, forwardedAa, forwardedTaa);
-                            }
-                        }
-                    }
-                    const bool tone = key.vs == 0x9b81c55ca39bb529ull &&
-                        key.ps == 0xb4b4d54a7a2d6b96ull;
-                    const bool continuing = color->hdrFrame == frame && color->hdrValid;
-                    if (!forwarded && (tone || continuing)) {
-                        if (tone) {
-                            color->hdrFrame = frame;
-                            color->hdrValid = false;
-                            color->hdrValidWidth = color->hdrValidHeight = 0;
-                        }
-                        const auto desc = DescribePipeline(key, vs, ps, false);
-                        const auto& blend = desc.renderTargetBlend[0];
-                        const bool copyBlend = !blend.blendEnabled ||
-                            (blend.srcBlend == RenderBlend::ONE && blend.dstBlend == RenderBlend::ZERO &&
-                             blend.blendOp == RenderBlendOperation::ADD);
-                        const bool alphaBlend = blend.blendEnabled &&
-                            blend.srcBlend == RenderBlend::SRC_ALPHA &&
-                            blend.dstBlend == RenderBlend::INV_SRC_ALPHA &&
-                            blend.blendOp == RenderBlendOperation::ADD;
-                        bool aliasesTarget = false;
-                        bool samplesSdrHdrSource = false;
-                        for (const auto& bank : textureBindings)
-                            for (auto* texture : bank) {
-                                aliasesTarget |= texture == color->texture.get() ||
-                                    (color->hdrSidecar && texture == color->hdrSidecar->texture.get());
-                                samplesSdrHdrSource |= hdrSdrSourcesFrame == frame &&
-                                    hdrSdrSources.contains(texture);
-                            }
-                        const char* reject = nullptr;
-                        const bool depthMayPass = tone ?
-                            (!desc.depthEnabled || desc.depthFunction == RenderComparisonFunction::ALWAYS) :
-                            (!desc.depthEnabled && !desc.depthWriteEnabled);
-                        if (!ps || !vs->info.errors.empty() || !ps->info.errors.empty() ||
-                            ps->info.writesDepth || ps->info.colorTargetsWritten != 1u ||
-                            !depthMayPass || desc.stencilEnabled ||
-                            desc.geometryShader || (key.colorMask & 7u) != 7u ||
-                            aliasesTarget || (!tone && samplesSdrHdrSource))
-                            reject = "writer_state";
-                        else if (tone && color_qualification::CheckProducerPipeline({
-                            .vs = key.vs, .ps = key.ps,
-                            .c10xBits = psConstants[10 * 4],
-                            .colorMask = key.colorMask, .blend = key.blend,
-                            .depthControl = key.depthControl, .modeCull = key.modeCull,
-                            .colorControl = Reg(REG_RB_COLORCONTROL),
-                            .guestTargetFormat = (colorInfo >> 16) & 0xF,
-                            .targetExpBias = (colorInfo >> 20) & 0x3F,
-                            .vtxFmt = shared.vtxFmt, .sharedFlags = shared.flags,
-                            .debugOverrides = getenv("LO_DEBUG_NODEPTH") != nullptr
-                        }) != color_qualification::ProducerRejectReason::None)
-                            reject = "tone_pipeline";
-                        else if (tone && (color->format != RenderFormat::R16G16B16A16_FLOAT ||
-                            rasterViewport.x != 0 || rasterViewport.y != 0 ||
-                            rasterViewport.width <= 0 || rasterViewport.height <= 0 ||
-                            std::floor(rasterViewport.width) != rasterViewport.width ||
-                            std::floor(rasterViewport.height) != rasterViewport.height ||
-                            rasterViewport.width > color->width || rasterViewport.height > color->height ||
-                            scissor.left > 0 || scissor.top > 0 ||
-                            scissor.right < int32_t(rasterViewport.width) ||
-                            scissor.bottom < int32_t(rasterViewport.height)))
-                            reject = "tone_coverage";
-                        else if (tone ? !copyBlend : !alphaBlend)
-                            reject = "blend_state";
-                        else if (tone && (!psWords || !psCount ||
-                            !HdrToneShader(*ps, psWords, psCount)))
-                            reject = "tone_shader";
-                        if (!reject && (!color->hdrSidecar || !color->hdrSidecar->texture ||
-                            color->hdrSidecar->width != color->width ||
-                            color->hdrSidecar->height != color->height)) {
-                            if (color->hdrSidecar)
-                                Gpu().retiredTextures.push_back(std::move(color->hdrSidecar));
-                            color->hdrSidecar = std::make_unique<HostTexture>();
-                            auto& sidecar = *color->hdrSidecar;
-                            sidecar.width = color->width; sidecar.height = color->height;
-                            sidecar.format = RenderFormat::R16G16B16A16_FLOAT;
-                            sidecar.texture = device->createTexture(RenderTextureDesc::Texture2D(
-                                sidecar.width, sidecar.height, 1, sidecar.format,
-                                RenderTextureFlag::RENDER_TARGET));
-                            if (!sidecar.texture) { color->hdrSidecar.reset(); reject = "target_allocation"; }
-                        }
-                        if (!reject) {
-                            auto hdrDesc = desc;
-                            hdrDesc.pixelShader = tone ? ps->hdrShader.get() : ps->shader.get();
-                            hdrDesc.renderTargetFormat[0] = RenderFormat::R16G16B16A16_FLOAT;
-                            hdrDesc.depthEnabled = hdrDesc.depthWriteEnabled = hdrDesc.stencilEnabled = false;
-                            hdrDesc.depthTargetFormat = RenderFormat::UNKNOWN;
-                            auto& hdrPipeline = hdrPipelines[key];
-                            if (!hdrPipeline) hdrPipeline = device->createGraphicsPipeline(hdrDesc);
-                            if (!hdrPipeline) reject = "pipeline_creation";
-                            else {
-                                auto& sidecar = *color->hdrSidecar;
-                                Transition(sidecar, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
-                                commandList->setFramebuffer(GetFramebuffer(&sidecar, nullptr));
-                                if (tone) commandList->clearColor(0, RenderColor(0, 0, 0, 1));
-                                commandList->setViewports(&rasterViewport, 1);
-                                commandList->setScissors(&scissor, 1);
-                                commandList->setPipeline(hdrPipeline.get());
-                                if (useIndices) {
-                                    RenderIndexBufferView view(RenderBufferReference(uploadRing, preparedIndexOffset),
-                                        uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
-                                    commandList->setIndexBuffer(&view);
-                                    commandList->drawIndexedInstanced(indexCount, 1, 0, baseVertex, 0);
-                                } else commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
-                                color->hdrValid = true;
-                                if (tone) {
-                                    color->hdrValidWidth = uint32_t(rasterViewport.width);
-                                    color->hdrValidHeight = uint32_t(rasterViewport.height);
-                                }
-                                // Later renderer paths expect the guest's target and pipeline.
-                                commandList->setFramebuffer(framebuffer);
-                                commandList->setViewports(&rasterViewport, 1);
-                                commandList->setScissors(&scissor, 1);
-                                commandList->setPipeline(pipeline);
-                                static uint32_t toneLogs = 0;
-                                if (tone && toneLogs++ < 8)
-                                    LOG_INFO("renderer HDR: tone-map sidecar recorded frame={} valid={}x{} allocation={}x{}",
-                                        frame, color->hdrValidWidth, color->hdrValidHeight,
-                                        color->width, color->height);
-                            }
-                        }
-                        if (reject) {
-                            color->hdrValid = false;
-                            static uint32_t rejected = 0;
-                            if (rejected++ < 24)
-                                LOG_INFO("renderer HDR: SDR fallback frame={} ps={:016x} reason={}",
-                                    frame, key.ps, reject);
-                        }
-                    }
                 }
                 if (fgUiBindingExpected && fgUiCapture) {
                     auto capture = fgUiCapture;
@@ -11366,7 +9313,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                                 color->sdrProducerFrame, color->qualifiedSdrWidth, color->qualifiedSdrHeight,
                                 frame, uint32_t(rasterViewport.width), uint32_t(rasterViewport.height));
                         } else {
-                            if (color->hdrFrame == frame) color->hdrValid = false;
                             color_qualification::InvalidateHostTextureProducer(
                                 color->sdrProducerFrame, color->qualifiedSdrWidth, color->qualifiedSdrHeight);
                             static color_qualification::ProducerRejectReason lastLoggedProducerReject = color_qualification::ProducerRejectReason::None;
@@ -11396,11 +9342,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (trackTemporalScene)
                 {
                     if(temporalDrawAnchor)temporalScene.ObserveCamera(*temporalDrawAnchor);
-                    // Only the jitter viewport may anchor the frame. Cutscenes draw a
-                    // 720x720 character pass with this pair first; anchoring on its
-                    // camera left every non-depth-writing scene pass (shadow volumes,
-                    // projections, lights) unjittered against jittered depth (#183).
-                    else if (!temporalExperiment && temporalViewport && key.vs == 0xb7557072899a63a1ull && key.ps == 0x9f4dfdd86211a018ull &&
+                    else if (!temporalExperiment && key.vs == 0xb7557072899a63a1ull && key.ps == 0x9f4dfdd86211a018ull &&
                         depth && (depthControl & 4) && shared.vtxFmt == 4 &&
                         shared.ndcScale[2] == -1.0f && shared.ndcOffset[2] == 1.0f &&
                         shared.ndcScale[0] == 1.0f && shared.ndcOffset[0] == 0.0f && shared.ndcOffset[1] == 0.0f)
@@ -11413,11 +9355,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         temporalScene.ObserveCamera(anchor);
                     }
                 }
-                if (gpuStatsEnabled) {
-                    if (const auto normalized = gpu::pipeline_cache::Normalize(key); preparedPipelineKeys.contains(normalized)) {
-                        ++preparedPipelineHits;
-                        usedPreparedPipelineKeys.insert(normalized);
-                    }
+                if (gpuStatsEnabled && preparedPipelineKeys.contains(key)) {
+                    ++preparedPipelineHits;
+                    usedPreparedPipelineKeys.insert(key);
                 }
                 if (vs->info.usesRelativeConstants)
                 {
@@ -11502,12 +9442,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         {
                             if (!tex || k.depth || k.base != (depthInfo & 0xFFF))
                                 continue;
-                            if (tex.get() == restoreDebt.target) DropRestoreDebt(); // The fill replaces every pixel.
                             RenderColor value = UnpackGuestWord(word, k.format);
                             Transition(*tex, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                             commandList->setFramebuffer(GetFramebuffer(tex.get(), nullptr));
                             commandList->clearColor(0, value);
-                            tex->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                             HandleFsrAlphaRgbWriter(*tex, "depth_color_tile_clear");
                             if (fsrAlphaBridge && activePlan.requestedUpscaler == upscaling::Upscaler::Fsr)
@@ -11604,10 +9542,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         if (key.colorMask & 7) HandleFsrAlphaRgbWriter(*target,
                             "color_clear_rect", drawsThisFrame, key.vs, key.ps, key.blend, key.colorMask);
 #endif
-                        if ((key.colorMask & 7) != 0) {
-                            target->sdrProducerFrame = ~0ull;
-                            target->hdrValid = false;
-                        }
+                        if ((key.colorMask & 7) != 0) target->sdrProducerFrame = ~0ull;
                         if (trackBinding) {
                             // Replayed clear geometry uses a stretched viewport, so do not reuse the original transform.
                             if (key.colorMask) target->bindingProducer.Mixed(bindingEpoch, frame);
@@ -11996,24 +9931,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 return rs->tex->texture.get();
             }
-            // A remembered resolve, while it is still the newest write at its
-            // address; hdr asks for its same-size extended-gamma twin instead.
-            RenderTexture* AcquireResolvedWrite(uint32_t address, uint64_t ordinal, bool hdr,
-                uint32_t& width, uint32_t& height, uint32_t& format)
-            {
-                if (PlanSuppressed()) return nullptr;
-                const auto* rs = NewestResolved(address & 0x1FFFFFFF);
-                if (!rs || !rs->tex || !ordinal || rs->writeOrdinal != ordinal) return nullptr;
-                if (!hdr) {
-                    width = rs->tex->width; height = rs->tex->height; format = uint32_t(rs->tex->format);
-                    return rs->tex->texture.get();
-                }
-                if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !rs->hdrTex || !rs->hdrTex->texture ||
-                    rs->hdrGain || rs->hdrFrame != rs->frame || rs->hdrWriteOrdinal != ordinal ||
-                    rs->hdrTex->width != rs->tex->width || rs->hdrTex->height != rs->tex->height) return nullptr;
-                width = rs->hdrTex->width; height = rs->hdrTex->height; format = uint32_t(rs->hdrTex->format);
-                return rs->hdrTex->texture.get();
-            }
             bool AcquireFgCompositeForPresent(uint32_t address, frame_generation::CompositeHandoff& out)
             {
                 out = {};
@@ -12061,7 +9978,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t guestH = std::clamp<uint32_t>(std::max(destHeight, y0 + h), 1, 8192);
                 const uint32_t texW = std::max(1u, depth.ScaleX(guestW)), texH = std::max(1u, depth.ScaleY(guestH));
                 if (texW > 16384 || texH > 16384) {
-                    FailSurfaceAllocation(depth.shadowMap);
+                    FailCurrentPlan();
                     LOG_ERROR("renderer: depth resolve exceeds texture limit physical={}x{}; native resolution fallback next frame", texW, texH);
                     return false;
                 }
@@ -12081,13 +9998,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rs.tex->height = texH;
                     rs.tex->guestWidth = guestW; rs.tex->guestHeight = guestH;
                     rs.tex->resolutionSize = depth.resolutionSize;
-                    rs.tex->shadowMap = depth.shadowMap;
                     rs.tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1, RenderFormat::R32_FLOAT,
                         vulkan ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE));
                     rs.tex->layout = RenderTextureLayout::UNKNOWN;
                     if (!rs.tex->texture)
                     {
-                        FailSurfaceAllocation(depth.shadowMap);
+                        FailCurrentPlan();
                         LOG_ERROR("renderer: depth resolve allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", guestW, guestH, texW, texH);
                         DropResolved(destBase, destFormat);
                         return false;
@@ -12096,7 +10012,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (created++ < 8)
                         LOG_INFO("renderer: resolved depth surface {:#x} guest={}x{} physical={}x{} dest fmt={}", destBase, guestW, guestH, texW, texH, destFormat & 0xFFF);
                 }
-                rs.tex->shadowMap = depth.shadowMap;
                 rs.destFormat = destFormat;
                 rs.destPitch = destPitch;
                 rs.swapRedBlue = false;
@@ -12124,12 +10039,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.frame = frame;
                 rs.writeOrdinal = ++resolveWriteOrdinal;
                 rs.writeX = x0; rs.writeY = y0; rs.writeWidth = w; rs.writeHeight = h;
-                rs.sceneDraws = 0;
                 WriteP2ResolveEvent("depth", depth, destBase, rs, vulkan ? "blit" : "copy");
                 if (taa_collection::Enabled())
                     rs.tex->bindingProducer.Copy(depth.bindingProducer, taa_collection::ConsentEpoch(), frame,
                         x0 == 0 && y0 == 0 && w == texW && h == texH);
-                if (!debugCaptureDir.empty() || temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs || activeSpatialAA || aoActive) {
+                if (!debugCaptureDir.empty() || temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs || activeSpatialAA) {
                     temporalScene.ObserveDepth(depth.allocationSerial, {frame, rs.writeOrdinal, destBase, destFormat,
                         texW, texH, x0 == 0 && y0 == 0 && w == texW && h == texH});
                     if((temporalExperiment || temporalInputProbe || dlssSrRequested || nativeFgInputs) && temporalHistory && temporalScene.Depth().ordinal==rs.writeOrdinal) {
@@ -12137,8 +10051,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         temporalHistory->CaptureDepth(commandList,rs.tex->texture.get(),temporalScene);
                         if (taaDiagnosticHDR == 1 && hdrTemporalHistory)
                             hdrTemporalHistory->CaptureDepth(commandList,rs.tex->texture.get(),temporalScene);
-                        if (sceneTaaHdrHistory && hdrSceneEnabled.load(std::memory_order_relaxed))
-                            sceneTaaHdrHistory->CaptureDepth(commandList,rs.tex->texture.get(),temporalScene);
                         Transition(*rs.tex,RenderTextureLayout::SHADER_READ,RenderBarrierStage::GRAPHICS);
                     }
                 }
@@ -12157,7 +10069,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint32_t guestH = std::clamp<uint32_t>(std::max(destHeight, y0 + h), 1, 8192);
                 const uint32_t texW = std::max(1u, color.ScaleX(guestW)), texH = std::max(1u, color.ScaleY(guestH));
                 if (texW > 16384 || texH > 16384) {
-                    FailSurfaceAllocation(color.shadowMap);
+                    FailCurrentPlan();
                     LOG_ERROR("renderer: color resolve exceeds texture limit physical={}x{}; native resolution fallback next frame", texW, texH);
                     return false;
                 }
@@ -12182,12 +10094,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     rs.tex->height = texH;
                     rs.tex->guestWidth = guestW; rs.tex->guestHeight = guestH;
                     rs.tex->resolutionSize = color.resolutionSize;
-                    rs.tex->shadowMap = color.shadowMap;
                     rs.tex->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1, destHost, RenderTextureFlag::RENDER_TARGET));
                     rs.tex->layout = RenderTextureLayout::UNKNOWN;
                     if (!rs.tex->texture)
                     {
-                        FailSurfaceAllocation(color.shadowMap);
+                        FailCurrentPlan();
                         LOG_ERROR("renderer: color resolve allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", guestW, guestH, texW, texH);
                         DropResolved(destBase, destFormat);
                         return false;
@@ -12210,7 +10121,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.destFormat = destFormat;
                 rs.destPitch = destPitch;
                 rs.swapRedBlue = ((Reg(REG_RB_COPY_DEST_INFO) >> 24) & 1) != 0;
-                rs.tex->shadowMap = color.shadowMap;
                 if (x0 >= texW || y0 >= texH) return true;
                 w = std::min(w, texW - x0);
                 h = std::min(h, texH - y0);
@@ -12242,7 +10152,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 rs.frame = frame;
                 rs.writeOrdinal = ++resolveWriteOrdinal;
                 rs.writeX = x0; rs.writeY = y0; rs.writeWidth = w; rs.writeHeight = h;
-                rs.sceneDraws = depthDrawFrame == frame ? depthDraws : 0;
                 const bool fullResolved = x0==0&&y0==0&&w==texW&&h==texH;
                 const bool isSdrProducerResolved = color_qualification::IsHostTextureQualified(color.sdrProducerFrame, frame) &&
                     color.qualifiedSdrWidth >= texW && color.qualifiedSdrHeight >= texH &&
@@ -12251,83 +10160,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     color_qualification::MarkSurfaceResolved(rs.sdrWriteOrdinal, rs.writeOrdinal);
                 } else {
                     color_qualification::InvalidateSurfaceResolved(rs.sdrWriteOrdinal);
-                }
-                rs.hdrWriteOrdinal = 0;
-                rs.hdrGain = false;
-                // A promoted (upscaled) target has no sidecar of its own; keep the
-                // input scene's extended resolve for the presentation gain pass.
-                if (hdrSceneEnabled.load(std::memory_order_relaxed) && destFormat == 6 && fullResolved &&
-                    !color.hdrValid && activePlan.requestedUpscaler != upscaling::Upscaler::Off) {
-                    static uint32_t gainProbeLogs = 0;
-                    if (gainProbeLogs++ < 8)
-                        LOG_INFO("renderer HDR: promoted resolve frame={} address={:#x} active_match={} promotion_frame={} source={} source_frame={} size={}x{}",
-                            frame, destBase, sceneCopyPromotion.active == &color, sceneCopyPromotion.frame,
-                            sceneCopyPromotion.hdrSource != nullptr, sceneCopyPromotion.hdrSourceFrame, texW, texH);
-                }
-                if (hdrSceneEnabled.load(std::memory_order_relaxed) && destFormat == 6 && fullResolved &&
-                    !color.hdrValid && sceneCopyPromotion.active == &color && sceneCopyPromotion.frame == frame &&
-                    sceneCopyPromotion.hdrSource && sceneCopyPromotion.hdrSourceFrame == frame) {
-                    const uint32_t gainW = sceneCopyPromotion.hdrSourceWidth, gainH = sceneCopyPromotion.hdrSourceHeight;
-                    if (!rs.hdrTex || rs.hdrTex->width != gainW || rs.hdrTex->height != gainH) {
-                        if (rs.hdrTex) Gpu().retiredTextures.push_back(std::move(rs.hdrTex));
-                        auto target = std::make_unique<HostTexture>();
-                        target->width = gainW; target->height = gainH;
-                        target->format = RenderFormat::R16G16B16A16_FLOAT;
-                        target->texture = device->createTexture(RenderTextureDesc::Texture2D(gainW, gainH, 1,
-                            target->format, RenderTextureFlag::RENDER_TARGET));
-                        if (target->texture) rs.hdrTex = std::move(target);
-                    }
-                    if (rs.hdrTex && rs.hdrTex->texture) {
-                        commandList->barriers(RenderBarrierStage::COPY, RenderTextureBarrier(sceneCopyPromotion.hdrSource, RenderTextureLayout::COPY_SOURCE));
-                        Transition(*rs.hdrTex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
-                        RenderBox box{0, 0, int32_t(gainW), int32_t(gainH), 0, 1};
-                        commandList->copyTextureRegion(
-                            RenderTextureCopyLocation::Subresource(rs.hdrTex->texture.get()),
-                            RenderTextureCopyLocation::Subresource(sceneCopyPromotion.hdrSource),
-                            0, 0, 0, &box);
-                        rs.hdrFrame = frame;
-                        rs.hdrWriteOrdinal = rs.writeOrdinal;
-                        rs.hdrGain = true;
-                        static uint32_t gainLogs = 0;
-                        if (gainLogs++ < 8)
-                            LOG_INFO("renderer HDR: gain source kept frame={} address={:#x} scene={}x{} output={}x{} ordinal={}",
-                                frame, destBase, gainW, gainH, texW, texH, rs.hdrWriteOrdinal);
-                    }
-                }
-                if (hdrSceneEnabled.load(std::memory_order_relaxed) &&
-                    destFormat == 6 && fullResolved && color.hdrValid && color.hdrFrame == frame &&
-                    color.hdrValidWidth >= texW && color.hdrValidHeight >= texH &&
-                    color.hdrSidecar && color.hdrSidecar->texture &&
-                    color.hdrSidecar->width >= texW && color.hdrSidecar->height >= texH) {
-                    if (!rs.hdrTex || rs.hdrTex->width != texW || rs.hdrTex->height != texH) {
-                        if (rs.hdrTex) Gpu().retiredTextures.push_back(std::move(rs.hdrTex));
-                        auto target = std::make_unique<HostTexture>();
-                        target->width = texW; target->height = texH;
-                        target->format = RenderFormat::R16G16B16A16_FLOAT;
-                        target->texture = device->createTexture(RenderTextureDesc::Texture2D(texW, texH, 1,
-                            target->format, RenderTextureFlag::RENDER_TARGET));
-                        if (target->texture) rs.hdrTex = std::move(target);
-                    }
-                    if (rs.hdrTex && rs.hdrTex->texture) {
-                        Transition(*color.hdrSidecar, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
-                        Transition(*rs.hdrTex, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
-                        RenderBox box{0, 0, int32_t(texW), int32_t(texH), 0, 1};
-                        commandList->copyTextureRegion(
-                            RenderTextureCopyLocation::Subresource(rs.hdrTex->texture.get()),
-                            RenderTextureCopyLocation::Subresource(color.hdrSidecar->texture.get()),
-                            0, 0, 0, &box);
-                        rs.hdrFrame = frame;
-                        rs.hdrWriteOrdinal = rs.writeOrdinal;
-                        if (hdrSdrSourcesFrame != frame) {
-                            hdrSdrSources.clear();
-                            hdrSdrSourcesFrame = frame;
-                        }
-                        hdrSdrSources.insert(rs.tex->texture.get());
-                        static uint32_t resolveLogs = 0;
-                        if (resolveLogs++ < 8)
-                            LOG_INFO("renderer HDR: extended resolve frame={} address={:#x} size={}x{} ordinal={}",
-                                frame, destBase, texW, texH, rs.hdrWriteOrdinal);
-                    }
                 }
                 WriteP2ResolveEvent("color", color, destBase, rs, resolveOperation);
 #if defined(LO_GPU_PLUME)
@@ -12354,9 +10186,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 
             void Resolve()
             {
-                // A new renderer frame may start with a resolve/clear, before
-                // any draw. Apply the same frame snapshot before borrowing RTs.
-                if (!ApplyInternalResolution()) return;
                 FlushMotionReplayQueue();
                 ScopedTimer timer{ tResolve, cpuTimingEnabled };
                 nResolve++;
@@ -12482,7 +10311,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         destBase, destFormat, destEndian, x0, y0, copyWidth, copyHeight, destPitch, uint32_t(color->format), nonZero, drawsThisFrame);
                 }
                 uint8_t* dst = Phys(destBase);
-                g_commandProcessor.AdvanceSyncEpoch();
                 uint32_t pitchBlocks = (destPitch + 31) & ~31u;
                 for (uint32_t y = 0; y < copyHeight; y++)
                 {
@@ -12554,7 +10382,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                     RenderRect rect{ int32_t(color->ScaleX(x0)), int32_t(color->ScaleY(y0)), int32_t(color->ScaleX(x1)), int32_t(color->ScaleY(y1)) };
                     commandList->clearColor(0, c, &rect, 1);
-                    color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                     HandleFsrAlphaRgbWriter(*color, "resolve_color_clear");
 #endif
@@ -12583,12 +10410,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                                float x, float y, float width, float height, float safeLeft, float safeRight,
-                                float safeTop, float safeBottom)
+                                float x, float y, float width, float height, float safeLeft, float safeRight)
             {
                 if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(width) || !std::isfinite(height) ||
-                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || !std::isfinite(safeTop) ||
-                    !std::isfinite(safeBottom) || width <= 0.0f || height <= 0.0f)
+                    !std::isfinite(safeLeft) || !std::isfinite(safeRight) || width <= 0.0f || height <= 0.0f)
                     return;
 
                 const uint32_t pitch = surfaceInfo & 0x3FFF;
@@ -12611,23 +10436,25 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const int32_t targetBottom = std::clamp(scaleY(y + height), targetTop, int32_t(color->height));
                 const int32_t leftBarEnd = std::clamp(scaleX(safeLeft), targetLeft, targetRight);
                 const int32_t rightBarStart = std::clamp(scaleX(safeRight), targetLeft, targetRight);
-                const int32_t topBarEnd = std::clamp(scaleY(safeTop), targetTop, targetBottom);
-                const int32_t bottomBarStart = std::clamp(scaleY(safeBottom), topBarEnd, targetBottom);
-                if (targetBottom <= targetTop || targetRight <= targetLeft)
-                    return;
-
+                if (targetBottom <= targetTop) return;
+                int32_t topBarEnd = targetTop, bottomBarStart = targetBottom;
+#if defined(__ANDROID__)
+                if (activePlan.output.width && activePlan.output.height) {
+                    const float ratio = float(activePlan.output.width) / activePlan.output.height;
+                    const float vertical = std::min(1.0f, ratio / (16.0f / 9.0f));
+                    topBarEnd = std::clamp(scaleY((1.0f - vertical) * 360.0f + y * vertical), targetTop, targetBottom);
+                    bottomBarStart = std::clamp(scaleY((1.0f - vertical) * 360.0f + (y + height) * vertical), targetTop, targetBottom);
+                }
+#endif
                 std::array<RenderRect, 4> bars{};
                 uint32_t count = 0;
-                auto addBar = [&](int32_t left, int32_t top, int32_t right, int32_t bottom)
-                {
-                    if (right <= left || bottom <= top)
-                        return;
-                    bars[count++] = { left, top, right, bottom };
+                auto addBar = [&](int32_t left, int32_t top, int32_t right, int32_t bottom) {
+                    if (right > left && bottom > top) bars[count++] = {left, top, right, bottom};
                 };
+                addBar(targetLeft, targetTop, leftBarEnd, targetBottom);
+                addBar(rightBarStart, targetTop, targetRight, targetBottom);
                 addBar(targetLeft, targetTop, targetRight, topBarEnd);
                 addBar(targetLeft, bottomBarStart, targetRight, targetBottom);
-                addBar(targetLeft, topBarEnd, leftBarEnd, bottomBarStart);
-                addBar(rightBarStart, topBarEnd, targetRight, bottomBarStart);
                 if (!count)
                     return;
 
@@ -12635,7 +10462,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 Transition(*color, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                 commandList->setFramebuffer(GetFramebuffer(color, nullptr));
                 commandList->clearColor(0, RenderColor(0.0f, 0.0f, 0.0f, 1.0f), bars.data(), count);
-                color->hdrValid = false;
 #if defined(LO_GPU_PLUME)
                 HandleFsrAlphaRgbWriter(*color, "movie_bars_clear");
 #endif
@@ -12647,13 +10473,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         };
 
         Renderer* g_renderer = nullptr;
-        // Held while Shutdown deletes the renderer and while an exit flush uses it.
-        std::mutex g_exitFlushMutex;
-        void FlushCachesForExit()
-        {
-            std::lock_guard lock(g_exitFlushMutex);
-            if (g_renderer) g_renderer->FlushCachesForExit();
-        }
     }
 
 #if !defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -12669,9 +10488,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         auto r = std::make_unique<Renderer>();
         if (!r->Init()) return false;
         g_renderer = r.release();
-        // The std::_Exit paths close the shader log first; that runs this flush.
-        os::shaderlog::SetExitFlush(&FlushCachesForExit);
-        debug_menu::SetSceneLoadListener(&RequestScenePrefetch);
         return true;
     }
 
@@ -12698,8 +10514,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     g_renderer->temporalUpscaler->OnDiscarded(slot.srUseId);
 #endif
             g_renderer->SavePipelineRecipes(true);
-            g_renderer->SaveDriverPipelineCache(true);
-            std::lock_guard lock(g_exitFlushMutex);
             delete g_renderer;
             g_renderer = nullptr;
         }
@@ -12714,12 +10528,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     bool OcclusionQueryEvent(uint32_t physicalAddress)
     {
         return g_renderer && g_renderer->OcclusionQueryEvent(physicalAddress);
-    }
-
-    void NoteOcclusionQueryOwner(uint32_t physicalSlot, uint64_t owner)
-    {
-        std::lock_guard lock(g_occlusionOwnerMutex);
-        g_occlusionOwners[gpu::occlusion::SlotOf(physicalSlot)] = owner;
     }
 
     void NoteOcclusionWait()
@@ -13040,9 +10848,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             return;
         if (!g_renderer->Begin()) return;
         g_renderer->Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
-        if (hdrSceneEnabled.load(std::memory_order_relaxed) && rs->hdrTex &&
-            rs->hdrWriteOrdinal && rs->hdrWriteOrdinal == rs->writeOrdinal)
-            g_renderer->Transition(*rs->hdrTex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
     }
 
     bool SuppressPresent()
@@ -13061,6 +10866,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         {
             static const bool stats = getenv("LO_GPU_STATS") != nullptr;
             static auto lastFrame = std::chrono::steady_clock::now();
+            Renderer::AndroidStallTimer androidTimer{"renderer public flush"};
             if (!g_renderer->Flush()) return;
             g_renderer->PublishDlssFrameOutcome();
             {
@@ -13117,18 +10923,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     r.frame, r.indexCacheHits, r.indexCacheMisses, r.indexCache.size(),
                     r.indexCache.AllocatedBytes(), r.indexCache.PeakBytes(), r.indexCache.Evictions());
                 r.indexCacheHits = r.indexCacheMisses = 0;
-            }
-            {
-                static const bool verify = [] { const char* v = getenv("LO_REVALIDATE_VERIFY"); return v && strcmp(v, "0") != 0; }();
-                auto& r = *g_renderer;
-                const uint64_t epoch = g_commandProcessor.SyncEpoch();
-                if (render_timing::Enabled() || (verify && r.frame % 60 == 0))
-                    LOG_INFO("source revalidation frame={} sync_epochs={} compared={} skipped={} verify_mismatches={} scope=since_previous_line",
-                        r.frame, epoch - r.revalidationEpoch, r.revalidationChecks, r.revalidationSkips, r.revalidationMismatches);
-                if (render_timing::Enabled() || r.frame % 60 == 0) {
-                    r.revalidationEpoch = epoch;
-                    r.revalidationChecks = r.revalidationSkips = r.revalidationMismatches = 0;
-                }
             }
             if (render_timing::Enabled()) {
                 Renderer& r = *g_renderer;
@@ -13280,8 +11074,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     else if (r.activePlan.inputProbe) page.fallbackReason = "input_probe_only";
                     else if (r.activePlan.consumer == upscaling::TemporalConsumer::FsrSr)
                         page.fallbackReason = "fsr_sr_no_dispatch_this_frame";
-                    else if (r.activePlan.consumer == upscaling::TemporalConsumer::XessSr)
-                        page.fallbackReason = "xess_sr_no_dispatch_this_frame";
                     else if (r.activePlan.consumer != upscaling::TemporalConsumer::DlssSr)
                         page.fallbackReason = "dlss_sr_plan_unavailable_this_frame";
                     else if (!page.entries.empty() && !page.entries.back()->reason.empty())
@@ -13290,15 +11082,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 page.closed = true;
             }
             taa_collection::EndDiagnosticsFrame(collectionRenderer.frame,collectionFrame);
-            g_renderer->ReportPipelineMisses();
-            g_renderer->UpdateSceneTag();
-            g_renderer->HarvestPrefetch();
-            g_renderer->ProcessScenePrefetch();
             g_renderer->SavePipelineRecipes();
             if (stats && g_renderer->frame % 600 == 0)
                 LOG_INFO("renderer: pipeline reuse frame {}: {} prepared hits, {}/{} prepared keys used, {} runtime creates, {} recipes",
                     g_renderer->frame, g_renderer->preparedPipelineHits, g_renderer->usedPreparedPipelineKeys.size(),
-                    g_renderer->preparedPipelineKeys.size(), g_renderer->runtimePipelineCreates, g_renderer->knownRecipes.size());
+                    g_renderer->preparedPipelineKeys.size(), g_renderer->runtimePipelineCreates, g_renderer->pipelineRecipes.size());
             g_renderer->PollPsTraceRequest();
             g_renderer->AdvanceAfterPublicFlush();
         }
@@ -13319,58 +11107,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (handoff) *handoff = {};
         return g_renderer ? g_renderer->AcquireResolvedForPresent(physicalAddress, width, height, format,
             sourcePlan, handoff) : nullptr;
-    }
-    void SetHdrSceneEnabled(bool enabled)
-    {
-        hdrSceneEnabled.store(enabled, std::memory_order_relaxed);
-    }
-    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
-    {
-        if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
-            g_renderer->PlanSuppressed()) return nullptr;
-        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
-        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture || rs->hdrGain ||
-            rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
-            !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
-            !rs->sourcePlanValid || rs->hdrTex->width != rs->tex->width ||
-            rs->hdrTex->height != rs->tex->height) return nullptr;
-        width = rs->hdrTex->width; height = rs->hdrTex->height;
-        return rs->hdrTex->texture.get();
-    }
-    bool ResolvedScene(uint32_t physicalAddress, uint64_t& ordinal)
-    {
-        if (!g_renderer || g_renderer->PlanSuppressed()) return false;
-        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
-        if (!rs || !rs->tex) return false;
-        ordinal = rs->writeOrdinal;
-        // Gameplay draws about a thousand, the game's menus a handful.
-        const bool scene = rs->sceneDraws >= 16;
-        static bool lastScene = false;
-        static uint32_t flips = 0;
-        if (scene != lastScene && flips < 16) {
-            ++flips;
-            LOG_INFO("renderer: frontbuffer scene={} depth_draws={} frame={}", scene, rs->sceneDraws, rs->frame);
-        }
-        lastScene = scene;
-        return scene;
-    }
-    plume::RenderTexture* AcquireResolvedWrite(uint32_t physicalAddress, uint64_t ordinal, bool hdr,
-        uint32_t& width, uint32_t& height, uint32_t& format)
-    {
-        return g_renderer ? g_renderer->AcquireResolvedWrite(physicalAddress, ordinal, hdr, width, height, format) : nullptr;
-    }
-    plume::RenderTexture* AcquireHdrGainSurface(uint32_t physicalAddress, uint32_t& width, uint32_t& height)
-    {
-        if (!hdrSceneEnabled.load(std::memory_order_relaxed) || !g_renderer ||
-            g_renderer->PlanSuppressed()) return nullptr;
-        const auto* rs = g_renderer->NewestResolved(physicalAddress & 0x1FFFFFFF);
-        if (!rs || !rs->tex || !rs->hdrTex || !rs->hdrTex->texture || !rs->hdrGain ||
-            rs->frame + 1 != g_renderer->frame || rs->hdrFrame != rs->frame ||
-            !rs->hdrWriteOrdinal || rs->hdrWriteOrdinal != rs->writeOrdinal ||
-            !rs->sourcePlanValid || rs->hdrTex->width > rs->tex->width ||
-            rs->hdrTex->height > rs->tex->height) return nullptr;
-        width = rs->hdrTex->width; height = rs->hdrTex->height;
-        return rs->hdrTex->texture.get();
     }
     bool AcquireFgCompositeInputs(uint32_t physicalAddress, frame_generation::CompositeHandoff& handoff)
     {
@@ -13647,7 +11383,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     void Draw(const DrawInfo&) {}
     bool OcclusionQueryEvent(uint32_t) { return false; }
     void NoteOcclusionWait() {}
-    void NoteOcclusionQueryOwner(uint32_t, uint64_t) {}
     void ServiceOcclusionQueries() {}
     bool DrainForFrameGenerationReconfigure() { return true; }
     void Flush() {}
@@ -13657,11 +11392,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     bool SceneAAApplied(uint32_t) { return false; }
     plume::RenderTexture* AcquireResolvedSurface(uint32_t, uint32_t&, uint32_t&, uint32_t&,
         frame_plan::FramePlan*, frame_generation::ResolvedHandoff*) { return nullptr; }
-    void SetHdrSceneEnabled(bool) {}
-    plume::RenderTexture* AcquireHdrResolvedSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
-    bool ResolvedScene(uint32_t, uint64_t&) { return false; }
-    plume::RenderTexture* AcquireResolvedWrite(uint32_t, uint64_t, bool, uint32_t&, uint32_t&, uint32_t&) { return nullptr; }
-    plume::RenderTexture* AcquireHdrGainSurface(uint32_t, uint32_t&, uint32_t&) { return nullptr; }
     bool AcquireFgCompositeInputs(uint32_t, frame_generation::CompositeHandoff&) { return false; }
     void CancelFgHandoffs() {}
     void SetFrameGenerationInputCaptureEnabled(bool) {}
@@ -13678,8 +11408,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     float ActiveOutputAspect()
     {
         const auto plan = frame_plan::CurrentProducerPlan();
-        // The resolve-readback path renders the native 16:9 raster on any output.
-        if (!plan || plan->requiresReadback) return 16.0f / 9.0f;
+        if (!plan) return 16.0f / 9.0f;
         const auto& output = plan->output;
         if (output.width && output.height) return float(output.width) / output.height;
         if (output.drawable.width && output.drawable.height) return float(output.drawable.width) / output.drawable.height;
@@ -13691,7 +11420,6 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (!plan.width || !plan.height) return;
         std::lock_guard lock(framePlanMutex);
         committedPlan = plan;
-        framePlanGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void RegisterCatalogSurface(frame_plan::SurfaceRole role, uint32_t surfaceInfo, uint32_t colorInfo)
@@ -13701,30 +11429,24 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         const uint64_t key = CatalogKey(surfaceInfo, colorInfo);
         const auto found = catalogRoles.find(key);
         if (role == frame_plan::SurfaceRole::Unknown) {
-            if (found != catalogRoles.end()) {
-                catalogRoles.erase(found);
-                catalogGeneration.fetch_add(1, std::memory_order_release);
-            }
+            if (found != catalogRoles.end()) catalogRoles.erase(found);
             return;
         }
         if (found != catalogRoles.end() && found->second != role)
             LOG_WARNING("renderer: catalog role conflict base={:#x} pitch={} old={} new={}", colorInfo & 0xFFF, surfaceInfo & 0x3FFF,
                 uint32_t(found->second), uint32_t(role));
-        if (found != catalogRoles.end() && found->second == role) return;
         catalogRoles[key] = role;
-        catalogGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,
-                        float x, float y, float width, float height, float safeLeft, float safeRight,
-                        float safeTop, float safeBottom)
+                        float x, float y, float width, float height, float safeLeft, float safeRight)
     {
 #ifdef LO_GPU_PLUME
         if (g_renderer)
-            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight, safeTop, safeBottom);
+            g_renderer->ClearMovieBars(surfaceInfo, colorInfo, x, y, width, height, safeLeft, safeRight);
 #else
         (void)surfaceInfo; (void)colorInfo; (void)x; (void)y;
-        (void)width; (void)height; (void)safeLeft; (void)safeRight; (void)safeTop; (void)safeBottom;
+        (void)width; (void)height; (void)safeLeft; (void)safeRight;
 #endif
     }
 #endif // !LO_RENDERER_P2_EMBEDDED_TEST

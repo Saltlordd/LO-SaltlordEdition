@@ -30,8 +30,6 @@
 #include "settings/restart.h"
 #include "updater/update.h"
 #include "updater/game_prompt.h"
-#include "updater/shader_pack_download.h"
-#include "updater/pipeline_corpus_download.h"
 #include "updater/apply_mode.h"
 #include "version.h"
 #include "install/host.h"
@@ -52,9 +50,6 @@ extern char** environ;
 #if LO_PLATFORM_MACOS
 #include <mach-o/dyld.h>
 #endif
-#if LO_PLATFORM_ANDROID
-#include <SDL3/SDL_system.h>
-#endif
 
 // Runtime entry: set up guest memory, load default.xex and run its entry point
 // on the first guest thread. Everything else is driven by the game through the
@@ -62,12 +57,7 @@ extern char** environ;
 
 static std::filesystem::path ExecutableDirectory()
 {
-#if LO_PLATFORM_ANDROID
-    // app_process is the executable on Android. SDL supplies the app-owned
-    // writable directory, independent of the APK/native library installation.
-    const char* path = SDL_GetAndroidInternalStoragePath();
-    return path ? std::filesystem::path(path) : std::filesystem::path{};
-#elif defined(_WIN32)
+#if defined(_WIN32)
     wchar_t executable[32768]{};
     if (GetModuleFileNameW(nullptr, executable, 32768))
         return std::filesystem::path(executable).parent_path();
@@ -109,13 +99,16 @@ static int RunGuest(uint32_t entry)
         return 1;
     }
     XexLoader::StartTimeStampThread();
-    apu::Init(settings::GetConfig().audioOutput == settings::AudioOutputSurround);
+    apu::Init();
     apu::xma::Init();
     if (getenv("LO_HEADLESS"))
         hid::Init(); // otherwise the video thread initialises it
-    hid::SetVibrationStrength(settings::GetConfig().vibrationPercent);
 
     LOG_INFO("starting guest at {:#x}", entry);
+#if LO_PLATFORM_ANDROID
+    extern void AndroidBootGuestStarted();
+    AndroidBootGuestStarted();
+#endif
     os::SetCurrentThreadName("Guest Main");
     GuestThread::Start({ entry, 0, 0 });
 
@@ -133,11 +126,41 @@ static int RunGuest(uint32_t entry)
 }
 
 #if LO_PLATFORM_ANDROID
+int RunAndroidGuestBoot(uint32_t entry) { return RunGuest(entry); }
+int RunAndroidRuntimeReadiness();
+int RunAndroidFirstBootCheck();
 extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char* argv[])
 #else
 int main(int argc, char* argv[])
 #endif
 {
+#if LO_PLATFORM_ANDROID
+    std::filesystem::path files, cache;
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--android-files") == 0 && i + 1 < argc)
+            files = std::filesystem::u8path(argv[++i]);
+        else if (strcmp(argv[i], "--android-cache") == 0 && i + 1 < argc)
+            cache = std::filesystem::u8path(argv[++i]);
+    }
+    if (!files.is_absolute() || !cache.is_absolute()) {
+        LOG_ERROR("Android launcher must supply absolute app-private files/cache paths");
+        return 1;
+    }
+    os::user_paths::InitializeAndroid(files, cache);
+    std::error_code pathError;
+    std::filesystem::create_directories(os::user_paths::ConfigDir(), pathError);
+    if (!pathError) std::filesystem::current_path(os::user_paths::ConfigDir(), pathError);
+    if (pathError) {
+        LOG_ERROR("Android configuration directory unavailable: {}", pathError.message());
+        return 1;
+    }
+    for (int i = 1; i < argc; ++i)
+        if (strcmp(argv[i], "--android-first-boot") == 0)
+            return RunAndroidFirstBootCheck();
+    for (int i = 1; i < argc; ++i)
+        if (strcmp(argv[i], "--android-runtime-check") == 0)
+            return RunAndroidRuntimeReadiness();
+#endif
 #if LO_PLATFORM_POSIX && !LO_PLATFORM_ANDROID
     // Park a restart child before even the updater's startup cleanup runs.
     if (settings::restart::WaitForParentIfRestartChild(argc, argv) == settings::restart::ChildHandshake::Invalid)
@@ -201,23 +224,6 @@ int main(int argc, char* argv[])
         requestedInstall |= strcmp(argv[i],"--install")==0;
     }
     const auto executableDirectory = ExecutableDirectory();
-#if LO_PLATFORM_ANDROID
-    if (executableDirectory.empty()) return 1;
-    // Relative caches and diagnostics must never be written into app_process's
-    // working directory, including explicit --game launches.
-    std::filesystem::current_path(executableDirectory);
-    {
-        // The app points LO_LOG_DIR at Android/data/<package>/files/logs, which
-        // players can copy over USB. Keep the previous run's stderr beside it.
-        const char* logDir = getenv("LO_LOG_DIR");
-        const auto stderrDir = logDir && *logDir ? std::filesystem::u8path(logDir) : executableDirectory;
-        std::error_code ec;
-        std::filesystem::create_directories(stderrDir, ec);
-        std::filesystem::rename(stderrDir / "native-stderr.log", stderrDir / "native-stderr.previous.log", ec);
-        std::freopen((stderrDir / "native-stderr.log").c_str(), "w", stderr);
-        std::setvbuf(stderr, nullptr, _IONBF, 0);
-    }
-#endif
     os::user_paths::Initialize(executableDirectory);
     const auto modsRoot = os::user_paths::UsePortableLayout()
         ? executableDirectory / "mods"
@@ -242,11 +248,8 @@ int main(int argc, char* argv[])
     {
         const auto ticks = std::chrono::duration_cast<std::chrono::microseconds>(
             std::chrono::system_clock::now().time_since_epoch()).count();
-        // LO_LOG_DIR moves the default logs folder (the Android app sets it).
-        const char* logDir = getenv("LO_LOG_DIR");
         const std::filesystem::path logPath = logOverride
             ? std::filesystem::u8path(logOverride)
-            : logDir && *logDir ? std::filesystem::u8path(logDir) / fmt::format("runtime-{}.log", ticks)
             : (os::user_paths::UsePortableLayout() ? std::filesystem::path(fmt::format("logs/runtime-{}.log", ticks)) : os::user_paths::StateDir() / "logs" / fmt::format("runtime-{}.log", ticks));
         std::error_code ec;
         if (logPath.has_parent_path())
@@ -298,7 +301,7 @@ int main(int argc, char* argv[])
     }
     os::diagnostics::LogStartupEnvironment();
 
-#if defined(_WIN32) || defined(__linux__) || defined(__APPLE__)
+#if !LO_PLATFORM_ANDROID && (defined(_WIN32) || defined(__linux__) || defined(__APPLE__))
     // Check for a newer runtime before opening the content importer or setup.
     if (!getenv("LO_HEADLESS") && !getenv("LO_BACKGROUND"))
     {
@@ -323,7 +326,7 @@ int main(int argc, char* argv[])
                 if (settings::restart::LaunchWaitingProcess(prepared.runnerPath.wstring(),
                                                              updater::ApplyHelperArguments(prepared.planPath)))
                     return 0;
-#elif defined(__linux__) && !LO_PLATFORM_ANDROID
+#elif defined(__linux__)
                 const std::string selfExe = updater::CurrentExecutablePath().string();
                 const std::string planStr = prepared.planPath.string();
                 const std::string waitPid = std::to_string(getpid());
@@ -357,16 +360,7 @@ int main(int argc, char* argv[])
     if (requestedInstall)
     {
         const auto result = install::RunHost(executableDirectory, &gameRoot, true);
-        const bool installed = result == install::HostResult::Installed || result == install::HostResult::AlreadyPresent;
-#if LO_PLATFORM_ANDROID
-        // The game folder page starts the importer; a finished import goes
-        // straight into the game, anything else returns to that page.
-        if (!installed)
-            return result == install::HostResult::Cancelled ? 0 : 1;
-        LOG_INFO("imported game data into {}", FileSystem::PathUtf8(gameRoot));
-#else
-        return installed ? 0 : 1;
-#endif
+        return (result == install::HostResult::Installed || result == install::HostResult::AlreadyPresent) ? 0 : 1;
     }
 
     if (!explicitGame && !std::filesystem::exists(gameRoot / "default.xex"))
@@ -445,19 +439,6 @@ int main(int argc, char* argv[])
     uint32_t entry = XexLoader::Load(gameRoot / "default.xex");
     if (entry == 0)
         return 1;
-
-    // After the update check and before shader preparation: when no installed
-    // distribution pack matches the configured renderer, offer the published one.
-    // Android takes the same Vulkan pack as the desktop.
-    {
-        updater::shader_pack::StartupRequest packRequest;
-        packRequest.configuredBackend = settings::GetConfig().graphicsBackend;
-        packRequest.uiLanguage = settings::GetConfig().uiLanguage;
-        packRequest.unboundXex = XexLoader::UnboundIdentityPrefix();
-        LOG_INFO("shader pack: {}", updater::shader_pack::PrepareAtStartup(packRequest));
-        // The pipeline recipe corpus comes from the same index, on its own thread.
-        updater::shader_pack::StartCorpusDownload(settings::GetConfig().automaticUpdates);
-    }
 
     // Exercise the same renderer preparation as ordinary startup, without
     // starting guest threads or opening game saves/profiles. This also provides

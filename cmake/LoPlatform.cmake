@@ -6,7 +6,7 @@
 #   LO_TARGET_PLATFORM  windows | linux | macos | android
 #   LO_TARGET_ISA       x86_64 | x86 | aarch64
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Android")
+if(ANDROID OR CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(LO_TARGET_PLATFORM "android")
 elseif(WIN32)
     set(LO_TARGET_PLATFORM "windows")
@@ -44,6 +44,9 @@ else()
     message(FATAL_ERROR "Unsupported target processor '${_lo_processor}'")
 endif()
 
+if(LO_TARGET_PLATFORM STREQUAL "android" AND NOT LO_TARGET_ISA STREQUAL "aarch64")
+    message(FATAL_ERROR "The Android bring-up supports only arm64-v8a")
+endif()
 message(STATUS "LostOdysseyRecomp target: ${LO_TARGET_PLATFORM}-${LO_TARGET_ISA}")
 
 if(LO_TARGET_PLATFORM STREQUAL "macos")

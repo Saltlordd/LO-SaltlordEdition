@@ -1,5 +1,6 @@
 #include <stdafx.h>
 #include <cpu/poll_wait.h>
+#include <cpu/android_wait_timing.h>
 #include <os/logger.h>
 
 extern "C" PPC_FUNC(__imp__sub_823B62A0);
@@ -24,6 +25,7 @@ namespace
 // returned 1 (timestamp still pending).
 PPC_FUNC(sub_823B62A0)
 {
+    const auto started=android_wait_timing::Clock::now();const auto caller=uint32_t(ctx.lr);
     poll_wait::RunScoped(poll_wait::Kind::GpuPoll, [&] {
         if (!Enabled())
         {
@@ -38,6 +40,7 @@ PPC_FUNC(sub_823B62A0)
         __imp__sub_823B62A0(ctx, base);
         waitingDevice = previous;
     });
+    android_wait_timing::Report("GpuTimestamp",started,caller);
 }
 
 PPC_FUNC(sub_827B6278)

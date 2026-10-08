@@ -4,7 +4,6 @@
 #include <cstdint>
 #include "backend_selection.h"
 #include "display_change.h"
-#include "display_choice.h"
 #include "present_capture.h"
 #include "upscaling_plan.h"
 #include "frame_generation_status.h"
@@ -36,16 +35,8 @@ namespace gpu::video
     // The game window's height in points (logical pixels), or 0 when no window
     // exists. On Retina displays the drawable is larger than this.
     uint32_t LogicalOutputHeight();
-    // The device samples BC1-BC3 images (false on Mali Vulkan drivers, #214).
-    bool TextureCompressionBC();
     // Actual committed backend; absent before readiness or after shutdown.
     std::optional<backend::Backend> SelectedBackend();
-    // Adapter names the running backend lists (duplicates removed) and the one
-    // in use; empty before device creation. Safe to call from the menu thread.
-    std::vector<std::string> GpuDeviceNames();
-    std::string ActiveGpuDeviceName();
-    // Connected displays in SDL order, published by the window owner thread.
-    std::vector<display_choice::Display> Displays();
     // Latest committed device capability. Callers receive a copy and do not
     // read NGX reports or device pointers. The device owner publishes it.
     upscaling::BackendDeviceSnapshot BackendDeviceState();
@@ -116,17 +107,13 @@ namespace gpu::video
     // Called after saving Current(). Forces an actual retry even for the same
     // mode. Completion includes the window operation and one presented frame.
     uint64_t BeginDisplayChange(const settings::Config& config);
-    // Times the window moved to another display for a saved display choice.
-    uint64_t DisplayMoveCount();
-    // BeginDisplayChange that also returns the window to the display the last
-    // move left, even when the restored choice is Automatic.
-    uint64_t BeginDisplayRevert(const settings::Config& config);
     DisplayChangeResult QueryDisplayChange(uint64_t ticket);
     // Updates the title on the window owner thread. total=0 restores the title.
     enum class PreparationStage : uint32_t { Shaders, Pipelines, CacheValidation, IndexedExtraction, FallbackScan, CachedShaders };
     enum class PreparationUnit : uint32_t { Shaders, Pipelines, Files, MiB, Entries };
     void SetShaderPreparationProgress(uint32_t completed, uint32_t total,
         PreparationStage stage = PreparationStage::Shaders, PreparationUnit unit = PreparationUnit::Shaders);
+    uint64_t AndroidShaderPreparationProgress();
     bool ShaderPreparationSkipped();
     void RequestSkipShaderPreparation();
     void ResetShaderPreparationSkip();
@@ -153,6 +140,12 @@ namespace gpu::video
     // Monotonic successful swap-chain present calls; read on the command thread.
     // Early returns and failed presents do not advance this counter.
     uint64_t CompletedPresentCount();
+#if defined(__ANDROID__)
+    uint64_t AndroidGuestPresentCount(); // Successful guest frontbuffer presentations; thread-safe.
+    struct AndroidPerformance { uint64_t frontbufferCalls, hostMicroseconds, swapchainResizes;
+        uint64_t gaps50, gaps100, gaps250; };
+    AndroidPerformance AndroidPerformanceSnapshot(); // Atomic cumulative counters, not GPU timestamps.
+#endif
 
     // Writes the last untiled frontbuffer as a binary PPM (for offline inspection).
     bool SaveScreenshot(const char* path);

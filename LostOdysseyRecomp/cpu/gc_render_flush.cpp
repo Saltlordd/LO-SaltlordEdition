@@ -15,6 +15,7 @@
 
 #include <stdafx.h>
 #include <os/logger.h>
+#include <chrono>
 
 extern "C" PPC_FUNC(__imp__sub_8249A568); // UObject::CollectGarbage(KeepFlags, bPerformFullPurge)
 extern "C" PPC_FUNC(__imp__sub_822FD0A8); // UObject::IncrementalPurgeGarbage(bUseTimeLimit, TimeLimit)
@@ -54,7 +55,15 @@ namespace
         static thread_local uint32_t reports = 0;
         if (reports++ < 8)
             LOG_INFO("gc render flush before {} (caller={:#x})", reason, uint32_t(lr));
+#if defined(__ANDROID__)
+        const auto began=std::chrono::steady_clock::now();
+#endif
         sub_82485C18(ctx, base);
+#if defined(__ANDROID__)
+        const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-began).count();
+        static thread_local uint32_t slowReports=0;
+        if(ms>=16&&slowReports++<24)LOG_INFO("Android GC render drain: reason={} elapsedMs={} caller={:#x} (required drain preserved)",reason,ms,uint32_t(lr));
+#endif
         ctx.r3 = r3; ctx.r4 = r4; ctx.r5 = r5; ctx.r6 = r6; ctx.r7 = r7;
         ctx.f1 = f1;
         ctx.lr = lr; ctx.ctr = ctr;

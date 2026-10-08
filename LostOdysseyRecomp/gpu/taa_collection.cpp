@@ -47,7 +47,13 @@ struct State {
 const std::shared_ptr<State> state=std::make_shared<State>();
 std::once_flag initialized;
 std::unique_ptr<CollectionWorker> uploader;
-bool Enabled(const State& s){return s.consent.load(std::memory_order_relaxed)==1;}
+bool Enabled(const State& s){
+#ifdef __ANDROID__
+    return false; // Saltlord Android is offline; no sampling or collection.
+#else
+    return s.consent.load(std::memory_order_relaxed)==1;
+#endif
+}
 enum class UploadKind { Summary, Sparse, Source, Compact };
 enum class UploadOutcome { Cancelled, Accepted, TransportFailed, HttpRejected };
 void RecordDelivery(State& s, diagnostics::Stream stream, UploadOutcome outcome, uint64_t epoch) {
@@ -245,7 +251,11 @@ void Run(const std::shared_ptr<State>& owned,CollectionWorker::Control& control)
     }
 }
 }
-void Initialize(){std::call_once(initialized,[]{auto& s=*state;int value=-1;std::ifstream file("taa-collection.ini");file>>value;
+void Initialize(){
+#ifdef __ANDROID__
+    state->consent=0;return; // Do not load opt-in or create a collection worker.
+#endif
+    std::call_once(initialized,[]{auto& s=*state;int value=-1;std::ifstream file("taa-collection.ini");file>>value;
     try {
         s.sourcePrograms.Initialize();s.sparseFrames.reserve(32);
         uploader=std::make_unique<CollectionWorker>([owned=state](auto& control){Run(owned,control);});
@@ -254,9 +264,18 @@ void Initialize(){std::call_once(initialized,[]{auto& s=*state;int value=-1;std:
 });}
 void Shutdown(){state->consent=0;++state->generation;if(uploader)uploader->Stop();}
 void RequestUpload(){if(state->uploadRequest.Request(state->consent,state->generation)&&uploader)uploader->Notify();}
-int Consent(){auto& s=*state;return s.consent.load(std::memory_order_relaxed);}
+int Consent(){
+#ifdef __ANDROID__
+    return 0;
+#else
+    auto& s=*state;return s.consent.load(std::memory_order_relaxed);
+#endif
+}
 bool Enabled(){return Consent()==1;}
 bool SetConsent(bool enabled){
+#ifdef __ANDROID__
+    state->consent=0;return !enabled; // Enabling is unsupported in this fork.
+#endif
     auto& s=*state;
     // Stop sampling and invalidate in-flight replies before waiting for the
     // uploader's brief snapshot lock or touching the preference file.

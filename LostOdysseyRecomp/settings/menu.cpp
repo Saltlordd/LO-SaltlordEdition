@@ -8,14 +8,12 @@
 #include "restart.h"
 #include "translations.h"
 #include <gpu/video.h>
-#include <gpu/display_choice.h>
 #include <gpu/frame_plan.h>
 #include <gpu/frame_generation_settings.h>
 #include <kernel/io/file_system.h>
 #include <os/logger.h>
 #include <stdafx.h>
 #include "language_trace.h"
-#include <apu/audio.h>
 #include <hid/hid.h>
 extern "C" PPC_FUNC(__imp__sub_822F19B0);
 extern "C" PPC_FUNC(__imp__sub_82481BE8);
@@ -37,27 +35,6 @@ std::atomic<bool> releaseToParent{false};
 std::atomic<int> mouseTab{-1}, mouseRow{-1};
 std::atomic<int> mouseDialog{-1};
 std::atomic<uint16_t> mouseAction{0};
-std::atomic<uint64_t> hdrDisplayInfo{0};
-std::atomic<bool> calibrationOpen{false};
-std::atomic<bool> calibrationSceneAvailable{false}, calibrationScenePreview{true};
-std::atomic<int> calibrationClick{-1}, calibrationDragNits{-1};
-std::mutex calibrationKeyMutex;
-std::vector<uint32_t> calibrationKeys;
-bool calibrationNumberEditing = false;
-std::wstring calibrationNumber;
-int calibrationFocus = 0;
-bool calibrationStartAutomatic = true;
-uint32_t calibrationStartPeakNits = 1000;
-// Brightness / gamma page. Focus: 0 brightness, 1 gamma, 2-5 buttons.
-std::atomic<bool> brightnessOpen{false};
-std::atomic<int> brightnessClick{-1};
-std::atomic<int> brightnessDragBrightness{INT_MIN}, brightnessDragGamma{-1};
-int brightnessFocus = 0;
-int brightnessStart = 0;
-uint32_t gammaStart = 100;
-// The original calibration screen returns to the page with the unsaved edit.
-bool returnToBrightness = false;
-constexpr int kBrightnessSliderX = 380, kBrightnessSliderWidth = 620;
 std::mutex snapshotMutex;
 using Row = MenuRow;
 using Snapshot = MenuSnapshot;
@@ -66,20 +43,6 @@ Config edit;
 Config previousDisplay;
 uint64_t displayTicket = 0;
 bool displayRollback = false, rollbackSaveFailed = false;
-// Keep-or-revert prompt after a saved display choice moved the window. Without
-// an answer the previous display returns when the countdown ends.
-constexpr auto kDisplayConfirmTime = std::chrono::seconds(5);
-bool displayConfirm = false, displayReverting = false;
-int displayConfirmChoice = 0;
-uint64_t displayMovesBefore = 0;
-std::chrono::steady_clock::time_point displayConfirmDeadline;
-std::atomic<bool> displayConfirmOpen{false}, displayConfirmEscape{false};
-std::chrono::steady_clock::duration menuClockOffset{}; // Tests advance the menu clock.
-// Saved display choice the menu last saw; the window thread changes it when the
-// player moves the window (Win+Shift+arrow).
-std::string syncedDisplayName;
-uint32_t syncedDisplayIndex = 0;
-std::chrono::steady_clock::time_point MenuNow() { return std::chrono::steady_clock::now() + menuClockOffset; }
 bool collectionPrompt = false;
 int collectionChoice = 1;
 bool restartPrompt = false, savedRestartPrompt = false, restartSaveFailed = false;
@@ -97,67 +60,6 @@ bool bypass = false, sawModal = false;
 bool closing = false;
 uint32_t lastMenu = 0;
 std::wstring status;
-HdrDisplayInfo CurrentHdrDisplayInfo()
-{
-    const uint64_t bits = hdrDisplayInfo.load(std::memory_order_relaxed);
-    return {bool(bits & (1ull << 32)), uint32_t(bits), bool(bits & (1ull << 33))};
-}
-HdrCalibration MakeHdrCalibration(const Config &config, bool open)
-{
-    const auto display = CurrentHdrDisplayInfo();
-    HdrCalibration result;
-    result.open = open;
-    result.automatic = config.hdrPeakAutomatic;
-    result.manualNits = config.hdrPeakNits;
-    result.paperWhiteNits = config.hdrPaperWhiteNits;
-    result.detectedValid = display.peakNits > 0;
-    result.detectedNits = display.peakNits;
-    result.relative = display.relative;
-    result.hdrActive = display.active;
-    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
-    result.scenePreview = calibrationScenePreview.load(std::memory_order_relaxed);
-    result.effectiveNits = std::clamp(result.automatic && result.detectedValid
-        ? result.detectedNits : result.automatic ? 1000u : result.manualNits,
-        result.paperWhiteNits, 10000u);
-    result.numericEditing = open && calibrationNumberEditing;
-    if (open) result.focus = calibrationFocus;
-    if (result.numericEditing) result.numericText = calibrationNumber;
-    return result;
-}
-BrightnessCalibration MakeBrightnessCalibration(const Config &config, bool open)
-{
-    BrightnessCalibration result;
-    result.open = open;
-    result.brightness = config.displayBrightness;
-    result.gamma = config.displayGamma;
-    result.expandRgbRange = config.expandRgbRange;
-    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
-    result.scenePreview = calibrationScenePreview.load(std::memory_order_relaxed);
-    if (open) result.focus = brightnessFocus;
-    return result;
-}
-float BrightnessSliderFraction(float x)
-{
-    return std::clamp((x - kBrightnessSliderX) / float(kBrightnessSliderWidth), 0.0f, 1.0f);
-}
-std::wstring BrightnessValue(int brightness)
-{
-    return brightness > 0 ? L"+" + std::to_wstring(brightness) : std::to_wstring(brightness);
-}
-std::wstring GammaValue(uint32_t gamma)
-{
-    const std::wstring hundredths = std::to_wstring(gamma % 100);
-    return std::to_wstring(gamma / 100) + L"." + (hundredths.size() < 2 ? L"0" : L"") + hundredths;
-}
-uint32_t CalibrationSliderValue(float x, uint32_t paperWhiteNits)
-{
-    const float fraction = std::clamp((x - 260.0f) / 760.0f, 0.0f, 1.0f);
-    const float minimum = float(std::clamp(paperWhiteNits, 80u, 400u));
-    // Logarithmic travel leaves useful precision around common HDR peaks while
-    // still permitting manual values up to 10,000 nits.
-    return uint32_t(std::clamp(int(std::lround(minimum * std::exp(std::log(10000.0f / minimum) * fraction))),
-        int(paperWhiteNits), 10000));
-}
 constexpr uint32_t resolutions16_9[][2] = {
     {1280, 720}, {1600, 900}, {1920, 1080}, {2560, 1440}, {3840, 2160}};
 constexpr uint32_t resolutions21_9[][2] = {
@@ -194,108 +96,6 @@ inline uint32_t FindNearestResolutionIndex(const uint32_t list[][2], size_t coun
 const wchar_t *Tr(const wchar_t *en, const wchar_t *zh)
 {
     return Translate(edit.uiLanguage, en, zh);
-}
-// Adapter and display names arrive as UTF-8.
-std::wstring Widen(std::string_view text)
-{
-    std::wstring result;
-    for (size_t i = 0; i < text.size();)
-    {
-        const auto lead = uint8_t(text[i]);
-        const size_t length = lead < 0x80 ? 1 : (lead >> 5) == 6 ? 2 : (lead >> 4) == 14 ? 3 : (lead >> 3) == 30 ? 4 : 0;
-        if (!length || i + length > text.size())
-        {
-            result.push_back(L'?');
-            ++i;
-            continue;
-        }
-        uint32_t code = length == 1 ? lead : lead & (0x7f >> length);
-        for (size_t k = 1; k < length; ++k)
-            code = (code << 6) | (uint8_t(text[i + k]) & 0x3f);
-        i += length;
-        if (sizeof(wchar_t) == 2 && code >= 0x10000)
-        {
-            code -= 0x10000;
-            result.push_back(wchar_t(0xd800 + (code >> 10)));
-            result.push_back(wchar_t(0xdc00 + (code & 0x3ff)));
-        }
-        else
-            result.push_back(wchar_t(code));
-    }
-    return result;
-}
-// Menu choice 0 is Automatic; choice i names[i - 1]. A saved name that is not
-// listed stays as the last choice, so the row shows the saved value.
-struct NameChoices
-{
-    std::vector<std::string> names;
-    uint32_t selected = 0;
-};
-NameChoices GpuChoices()
-{
-    NameChoices result{gpu::video::GpuDeviceNames()};
-    if (!edit.gpuDevice.empty())
-    {
-        auto found = std::find(result.names.begin(), result.names.end(), edit.gpuDevice);
-        if (found == result.names.end()) found = result.names.insert(result.names.end(), edit.gpuDevice);
-        result.selected = uint32_t(found - result.names.begin()) + 1;
-    }
-    return result;
-}
-// Choice 0 is Automatic, choice i the connected display i - 1. Monitors of one
-// model share a name, so each label also carries its number, size and position.
-// A saved display that is not connected stays as the last choice.
-struct DisplayChoiceList
-{
-    std::vector<gpu::display_choice::Display> displays;
-    std::vector<std::wstring> labels;
-    uint32_t selected = 0;
-};
-DisplayChoiceList DisplayChoices()
-{
-    DisplayChoiceList result{gpu::video::Displays()};
-    result.labels.push_back(Tr(L"Automatic", L"自動"));
-    for (size_t i = 0; i < result.displays.size(); ++i)
-    {
-        const auto &display = result.displays[i];
-        std::wstring label = std::to_wstring(i + 1) + L": " + Widen(display.name);
-        if (display.width > 0 && display.height > 0)
-            label += L" · " + std::to_wstring(display.width) + L"×" + std::to_wstring(display.height) +
-                     L" (" + std::to_wstring(display.x) + L", " + std::to_wstring(display.y) + L")";
-        result.labels.push_back(std::move(label));
-    }
-    if (!edit.displayName.empty())
-    {
-        const int found = gpu::display_choice::Resolve(result.displays, edit.displayName, edit.displayIndex);
-        if (found < 0) result.labels.push_back(Widen(edit.displayName));
-        result.selected = found < 0 ? uint32_t(result.labels.size() - 1) : uint32_t(found) + 1;
-    }
-    return result;
-}
-void KeepDisplayChoice()
-{
-    displayConfirm = false;
-    displayConfirmOpen = false;
-    status = Tr(L"Display kept.", L"已保留這台顯示器。");
-    LOG_INFO("settings: display choice kept: \"{}\"#{}", edit.displayName, edit.displayIndex);
-}
-// Restores the previous display choice in settings.ini and moves the window
-// back to where it was, in the current mode.
-void RevertDisplayChoice(const char *reason)
-{
-    displayConfirm = false;
-    displayConfirmOpen = false;
-    Config reverted = GetConfig();
-    reverted.displayName = previousDisplay.displayName;
-    reverted.displayIndex = previousDisplay.displayIndex;
-    rollbackSaveFailed = !SaveConfig(reverted);
-    if (rollbackSaveFailed) PreviewConfig(reverted);
-    edit.displayName = reverted.displayName;
-    edit.displayIndex = reverted.displayIndex;
-    displayReverting = true;
-    displayTicket = gpu::video::BeginDisplayRevert(reverted);
-    status = Tr(L"Returning to the previous display…", L"正在回到之前的顯示器……");
-    LOG_INFO("settings: display choice reverted ({}): back to \"{}\"#{}", reason, reverted.displayName, reverted.displayIndex);
 }
 uint32_t ConfigAddress(uint8_t *base)
 {
@@ -430,14 +230,6 @@ const wchar_t *BackendPendingSentence(gpu::backend::Backend backend)
     return Tr(L"Graphics backend change is not applied. DLSS is checked after restart.",
               L"圖形後端變更尚未套用。DLSS 會在重新啟動後再確認。");
 }
-// XeSS shares the FSR status sentences and their translations; only the
-// provider name differs.
-std::wstring WithProvider(std::wstring text, std::wstring_view name)
-{
-    for (size_t at = text.find(L"FSR"); at != std::wstring::npos; at = text.find(L"FSR", at + name.size()))
-        text.replace(at, 3, name);
-    return text;
-}
 const wchar_t* FsrFallbackSentence(gpu::frame_plan::DlssEffectReason reason)
 {
     using gpu::frame_plan::DlssEffectReason;
@@ -500,14 +292,12 @@ std::wstring DlssNotice()
             text += Tr(L" The selected upscaler is not applied yet.", L" 選取的縮放技術尚未套用。");
         return text;
     }
-    for (const auto provider : {gpu::upscaling::Upscaler::Fsr, gpu::upscaling::Upscaler::Xess}) {
-        if (GetConfig().upscaler != provider && !(execution && execution->actualProvider == provider)) continue;
-        const bool xess = provider == gpu::upscaling::Upscaler::Xess;
-        const std::wstring_view name = xess ? L"XeSS" : L"FSR";
+    if (GetConfig().upscaler == gpu::upscaling::Upscaler::Fsr ||
+        (execution && execution->actualProvider == gpu::upscaling::Upscaler::Fsr)) {
         std::wstring fsrText;
-        const bool matchingRequest = running.hasPlan && running.plannedRequest == provider;
+        const bool matchingRequest = running.hasPlan && running.plannedRequest == gpu::upscaling::Upscaler::Fsr;
         const bool matchingExecution = matchingRequest && execution &&
-            execution->actualProvider == provider &&
+            execution->actualProvider == gpu::upscaling::Upscaler::Fsr &&
             execution->plan.deviceEpoch == running.device.deviceEpoch &&
             execution->plan.requestSignature == running.requestSignature &&
             execution->plan.geometryEpoch == running.geometryEpoch;
@@ -515,19 +305,17 @@ std::wstring DlssNotice()
             fsrText = FsrFallbackSentence(gpu::frame_plan::DlssEffectReason::GpuWorkStopped);
         else if (!running.device.deviceReady)
             fsrText = Tr(L"FSR: graphics device is not ready.", L"FSR：圖形裝置尚未就緒。");
-        else if (xess && !running.device.xessAvailable)
-            fsrText = Tr(L"XeSS needs Direct3D 12 and an XeSS-enabled build.", L"XeSS 需要 Direct3D 12 與包含 XeSS 的版本。");
-        else if (!xess && !running.device.fsrAvailable)
+        else if (!running.device.fsrAvailable)
             fsrText = Tr(L"FSR is unavailable on this device or build.", L"目前的裝置或版本無法使用 FSR。");
         else if (matchingRequest && running.failure)
             fsrText = FsrFallbackSentence(gpu::frame_plan::DlssEffectReason::RequestFailure);
         else if (matchingExecution && execution->submissionSerial &&
-            execution->plan.consumer == gpu::upscaling::FsrQualityConsumer(provider) &&
+            execution->plan.consumer == gpu::upscaling::TemporalConsumer::FsrSr &&
             execution->outcome == gpu::frame_plan::DlssExecutionOutcome::Submitted) {
             const wchar_t* modes[] = {Tr(L"Quality", L"品質"), Tr(L"Balanced", L"平衡"), Tr(L"Performance", L"效能"), L"Native AA"};
             fsrText = std::wstring(L"FSR ") + modes[uint32_t(gpu::upscaling::NormalizeFsrQuality(execution->plan.fsrQuality))] +
                 Tr(L" output submitted.", L" 輸出已提交。") + ExecutionSizeSuffix(execution->plan);
-            if (edit.upscaler == provider && edit.fsrQuality != execution->plan.fsrQuality)
+            if (edit.upscaler == gpu::upscaling::Upscaler::Fsr && edit.fsrQuality != execution->plan.fsrQuality)
                 fsrText += Tr(L" The selected FSR quality is not applied yet.", L" 選取的 FSR 品質尚未套用。");
         } else {
             fsrText = FsrFallbackSentence(matchingExecution ? execution->reason :
@@ -535,9 +323,9 @@ std::wstring DlssNotice()
         }
         if (edit.graphicsBackend != running.device.backend)
             fsrText += Tr(L" The selected graphics backend applies after restart.", L" 選取的圖形後端會在重新啟動後套用。");
-        if (edit.upscaler != provider)
+        if (edit.upscaler != gpu::upscaling::Upscaler::Fsr)
             fsrText += Tr(L" The selected upscaler is not applied yet.", L" 選取的縮放技術尚未套用。");
-        return xess ? WithProvider(std::move(fsrText), name) : fsrText;
+        return fsrText;
     }
     std::wstring text;
     if (running.phase == gpu::frame_plan::DlssEffectPhase::Active && running.execution)
@@ -559,9 +347,7 @@ std::wstring DlssNotice()
     else if (runningDlss)
         appliedQuality = gpu::upscaling::NormalizeDlssQuality(running.plannedQuality);
     if (runningDlss && edit.upscaler != gpu::upscaling::Upscaler::Dlss)
-        text += std::wstring(L" ") + (edit.upscaler == gpu::upscaling::Upscaler::Fsr ? Tr(L"The FSR choice is not applied yet.", L"FSR 選項尚未套用。") :
-            edit.upscaler == gpu::upscaling::Upscaler::Xess ? WithProvider(Tr(L"The FSR choice is not applied yet.", L"FSR 選項尚未套用。"), L"XeSS") :
-            Tr(L"The Off choice is not applied yet.", L"關閉選項尚未套用。"));
+        text += std::wstring(L" ") + (edit.upscaler == gpu::upscaling::Upscaler::Fsr ? Tr(L"The FSR choice is not applied yet.", L"FSR 選項尚未套用。") : Tr(L"The Off choice is not applied yet.", L"關閉選項尚未套用。"));
     else if (!runningDlss && edit.upscaler == gpu::upscaling::Upscaler::Dlss && !backendPending)
         text += std::wstring(L" ") + Tr(L"The DLSS choice is not applied yet.", L"DLSS 選項尚未套用。");
     else if (runningDlss && edit.upscaler == gpu::upscaling::Upscaler::Dlss && appliedQuality &&
@@ -573,22 +359,6 @@ std::wstring DlssNotice()
 }
 bool GraphicsRowHidden(int r)
 {
-#if LO_PLATFORM_ANDROID
-    // Android owns the native surface; the renderer derives aspect from its drawable.
-    // NGX and frame generation have no Android providers in this build.
-    if (r == int(GraphicsRow::Backend) || r == int(GraphicsRow::Gpu) || r == int(GraphicsRow::DisplayMode) ||
-        r == int(GraphicsRow::Display) || r == int(GraphicsRow::Widescreen) || r == int(GraphicsRow::OutputResolution) ||
-        r == int(GraphicsRow::VariableRefreshRate) || r == int(GraphicsRow::FrameGeneration) ||
-        r == int(GraphicsRow::FrameGenerationMultiplier))
-        return true;
-    if (r == int(GraphicsRow::DlssQuality) || r == int(GraphicsRow::FsrSharpness))
-        return !graphics_menu::AndroidFsrAvailable || edit.upscaler != gpu::upscaling::Upscaler::Fsr;
-#endif
-    // A single adapter or display leaves nothing to choose.
-    if (r == int(GraphicsRow::Gpu))
-        return gpu::video::GpuDeviceNames().size() <= 1;
-    if (r == int(GraphicsRow::Display))
-        return gpu::video::Displays().size() <= 1;
     return (r == int(GraphicsRow::DlssQuality) && edit.upscaler == gpu::upscaling::Upscaler::Off) ||
            (r == int(GraphicsRow::FsrSharpness) && edit.upscaler != gpu::upscaling::Upscaler::Fsr) ||
            (r == int(GraphicsRow::FrameGenerationMultiplier) && edit.frameGenerationProvider != framegen::Provider::Dlss);
@@ -596,7 +366,7 @@ bool GraphicsRowHidden(int r)
 std::vector<framegen::Provider> FgProviders()
 {
     std::vector<framegen::Provider> providers{framegen::Provider::Off};
-    for (auto provider : {framegen::Provider::Dlss, framegen::Provider::Fsr, framegen::Provider::MetalFx, framegen::Provider::Xess})
+    for (auto provider : {framegen::Provider::Dlss, framegen::Provider::Fsr, framegen::Provider::MetalFx})
         if (gpu::frame_generation::CompiledProvider(edit.graphicsBackend, provider) || edit.frameGenerationProvider == provider)
             providers.push_back(provider);
     return providers;
@@ -606,10 +376,9 @@ std::wstring FgNotice()
     const auto running = gpu::video::GetFrameGenerationStatus();
     if (gpu::video::SelectedBackend() == GraphicsBackend::D3D12 &&
         running.sessionProvider == framegen::Provider::Dlss &&
-        (running.requested == framegen::Provider::Fsr || running.requested == framegen::Provider::Xess))
-        return WithProvider(Tr(L"FSR FG requires a restart after DLSS FG. Frame generation is off until then.",
-                  L"從 DLSS 影格生成切換到 FSR 影格生成需要重新啟動；在此之前影格生成會關閉。"),
-            running.requested == framegen::Provider::Xess ? L"XeSS" : L"FSR");
+        running.requested == framegen::Provider::Fsr)
+        return Tr(L"FSR FG requires a restart after DLSS FG. Frame generation is off until then.",
+                  L"從 DLSS 影格生成切換到 FSR 影格生成需要重新啟動；在此之前影格生成會關閉。");
     std::wstring text;
     using gpu::video::FrameGenerationPhase;
     switch (running.phase) {
@@ -619,8 +388,7 @@ std::wstring FgNotice()
         text = Tr(L"Applying FG settings…", L"正在套用影格生成設定……"); break;
     case FrameGenerationPhase::Ready:
         text = running.applied == framegen::Provider::Dlss ? L"DLSS" :
-            running.applied == framegen::Provider::MetalFx ? L"MetalFX" :
-            running.applied == framegen::Provider::Xess ? L"XeSS" : L"FSR";
+            running.applied == framegen::Provider::MetalFx ? L"MetalFX" : L"FSR";
         text += Tr(L" FG ready. Generation depends on the current scene.", L" 影格生成已就緒，是否補幀取決於目前場景。"); break;
     case FrameGenerationPhase::Unavailable:
         text = Tr(L"FG is unavailable for this request. Normal rendering is in use.",
@@ -635,18 +403,10 @@ std::wstring FgNotice()
 static_assert(int(GraphicsRow::Save) + 1 == int(GraphicsRow::Count));
 void Publish(uint8_t *base, uint32_t config)
 {
-#if LO_PLATFORM_ANDROID
-    // The first graphics ids are hidden; enter the tab on a visible row.
-    if (tab == 2)
-        for (int i = 0; i < int(GraphicsRow::Count) && GraphicsRowHidden(row); ++i)
-            row = (row + 1) % int(GraphicsRow::Count);
-#endif
     Snapshot next;
     next.tab = tab;
     next.row = row;
     next.language = edit.uiLanguage;
-    next.calibration = MakeHdrCalibration(edit, calibrationOpen.load());
-    next.brightness = MakeBrightnessCalibration(edit, brightnessOpen.load());
     const uint32_t flags = PPC_LOAD_U32(config + 4);
     auto makeChoices = [&](const wchar_t *en, const wchar_t *zh, std::vector<std::wstring> choices,
                            uint32_t selected, bool enabled = true) {
@@ -705,15 +465,11 @@ void Publish(uint8_t *base, uint32_t config)
         }
         addSlider(L"Music", L"音樂音量", PPC_LOAD_U32(config + 8));
         addSlider(L"Sound effects", L"音效音量", PPC_LOAD_U32(config + 12));
-        addSlider(L"Vibration", L"震動", edit.vibrationPercent);
-        addChoices(L"Audio output", L"音訊輸出", {Tr(L"Stereo", L"立體聲"), Tr(L"5.1 surround", L"5.1 環繞聲")},
-                   edit.audioOutput);
     }
     else if (tab == 2)
     {
         next.rows.resize(int(GraphicsRow::Count));
         auto placeGraphics = [&](GraphicsRow id, Row value) {
-            value.hidden = GraphicsRowHidden(int(id));
             next.rows[int(id)] = std::move(value);
         };
 #ifdef _WIN32
@@ -724,23 +480,10 @@ void Publish(uint8_t *base, uint32_t config)
 #else
         placeGraphics(GraphicsRow::Backend, makeChoices(L"Graphics backend", L"圖形後端", {L"Vulkan"}, 0));
 #endif
-        {
-            const auto gpus = GpuChoices();
-            std::vector<std::wstring> labels{Tr(L"Automatic", L"自動")};
-            for (const auto& name : gpus.names) labels.push_back(Widen(name));
-            auto gpuRow = makeChoices(L"GPU", L"GPU", std::move(labels), gpus.selected);
-            gpuRow.singleValue = true;
-            placeGraphics(GraphicsRow::Gpu, std::move(gpuRow));
-        }
         placeGraphics(GraphicsRow::DisplayMode, makeChoices(L"Display mode", L"顯示模式",
-                   {Tr(L"Windowed", L"視窗"), Tr(L"Fullscreen", L"全螢幕")},
+                   {Tr(L"Windowed", L"視窗"), Tr(L"Borderless fullscreen", L"無邊框全螢幕"),
+                    Tr(L"Exclusive fullscreen", L"獨占全螢幕")},
                    uint32_t(edit.windowMode)));
-        {
-            auto displays = DisplayChoices();
-            auto displayRow = makeChoices(L"Display", L"顯示器", std::move(displays.labels), displays.selected);
-            displayRow.singleValue = true;
-            placeGraphics(GraphicsRow::Display, std::move(displayRow));
-        }
         const bool ultrawide = IsUltrawideAspect(edit.width, edit.height);
         placeGraphics(GraphicsRow::Widescreen, makeChoices(L"Widescreen", L"寬螢幕", onOff(), ultrawide ? 0 : 1));
         std::vector<std::wstring> outputChoices;
@@ -771,27 +514,19 @@ void Publish(uint8_t *base, uint32_t config)
                 std::to_wstring(height) + L"p");
         placeGraphics(GraphicsRow::RenderResolution, makeChoices(L"Render resolution", L"渲染解析度",
                    std::move(renderChoices), graphics_menu::RenderResolutionChoice(edit)));
-        placeGraphics(GraphicsRow::ShadowResolution, makeChoices(L"Shadow resolution", L"陰影解析度",
-                   {L"1×", L"2×", L"4×"}, graphics_menu::ShadowResolutionChoice(edit)));
 #if LO_PLATFORM_MACOS
         std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"MetalFX Temporal"};
-#elif LO_PLATFORM_ANDROID
-        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）")};
-        if (graphics_menu::AndroidFsrAvailable) aaChoices.emplace_back(L"FSR 3.1");
 #else
-        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1", L"XeSS"};
+        std::vector<std::wstring> aaChoices{Tr(L"Off", L"關"), L"FXAA", L"SMAA", Tr(L"TAA (Experimental)", L"TAA（實驗性）"), L"DLSS", L"FSR 3.1"};
 #endif
         aaChoices.resize(graphics_menu::AaChoiceCount);
         placeGraphics(GraphicsRow::AntiAliasing, makeChoices(L"Anti-aliasing / Upscaling", L"抗鋸齒 / 超解析度",
                    std::move(aaChoices), std::min(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount - 1)));
-        placeGraphics(GraphicsRow::AmbientOcclusion, makeChoices(L"Ambient occlusion", L"環境光遮蔽",
-                   {Tr(L"Off", L"關"), L"SSAO", L"GTAO"}, std::min(edit.ambientOcclusion, 2u)));
         // FSR and MetalFX share the FSR quality ratios and IDs.
         const bool savedFsr = gpu::upscaling::UsesFsrQuality(edit.upscaler);
         const bool savedMetalFx = edit.upscaler == gpu::upscaling::Upscaler::MetalFx;
-        const bool savedXess = edit.upscaler == gpu::upscaling::Upscaler::Xess;
-        auto dlssQuality = makeChoices(savedMetalFx ? L"MetalFX quality" : savedXess ? L"XeSS quality" : savedFsr ? L"FSR quality" : L"DLSS quality",
-                   savedMetalFx ? L"MetalFX 品質" : savedXess ? L"XeSS 品質" : savedFsr ? L"FSR 品質" : L"DLSS 品質",
+        auto dlssQuality = makeChoices(savedMetalFx ? L"MetalFX quality" : savedFsr ? L"FSR quality" : L"DLSS quality",
+                   savedMetalFx ? L"MetalFX 品質" : savedFsr ? L"FSR 品質" : L"DLSS 品質",
                    {Tr(L"Performance", L"效能"), Tr(L"Balanced", L"平衡"), Tr(L"Quality", L"品質"), savedFsr ? L"Native AA" : L"DLAA"},
                    QualityMenuIndex(savedFsr ? uint32_t(edit.fsrQuality) : uint32_t(edit.dlssQuality)));
         // Hidden instead of removed so this logical id stays stable for input, drawing and hit-testing.
@@ -812,12 +547,6 @@ void Publish(uint8_t *base, uint32_t config)
                                   edit.anisotropicFiltering == 4 ? 2 : edit.anisotropicFiltering == 2 ? 1 : 0;
         placeGraphics(GraphicsRow::AnisotropicFiltering, makeChoices(L"Anisotropic filtering", L"各向異性過濾",
                    {Tr(L"Off", L"關"), L"2×", L"4×", L"8×", L"16×"}, afChoice));
-        std::vector<std::wstring> dofChoices{Tr(L"Off", L"關")};
-        for (uint32_t percent = 10; percent <= 100; percent += 10)
-            dofChoices.push_back(std::to_wstring(percent) + L"%");
-        placeGraphics(GraphicsRow::DepthOfField, makeChoices(L"Depth of field", L"景深", std::move(dofChoices),
-                   (std::min(edit.depthOfFieldPercent, 100u) + 5) / 10));
-        placeGraphics(GraphicsRow::Bloom, makeChoices(L"Bloom", L"光暈", onOff(), edit.bloom ? 0 : 1));
 #if LO_PLATFORM_MACOS
         placeGraphics(GraphicsRow::ScalingQuality, makeChoices(L"Scaling filter", L"縮放濾鏡",
                    {Tr(L"Standard", L"標準"), Tr(L"High", L"高"), L"MetalFX"},
@@ -849,8 +578,7 @@ void Publish(uint8_t *base, uint32_t config)
         for (auto provider : FgProviders()) {
             if (provider == edit.frameGenerationProvider) selected = uint32_t(providers.size());
             providers.emplace_back(provider == framegen::Provider::Off ? Tr(L"Off", L"關") :
-                provider == framegen::Provider::Dlss ? L"DLSS" : provider == framegen::Provider::MetalFx ? L"MetalFX" :
-                provider == framegen::Provider::Xess ? L"XeSS" : L"FSR");
+                provider == framegen::Provider::Dlss ? L"DLSS" : provider == framegen::Provider::MetalFx ? L"MetalFX" : L"FSR");
         }
         auto frameGeneration = makeChoices(L"Frame generation", L"影格生成", std::move(providers), selected);
         frameGeneration.hidden = GraphicsRowHidden(int(GraphicsRow::FrameGeneration));
@@ -862,22 +590,7 @@ void Publish(uint8_t *base, uint32_t config)
             std::clamp(edit.frameGenerationMultiplier, 2u, framegen::kMaxMultiplier) - 2);
         fgMultiplier.hidden = GraphicsRowHidden(int(GraphicsRow::FrameGenerationMultiplier));
         placeGraphics(GraphicsRow::FrameGenerationMultiplier, std::move(fgMultiplier));
-        const bool hdrAvailable = graphics_menu::HdrAvailable(edit.graphicsBackend);
-        placeGraphics(GraphicsRow::Hdr, makeChoices(L"HDR output", L"HDR 輸出", onOff(), edit.hdr ? 0 : 1, hdrAvailable));
-        auto hdrLevel = [&](const wchar_t *en, const wchar_t *zh, uint32_t nits) {
-            const auto value = std::to_wstring(nits) + L" nits";
-            return Row{Tr(en, zh), value, hdrAvailable, {L"◀", value, L"▶"}, 1};
-        };
-        placeGraphics(GraphicsRow::HdrPaperWhite, hdrLevel(L"HDR paper white", L"HDR 參考白位", edit.hdrPaperWhiteNits));
-        const auto peak = next.calibration;
-        const std::wstring peakValue = peak.automatic
-            ? Tr(L"Auto", L"自動") + std::wstring(L" (") + std::to_wstring(peak.effectiveNits) + L" nits)"
-            : std::to_wstring(peak.manualNits) + L" nits";
-        placeGraphics(GraphicsRow::HdrPeak,
-            Row{Tr(L"HDR peak brightness", L"HDR 最高亮度"), peakValue, hdrAvailable,
-                {L"◀", peakValue, L"▶"}, 1});
-        placeGraphics(GraphicsRow::Brightness, makeChoices(L"Brightness / Gamma", L"亮度 / Gamma",
-                   {BrightnessValue(edit.displayBrightness) + L" · " + GammaValue(edit.displayGamma)}, 0));
+        placeGraphics(GraphicsRow::Brightness, makeChoices(L"Brightness calibration", L"亮度校準", {Tr(L"Open", L"開啟")}, 0));
         placeGraphics(GraphicsRow::Save, makeChoices(L"Save graphics settings", L"儲存圖形設定", {Tr(L"Save", L"儲存")}, 0));
     }
     else
@@ -889,7 +602,11 @@ void Publish(uint8_t *base, uint32_t config)
         addChoices(L"Game language", L"遊戲語言", std::move(gameLanguages), GameLanguageIndex(edit.gameLanguage));
         addChoices(L"Automatic updates", L"自動更新", onOff(), edit.automaticUpdates ? 0 : 1);
         addAction(L"Save settings", L"儲存設定", Tr(L"Save", L"儲存"));
+        #ifndef __ANDROID__
         next.rows.push_back({gpu::taa_collection::Label(edit.uiLanguage), gpu::taa_collection::Enabled() ? Tr(L"On", L"開") : Tr(L"Off", L"關"), true, {}, 0});
+#else
+        next.rows[2].hidden = true; // Desktop updater is not available on Android.
+#endif
     }
     // Keep the focused row inside the visible window. Scroll persists per tab
     // so returning to a long list restores its position.
@@ -915,27 +632,12 @@ void Publish(uint8_t *base, uint32_t config)
     if (status.empty() && (flags & 0x02000000))
         next.help = Tr(L"LB / RB: category     D-pad: select / change     B: confirm     A: back",
                        L"LB / RB：分類     方向鍵：選擇 / 調整     B：確認     A：返回");
-    if (tab == 1 && row == 3)
-        next.help = Tr(L"Controller vibration strength. Min turns it off. Applies immediately.",
-                       L"控制器震動強度。調到最小即關閉。立即套用。");
     if (tab == 3 && row == 1)
         next.help = Tr(L"Game language takes effect after restarting. Requires matching language assets.",
                        L"遊戲語言重新啟動後生效，需要對應語言資源。中文遊戲文本需要亞洲版資源。");
     if (tab == 0 && row == GameImportRow)
         next.help = Tr(L"Close the game to import selected discs or DLC again. Other content and saves stay intact.",
                        L"關閉遊戲並重新匯入所選光碟或 DLC；其他內容與存檔保留。");
-    if (tab == 1 && row == 4 && status.empty())
-        next.help = edit.audioOutput == AudioOutputSurround && apu::OutputChannels() == 2
-#ifdef _WIN32
-            // The speaker layout is only in the classic Sound control panel.
-            ? Tr(L"Windows reports a stereo device. Open Control Panel → Sound → Playback, select the device, click Configure and choose 5.1 or 7.1 Surround, then select 5.1 again.",
-                 L"Windows 將此裝置視為立體聲。開啟 控制台 → 音效 → 播放，選取裝置，按「設定」並選擇 5.1 或 7.1 環繞，再重新選擇 5.1。")
-#else
-            ? Tr(L"The output device is not set to 5.1, so the stereo mix is in use. Set the system speakers to 5.1 or 7.1 and select 5.1 again.",
-                 L"輸出裝置未設定為 5.1，正在使用立體聲混音。請將系統喇叭設定為 5.1 或 7.1 後重新選擇 5.1。")
-#endif
-            : Tr(L"5.1 sends the game's surround mix to a 5.1 or 7.1 speaker setup. Applies immediately.",
-                 L"5.1 會將遊戲的環繞聲混音輸出到 5.1 或 7.1 喇叭，立即套用。");
     if (tab == 2)
     {
         switch (GraphicsRow(row))
@@ -950,25 +652,13 @@ void Publish(uint8_t *base, uint32_t config)
                 selected == gpu::backend::Backend::Metal ? L"Metal" : L"-";
             break;
         }
-        case GraphicsRow::Gpu: {
-            next.help = Tr(L"Applies after restarting. Lists the GPUs of the running graphics backend.",
-                           L"重新啟動後套用。列出目前圖形後端的 GPU。");
-            next.help += Tr(L" Running: ", L" 目前使用：");
-            const auto active = gpu::video::ActiveGpuDeviceName();
-            next.help += active.empty() ? std::wstring(L"-") : Widen(active);
-            break;
-        }
-        case GraphicsRow::Display:
-            next.help = Tr(L"Moves the game window to this display when saved; fullscreen uses it too. Automatic leaves the window where it is.",
-                           L"儲存後將遊戲視窗移到這台顯示器，全螢幕也會使用它。自動則讓視窗留在原處。");
-            break;
         case GraphicsRow::Widescreen:
             next.help = Tr(L"Switches resolution choices between 16:9 and 21:9 ultrawide.",
                            L"在 16:9 與 21:9 寬螢幕規格之間切換解析度選項。");
             break;
         case GraphicsRow::OutputResolution:
-            next.help = Tr(L"Sets the output size. Fullscreen uses the desktop size.",
-                           L"設定輸出尺寸；全螢幕使用桌面尺寸。");
+            next.help = Tr(L"Sets the output size. Borderless fullscreen uses the desktop size.",
+                           L"設定輸出尺寸；無邊框全螢幕使用桌面尺寸。");
             break;
         case GraphicsRow::RenderResolution:
 #if LO_PLATFORM_MACOS
@@ -979,39 +669,19 @@ void Publish(uint8_t *base, uint32_t config)
                            L"縮放至輸出前的場景解析度。跟隨輸出與輸出尺寸相同。");
 #endif
             break;
-        case GraphicsRow::ShadowResolution:
-            next.help = Tr(L"Shadow-map resolution multiplier. Higher values need more GPU memory and rendering time. Applies after saving.",
-                           L"陰影貼圖解析度倍數。較高倍數需要更多 GPU 記憶體與渲染時間。儲存後套用。");
-            break;
         case GraphicsRow::AntiAliasing:
-#if LO_PLATFORM_ANDROID
-            if (graphics_menu::AndroidFsrAvailable && edit.upscaler == gpu::upscaling::Upscaler::Fsr)
-                next.help = Tr(L"FSR 3.1 needs D3D12 or Vulkan and an FSR-enabled build. Unsupported scenes use normal rendering.",
-                              L"FSR 3.1 需要 D3D12 或 Vulkan 與包含 FSR 的版本。不支援的場景使用常規渲染。");
-            else if (graphics_menu::AaChoice(edit) == 3)
-                next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
-                              L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
-#else
             if (edit.upscaler == gpu::upscaling::Upscaler::MetalFx)
                 next.help = Tr(L"Apple's temporal upscaler: renders the scene below the output size and reconstructs detail. Menus and transitions use normal rendering.",
                               L"Apple 的時間性縮放：以低於輸出的解析度渲染場景並重建細節。選單和過場使用常規渲染。");
             else if (edit.upscaler == gpu::upscaling::Upscaler::Fsr)
                 next.help = Tr(L"FSR 3.1 needs D3D12 or Vulkan and an FSR-enabled build. Unsupported scenes use normal rendering.",
                               L"FSR 3.1 需要 D3D12 或 Vulkan 與包含 FSR 的版本。不支援的場景使用常規渲染。");
-            else if (edit.upscaler == gpu::upscaling::Upscaler::Xess)
-                next.help = Tr(L"Intel XeSS needs Direct3D 12 and an XeSS-enabled build. Unsupported scenes use normal rendering.",
-                              L"Intel XeSS 需要 Direct3D 12 與包含 XeSS 的版本。不支援的場景使用常規渲染。");
             else if (edit.upscaler == gpu::upscaling::Upscaler::Dlss)
                 next.help = Tr(L"Saves the DLSS preference. The status line shows the latest DLSS result.",
                               L"儲存 DLSS 偏好。狀態列顯示最新的 DLSS 結果。");
             else if (edit.antialiasing == 3)
                 next.help = Tr(L"Camera-based TAA; moving effects may trail. Unsupported scenes use SMAA.",
                               L"以相機重投影的 TAA；動態特效可能拖影。不支援的場景使用 SMAA。");
-#endif
-            break;
-        case GraphicsRow::AmbientOcclusion:
-            next.help = Tr(L"Screen-space ambient occlusion adds contact shading. Applies after saving.",
-                           L"螢幕空間環境光遮蔽可加強接觸處的陰影。儲存後套用。");
             break;
         case GraphicsRow::DlssQuality:
             next.help = gpu::upscaling::UsesFsrQuality(edit.upscaler) ?
@@ -1025,14 +695,6 @@ void Publish(uint8_t *base, uint32_t config)
         case GraphicsRow::AnisotropicFiltering:
             next.help = Tr(L"Improves texture clarity at oblique viewing angles. Changes apply immediately after saving.",
                            L"提升斜角觀看時的紋理清晰度。儲存後立即套用。");
-            break;
-        case GraphicsRow::DepthOfField:
-            next.help = Tr(L"Strength of the game's depth-of-field blur. 100% is the original look; Off keeps distant scenery sharp. Applies immediately after saving.",
-                           L"遊戲景深模糊的強度。100% 為原版效果；關閉後遠景保持清晰。儲存後立即套用。");
-            break;
-        case GraphicsRow::Bloom:
-            next.help = Tr(L"The game's glow around bright areas. Off removes it and the image gets slightly darker. Applies immediately after saving.",
-                           L"遊戲中亮部周圍的光暈。關閉後光暈消失，畫面會稍暗。儲存後立即套用。");
             break;
         case GraphicsRow::ScalingQuality:
 #if LO_PLATFORM_MACOS
@@ -1048,11 +710,16 @@ void Publish(uint8_t *base, uint32_t config)
                            L"僅將遊戲畫面從 RGB 16–235 擴展到 0–255。儲存後立即套用。");
             break;
         case GraphicsRow::FrameRate:
+#if defined(__ANDROID__)
+            next.help = Tr(L"Applies immediately. Higher rates are experimental targets, not guaranteed performance. Each test launch starts at 30 FPS.",
+                           L"立即套用。較高影格率為實驗性目標，並非效能保證。每次測試啟動以 30 FPS 開始。");
+#else
             next.help = edit.frameRate > 60
                 ? Tr(L"90/120 FPS render real game frames. No extra flag is needed. Verify speed, audio and battle timing.",
                      L"90/120 FPS 渲染真實遊戲影格，無需額外開關。請確認遊戲速度、音訊與戰鬥時序。")
                 : Tr(L"Native game-frame target, independent of frame generation. Applies after saving.",
                      L"原生遊戲影格率，獨立於影格生成。儲存後套用。");
+#endif
             break;
         case GraphicsRow::VariableRefreshRate:
 #if LO_PLATFORM_MACOS
@@ -1071,11 +738,9 @@ void Publish(uint8_t *base, uint32_t config)
             };
             const bool dlss = compiled(edit.graphicsBackend, framegen::Provider::Dlss);
             const bool fsr = compiled(edit.graphicsBackend, framegen::Provider::Fsr);
-            const bool xess = compiled(edit.graphicsBackend, framegen::Provider::Xess);
             const bool d3d12 = compiled(GraphicsBackend::D3D12, framegen::Provider::Dlss) ||
-                compiled(GraphicsBackend::D3D12, framegen::Provider::Fsr) ||
-                compiled(GraphicsBackend::D3D12, framegen::Provider::Xess);
-            if (!dlss && !fsr && !xess && !compiled(edit.graphicsBackend, framegen::Provider::MetalFx))
+                compiled(GraphicsBackend::D3D12, framegen::Provider::Fsr);
+            if (!dlss && !fsr && !compiled(edit.graphicsBackend, framegen::Provider::MetalFx))
                 next.help = edit.graphicsBackend != GraphicsBackend::D3D12 && d3d12
                     ? Tr(L"FG requires Direct3D 12. Change the graphics backend and restart first.",
                          L"影格生成需要 Direct3D 12。請先變更圖形後端並重新啟動。")
@@ -1095,39 +760,13 @@ void Publish(uint8_t *base, uint32_t config)
                          L"Vulkan 支援 DLSS 固定倍數。啟用或切換影格生成提供者需重新啟動。")
                     : Tr(L"Vulkan supports FSR 2×. Enabling or changing the FG provider requires a restart.",
                          L"Vulkan 支援 FSR 2×。啟用或切換影格生成提供者需重新啟動。");
-            else if (edit.frameGenerationProvider == framegen::Provider::Xess)
-                next.help = Tr(L"FG works independently of upscaling. XeSS uses a fixed 2× multiplier.",
-                               L"影格生成可獨立於超解析度使用。XeSS 固定為 2×。");
             else
                 next.help = Tr(L"FG works independently of upscaling. FSR uses a fixed 2× multiplier.",
                                L"影格生成可獨立於超解析度使用。FSR 固定為 2×。");
             break;
         }
-        case GraphicsRow::Hdr:
-            next.help = graphics_menu::HdrAvailable(edit.graphicsBackend)
-                ? Tr(L"Requires an HDR display. Applies after saving; with frame generation on, after a restart. Works with every AA mode, upscaler and scaling filter; frame generation stays SDR except DLSS on Vulkan.",
-                     L"需要 HDR 螢幕。儲存後套用；開啟影格生成時需重新啟動。可搭配任一抗鋸齒、超解析度與縮放濾鏡；影格生成僅 Vulkan 的 DLSS 可與 HDR 同時開啟。")
-                : Tr(L"HDR output is unavailable for this graphics backend.",
-                     L"目前圖形後端無法使用 HDR 輸出。");
-            break;
-        case GraphicsRow::HdrPaperWhite:
-#if LO_PLATFORM_MACOS
-            next.help = Tr(L"Reference white uses system SDR white on Metal. Changes apply after saving.",
-                           L"Metal 以系統 SDR 白位作為參考白位；儲存後套用。");
-#else
-            next.help = Tr(L"Reference white controls normal scene brightness. Changes apply after saving.",
-                           L"參考白位控制一般場景亮度；儲存後套用。");
-#endif
-            break;
-        case GraphicsRow::HdrPeak:
-            next.help = Tr(L"Press A to calibrate peak brightness against an HDR comparison pattern. Auto follows the active display report.",
-                           L"按 A 以 HDR 對比圖校準最高亮度；自動模式跟隨目前顯示器的回報值。");
-            break;
-        case GraphicsRow::Brightness:
-            next.help = Tr(L"Adjusts the game image's brightness and gamma. Press A to compare against the current scene. Changes apply after saving.",
-                           L"調整遊戲畫面的亮度與 Gamma。按 A 與目前畫面對照；儲存後套用。");
-            break;
         case GraphicsRow::DisplayMode:
+        case GraphicsRow::Brightness:
         case GraphicsRow::Save:
         case GraphicsRow::Count:
             break;
@@ -1185,42 +824,10 @@ void Publish(uint8_t *base, uint32_t config)
         next.dialogChoices = {Tr(L"Open importer", L"開啟匯入器"), Tr(L"Cancel", L"取消")};
         next.dialogSelection = importChoice;
     }
-    if (displayConfirm)
-    {
-        // Shown over a restart prompt from the same save; that one follows.
-        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(displayConfirmDeadline - MenuNow()).count();
-        const auto seconds = std::max<long long>(0, (left + 999) / 1000);
-        next.dialogTitle = Tr(L"Keep this display?", L"保留這台顯示器嗎？");
-        next.dialogMessage = Tr(L"The game moved to the chosen display. Without an answer it returns to the previous display.",
-                                L"遊戲已移到所選的顯示器。若未回應，將回到之前的顯示器。");
-        next.dialogChoices = {Tr(L"Keep", L"保留"),
-                              std::wstring(Tr(L"Revert", L"還原")) + L" (" + std::to_wstring(seconds) + L")"};
-        next.dialogSelection = displayConfirmChoice;
-    }
-#if LO_PLATFORM_ANDROID
-    next.notice = tab == 2 && graphics_menu::AndroidFsrAvailable &&
-        edit.upscaler == gpu::upscaling::Upscaler::Fsr ? DlssNotice() : std::wstring{};
-#else
-    // Vulkan DLSS-G presents through the HDR10 swap chain; other frame
-    // generation paths keep an SDR swap chain (see video.cpp).
-    const bool fgKeepsSdr = edit.frameGenerationProvider != framegen::Provider::Off &&
-        !(edit.graphicsBackend == GraphicsBackend::Vulkan && edit.frameGenerationProvider == framegen::Provider::Dlss);
-    const bool hdrConflict = edit.hdr && fgKeepsSdr;
-    next.notice = tab == 2 && edit.hdr && !graphics_menu::HdrAvailable(edit.graphicsBackend)
-        ? Tr(L"The saved HDR preference is inactive on this graphics backend.",
-             L"已儲存的 HDR 偏好在目前圖形後端不會啟用。")
-        : tab == 2 && hdrConflict
-        ? Tr(L"HDR is paused while this frame generation provider is selected (only DLSS on Vulkan keeps HDR).",
-             L"選取這個影格生成提供者時 HDR 會暫停（只有 Vulkan 的 DLSS 可保持 HDR）。")
-        : tab == 2 ? (row == int(GraphicsRow::FrameGeneration) ||
+    next.notice = tab == 2 ? (row == int(GraphicsRow::FrameGeneration) ||
         row == int(GraphicsRow::FrameGenerationMultiplier) ? FgNotice() : DlssNotice()) : std::wstring{};
-#endif
     std::lock_guard lock(snapshotMutex);
-    // Presentation may have published availability while this snapshot was built.
-    next.calibration.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
-    next.brightness.sceneAvailable = next.calibration.sceneAvailable;
     if (next.tab == snapshot.tab && next.row == snapshot.row && next.scroll == snapshot.scroll && next.language == snapshot.language &&
-        next.calibration == snapshot.calibration && next.brightness == snapshot.brightness &&
         next.rows == snapshot.rows && next.help == snapshot.help && next.notice == snapshot.notice && next.dialogTitle == snapshot.dialogTitle &&
         next.dialogMessage == snapshot.dialogMessage && next.dialogChoices == snapshot.dialogChoices &&
         next.dialogSelection == snapshot.dialogSelection)
@@ -1229,89 +836,6 @@ void Publish(uint8_t *base, uint32_t config)
     snapshot = std::move(next);
 }
 } // namespace
-void SetHdrDisplayInfo(HdrDisplayInfo info)
-{
-    hdrDisplayInfo.store(uint64_t(info.peakNits) | (uint64_t(info.active) << 32) |
-        (uint64_t(info.relative) << 33), std::memory_order_relaxed);
-}
-void SetHdrCalibrationSceneAvailable(bool available)
-{
-    calibrationSceneAvailable.store(available, std::memory_order_relaxed);
-    // The guest can be paused while the presentation thread captures the scene.
-    // Publish the change immediately so DrawMenu invalidates its raster cache.
-    std::lock_guard lock(snapshotMutex);
-    if (snapshot.calibration.sceneAvailable != available)
-    {
-        snapshot.calibration.sceneAvailable = snapshot.brightness.sceneAvailable = available;
-        ++snapshot.revision;
-    }
-}
-BrightnessCalibration GetBrightnessCalibration()
-{
-    BrightnessCalibration result;
-    {
-        std::lock_guard lock(snapshotMutex);
-        result = snapshot.brightness;
-    }
-    // The open menu previews its unsaved values; gameplay uses the saved ones.
-    if (!active.load())
-        return MakeBrightnessCalibration(GetConfig(), false);
-    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
-    return result;
-}
-HdrCalibration GetHdrCalibration()
-{
-    HdrCalibration result;
-    {
-        std::lock_guard lock(snapshotMutex);
-        result = snapshot.calibration;
-    }
-    if (!active.load() || !result.open)
-        return MakeHdrCalibration(GetConfig(), false);
-    const auto display = CurrentHdrDisplayInfo();
-    result.detectedValid = display.peakNits > 0;
-    result.detectedNits = display.peakNits;
-    result.relative = display.relative;
-    result.hdrActive = display.active;
-    result.sceneAvailable = calibrationSceneAvailable.load(std::memory_order_relaxed);
-    result.effectiveNits = std::clamp(result.automatic && result.detectedValid
-        ? result.detectedNits : result.automatic ? 1000u : result.manualNits,
-        result.paperWhiteNits, 10000u);
-    return result;
-}
-bool CalibrationKey(uint32_t key)
-{
-    // Escape has no controller mapping; it answers Revert on the display prompt.
-    if (key == 27 && displayConfirmOpen.load())
-    {
-        displayConfirmEscape = true;
-        return true;
-    }
-    const bool brightnessKey = brightnessOpen.load() && (key == 13 || key == 27);
-    if (!brightnessKey && (!calibrationOpen.load() || !(key == 8 || key == 13 || key == 27 || (key >= '0' && key <= '9'))))
-        return false;
-    std::lock_guard lock(calibrationKeyMutex);
-    calibrationKeys.push_back(key);
-    return true;
-}
-void PointerDrag(float x, float y, bool held)
-{
-    if (held && brightnessOpen.load())
-    {
-        if (y >= 516 && y < 552)
-            brightnessDragBrightness = int(std::lround(BrightnessSliderFraction(x) * 40.0f)) - 20;
-        else if (y >= 558 && y < 594)
-            brightnessDragGamma = 50 + int(std::lround(BrightnessSliderFraction(x) * 20.0f)) * 5;
-        return;
-    }
-    if (!held || !calibrationOpen.load() || y < 540 || y >= 595) return;
-    uint32_t paperWhite = 203;
-    {
-        std::lock_guard lock(snapshotMutex);
-        paperWhite = snapshot.calibration.paperWhiteNits;
-    }
-    calibrationDragNits.store(int(CalibrationSliderValue(x, paperWhite)));
-}
 bool FilterInput(uint16_t &buttons, int16_t x, int16_t y)
 {
     // A held Back must not become a fresh press in the parent menu. Consume
@@ -1369,31 +893,6 @@ void PointerClick(float x, float y, bool reverse)
     if (!active.load())
         return;
     std::lock_guard lock(snapshotMutex);
-    if (snapshot.brightness.open)
-    {
-        // Same top toggle and button row as the HDR page; sliders take the pointer x.
-        if (y >= 34 && y < 78 && x >= 800 && x < 1120)
-            brightnessClick = x < 940 ? 7 : 8;
-        else if (y >= 516 && y < 552 && x >= 370 && x < 1010)
-            brightnessDragBrightness = int(std::lround(BrightnessSliderFraction(x) * 40.0f)) - 20;
-        else if (y >= 558 && y < 594 && x >= 370 && x < 1010)
-            brightnessDragGamma = 50 + int(std::lround(BrightnessSliderFraction(x) * 20.0f)) * 5;
-        else if (y >= 605 && y < 655)
-            brightnessClick = x >= 160 && x < 400 ? 2 : x >= 420 && x < 720 ? 3 :
-                              x >= 740 && x < 930 ? 4 : x >= 950 && x < 1120 ? 5 : -1;
-        return;
-    }
-    if (snapshot.calibration.open)
-    {
-        if (y >= 34 && y < 78 && x >= 800 && x < 1120)
-            calibrationClick = x < 940 ? 5 : 6;
-        else if (y >= 540 && y < 595 && x >= 245 && x < 1035)
-            calibrationDragNits = int(CalibrationSliderValue(x, snapshot.calibration.paperWhiteNits));
-        else if (y >= 605 && y < 655)
-            calibrationClick = x >= 160 && x < 400 ? 1 : x >= 420 && x < 720 ? 2 :
-                               x >= 740 && x < 930 ? 3 : x >= 950 && x < 1120 ? 4 : -1;
-        return;
-    }
     if (!snapshot.dialogChoices.empty())
     {
         const int selected = int(y - 360) / 43;
@@ -1433,34 +932,26 @@ void PointerClick(float x, float y, bool reverse)
         return;
     mouseRow = int(hit);
     if (x >= 386 && snapshot.rows[hit].enabled) {
-        const bool hdrLevel = snapshot.tab == 2 &&
-            (hit == size_t(GraphicsRow::HdrPaperWhite) || hit == size_t(GraphicsRow::HdrPeak));
         // Pointer adjustment is explicit left/right, not a synthetic A press.
         // Keep confirmation reserved for action rows and modal dialogs.
-        mouseAction = snapshot.tab == 2 && hit == size_t(GraphicsRow::HdrPeak) &&
-                      x >= 600 && x < 820 ? 0x1000 : graphics_menu::IsAction(snapshot.tab, int(hit))
-            ? (reverse ? 0 : 0x1000) : (reverse || (hdrLevel && x < 600) ||
-               ((snapshot.rows[hit].singleValue || snapshot.rows[hit].choices.size() > 5) && x < 458) ? 4 : 8);
+        mouseAction = graphics_menu::IsAction(snapshot.tab, int(hit))
+            ? (reverse ? 0 : 0x1000) : (reverse || (snapshot.rows[hit].choices.size() > 5 && x < 458) ? 4 : 8);
     }
 }
 } // namespace settings
 
 // Resolve the explicit host choice instead of the retail language allowlist's
-// default alias. IDs 1-9 map to INT/JPN/DEU/FRA/SPA/ITA/KOR/CHI/SCH. Return the
-// registry record for the host language when the edition registers it, so voice
-// and FMV audio lookups match it (#220). Languages the registry lacks (Asian SCH
-// is registered as ID 10) still get the executable's static table pointer.
+// default alias. Resource suffixes come from the original executable's table.
+// IDs 1-9 map to INT/JPN/DEU/FRA/SPA/ITA/KOR/CHI/SCH. The original function
+// aliases languages missing from the runtime allowlist to the ID-0 record, so
+// Europe text languages and Simplified Chinese must return the table pointer.
 PPC_FUNC(sub_82481BE8)
 {
     const uint32_t language = settings::GameLanguage();
     const auto object = ctx.r3.u32, request = ctx.r4.u32, caller = uint32_t(ctx.lr);
     if (settings::language::ResourceOverride(language, object, request))
     {
-        ctx.r4.u64 = language;
-        __imp__sub_82481BE8(ctx, base);
-        const uint32_t record = ctx.r3.u32;
-        if (!settings::language::KeepRegistryRecord(record, record ? PPC_LOAD_U16(record - 2) : 0, language))
-            ctx.r3.u64 = PPC_LOAD_U32(0x832455F0 + language * 4);
+        ctx.r3.u64 = PPC_LOAD_U32(0x832455F0 + language * 4);
         static const bool logged = [] {
             LOG_INFO("settings: explicit game resource language {}", settings::GameLanguage());
             return true;
@@ -1495,7 +986,6 @@ PPC_FUNC(sub_822F19B0)
         sawModal = false;
         closing = false;
         mainMenuRequested = false;
-        returnToBrightness = false;
         active = false;
     }
     if (closing)
@@ -1518,7 +1008,7 @@ PPC_FUNC(sub_822F19B0)
     if (state != 4)
     {
         if (state <= 2)
-            bypass = sawModal = returnToBrightness = false;
+            bypass = sawModal = false;
         else if (bypass)
             sawModal = true;
         active = false;
@@ -1549,23 +1039,13 @@ PPC_FUNC(sub_822F19B0)
     }
     if (!active.exchange(true))
     {
-        // Back from the original calibration screen: keep the unsaved edit and
-        // reopen the brightness page.
-        if (!std::exchange(returnToBrightness, false))
-        {
-            edit = GetConfig();
-            brightnessOpen = false;
-        }
-        else brightnessOpen = true;
-        brightnessClick = -1;
-        brightnessDragBrightness = INT_MIN;
-        brightnessDragGamma = -1;
-        calibrationOpen = false;
-        calibrationNumberEditing = false;
-        calibrationNumber.clear();
-        calibrationClick = -1;
-        calibrationDragNits = -1;
+        edit = GetConfig();
+        #ifdef __ANDROID__
+        collectionPrompt = false;
+        edit.automaticUpdates = false;
+#else
         collectionPrompt = gpu::taa_collection::Consent() < 0;
+#endif
         collectionChoice = 1;
         pending = 0;
         waitForRelease = true;
@@ -1576,13 +1056,6 @@ PPC_FUNC(sub_822F19B0)
         mainMenuPrompt = false;
         importPrompt = false;
         importLaunchPending = false;
-        displayConfirm = displayReverting = false;
-        displayConfirmOpen = false;
-        {
-            const auto saved = GetConfig();
-            syncedDisplayName = saved.displayName;
-            syncedDisplayIndex = saved.displayIndex;
-        }
         status.clear();
         Publish(base, config);
         LOG_INFO("settings: replacement opened at guest menu {:#x}", menu);
@@ -1591,21 +1064,6 @@ PPC_FUNC(sub_822F19B0)
             LOG_INFO("settings: voice option {} -> language {}", i, VoiceLanguage(base, i));
     }
     uint16_t input = pending.exchange(0);
-    {
-        // Follow a display the player moved the window to while the menu is
-        // open, unless the Display row was changed here.
-        const auto saved = GetConfig();
-        if (saved.displayName != syncedDisplayName || saved.displayIndex != syncedDisplayIndex)
-        {
-            if (edit.displayName == syncedDisplayName && edit.displayIndex == syncedDisplayIndex)
-            {
-                edit.displayName = saved.displayName;
-                edit.displayIndex = saved.displayIndex;
-            }
-            syncedDisplayName = saved.displayName;
-            syncedDisplayIndex = saved.displayIndex;
-        }
-    }
     if (int selected = mouseTab.exchange(-1); selected >= 0)
     {
         tab = selected;
@@ -1629,8 +1087,6 @@ PPC_FUNC(sub_822F19B0)
         sawModal = false;
         releaseToParent = true;
         active = false;
-        calibrationOpen = false;
-        brightnessOpen = false;
         cancelPolls = 0;
         pending = 0;
         PPCContext apply = ctx;
@@ -1643,22 +1099,6 @@ PPC_FUNC(sub_822F19B0)
         __imp__sub_82889E50(close, base);
         LOG_INFO("settings: replacement closing menu={:08X} state={} (native completion)",
                  menu, PPC_LOAD_U32(menu + 4));
-    };
-    auto openOriginalCalibration = [&] {
-        // Hand the original calibration screen its own brightness row.
-        const uint32_t list = menu + 0x558, table = PPC_LOAD_U32(list + 0x84);
-        // Retail row 12 opens brightness calibration; replacement menu row ids are independent.
-        for (uint32_t i = 0; i < 13; i++)
-            if (PPC_LOAD_U32(table + i * 0x30 + 4) == 12)
-            {
-                PPC_STORE_U32(list + 0x38, i);
-                break;
-            }
-        bypass = true;
-        sawModal = false;
-        active = false;
-        cancelButton = swapConfirm.load() ? 0x2000 : 0x1000;
-        cancelPolls = 6;
     };
     if (restart::ConsumeLaunchFailure())
     {
@@ -1685,24 +1125,6 @@ PPC_FUNC(sub_822F19B0)
             if (gpu::taa_collection::SetConsent(collectionChoice == 0)) { collectionPrompt = false; status.clear(); }
             else status = Tr(L"Settings could not be saved.", L"無法儲存設定。");
         }
-        Publish(base, config);
-        return;
-    }
-    if (displayConfirm)
-    {
-        if (int selected = mouseDialog.exchange(-1); selected >= 0)
-            displayConfirmChoice = std::min(selected, 1);
-        if (input & 3) displayConfirmChoice = 1 - displayConfirmChoice;
-        // A / Start (keyboard Enter) answer the selected choice; B, Back and
-        // Escape revert. An answer in the last tick still counts.
-        const bool revert = displayConfirmEscape.exchange(false) || (input & 0x2020);
-        const bool choose = (input & 0x1010) != 0;
-        if (!revert && choose && displayConfirmChoice == 0)
-            KeepDisplayChoice();
-        else if (revert || choose)
-            RevertDisplayChoice("player");
-        else if (MenuNow() >= displayConfirmDeadline)
-            RevertDisplayChoice("no answer in 5 s");
         Publish(base, config);
         return;
     }
@@ -1805,217 +1227,6 @@ PPC_FUNC(sub_822F19B0)
         Publish(base, config);
         return;
     }
-    if (calibrationOpen.load())
-    {
-        if (const int dragged = calibrationDragNits.exchange(-1); dragged >= 0)
-        {
-            edit.hdrPeakAutomatic = false;
-            edit.hdrPeakNits = uint32_t(std::clamp(dragged, int(edit.hdrPaperWhiteNits), 10000));
-            calibrationFocus = 0;
-        }
-        std::vector<uint32_t> keys;
-        {
-            std::lock_guard lock(calibrationKeyMutex);
-            keys.swap(calibrationKeys);
-        }
-        auto commitNumber = [&] {
-            if (!calibrationNumber.empty())
-            {
-                uint32_t number = 0;
-                for (wchar_t digit : calibrationNumber) number = number * 10 + uint32_t(digit - L'0');
-                edit.hdrPeakNits = std::clamp(number, edit.hdrPaperWhiteNits, 10000u);
-                edit.hdrPeakAutomatic = false;
-            }
-            calibrationNumberEditing = false;
-            calibrationNumber.clear();
-        };
-        bool cancelCalibration = false;
-        for (const uint32_t key : keys)
-        {
-            if (key >= '0' && key <= '9')
-            {
-                if (!calibrationNumberEditing)
-                {
-                    calibrationNumberEditing = true;
-                    calibrationNumber.clear();
-                    calibrationFocus = 2;
-                }
-                if (calibrationNumber.size() < 5) calibrationNumber.push_back(wchar_t(key));
-            }
-            else if (key == 8 && calibrationNumberEditing && !calibrationNumber.empty())
-                calibrationNumber.pop_back();
-            else if (key == 13)
-            {
-                if (calibrationNumberEditing)
-                    commitNumber();
-                else input |= 0x1000;
-            }
-            else if (key == 27)
-            {
-                if (calibrationNumberEditing)
-                {
-                    calibrationNumberEditing = false;
-                    calibrationNumber.clear();
-                }
-                else cancelCalibration = true;
-            }
-        }
-        if (cancelCalibration)
-        {
-            edit.hdrPeakAutomatic = calibrationStartAutomatic;
-            edit.hdrPeakNits = calibrationStartPeakNits;
-            calibrationOpen = false;
-        }
-        else
-        {
-            if (const int clicked = calibrationClick.exchange(-1); clicked >= 1)
-            {
-                if (clicked >= 5)
-                {
-                    calibrationFocus = 5;
-                    calibrationScenePreview = clicked == 5;
-                }
-                else
-                {
-                    calibrationFocus = clicked;
-                    input |= 0x1000;
-                }
-            }
-            if (calibrationNumberEditing && (input & 0x2000))
-            {
-                calibrationNumberEditing = false;
-                calibrationNumber.clear();
-                input &= ~0x2000;
-            }
-            if (input & 0x2000) calibrationOpen = false;
-            if (calibrationOpen.load())
-            {
-                if (input & 0x100) calibrationScenePreview = true;
-                if (input & 0x200) calibrationScenePreview = false;
-                if (input & 1) calibrationFocus = (calibrationFocus + 5) % 6;
-                if (input & 2) calibrationFocus = (calibrationFocus + 1) % 6;
-                const int delta = (input & 4) ? -1 : (input & 8) ? 1 : 0;
-                if (delta && calibrationFocus == 0 && !calibrationNumberEditing)
-                {
-                    const auto display = MakeHdrCalibration(edit, true);
-                    const uint32_t start = edit.hdrPeakAutomatic ? display.effectiveNits : edit.hdrPeakNits;
-                    const int step = start < 1000 ? 10 : 100;
-                    edit.hdrPeakAutomatic = false;
-                    edit.hdrPeakNits = uint32_t(std::clamp(int(start) + delta * step,
-                        int(edit.hdrPaperWhiteNits), 10000));
-                }
-                if (input & 0x1000)
-                {
-                    if (calibrationNumberEditing) commitNumber();
-                    else if (calibrationFocus == 1) edit.hdrPeakAutomatic = true;
-                    else if (calibrationFocus == 2)
-                    {
-                        calibrationNumberEditing = true;
-                        calibrationNumber = std::to_wstring(edit.hdrPeakAutomatic
-                            ? MakeHdrCalibration(edit, true).effectiveNits : edit.hdrPeakNits);
-                    }
-                    else if (calibrationFocus == 3) calibrationOpen = false;
-                    else if (calibrationFocus == 4)
-                    {
-                        edit.hdrPeakAutomatic = calibrationStartAutomatic;
-                        edit.hdrPeakNits = calibrationStartPeakNits;
-                        calibrationOpen = false;
-                    }
-                    else if (calibrationFocus == 5)
-                        calibrationScenePreview = !calibrationScenePreview.load();
-                }
-            }
-        }
-        if (!calibrationOpen.load())
-        {
-            calibrationNumberEditing = false;
-            calibrationNumber.clear();
-            calibrationClick = -1;
-            calibrationDragNits = -1;
-        }
-        Publish(base, config);
-        return;
-    }
-    if (brightnessOpen.load())
-    {
-        if (const int dragged = brightnessDragBrightness.exchange(INT_MIN); dragged != INT_MIN)
-        {
-            edit.displayBrightness = std::clamp(dragged, -20, 20);
-            brightnessFocus = 0;
-        }
-        if (const int dragged = brightnessDragGamma.exchange(-1); dragged >= 0)
-        {
-            edit.displayGamma = uint32_t(std::clamp(dragged, 50, 150));
-            brightnessFocus = 1;
-        }
-        std::vector<uint32_t> keys;
-        {
-            std::lock_guard lock(calibrationKeyMutex);
-            keys.swap(calibrationKeys);
-        }
-        bool cancel = false;
-        for (const uint32_t key : keys)
-        {
-            if (key == 13) input |= 0x1000;
-            else if (key == 27) cancel = true;
-        }
-        if (const int clicked = brightnessClick.exchange(-1); clicked >= 2)
-        {
-            if (clicked >= 7)
-                calibrationScenePreview = clicked == 7;
-            else
-            {
-                brightnessFocus = clicked;
-                input |= 0x1000;
-            }
-        }
-        bool close = (input & 0x2000) != 0;
-        // LB / RB pick scene or pattern, like the tab bar.
-        if (input & 0x100) calibrationScenePreview = true;
-        if (input & 0x200) calibrationScenePreview = false;
-        if (input & 1) brightnessFocus = (brightnessFocus + 5) % 6;
-        if (input & 2) brightnessFocus = (brightnessFocus + 1) % 6;
-        if (const int delta = (input & 4) ? -1 : (input & 8) ? 1 : 0)
-        {
-            if (brightnessFocus == 0)
-                edit.displayBrightness = std::clamp(edit.displayBrightness + delta, -20, 20);
-            else if (brightnessFocus == 1)
-                edit.displayGamma = uint32_t(std::clamp(int(edit.displayGamma) + delta * 5, 50, 150));
-            else
-                brightnessFocus = 2 + (brightnessFocus - 2 + 4 + delta) % 4;
-        }
-        bool original = false;
-        if (input & 0x1000)
-        {
-            if (brightnessFocus == 2)
-            {
-                edit.displayBrightness = 0;
-                edit.displayGamma = 100;
-            }
-            else if (brightnessFocus == 3) original = true;
-            else if (brightnessFocus == 4) close = true;
-            else if (brightnessFocus == 5) cancel = true;
-        }
-        if (cancel)
-        {
-            edit.displayBrightness = brightnessStart;
-            edit.displayGamma = gammaStart;
-        }
-        if (cancel || close || original)
-        {
-            brightnessOpen = false;
-            brightnessClick = -1;
-            brightnessDragBrightness = INT_MIN;
-            brightnessDragGamma = -1;
-        }
-        Publish(base, config);
-        if (original)
-        {
-            returnToBrightness = true;
-            openOriginalCalibration();
-        }
-        return;
-    }
     auto graphicsSaved = [&] {
         status = Tr(L"Display settings saved.", L"顯示設定已儲存。");
         const auto running = gpu::video::GetFrameGenerationStatus();
@@ -2025,32 +1236,16 @@ PPC_FUNC(sub_822F19B0)
             edit.frameGenerationMode != previousDisplay.frameGenerationMode ||
             edit.frameGenerationMultiplier != previousDisplay.frameGenerationMultiplier;
         restartForFgProvider = fgChanged && ((edit.graphicsBackend == GraphicsBackend::D3D12 &&
-            (edit.frameGenerationProvider == framegen::Provider::Fsr || edit.frameGenerationProvider == framegen::Provider::Xess) &&
+            edit.frameGenerationProvider == framegen::Provider::Fsr &&
             (previousDisplay.frameGenerationProvider == framegen::Provider::Dlss ||
              running.sessionProvider == framegen::Provider::Dlss)) ||
             (edit.graphicsBackend == GraphicsBackend::Vulkan &&
              running.phase == gpu::video::FrameGenerationPhase::RestartRequired));
-        // HDR switches live unless a frame generation session, which owns the
-        // swap chain, already runs in this process (even with FG now Off).
-        const bool hdrNeedsRestart = edit.hdr != previousDisplay.hdr &&
-            running.sessionProvider != framegen::Provider::Off;
-        if (restart::Required(previousDisplay, edit) || restartForFgProvider || hdrNeedsRestart)
+        if (restart::Required(previousDisplay, edit) || restartForFgProvider)
         {
             restartPrompt = savedRestartPrompt = true;
             restartSaveFailed = false;
             restartChoice = 0;
-        }
-        // Only a display choice that actually moved the window asks to be kept.
-        if ((edit.displayName != previousDisplay.displayName || edit.displayIndex != previousDisplay.displayIndex) &&
-            gpu::video::DisplayMoveCount() != displayMovesBefore)
-        {
-            displayConfirm = true;
-            displayConfirmOpen = true;
-            displayConfirmEscape = false;
-            displayConfirmChoice = 0;
-            displayConfirmDeadline = MenuNow() + kDisplayConfirmTime;
-            LOG_INFO("settings: display choice \"{}\"#{} moved the window; waiting 5 s for Keep",
-                     edit.displayName, edit.displayIndex);
         }
     };
     if (displayTicket)
@@ -2062,16 +1257,7 @@ PPC_FUNC(sub_822F19B0)
             return;
         }
         displayTicket = 0;
-        if (displayReverting)
-        {
-            displayReverting = false;
-            status = result != gpu::video::DisplayChangeResult::Applied
-                ? Tr(L"Could not return to the previous display.", L"無法回到之前的顯示器。")
-                : rollbackSaveFailed
-                    ? Tr(L"Previous display restored; settings file could not be updated.", L"已回到之前的顯示器，但無法更新設定檔。")
-                    : Tr(L"Previous display restored.", L"已回到之前的顯示器。");
-        }
-        else if (displayRollback)
+        if (displayRollback)
         {
             displayRollback = false;
             status = result == gpu::video::DisplayChangeResult::Applied
@@ -2100,11 +1286,20 @@ PPC_FUNC(sub_822F19B0)
         row = 0;
         status.clear();
     }
-    const int count = tab == 0 ? GameImportRow + 1 : tab == 1 ? 5 : tab == 2 ? int(GraphicsRow::Count) : 5;
+    const int languageRows =
+#ifdef __ANDROID__
+        4;
+#else
+        5;
+#endif
+    const int count = tab == 0 ? GameImportRow + 1 : tab == 1 ? 3 : tab == 2 ? int(GraphicsRow::Count) : languageRows;
     // Provider-specific rows keep their logical ids and navigation skips them
     // when unavailable. Keyboard Enter reaches the menu as GAMEPAD_START
     // (hid.cpp), so one branch covers gamepad Start and Enter.
     auto rowHidden = [&](int r) {
+        #ifdef __ANDROID__
+        if(tab == 3 && r == 2) return true;
+#endif
         return tab == 2 && GraphicsRowHidden(r);
     };
     if (input & 1)
@@ -2113,17 +1308,13 @@ PPC_FUNC(sub_822F19B0)
         do { row = (row + 1) % count; } while (rowHidden(row));
     if (input & 0x10)
     {
-        const int saveRow = tab == 2 ? int(GraphicsRow::Save) : tab == 3 ? 3 : -1;
-        // Start / Enter shifts focus to Save; inhibit confirm on the same tick so
-        // simultaneous input (or key bindings sending both) cannot save from another
-        // row. Pressed again on Save it saves, so keyboard Enter confirms like A.
-        if (saveRow >= 0 && row == saveRow)
-            input |= 0x1000;
-        else
-        {
-            if (saveRow >= 0) row = saveRow;
-            input &= ~0x1000;
-        }
+        if (tab == 2)
+            row = int(GraphicsRow::Save);
+        else if (tab == 3)
+            row = 3;
+        // Start / Enter only shifts focus to Save; inhibit confirm on the same tick
+        // so simultaneous input (or key bindings sending both) cannot trigger saving.
+        input &= ~0x1000;
     }
     if (tab == 3 && row == 4 && (input & 0x000c)) {
         if (gpu::taa_collection::Enabled()) {
@@ -2149,29 +1340,6 @@ PPC_FUNC(sub_822F19B0)
                 PPC_STORE_U32(config + 4, PPC_LOAD_U32(config + 4) ^ masks[row]);
             }
             changed = true;
-        }
-        else if (tab == 1 && row == 4)
-        {
-            // Host setting: applied and saved at once, like the rows above it.
-            edit.audioOutput = cycle(edit.audioOutput, 2);
-            apu::SetSurround(edit.audioOutput == AudioOutputSurround);
-            if (!SaveAudioOutput(edit.audioOutput))
-                status = Tr(L"Could not save settings.", L"無法儲存設定。");
-        }
-        else if (tab == 1 && row == 3)
-        {
-            // Host setting beside the retail sliders: applied and saved at once,
-            // merged into the saved settings so unsaved Graphics edits stay unsaved.
-            const auto strength = uint32_t(std::clamp(int(edit.vibrationPercent) + delta * 10, 0, 100));
-            if (strength != edit.vibrationPercent)
-            {
-                edit.vibrationPercent = strength;
-                Config saved = GetConfig();
-                saved.vibrationPercent = strength;
-                if (!SaveConfig(saved)) status = Tr(L"Could not save settings.", L"無法儲存設定。");
-                hid::SetVibrationStrength(strength);
-                hid::PreviewVibration();
-            }
         }
         else if (tab == 1)
         {
@@ -2204,33 +1372,9 @@ PPC_FUNC(sub_822F19B0)
                 edit.graphicsBackend = GraphicsBackend::Vulkan;
 #endif
                 break;
-            case GraphicsRow::Gpu:
-            {
-                const auto gpus = GpuChoices();
-                const auto choice = cycle(gpus.selected, uint32_t(gpus.names.size() + 1));
-                edit.gpuDevice = choice ? gpus.names[choice - 1] : std::string{};
-                break;
-            }
             case GraphicsRow::DisplayMode:
-                edit.windowMode = WindowMode(cycle(uint32_t(edit.windowMode), 2));
+                edit.windowMode = WindowMode(cycle(uint32_t(edit.windowMode), 3));
                 break;
-            case GraphicsRow::Display:
-            {
-                const auto displays = DisplayChoices();
-                const auto choice = cycle(displays.selected, uint32_t(displays.labels.size()));
-                if (!choice)
-                {
-                    edit.displayName.clear();
-                    edit.displayIndex = 0;
-                }
-                else if (choice <= displays.displays.size())
-                {
-                    edit.displayName = displays.displays[choice - 1].name;
-                    edit.displayIndex = choice - 1;
-                }
-                // The last choice keeps a saved display that is not connected.
-                break;
-            }
             case GraphicsRow::Widescreen:
             {
                 const bool currentUltrawide = IsUltrawideAspect(edit.width, edit.height);
@@ -2260,15 +1404,8 @@ PPC_FUNC(sub_822F19B0)
                 edit.internalResolution = graphics_menu::RenderResolutions[
                     cycle(graphics_menu::RenderResolutionChoice(edit), uint32_t(std::size(graphics_menu::RenderResolutions)))];
                 break;
-            case GraphicsRow::ShadowResolution:
-                edit.shadowResolution = graphics_menu::ShadowResolutions[
-                    cycle(graphics_menu::ShadowResolutionChoice(edit), uint32_t(std::size(graphics_menu::ShadowResolutions)))];
-                break;
             case GraphicsRow::AntiAliasing:
                 graphics_menu::SelectAa(edit, cycle(graphics_menu::AaChoice(edit), graphics_menu::AaChoiceCount));
-                break;
-            case GraphicsRow::AmbientOcclusion:
-                edit.ambientOcclusion = cycle(std::min(edit.ambientOcclusion, 2u), 3);
                 break;
             case GraphicsRow::DlssQuality:
                 if (gpu::upscaling::UsesFsrQuality(edit.upscaler))
@@ -2288,12 +1425,6 @@ PPC_FUNC(sub_822F19B0)
                 edit.anisotropicFiltering = levels[cycle(index, 5)];
                 break;
             }
-            case GraphicsRow::DepthOfField:
-                edit.depthOfFieldPercent = cycle((std::min(edit.depthOfFieldPercent, 100u) + 5) / 10, 11) * 10;
-                break;
-            case GraphicsRow::Bloom:
-                edit.bloom = !edit.bloom;
-                break;
             case GraphicsRow::ScalingQuality:
 #if LO_PLATFORM_MACOS
                 edit.scalingQuality = cycle(edit.scalingQuality, ScalingMetalFx + 1);
@@ -2308,6 +1439,10 @@ PPC_FUNC(sub_822F19B0)
             {
                 const auto index = gpu::frame_rate::MenuIndex(edit.frameRate);
                 edit.frameRate = gpu::frame_rate::FromMenuIndex(cycle(index, gpu::frame_rate::kCount));
+#if defined(__ANDROID__)
+                settings::PreviewFrameRate(edit.frameRate);
+                LOG_INFO("Android settings: frame-rate target preview={} (applies now; launch baseline remains 30)", edit.frameRate);
+#endif
                 break;
             }
             case GraphicsRow::VariableRefreshRate:
@@ -2329,23 +1464,6 @@ PPC_FUNC(sub_822F19B0)
                         framegen::kMaxMultiplier) - 2, framegen::kMaxMultiplier - 1) + 2;
                     edit.frameGenerationMode = framegen::Mode::Fixed;
                     edit.frameGenerationTargetFps = 0;
-                }
-                break;
-            case GraphicsRow::Hdr:
-                if (graphics_menu::HdrAvailable(edit.graphicsBackend)) edit.hdr = !edit.hdr;
-                break;
-            case GraphicsRow::HdrPaperWhite:
-                if (graphics_menu::HdrAvailable(edit.graphicsBackend))
-                    edit.hdrPaperWhiteNits = uint32_t(std::clamp(int(edit.hdrPaperWhiteNits) + delta * 10, 80, 400));
-                break;
-            case GraphicsRow::HdrPeak:
-                if (graphics_menu::HdrAvailable(edit.graphicsBackend))
-                {
-                    const uint32_t start = edit.hdrPeakAutomatic
-                        ? MakeHdrCalibration(edit, false).effectiveNits : edit.hdrPeakNits;
-                    edit.hdrPeakAutomatic = false;
-                    edit.hdrPeakNits = uint32_t(std::clamp(int(start) + delta * 100,
-                        int(edit.hdrPaperWhiteNits), 10000));
                 }
                 break;
             case GraphicsRow::Brightness:
@@ -2396,23 +1514,9 @@ PPC_FUNC(sub_822F19B0)
         importChoice = 1;
         status.clear();
     }
-    if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::HdrPeak) &&
-        graphics_menu::HdrAvailable(edit.graphicsBackend))
-    {
-        calibrationStartAutomatic = edit.hdrPeakAutomatic;
-        calibrationStartPeakNits = edit.hdrPeakNits;
-        calibrationNumberEditing = false;
-        calibrationNumber.clear();
-        calibrationFocus = 0;
-        calibrationScenePreview = true;
-        calibrationOpen = true;
-        Publish(base, config);
-        return;
-    }
     if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::Save))
     {
         previousDisplay = GetConfig();
-        displayMovesBefore = gpu::video::DisplayMoveCount();
         Config graphics = edit;
         graphics.uiLanguage = previousDisplay.uiLanguage;
         graphics.gameLanguage = previousDisplay.gameLanguage;
@@ -2429,8 +1533,7 @@ PPC_FUNC(sub_822F19B0)
             graphics.automaticUpdates = edit.automaticUpdates;
             edit = graphics;
             if (edit.width != previousDisplay.width || edit.height != previousDisplay.height ||
-                edit.windowMode != previousDisplay.windowMode || edit.displayName != previousDisplay.displayName ||
-                edit.displayIndex != previousDisplay.displayIndex || gpu::video::DisplayModeFailed() || gpu::video::WindowModeOverridden())
+                edit.windowMode != previousDisplay.windowMode || gpu::video::DisplayModeFailed() || gpu::video::WindowModeOverridden())
             {
                 displayRollback = false;
                 displayTicket = gpu::video::BeginDisplayChange(edit);
@@ -2461,16 +1564,22 @@ PPC_FUNC(sub_822F19B0)
             status = SaveConfig(languages) ? Tr(L"Language settings saved.", L"語言設定已儲存。")
                                            : Tr(L"Could not save settings.", L"無法儲存設定。");
     }
-    // Back in the same poll wins, as it does over every other action.
-    if ((input & 0x1000) && !(input & 0x2000) && tab == 2 && row == int(GraphicsRow::Brightness))
+    if ((input & 0x1000) && tab == 2 && row == int(GraphicsRow::Brightness))
     {
-        brightnessStart = edit.displayBrightness;
-        gammaStart = edit.displayGamma;
-        brightnessFocus = 0;
-        calibrationScenePreview = true;
-        brightnessOpen = true;
-        Publish(base, config);
-        return;
+        // Hand the original calibration screen its own brightness row.
+        const uint32_t list = menu + 0x558, table = PPC_LOAD_U32(list + 0x84);
+        // Retail row 12 opens brightness calibration; replacement menu row ids are independent.
+        for (uint32_t i = 0; i < 13; i++)
+            if (PPC_LOAD_U32(table + i * 0x30 + 4) == 12)
+            {
+                PPC_STORE_U32(list + 0x38, i);
+                break;
+            }
+        bypass = true;
+        sawModal = false;
+        active = false;
+        cancelButton = swapConfirm.load() ? 0x2000 : 0x1000;
+        cancelPolls = 6;
     }
     if (input & 0x2000)
     {

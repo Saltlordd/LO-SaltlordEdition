@@ -78,12 +78,14 @@ bool debug_menu::SaveAnywhereEnabled()
     return Requested().load(std::memory_order_relaxed);
 }
 
-void debug_menu::SetSaveAnywhereEnabled(bool enabled)
+bool debug_menu::SetSaveAnywhereEnabled(bool enabled)
 {
     Requested().store(enabled, std::memory_order_relaxed);
-    if (!settings::SaveSaveAnywhere(enabled))
+    const bool persisted = settings::SaveSaveAnywhere(enabled);
+    if (!persisted)
         LOG_WARNING("debug menu: failed to persist save anywhere setting");
     LOG_INFO("debug menu: save anywhere {} (reopen System menu to refresh)", enabled);
+    return persisted;
 }
 
 void debug_menu::RequestPartySwitch()
