@@ -2,7 +2,7 @@
 
 # LO: Saltlord Edition
 
-An Android adaptation of [LostOdysseyRecomp](https://github.com/freefrank/LostOdysseyRecomp), with touch controls, foldable display layouts and guided setup. Developed and playtested by Saltlord on a Samsung Galaxy Z Fold 8 Ultra, with AI-assisted development.
+An Android adaptation of [LostOdysseyRecomp](https://github.com/freefrank/LostOdysseyRecomp), with touch controls, foldable display layouts and guided setup. Developed and playtested by Saltlord (my gamer tag) on a Samsung Galaxy Z Fold 8 Ultra, with AI-assisted development.
 
 **First beta preparation is underway.** A release APK will appear on the [Releases page](https://github.com/Saltlordd/LO-SaltlordEdition/releases) when published. This branch is a source/documentation candidate, not a published beta release.
 
