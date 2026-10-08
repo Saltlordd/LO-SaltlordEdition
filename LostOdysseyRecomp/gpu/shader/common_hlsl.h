@@ -39,20 +39,27 @@ XePushConstants XeLoadPushConstants()
     return addresses;
 }
 #define xePush (XeLoadPushConstants())
+// The renderer keeps every upload ring, plus 4 KiB of slack, inside one 4 GiB
+// window, so constant reads add their offset to the low address word only.
+uint64_t XeBankAddress(uint2 words, uint offset)
+{
+    return uint64_t(words.x + offset) | (uint64_t(words.y) << 32u);
+}
+#define xeShared(offset) XeBankAddress(xePushWords.SharedConstants, offset)
 )HLSL"
 R"HLSL(#ifdef XE_PIXEL_SHADER
-#define XE_CONSTANTS_ADDRESS xePush.PixelShaderConstants
+#define XE_CONSTANT_WORDS xePushWords.PixelShaderConstants
 #else
-#define XE_CONSTANTS_ADDRESS xePush.VertexShaderConstants
+#define XE_CONSTANT_WORDS xePushWords.VertexShaderConstants
 #endif
-#define xeNdcScale       vk::RawBufferLoad<float4>(xePush.SharedConstants + 160)
-#define xeNdcOffset      vk::RawBufferLoad<float4>(xePush.SharedConstants + 176)
-#define xeHalfPixelOffset vk::RawBufferLoad<float2>(xePush.SharedConstants + 192)
-#define xeVtxFmt         vk::RawBufferLoad<uint>(xePush.SharedConstants + 200)
-#define xeFlags          vk::RawBufferLoad<uint>(xePush.SharedConstants + 204)
-#define xeAlphaTest      vk::RawBufferLoad<float4>(xePush.SharedConstants + 208)
-#define xeColorMax       vk::RawBufferLoad<float4>(xePush.SharedConstants + 224)
-#define xeTransfer       vk::RawBufferLoad<uint4>(xePush.SharedConstants + 240)
+#define xeNdcScale       vk::RawBufferLoad<float4>(xeShared(160))
+#define xeNdcOffset      vk::RawBufferLoad<float4>(xeShared(176))
+#define xeHalfPixelOffset vk::RawBufferLoad<float2>(xeShared(192))
+#define xeVtxFmt         vk::RawBufferLoad<uint>(xeShared(200))
+#define xeFlags          vk::RawBufferLoad<uint>(xeShared(204))
+#define xeAlphaTest      vk::RawBufferLoad<float4>(xeShared(208))
+#define xeColorMax       vk::RawBufferLoad<float4>(xeShared(224))
+#define xeTransfer       vk::RawBufferLoad<uint4>(xeShared(240))
 #else
 cbuffer XeConstants : register(b0, space0)
 {
@@ -103,7 +110,7 @@ float XeDefaultPointSize()
 uint XeVfetchOffset(uint slot)
 {
 #ifdef __spirv__
-    return vk::RawBufferLoad<uint>(xePush.SharedConstants + 256 + slot * 4);
+    return vk::RawBufferLoad<uint>(xeShared(256 + slot * 4));
 #else
     return xeVfetchOffset[slot >> 2][slot & 3];
 #endif
@@ -118,7 +125,7 @@ SamplerState xeSamplers[64] : register(s0, space0);
 uint XeSamplerIndex(uint slot)
 {
 #ifdef __spirv__
-    return vk::RawBufferLoad<uint>(xePush.SharedConstants + 640 + slot * 4);
+    return vk::RawBufferLoad<uint>(xeShared(640 + slot * 4));
 #else
     return xeSamplerIndex[slot >> 2][slot & 3];
 #endif
@@ -132,7 +139,7 @@ SamplerState XeSampler(uint slot)
 float4 XeConst(int index)
 {
 #ifdef __spirv__
-    return vk::RawBufferLoad<float4>(XE_CONSTANTS_ADDRESS + uint64_t(clamp(index, 0, 255)) * 16);
+    return vk::RawBufferLoad<float4>(XeBankAddress(XE_CONSTANT_WORDS, uint(clamp(index, 0, 255)) * 16u));
 #else
     return c[clamp(index, 0, 255)];
 #endif
@@ -172,7 +179,7 @@ float4 XeDecodeTexture(float4 value, uint info)
 float4 XeTextureResult(float4 value, uint slot)
 {
     #ifdef __spirv__
-    return XeDecodeTexture(value, vk::RawBufferLoad<uint>(xePush.SharedConstants + 768 + slot * 4));
+    return XeDecodeTexture(value, vk::RawBufferLoad<uint>(xeShared(768 + slot * 4)));
 #else
     return XeDecodeTexture(value, xeTextureInfo[slot >> 2][slot & 3]);
 #endif
@@ -181,7 +188,7 @@ float4 XeTextureResult(float4 value, uint slot)
 bool XeBool(uint index)
 {
     #ifdef __spirv__
-    return ((vk::RawBufferLoad<uint>(xePush.SharedConstants + ((index >> 5) & 7) * 4) >> (index & 31)) & 1u) != 0u;
+    return ((vk::RawBufferLoad<uint>(xeShared(((index >> 5) & 7) * 4)) >> (index & 31)) & 1u) != 0u;
 #else
     return ((xeBools[(index >> 7) & 1][(index >> 5) & 3] >> (index & 31)) & 1u) != 0u;
 #endif
@@ -190,7 +197,7 @@ bool XeBool(uint index)
 uint XeLoopConst(uint id)
 {
     #ifdef __spirv__
-    return vk::RawBufferLoad<uint>(xePush.SharedConstants + 32 + (id & 31) * 4);
+    return vk::RawBufferLoad<uint>(xeShared(32 + (id & 31) * 4));
 #else
     return xeLoops[(id >> 2) & 7][id & 3];
 #endif
@@ -211,7 +218,7 @@ struct XeVertexDeviceBuffer
     // hoist out of the per-vertex code. The arena is exactly 1 GiB, so the
     // clamped address is always inside it; out-of-range fetches still read 0.
     uint64_t Address(uint a, uint limit) {
-        return vk::RawBufferLoad<uint64_t>(xePush.SharedConstants + 1024, 8) + uint64_t(min(a, limit));
+        return vk::RawBufferLoad<uint64_t>(xeShared(1024), 8) + uint64_t(min(a, limit));
     }
     uint Load(uint a) {
         uint v = vk::RawBufferLoad<uint>(Address(a, 1073741824u - 4u), 4);
@@ -348,7 +355,7 @@ R"HLSL(// ---- texture fetch ----
 float2 XeTextureDimensions(Texture2D<float4> t, uint slot)
 {
     #ifdef __spirv__
-    uint packed = vk::RawBufferLoad<uint>(xePush.SharedConstants + 896 + slot * 4);
+    uint packed = vk::RawBufferLoad<uint>(xeShared(896 + slot * 4));
 #else
     uint packed = xeTextureSize[slot >> 2][slot & 3];
 #endif

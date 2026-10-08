@@ -23,6 +23,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Vulkan does less redundant GPU synchronization and clearing between passes and in presentation, with identical output: about 1.5% higher frame rate on an Adreno 840 phone.
 - Vulkan and macOS: scene geometry takes about 12% less GPU time on an Adreno 840 phone with identical output: shaders read vertex data with fewer memory round trips.
 - The renderer thread spends about 8% less CPU time per frame on GPU commands and per-draw checks (M1 Max), with identical output.
+- Vulkan and macOS: scene draws take about 5% less GPU time on an Adreno 840 phone with identical output: shaders spend less work per draw computing constant addresses.
 
 ### 简体中文
 
@@ -41,6 +42,7 @@ Brief release highlights, newest first. Dates are UTC. Technical validation is r
 - Vulkan 在 pass 之间和画面呈现时减少了多余的 GPU 同步与清屏，画面不变：Adreno 840 手机上帧率提高约 1.5%。
 - Vulkan 和 macOS：画面不变，Adreno 840 手机上场景几何体的 GPU 时间少约 12%：着色器读取顶点数据时的内存往返更少。
 - 渲染线程每帧在 GPU 命令和逐 draw 检查上少花约 8% 的 CPU 时间（M1 Max），画面不变。
+- Vulkan 和 macOS：画面不变，Adreno 840 手机上场景 draw 的 GPU 时间再少约 5%：着色器每个 draw 计算常量地址的开销更小。
 
 ## [v0.8.53](https://github.com/freefrank/LostOdysseyRecomp/releases/tag/v0.8.53) — 2026-10-07
 

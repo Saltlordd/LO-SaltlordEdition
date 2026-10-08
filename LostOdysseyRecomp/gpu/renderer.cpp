@@ -2204,8 +2204,22 @@ namespace gpu::renderer
                     }
                     g.fence = device->createCommandFence();
                     if (!g.fence) return InitFailure("command_fence.create", 0, i);
-                    g.uploadRing = device->createBuffer(RenderBufferDesc::UploadBuffer(kUploadRingSize, vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE | RenderBufferFlag::INDEX | RenderBufferFlag::STORAGE : RenderBufferFlag::NONE));
-                    if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
+                    // SPIR-V constant reads add their offset to the low address word
+                    // only (common_hlsl.h XeBankAddress), so the ring and 4 KiB of
+                    // slack must sit inside one 4 GiB window. A replacement cannot
+                    // overlap the rejected buffer, so it never straddles the same boundary.
+                    std::vector<std::unique_ptr<RenderBuffer>> straddling;
+                    for (;;) {
+                        g.uploadRing = device->createBuffer(RenderBufferDesc::UploadBuffer(kUploadRingSize, vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE | RenderBufferFlag::INDEX | RenderBufferFlag::STORAGE : RenderBufferFlag::NONE));
+                        if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
+                        if (!vulkan) break;
+                        const uint64_t address = g.uploadRing->getDeviceAddress();
+                        if (!address) return InitFailure("upload_ring.device_address", kUploadRingSize, i);
+                        if ((address >> 32) == ((address + kUploadRingSize + 4095) >> 32)) break;
+                        LOG_INFO("renderer: upload ring {} at {:#x} straddles a 4 GiB boundary; reallocating", i, address);
+                        if (straddling.size() == 3) return InitFailure("upload_ring.window", kUploadRingSize, i);
+                        straddling.push_back(std::move(g.uploadRing));
+                    }
                     g.uploadMapped = static_cast<uint8_t*>(g.uploadRing->map());
                     if (!g.uploadMapped) return InitFailure("upload_ring.map", kUploadRingSize, i);
                     g.uploadGeneration = ++uploadGenerations;
