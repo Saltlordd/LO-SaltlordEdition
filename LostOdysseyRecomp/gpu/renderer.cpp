@@ -125,6 +125,7 @@ namespace plume {
 #include <fstream>
 #include <iomanip>
 #include <future>
+#include <bitset>
 #include <set>
 #include <tuple>
 #include <map>
@@ -155,8 +156,12 @@ namespace gpu::renderer
         }
         std::mutex framePlanMutex;
         frame_plan::FramePlan committedPlan{};
+        // Bumped under framePlanMutex when committedPlan or failedPlanEpochs changes.
+        std::atomic<uint64_t> framePlanGeneration{1};
         std::mutex catalogMutex;
         std::unordered_map<uint64_t, frame_plan::SurfaceRole> catalogRoles;
+        // Bumped under catalogMutex when catalogRoles changes.
+        std::atomic<uint64_t> catalogGeneration{1};
         uint64_t CatalogKey(uint32_t surfaceInfo, uint32_t colorInfo)
         {
             return (uint64_t(colorInfo & 0xFFF) << 32) | (surfaceInfo & 0x3FFF);
@@ -1172,6 +1177,9 @@ namespace gpu::renderer
             resolution::ShadowResolutionState shadowState;
             uint32_t shadowResolution = 1;
             frame_plan::FramePlan activePlan{};
+            uint64_t activePlanGeneration = 0, shadowConfigFrame = ~0ull;
+            bool activePlanFailed = false;
+            uint32_t shadowConfigValue = 1;
             // Allocation failures are recorded by the GPU and can be observed
             // after later plan markers have already been committed.
             std::unordered_set<uint64_t> failedPlanEpochs;
@@ -1382,6 +1390,9 @@ namespace gpu::renderer
             // 2048-entry sampler heap, including the immutable host table.
             static constexpr size_t kSamplerVersionsPerBatch = 8;
             std::map<std::pair<const RenderTexture*, const RenderTexture*>, std::unique_ptr<RenderFramebuffer>> framebuffers;
+            // Last GetFramebuffer hit; cleared wherever framebuffers loses entries.
+            std::pair<const RenderTexture*, const RenderTexture*> lastFramebufferKey{};
+            RenderFramebuffer* lastFramebuffer = nullptr;
 
             std::string shaderCacheDir;
             uint32_t drawsThisFrame = 0;
@@ -1617,10 +1628,19 @@ namespace gpu::renderer
                 if (state.fail()) return;
                 std::error_code error; std::filesystem::rename(temporary, destination, error);
             }
+            // Request files are read at most every 250 ms, PollTaaLive's rate.
+            static bool RequestPollDue(std::chrono::steady_clock::time_point& next)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (now < next) return false;
+                next = now + std::chrono::milliseconds(250);
+                return true;
+            }
             void PollTaaDiagnostic()
             {
                 static const char* path = getenv("LO_TAA_DIAGNOSTIC_REQUEST");
-                if (!path) return;
+                static std::chrono::steady_clock::time_point nextPoll{};
+                if (!path || !RequestPollDue(nextPoll)) return;
                 std::ifstream input(path);
                 std::string serialText, extra;
                 int aa, jitter, history, bloom, hdr = 0, materials = 1;
@@ -1780,7 +1800,8 @@ namespace gpu::renderer
                 BeginDebugCapture();
                 if (!debugCaptureDir.empty()) return;
                 static const char* path = getenv("LO_CAPTURE_REQUEST");
-                if (!path) return;
+                static std::chrono::steady_clock::time_point nextPoll{};
+                if (!path || !RequestPollDue(nextPoll)) return;
                 {
                     std::lock_guard lock(captureMutex);
                     if (fsrCaptureBusy) return;
@@ -3998,6 +4019,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // stored together, after every other count.
             void WriteOcclusionRecords(const std::vector<gpu::occlusion::Write>& writes)
             {
+                if (!writes.empty()) g_commandProcessor.AdvanceSyncEpoch();
                 for (const auto& write : writes) {
                     if (!write.apply) continue;
                     auto* words = reinterpret_cast<uint32_t*>(Phys(write.address));
@@ -4189,6 +4211,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             i, vk_object_trace::Id(texture->allocationSerial), vk_object_trace::Id(image.vk),
                             vk_object_trace::Id(image.imageView), vk_object_trace::Id(s.temporalSerial), vk_object_trace::Id(s.srSubmissionSerial));
                     }
+                    lastFramebuffer = nullptr;
                     for (auto fb = framebuffers.begin(); fb != framebuffers.end();)
                         if (fb->first.first == texture->texture.get() || fb->first.second == texture->texture.get())
                             fb = framebuffers.erase(fb);
@@ -6508,21 +6531,25 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             bool ApplyInternalResolution()
             {
                 if (video::GpuWorkStopped()) return false;
-                frame_plan::FramePlan selected;
-                bool failed = false;
-                {
+                if (framePlanGeneration.load(std::memory_order_acquire) != activePlanGeneration) {
                     std::lock_guard lock(framePlanMutex);
-                    selected = committedPlan;
-                    failed = selected.geometryEpoch != 0 && failedPlanEpochs.contains(selected.geometryEpoch);
+                    activePlan = committedPlan;
+                    activePlanFailed = activePlan.geometryEpoch != 0 && failedPlanEpochs.contains(activePlan.geometryEpoch);
+                    activePlanGeneration = framePlanGeneration.load(std::memory_order_relaxed);
                 }
-                activePlan = selected;
-                if (failed)
+                if (activePlanFailed)
                     return false;
+                const frame_plan::FramePlan& selected = activePlan;
                 const resolution::Size requested{selected.width, selected.height};
                 const bool first = appliedPlanEpoch == ~0ull;
                 const bool requestChanged = requested != requestedInternalSize;
                 // Snapshot once per renderer frame, before borrowing draw attachments.
-                const auto desiredShadow = shadowState.BeginFrame(frame, settings::GetConfig().shadowResolution);
+                // BeginFrame reads the setting only on the first draw of a frame.
+                if (shadowConfigFrame != frame) {
+                    shadowConfigFrame = frame;
+                    shadowConfigValue = settings::GetConfig().shadowResolution;
+                }
+                const auto desiredShadow = shadowState.BeginFrame(frame, shadowConfigValue);
                 const bool shadowChanged = desiredShadow != shadowResolution;
                 const bool epochChanged = selected.geometryEpoch != appliedPlanEpoch;
                 const bool recreateFeature =
@@ -6573,6 +6600,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     restoreDebt = {};
                     promotionPool.clear();
                     framebuffers.clear();
+                    lastFramebuffer = nullptr;
                     renderTargets.clear();
                     resolved.clear();
                     tileOwner.clear();
@@ -6601,6 +6629,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     std::lock_guard lock(framePlanMutex);
                     if (!failedPlanEpochs.emplace(activePlan.geometryEpoch).second)
                         return;
+                    framePlanGeneration.fetch_add(1, std::memory_order_release);
                 }
                 const uint32_t fallback = activePlan.height > 720 ? std::max(720u, activePlan.height * 3 / 4) : 720u;
                 if (reason == frame_plan::FailureReason::Unknown)
@@ -6646,13 +6675,20 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 FailCurrentPlan();
             }
 
+            // Last catalog role per attachment kind (color, depth); draws reuse targets.
+            struct CatalogRoleCache { uint64_t key = ~0ull, generation = 0; resolution::TargetRole role{}; } catalogRoleCache[2];
             HostTexture* GetRenderTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool depth)
             {
                 // EDRAM targets have no intrinsic height and ours is only guessed
                 // from the scissor, so draws and resolves may disagree on it: key
                 // by tile base, format and pitch only and grow the texture when a
                 // taller extent shows up.
-                const auto role = ResolveCatalogRole(base, pitch);
+                auto& cachedRole = catalogRoleCache[depth];
+                const uint64_t roleKey = (uint64_t(base) << 32) | pitch;
+                if (const uint64_t generation = catalogGeneration.load(std::memory_order_acquire);
+                    cachedRole.key != roleKey || cachedRole.generation != generation)
+                    cachedRole = {roleKey, generation, ResolveCatalogRole(base, pitch)};
+                const auto role = cachedRole.role;
                 if (role == resolution::TargetRole::Shadow && shadowState.Failed() && shadowResolution > 1) return nullptr;
                 height = resolution::TargetGuestHeight(role, height);
                 // Depth formats (D24S8 / D24FS8) alias the same tiles and share our
@@ -6756,10 +6792,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // behavior remains opt-in for diagnostic A/B runs (=read); =0/none
                 // disables transfers entirely.
                 static const char* transferMode = getenv("LO_EDRAM_TRANSFER") ? getenv("LO_EDRAM_TRANSFER") : "draw";
-                const bool doTransfer = strcmp(transferMode, "0") != 0 && strcmp(transferMode, "none") != 0 &&
-                    (forRead || strcmp(transferMode, "draw") == 0);
-                auto owner = tileOwner.find({ base, pitch });
-                if (doTransfer && owner != tileOwner.end() && owner->second != colorClass)
+                static const bool transferNever = strcmp(transferMode, "0") == 0 || strcmp(transferMode, "none") == 0;
+                static const bool transferOnDraw = strcmp(transferMode, "draw") == 0;
+                const bool doTransfer = !transferNever && (forRead || transferOnDraw);
+                auto [owner, firstOwner] = tileOwner.try_emplace({ base, pitch }, colorClass);
+                if (doTransfer && !firstOwner && owner->second != colorClass)
                 {
                     auto prev = renderTargets.find(RenderTargetKey{ base, owner->second, pitch, 0, false });
                     if (prev != renderTargets.end() && prev->second && prev->second->texture && target && target->texture) {
@@ -6768,7 +6805,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         TransferRegion(*prev->second, *target, owner->second, colorClass);
                     }
                 }
-                tileOwner[{ base, pitch }] = colorClass;
+                owner->second = colorClass;
                 if (target && target == restoreDebt.target && (touchesColor || forRead)) SettleRestoreDebt();
                 return target;
             }
@@ -6778,9 +6815,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (color) MarkFgWritable(*color, "color_framebuffer");
                 if (depth) MarkFgWritable(*depth, "depth_framebuffer");
                 auto key = std::make_pair(color ? color->texture.get() : nullptr, depth ? depth->texture.get() : nullptr);
+                if (lastFramebuffer && key == lastFramebufferKey)
+                    return lastFramebuffer;
                 auto it = framebuffers.find(key);
-                if (it != framebuffers.end())
-                    return it->second.get();
+                if (it != framebuffers.end()) {
+                    lastFramebufferKey = key;
+                    return lastFramebuffer = it->second.get();
+                }
                 if (nativeVulkan && vk_object_trace::Permit()) {
                     const auto* c = static_cast<const VulkanTexture*>(key.first);
                     const auto* d = static_cast<const VulkanTexture*>(key.second);
@@ -7556,6 +7597,36 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             // ---- vertex buffers ------------------------------------------------------------
+            // A cached vertex/index source is compared with its snapshot once per
+            // sync epoch. Between two sync points only an unsynchronized guest CPU
+            // write racing the GPU can change memory a draw already read; such a
+            // write is seen at the next epoch instead of at the next draw.
+            // LO_REVALIDATE_EVERY_DRAW=1 compares on every draw; LO_REVALIDATE_VERIFY=1
+            // compares skipped sources too and logs mismatches.
+            uint64_t revalidationChecks = 0, revalidationSkips = 0, revalidationMismatches = 0;
+            uint64_t revalidationEpoch = 0;
+            template<class Matches>
+            bool SourceMatches(uint64_t& validatedEpoch, Matches&& matches, uint32_t address)
+            {
+                static const bool everyDraw = [] { const char* v = getenv("LO_REVALIDATE_EVERY_DRAW"); return v && strcmp(v, "0") != 0; }();
+                static const bool verify = [] { const char* v = getenv("LO_REVALIDATE_VERIFY"); return v && strcmp(v, "0") != 0; }();
+                const uint64_t epoch = g_commandProcessor.SyncEpoch();
+                if (!everyDraw && validatedEpoch == epoch) {
+                    ++revalidationSkips;
+                    if (!verify || matches()) return true;
+                    static uint32_t reported = 0;
+                    if (reported++ < 32)
+                        LOG_ERROR("renderer: source {:#x} changed within sync epoch {} (frame {})", address, epoch, frame);
+                    ++revalidationMismatches;
+                    validatedEpoch = 0;
+                    return false;
+                }
+                ++revalidationChecks;
+                const bool ok = matches();
+                validatedEpoch = ok ? epoch : 0;
+                return ok;
+            }
+
             // Returns the arena offset of the swapped copy of a guest vertex buffer.
             uint64_t GetVertexBuffer(uint32_t address, uint32_t sizeDwords, uint32_t endian)
             {
@@ -7576,7 +7647,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     const bool matches = [&] {
                         VertexStageTimer timer(vertexTiming.match, vertexTimingEnabled, address, bytes);
-                        return it->second.content.Matches(guest, bytes);
+                        return SourceMatches(it->second.validatedEpoch,
+                            [&] { return it->second.content.Matches(guest, bytes); }, address);
                     }();
                     if (gpu::render_arena::VertexCacheReusable(matches))
                     {
@@ -7607,6 +7679,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint64_t offset = gpu::render_arena::SlotBase(allocSlot) + local;
                 local += needed;
                 VertexEntry entry{ offset, {}, frame, uint8_t(allocSlot) };
+                entry.validatedEpoch = g_commandProcessor.SyncEpoch();
                 {
                     VertexStageTimer timer(vertexTiming.capture, vertexTimingEnabled, address, bytes);
                     entry.content.Capture(guest, bytes);
@@ -8447,9 +8520,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         // RB_COLOR_INFO.color_exp_bias (signed 6 bits at +20) scales what
                         // the hardware writes to EDRAM; log which values the title uses.
                         const int32_t bias = int32_t(colorInfo << 6) >> 26;
-                        static std::set<int32_t> seenBias;
-                        if (seenBias.insert(bias | (int32_t(cfmt) << 8)).second)
+                        static std::bitset<16 * 64> seenBias;
+                        if (const size_t seen = (cfmt << 6) | (uint32_t(bias) & 63); !seenBias.test(seen)) {
+                            seenBias.set(seen);
                             LOG_INFO("renderer: colour format {} uses exp_bias {}", cfmt, bias);
+                        }
                     }
                     float m = 1.0f;            // 8_8_8_8, 8_8_8_8_GAMMA, 2_10_10_10, _AS_10_10_10_10
                     if (cfmt == 3 || cfmt == 12) m = 31.875f;   // 2_10_10_10_FLOAT (7e3)
@@ -9476,7 +9551,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         indexKey = { info.indexBase, indexSrcCount, info.primitiveType,
                             uint8_t(info.index32 ? 1 : 0), uint8_t(info.indexEndian & 3) };
                         auto it = indexCache.find(indexKey);
-                        if (it != indexCache.end() && it->second.content.Matches(indexSrc, indexSrcBytes))
+                        if (it != indexCache.end() && SourceMatches(it->second.validatedEpoch,
+                            [&] { return it->second.content.Matches(indexSrc, indexSrcBytes); }, info.indexBase))
                         {
                             cachedIndexEntry = &it->second;
                             it->second.lastFrame = frame;
@@ -9545,6 +9621,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     entry.data = converted;
                     entry.content.Capture(indexSrc, indexSrcBytes);
                     entry.lastFrame = frame;
+                    entry.validatedEpoch = g_commandProcessor.SyncEpoch();
                     indexCache.emplace(indexKey, std::move(entry));
                     if (cpuTimingEnabled) ++indexCacheMisses;
                 }
@@ -12391,6 +12468,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         destBase, destFormat, destEndian, x0, y0, copyWidth, copyHeight, destPitch, uint32_t(color->format), nonZero, drawsThisFrame);
                 }
                 uint8_t* dst = Phys(destBase);
+                g_commandProcessor.AdvanceSyncEpoch();
                 uint32_t pitchBlocks = (destPitch + 31) & ~31u;
                 for (uint32_t y = 0; y < copyHeight; y++)
                 {
@@ -13026,6 +13104,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     r.indexCache.AllocatedBytes(), r.indexCache.PeakBytes(), r.indexCache.Evictions());
                 r.indexCacheHits = r.indexCacheMisses = 0;
             }
+            {
+                static const bool verify = [] { const char* v = getenv("LO_REVALIDATE_VERIFY"); return v && strcmp(v, "0") != 0; }();
+                auto& r = *g_renderer;
+                const uint64_t epoch = g_commandProcessor.SyncEpoch();
+                if (render_timing::Enabled() || (verify && r.frame % 60 == 0))
+                    LOG_INFO("source revalidation frame={} sync_epochs={} compared={} skipped={} verify_mismatches={} scope=since_previous_line",
+                        r.frame, epoch - r.revalidationEpoch, r.revalidationChecks, r.revalidationSkips, r.revalidationMismatches);
+                if (render_timing::Enabled() || r.frame % 60 == 0) {
+                    r.revalidationEpoch = epoch;
+                    r.revalidationChecks = r.revalidationSkips = r.revalidationMismatches = 0;
+                }
+            }
             if (render_timing::Enabled()) {
                 Renderer& r = *g_renderer;
                 const auto palette = r.samplerState.TakeDiagnostics();
@@ -13587,6 +13677,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (!plan.width || !plan.height) return;
         std::lock_guard lock(framePlanMutex);
         committedPlan = plan;
+        framePlanGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void RegisterCatalogSurface(frame_plan::SurfaceRole role, uint32_t surfaceInfo, uint32_t colorInfo)
@@ -13596,13 +13687,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         const uint64_t key = CatalogKey(surfaceInfo, colorInfo);
         const auto found = catalogRoles.find(key);
         if (role == frame_plan::SurfaceRole::Unknown) {
-            if (found != catalogRoles.end()) catalogRoles.erase(found);
+            if (found != catalogRoles.end()) {
+                catalogRoles.erase(found);
+                catalogGeneration.fetch_add(1, std::memory_order_release);
+            }
             return;
         }
         if (found != catalogRoles.end() && found->second != role)
             LOG_WARNING("renderer: catalog role conflict base={:#x} pitch={} old={} new={}", colorInfo & 0xFFF, surfaceInfo & 0x3FFF,
                 uint32_t(found->second), uint32_t(role));
+        if (found != catalogRoles.end() && found->second == role) return;
         catalogRoles[key] = role;
+        catalogGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,

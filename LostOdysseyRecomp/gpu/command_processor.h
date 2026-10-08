@@ -68,6 +68,13 @@ namespace gpu
         // Direct MMIO stores are checked separately at zero-register fallback words.
         static constexpr uint32_t kAluConstantBase = 0x4000, kAluConstantBankSize = 0x400;
         uint64_t ConstantGeneration(uint32_t bank) const { return m_constantGeneration[bank & 1].load(std::memory_order_acquire); }
+        // Advances wherever the guest and the GPU synchronize or the GPU side
+        // writes guest memory: read-pointer and scratch writeback, fences,
+        // interrupts, swaps, memory waits, occlusion records, resolve readback.
+        // A guest write to memory the GPU already read is only ordered against
+        // later draws across such a point.
+        uint64_t SyncEpoch() const { return m_syncEpoch.load(std::memory_order_relaxed); }
+        void AdvanceSyncEpoch() { m_syncEpoch.fetch_add(1, std::memory_order_relaxed); }
         // Microcode of the last IM_LOAD for the vertex (false) / pixel (true) stage.
         const uint32_t* GetActiveShader(bool pixel, uint32_t& dwordCount, uint64_t& commandHash) const;
         // Byte identity of the owned IM_LOAD snapshot; resolved once per change.
@@ -149,6 +156,7 @@ namespace gpu
         std::atomic<uint32_t> m_counter{ 0 };
         std::atomic<uint64_t> m_constantGeneration[2]{};
         std::atomic<uint64_t> m_constantDirty[2]{}; // 16-word blocks changed since the last snapshot update
+        std::atomic<uint64_t> m_syncEpoch{1};
         std::atomic<bool> m_running{ false };
 
         IndirectBufferGuard m_indirectGuard;

@@ -31,7 +31,7 @@ namespace os::shaderlog
         switch (value)
         {
         case HashNamespace::RendererByteFnv: return "renderer-byte-fnv1a64";
-        case HashNamespace::CommandWordFnv: return "command-processor-word-fnv1a64";
+        case HashNamespace::CommandWordFnv: return "command-processor-word-fnv1a64x4";
         case HashNamespace::HlslSourceSha256: return "hlsl-source-sha256";
         case HashNamespace::BuiltinKeyFnv: return "builtin-key-byte-fnv1a64";
         default: return "none";

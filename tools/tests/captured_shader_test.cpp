@@ -14,8 +14,11 @@ static uint64_t ByteReference(const std::vector<uint32_t>& words)
 }
 static uint64_t WordReference(const std::vector<uint32_t>& words)
 {
-    uint64_t hash = 14695981039346656037ull;
-    for (auto word : words) hash = (hash ^ word) * 1099511628211ull;
+    uint64_t lane[4];
+    for (uint64_t k = 0; k < 4; ++k) lane[k] = 14695981039346656037ull ^ k;
+    for (size_t i = 0; i < words.size(); ++i) lane[i % 4] = (lane[i % 4] ^ words[i]) * 1099511628211ull;
+    uint64_t hash = lane[0];
+    for (int k = 1; k < 4; ++k) hash = (hash ^ lane[k]) * 1099511628211ull;
     return hash;
 }
 struct CountingCache

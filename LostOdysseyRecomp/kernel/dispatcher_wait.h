@@ -1,6 +1,7 @@
 #pragma once
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -17,7 +18,13 @@ struct Changes {
     std::mutex mutex;
     std::condition_variable cv;
     uint64_t epoch = 0;
+    // Threads inside Multiple. A waiter counts itself before it checks the
+    // objects under their mutexes; a signaller changes its object under that
+    // object's mutex before reading the count, so a zero count means no
+    // waiter can have missed the change and the shared domain is skipped.
+    std::atomic<uint32_t> waiters{0};
     void Notify() {
+        if (!waiters.load()) return;
         { std::lock_guard lock(mutex); ++epoch; }
         cv.notify_all();
     }
@@ -104,6 +111,8 @@ inline uint32_t Multiple(std::span<Target* const> objects, bool all,
     std::sort(ordered.begin(), end, std::less<Target*>{});
     const auto uniqueEnd = std::unique(ordered.begin(), end);
     if (all && uniqueEnd != end) return Invalid;
+    changes.waiters.fetch_add(1);
+    struct Counted { ~Counted() { changes.waiters.fetch_sub(1); } } counted;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout);
     for (;;) {
         uint64_t observed;
