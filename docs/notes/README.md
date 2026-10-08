@@ -146,6 +146,7 @@
 | [Uhra City CPU Optimization Results — 2026-09-18](PERF_CITY_UHRA_RESULTS.md) | 历史 |
 | [乌斯拉城 CPU 优化实测报告 — 2026-09-18](PERF_CITY_UHRA_RESULTS.zh-CN.md) | 历史 |
 | [psvita 乌斯拉城市性能对比（发布素材草稿）](psvita-performance-comparison-2026-09-18.md) | 草案 |
+| [FSR 性能对比：v0.8.0 到 main — 2026-10-08](fsr-performance-v0.8.0-to-main-2026-10-08.zh-CN.md) | 历史 |
 | [ReBlue vs Lost Odyssey GPU 对照 — 2026-09-11](reblue-gpu-comparison.md) | 历史 |
 | [v0.5.0 性能诊断记录](v0.5.0-performance-diagnosis-2026-09-09.md) | 历史 |
 | [FreeSync / G-SYNC Compatible：应用侧VRR接入](vrr-freesync-gsync-compatible.md) | 参考 |
