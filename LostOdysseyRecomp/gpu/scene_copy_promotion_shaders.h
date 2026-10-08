@@ -32,11 +32,14 @@ float4 main(float4 pos : SV_Position) : SV_Target {
 )HLSL";
 // Drawn into the promoted target itself with an RGB-only write mask and a
 // scissor limited to the SR output: the guest copy's alpha and the guest tile
-// padding outside the SR output keep their values.
+// padding outside the SR output keep their values. xePromotion.z != 0 marks
+// linear SR output (FSR), which is display-encoded here.
 inline const std::string RgbShader = std::string(Common) + R"HLSL(
 Texture2D<float4> sr : register(t1, space1);
 float4 main(float4 pos : SV_Position) : SV_Target {
-    return float4(sr.Load(int3(int2(pos.xy), 0)).rgb, 1.0);
+    float3 rgb = sr.Load(int3(int2(pos.xy), 0)).rgb;
+    if (xePromotion.z != 0) rgb = pow(saturate(rgb), (1.0 / 2.2).xxx);
+    return float4(rgb, 1.0);
 }
 )HLSL";
 } // namespace gpu::scene_copy_promotion

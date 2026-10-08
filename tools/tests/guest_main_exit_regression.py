@@ -72,6 +72,7 @@ public:
     bool Init();
     void Shutdown();
     void RequestStopForExit();
+    void MarkConstantsChanged(uint32_t, uint64_t) {}
     void WorkerMain() {
         if (std::strcmp(mode, "already-stopped") == 0) { m_running = false; return; }
         while (m_running) std::this_thread::yield();

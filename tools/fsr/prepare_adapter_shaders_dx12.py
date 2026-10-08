@@ -22,7 +22,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     manifest = {"api": "D3D12", "compiler_sha256": sha(dxc),
                 "dxil_sha256": sha(dxc.parent / "dxil.dll"), "shaders": {}}
-    for name in ("fsr_prepare", "fsr_present"):
+    for name in ("fsr_prepare",):
         source = root / "LostOdysseyRecomp/gpu/shaders" / (name + ".hlsl")
         binary = output / (name + ".dxil")
         command = [str(dxc), "-T", "cs_6_0", "-E", "main", "-O3", "-Fo", str(binary), str(source)]

@@ -1,7 +1,9 @@
 #include <gpu/fsr_upscaler.h>
 #include <plume_d3d12.h>
 
+#include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <memory>
 #include <stdexcept>
@@ -56,10 +58,10 @@ int main() {
             auto mask = device->createTexture(RenderTextureDesc::Texture2D(render, render, 1,
                 RenderFormat::R8_UNORM, RenderTextureFlag::RENDER_TARGET));
             auto output = device->createTexture(RenderTextureDesc::Texture2D(outputSize, outputSize, 1,
-                RenderFormat::R8G8B8A8_UNORM, RenderTextureFlag::UNORDERED_ACCESS));
-            const uint32_t pitchPixels = ((outputSize * 4 + 255) / 256) * 64;
+                RenderFormat::R16G16B16A16_FLOAT, RenderTextureFlag::UNORDERED_ACCESS));
+            const uint32_t pitchPixels = ((outputSize * 8 + 255) / 256) * 32;
             auto readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(
-                uint64_t(pitchPixels) * outputSize * 4));
+                uint64_t(pitchPixels) * outputSize * 8));
             Check(color && depth && motion && invalidity && mask && output && readback,
                 "D3D12 FSR textures");
             const RenderTexture* colorAttachment[] = {color.get()};
@@ -134,7 +136,7 @@ int main() {
             continuation->barriers(RenderBarrierStage::COPY,
                 RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_SOURCE));
             continuation->copyTextureRegion(RenderTextureCopyLocation::PlacedFootprint(readback.get(),
-                RenderFormat::R8G8B8A8_UNORM, outputSize, outputSize, 1, pitchPixels),
+                RenderFormat::R16G16B16A16_FLOAT, outputSize, outputSize, 1, pitchPixels),
                 RenderTextureCopyLocation::Subresource(output.get()));
             continuation->end();
             const RenderCommandList* lists[] = {prefix.get(), isolated.get(), continuation.get()};
@@ -146,18 +148,26 @@ int main() {
             Check(nativeFence.d3d && nativeFence.d3d->GetCompletedValue() >= expectedFence,
                 "D3D12 FSR output fence");
             controller.ReleaseCompletedThrough(serial);
-            const auto* pixels = static_cast<const uint8_t*>(readback->map());
-            Check(pixels != nullptr, "D3D12 FSR readback");
+            const auto* halves = static_cast<const uint16_t*>(readback->map());
+            Check(halves != nullptr, "D3D12 FSR readback");
             const uint32_t center = outputSize / 2;
             const size_t offset = (size_t(center) * pitchPixels + center) * 4;
-            std::printf("D3D12_FSR mode=%s output=%ux%u center=%u,%u,%u,%u\n",
+            // The output is linear RGB16F; gamma-encode on the CPU to compare against the 8-bit expectation.
+            uint8_t pixels[3];
+            for (int c = 0; c < 3; ++c) {
+                const uint16_t h = halves[offset + c];
+                const int exponent = (h >> 10) & 31;
+                const float magnitude = exponent == 0 ? std::ldexp(float(h & 1023), -24) :
+                    exponent == 31 ? 1.0f : std::ldexp(float(1024 | (h & 1023)), exponent - 25);
+                const float linear = (h & 0x8000) ? 0.0f : std::min(magnitude, 1.0f);
+                pixels[c] = uint8_t(std::pow(linear, 1.0f / 2.2f) * 255.0f + .5f);
+            }
+            std::printf("D3D12_FSR mode=%s output=%ux%u center=%u,%u,%u\n",
                 quality == gpu::upscaling::FsrQuality::NativeAA ? "nativeaa" : "quality",
-                outputSize, outputSize, pixels[offset], pixels[offset + 1],
-                pixels[offset + 2], pixels[offset + 3]);
-            Check(pixels[offset] > 50 && pixels[offset] < 180 &&
-                  pixels[offset + 1] > 20 && pixels[offset + 1] < 150 &&
-                  pixels[offset + 2] > 10 && pixels[offset + 2] < 120 &&
-                  pixels[offset + 3] == 191, "D3D12 FSR produced expected color and alpha");
+                outputSize, outputSize, pixels[0], pixels[1], pixels[2]);
+            Check(pixels[0] > 50 && pixels[0] < 180 &&
+                  pixels[1] > 20 && pixels[1] < 150 &&
+                  pixels[2] > 10 && pixels[2] < 120, "D3D12 FSR produced expected color");
             readback->unmap();
             controller.ReleaseFeatureAfterGpuDrain();
         }

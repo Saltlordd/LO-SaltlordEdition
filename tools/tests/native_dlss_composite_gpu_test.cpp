@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <memory>
@@ -24,6 +25,11 @@ void Checked(VkResult result, const char* operation) {
 void Write(RenderBuffer* buffer, const void* bytes, size_t size) {
     void* mapped = buffer->map(); Require(mapped != nullptr, "upload map failed");
     std::memcpy(mapped, bytes, size); buffer->unmap();
+}
+float Half(uint64_t bits) {
+    const uint32_t h = uint32_t(bits & 0xffff), exponent = (h >> 10) & 0x1f, mantissa = h & 0x3ff;
+    const float value = exponent ? std::ldexp(float(mantissa | 0x400), int(exponent) - 25) : std::ldexp(float(mantissa), -24);
+    return (h & 0x8000) ? -value : value;
 }
 // Vulkan raster/descriptor/readback test. Deliberately no NGX, game assets,
 // renderer target-map model, or implied Gate 3 / image-quality acceptance.
@@ -112,7 +118,8 @@ public:
         rgbaPipeline_ = pipeline(rgba_.get(), 0xF); rgbPipeline_ = pipeline(rgb_.get(), 0x7);
         Require(rgbaPipeline_ && rgbPipeline_, "graphics pipeline creation failed");
     }
-    void Run(bool composite, uint32_t baseWidth, uint32_t baseHeight, uint32_t srWidth, uint32_t srHeight) {
+    // encode: the SR output is linear (FSR) and the composite display-encodes it.
+    void Run(bool composite, uint32_t baseWidth, uint32_t baseHeight, uint32_t srWidth, uint32_t srHeight, bool encode = false) {
         const auto texture = [&](uint32_t w, uint32_t h, bool rt) {
             return device_->createTexture(RenderTextureDesc::Texture2D(w, h, 1, RenderFormat::R16G16B16A16_FLOAT,
                 rt ? RenderTextureFlag::RENDER_TARGET : RenderTextureFlag::NONE));
@@ -136,6 +143,7 @@ public:
         std::array<uint32_t, 64> constants{};
         constants[60] = std::bit_cast<uint32_t>(float(baseWidth) / Width);
         constants[61] = std::bit_cast<uint32_t>(float(baseHeight) / Height);
+        constants[62] = encode ? 1u : 0u;
         Write(constants_.get(), constants.data(), sizeof(constants));
         sets_[1]->setTexture(0, base.get(), RenderTextureLayout::SHADER_READ);
         sets_[1]->setTexture(1, scratch.get(), RenderTextureLayout::SHADER_READ);
@@ -162,13 +170,25 @@ public:
         for (unsigned y = 0; y < Height; ++y) for (unsigned x = 0; x < Width; ++x) {
             const unsigned bx = unsigned((x + .5f) * baseWidth / Width), by = unsigned((y + .5f) * baseHeight / Height);
             const uint64_t b = basePixels[by * baseWidth + bx];
-            const uint64_t expected = composite && x < srWidth && y < srHeight ?
-                (srPixels[y * srWidth + x] & 0x0000ffffffffffffull) | (b & 0xffff000000000000ull) : b;
-            mismatches += pixels[y * RowPixels + x] != expected;
+            const bool sr = composite && x < srWidth && y < srHeight;
+            const uint64_t actual = pixels[y * RowPixels + x];
+            if (sr && encode) {
+                // GPU pow rounds differently from the CPU; alpha must stay exact.
+                bool ok = (actual >> 48) == (b >> 48);
+                for (unsigned c = 0; c < 3; ++c) {
+                    const float linear = std::clamp(Half(srPixels[y * srWidth + x] >> (16 * c)), 0.0f, 1.0f);
+                    ok = ok && std::fabs(Half(actual >> (16 * c)) - std::pow(linear, 1.0f / 2.2f)) <= 2e-3f;
+                }
+                mismatches += !ok;
+                continue;
+            }
+            const uint64_t expected = sr ? (srPixels[y * srWidth + x] & 0x0000ffffffffffffull) | (b & 0xffff000000000000ull) : b;
+            mismatches += actual != expected;
         }
         readback_->unmap();
         std::printf("%s base=%ux%u scratch=%ux%u output=8x8 fp16 checked=64 mismatches=%u\n",
-            composite ? "RGB_ALPHA_PADDING" : "RGBA_RESAMPLE", baseWidth, baseHeight, srWidth, srHeight, mismatches);
+            !composite ? "RGBA_RESAMPLE" : encode ? "RGB_ENCODE_ALPHA_PADDING" : "RGB_ALPHA_PADDING",
+            baseWidth, baseHeight, srWidth, srHeight, mismatches);
         Require(!mismatches, "production shader pixel mismatch");
     }
 };
@@ -180,7 +200,8 @@ int main() {
         fixture.Run(true, 8, 8, 8, 8);
         fixture.Run(true, 8, 8, 6, 5);
         fixture.Run(true, 4, 4, 5, 7);
-        std::puts("PASS: 256 exact RGBA pixel checks; no NGX or renderer mapping execution claimed");
+        fixture.Run(true, 8, 8, 6, 5, true);
+        std::puts("PASS: 320 RGBA pixel checks; no NGX or renderer mapping execution claimed");
         return 0;
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAIL: %s\n", error.what()); return 1;

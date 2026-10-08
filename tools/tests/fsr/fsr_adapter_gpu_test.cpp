@@ -78,7 +78,7 @@ struct Fixture {
         output = NewOutput(kRender);
         Check(color && depth && motion && invalidity && mask && output, "input and output images");
         upload = device->createBuffer(RenderBufferDesc::UploadBuffer(5 * kUploadImageBytes));
-        readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(128 * 128 * 4));
+        readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(128 * 128 * 8));
         Check(upload && readback, "staging buffers");
         UploadInputs();
         inputs.plan.consumer = gpu::upscaling::TemporalConsumer::FsrSr;
@@ -103,7 +103,7 @@ struct Fixture {
 
     std::unique_ptr<RenderTexture> NewOutput(uint32_t size) {
         return device->createTexture(RenderTextureDesc::Texture2D(size, size, 1,
-            RenderFormat::R8G8B8A8_UNORM, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
+            RenderFormat::R16G16B16A16_FLOAT, RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
     }
 
     void UploadInputs(uint8_t blue = 128) {
@@ -159,13 +159,22 @@ struct Fixture {
         readbackList->barriers(RenderBarrierStage::COPY,
             RenderTextureBarrier(output.get(), RenderTextureLayout::COPY_SOURCE));
         readbackList->copyTextureRegion(
-            RenderTextureCopyLocation::PlacedFootprint(readback.get(), RenderFormat::R8G8B8A8_UNORM,
+            RenderTextureCopyLocation::PlacedFootprint(readback.get(), RenderFormat::R16G16B16A16_FLOAT,
                 size, size, 1, size), RenderTextureCopyLocation::Subresource(output.get()));
         readbackList->end();
         Submit(Device(), Queue(), *fence, {readbackList.get()});
-        const auto* pixels = static_cast<const uint8_t*>(readback->map());
-        Check(pixels != nullptr, "map readback");
-        std::vector<uint8_t> copy(pixels, pixels + size * size * 4);
+        const auto* halves = static_cast<const uint16_t*>(readback->map());
+        Check(halves != nullptr, "map readback");
+        // The output is linear RGB16F; gamma-encode on the CPU as the renderer composite does.
+        std::vector<uint8_t> copy(size_t(size) * size * 4, 255);
+        for (size_t i = 0; i < size_t(size) * size; ++i) for (int c = 0; c < 3; ++c) {
+            const uint16_t h = halves[i * 4 + c];
+            const int exponent = (h >> 10) & 31;
+            const float magnitude = exponent == 0 ? std::ldexp(float(h & 1023), -24) :
+                exponent == 31 ? 1.0f : std::ldexp(float(1024 | (h & 1023)), exponent - 25);
+            const float linear = (h & 0x8000) ? 0.0f : std::min(magnitude, 1.0f);
+            copy[i * 4 + c] = uint8_t(std::pow(linear, 1.0f / 2.2f) * 255.0f + .5f);
+        }
         readback->unmap();
         return copy;
     }
@@ -179,7 +188,6 @@ struct Fixture {
         Check(pixels[center] > 40 && pixels[center] < 200, "red gradient/gamma");
         Check(pixels[center + 1] > 65 && pixels[center + 1] < 220, "green gradient/gamma");
         Check(pixels[center + 2] > 70 && pixels[center + 2] < 190, "blue gamma roundtrip");
-        Check(pixels[center + 3] == 192, "guest alpha carried through");
         std::printf("FSR output %ux%u center RGBA=%u,%u,%u,%u\n", size, size,
             pixels[center], pixels[center + 1], pixels[center + 2], pixels[center + 3]);
     }

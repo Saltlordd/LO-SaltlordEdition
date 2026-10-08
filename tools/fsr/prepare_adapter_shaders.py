@@ -16,7 +16,7 @@ def main():
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     manifest = {"compiler_sha256": hashlib.sha256(args.glslang.read_bytes()).hexdigest(), "shaders": {}}
-    for name in ["fsr_prepare", "fsr_present"]:
+    for name in ["fsr_prepare"]:
         source = root / "LostOdysseyRecomp/gpu/shaders" / (name + ".comp")
         binary = output / (name + ".spv")
         command = [str(args.glslang.resolve()), "-V", "--target-env", "vulkan1.2", "-S", "comp",

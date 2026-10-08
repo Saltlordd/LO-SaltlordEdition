@@ -18,7 +18,6 @@
 #include <FidelityFX/host/ffx_fsr3upscaler.h>
 #include <FidelityFX/host/backends/dx12/ffx_dx12.h>
 #include "fsr_prepare_dxil.h"
-#include "fsr_present_dxil.h"
 #endif
 
 namespace gpu::fsr {
@@ -34,8 +33,7 @@ struct PrepareConstants {
     uint32_t maskEnabled;
     float reactiveMax;
 };
-struct PresentConstants { int32_t width, height, renderWidth, renderHeight, colorX, colorY; };
-static_assert(sizeof(PrepareConstants) % 4 == 0 && sizeof(PresentConstants) % 4 == 0);
+static_assert(sizeof(PrepareConstants) % 4 == 0);
 
 bool DeviceLost(HRESULT result) {
     return result == DXGI_ERROR_DEVICE_REMOVED || result == DXGI_ERROR_DEVICE_RESET ||
@@ -214,9 +212,9 @@ struct D3D12Backend::Impl {
     bool contextReady = false, poisoned = false, sharedInitialized = false;
     bool reactiveScratchUnavailable = false;
     std::unique_ptr<plume::D3D12Texture> dilatedDepth, dilatedMotion, previousDepth;
-    std::unique_ptr<plume::D3D12Texture> linearColor, canonicalDepth, reactiveMask, sdkOutput;
-    ComPtr<ID3D12RootSignature> prepareSignature, presentSignature;
-    ComPtr<ID3D12PipelineState> preparePipeline, presentPipeline;
+    std::unique_ptr<plume::D3D12Texture> linearColor, canonicalDepth, reactiveMask;
+    ComPtr<ID3D12RootSignature> prepareSignature;
+    ComPtr<ID3D12PipelineState> preparePipeline;
     ComPtr<ID3D12CommandQueue> queue;
     struct Use {
         uint64_t id = 0, serial = 0;
@@ -236,9 +234,7 @@ struct D3D12Backend::Impl {
         uses.clear(); queue.Reset();
         dilatedDepth.reset(); dilatedMotion.reset(); previousDepth.reset();
         linearColor.reset(); canonicalDepth.reset(); reactiveMask.reset();
-        sdkOutput.reset();
-        preparePipeline.Reset(); presentPipeline.Reset();
-        prepareSignature.Reset(); presentSignature.Reset();
+        preparePipeline.Reset(); prepareSignature.Reset();
         reactiveScratchUnavailable = false;
         lastRecordedRenderFrameId.reset(); lastGuardDiagnosticConfig.reset();
         lastGuardDiagnosticRequestSignature = lastGuardDiagnosticGeometryEpoch = 0;
@@ -324,21 +320,14 @@ Status D3D12Backend::EnsureSession(plume::D3D12Device& device, const Config& con
         plume::RenderFormat::R16G16B16A16_FLOAT);
     impl_->canonicalDepth = CreateTexture(device, config.renderWidth, config.renderHeight,
         plume::RenderFormat::R32_FLOAT);
-    impl_->sdkOutput = CreateTexture(device, config.outputWidth, config.outputHeight,
-        plume::RenderFormat::R16G16B16A16_FLOAT);
     if (!impl_->dilatedDepth || !impl_->dilatedMotion || !impl_->previousDepth ||
-        !impl_->linearColor || !impl_->canonicalDepth || !impl_->sdkOutput)
+        !impl_->linearColor || !impl_->canonicalDepth)
         return impl_->Fail("D3D12Device::createTexture(FSR shared or conversion)", 0, started);
     HRESULT error = S_OK;
     if (!MakePipeline(device, 3, 3, sizeof(PrepareConstants) / 4,
         lo_fsr_prepare_dxil, lo_fsr_prepare_dxil_size,
         impl_->prepareSignature, impl_->preparePipeline, error))
         return impl_->Fail("D3D12CreateComputePipelineState(prepare)", error, started,
-            DeviceLost(error) ? Status::DeviceLost : Status::Failed);
-    if (!MakePipeline(device, 2, 1, sizeof(PresentConstants) / 4,
-        lo_fsr_present_dxil, lo_fsr_present_dxil_size,
-        impl_->presentSignature, impl_->presentPipeline, error))
-        return impl_->Fail("D3D12CreateComputePipelineState(present)", error, started,
             DeviceLost(error) ? Status::DeviceLost : Status::Failed);
     impl_->diagnostics.lastPrepareMilliseconds =
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
@@ -389,7 +378,7 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
         !MatchesTexture(motion, inputs.motion, impl_->device, DXGI_FORMAT_R16G16_FLOAT,
             plume::RenderTextureLayout::SHADER_READ) ||
         !MatchesTexture(output, {&output, {output.desc.width, output.desc.height}, 0, 0,
-            output.desc.width, output.desc.height}, impl_->device, DXGI_FORMAT_R8G8B8A8_UNORM,
+            output.desc.width, output.desc.height}, impl_->device, DXGI_FORMAT_R16G16B16A16_FLOAT,
             plume::RenderTextureLayout::GENERAL)) {
         reject("native_format_or_state"); return attempt;
     }
@@ -414,7 +403,7 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
     }
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
     heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heapDesc.NumDescriptors = 9;
+    heapDesc.NumDescriptors = 6;
     heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
     Impl::Use use{};
     const HRESULT heapResult = impl_->device->d3d->CreateDescriptorHeap(&heapDesc,
@@ -431,10 +420,6 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
     WriteUav(*impl_->device, use.descriptors.Get(), 4, *impl_->canonicalDepth);
     WriteUav(*impl_->device, use.descriptors.Get(), 5,
         maskDecision.useReactive ? *impl_->reactiveMask : *impl_->canonicalDepth);
-    WriteSrv(*impl_->device, use.descriptors.Get(), 6, *impl_->sdkOutput);
-    WriteSrv(*impl_->device, use.descriptors.Get(), 7, color);
-    // The encode pass writes the caller's output directly; no output-size copy.
-    WriteUav(*impl_->device, use.descriptors.Get(), 8, output);
     use.id = impl_->nextUse++;
     use.initializedShared = !impl_->sharedInitialized;
     attempt.useId = use.id;
@@ -463,7 +448,6 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
     };
     uav(*impl_->linearColor); uav(*impl_->canonicalDepth);
     if (maskDecision.useReactive) uav(*impl_->reactiveMask);
-    uav(*impl_->sdkOutput);
     if (!impl_->sharedInitialized) {
         uav(*impl_->dilatedDepth); uav(*impl_->dilatedMotion); uav(*impl_->previousDepth);
     }
@@ -471,8 +455,7 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
     cmd->SetDescriptorHeaps(1, &heap);
     cmd->SetComputeRootSignature(impl_->prepareSignature.Get());
     cmd->SetPipelineState(impl_->preparePipeline.Get());
-    auto gpuHandle = heap->GetGPUDescriptorHandleForHeapStart();
-    cmd->SetComputeRootDescriptorTable(0, gpuHandle);
+    cmd->SetComputeRootDescriptorTable(0, heap->GetGPUDescriptorHandleForHeapStart());
     const PrepareConstants prepare{int32_t(inputs.color.x), int32_t(inputs.color.y),
         int32_t(inputs.depth.x), int32_t(inputs.depth.y), int32_t(config.renderWidth),
         int32_t(config.renderHeight), frame.depthScale, frame.depthBias,
@@ -497,8 +480,9 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
         FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
     dispatch.reconstructedPrevNearestDepth = MakeResource(*impl_->previousDepth,
         FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
-    dispatch.output = MakeResource(*impl_->sdkOutput,
-        FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
+    // The SDK writes linear RGB straight into the caller's output; the
+    // renderer's composite encodes it, so no output-size pass runs here.
+    dispatch.output = MakeResource(output, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
     dispatch.jitterOffset = {float(inputs.jitter.pixelX), float(inputs.jitter.pixelY)};
     dispatch.motionVectorScale = {1.0f, 1.0f};
     dispatch.renderSize = {config.renderWidth, config.renderHeight};
@@ -514,21 +498,6 @@ Attempt D3D12Backend::RecordIsolated(plume::D3D12CommandList& commands, const Co
     dispatch.viewSpaceToMetersFactor = frame.viewSpaceToMetersFactor;
     const auto sdkResult = ffxFsr3UpscalerContextDispatch(impl_->context.get(), &dispatch);
     attempt.sdkResult = int32_t(sdkResult);
-    if (sdkResult == FFX_OK) {
-        srv(*impl_->sdkOutput);
-        cmd->SetDescriptorHeaps(1, &heap); // SDK binds its own heap.
-        cmd->SetComputeRootSignature(impl_->presentSignature.Get());
-        cmd->SetPipelineState(impl_->presentPipeline.Get());
-        const auto increment = impl_->device->d3d->GetDescriptorHandleIncrementSize(
-            D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        gpuHandle.ptr += UINT64(6) * increment;
-        cmd->SetComputeRootDescriptorTable(0, gpuHandle);
-        const PresentConstants present{int32_t(config.outputWidth), int32_t(config.outputHeight),
-            int32_t(config.renderWidth), int32_t(config.renderHeight),
-            int32_t(inputs.color.x), int32_t(inputs.color.y)};
-        cmd->SetComputeRoot32BitConstants(1, sizeof(present) / 4, &present, 0);
-        cmd->Dispatch((config.outputWidth + 7) / 8, (config.outputHeight + 7) / 8, 1);
-    }
     const HRESULT closeResult = cmd->Close();
     attempt.vkResult = int32_t(closeResult);
     commands.open = false;

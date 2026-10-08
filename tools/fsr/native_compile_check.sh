@@ -13,7 +13,6 @@ glslang="$3"
 cd "$root"
 python3 tools/fsr/prepare_adapter_shaders.py --glslang "$glslang" --output "$out/shaders"
 spirv-val --target-env vulkan1.2 "$out/shaders/fsr_prepare.spv"
-spirv-val --target-env vulkan1.2 "$out/shaders/fsr_present.spv"
 # Match the production Linux public context overlay; do not edit the SDK.
 python3 - "$sdk" "$out" <<'PY'
 from pathlib import Path

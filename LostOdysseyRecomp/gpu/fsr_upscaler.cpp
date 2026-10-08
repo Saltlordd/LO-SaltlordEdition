@@ -26,7 +26,6 @@
 #include <FidelityFX/host/ffx_fsr3upscaler.h>
 #include <FidelityFX/host/backends/vk/ffx_vk.h>
 #include "fsr_prepare_spv.h"
-#include "fsr_present_spv.h"
 #endif
 
 namespace gpu::fsr {
@@ -193,7 +192,6 @@ struct PrepareConstants {
     uint32_t maskEnabled;
     float reactiveMax;
 };
-struct PresentConstants { int32_t width, height, renderWidth, renderHeight, colorX, colorY; };
 
 VkDescriptorSetLayout MakeLayout(VkDevice device, uint32_t sampled, uint32_t storage, VkResult& error) {
     std::vector<VkDescriptorSetLayoutBinding> bindings;
@@ -260,16 +258,16 @@ struct Controller::Impl {
     bool poisoned = false;
     bool sharedInitialized = false;
     std::unique_ptr<plume::VulkanTexture> dilatedDepth, dilatedMotion, previousDepth;
-    std::unique_ptr<plume::VulkanTexture> linearColor, canonicalDepth, reactiveMask, sdkOutput;
+    std::unique_ptr<plume::VulkanTexture> linearColor, canonicalDepth, reactiveMask;
     bool reactiveScratchUnavailable = false;
     bool reactiveMaskInitialized = false;
     VkSampler sampler = VK_NULL_HANDLE;
     VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-    VkDescriptorSetLayout prepareSetLayout = VK_NULL_HANDLE, presentSetLayout = VK_NULL_HANDLE;
-    VkPipelineLayout prepareLayout = VK_NULL_HANDLE, presentLayout = VK_NULL_HANDLE;
-    VkPipeline preparePipeline = VK_NULL_HANDLE, presentPipeline = VK_NULL_HANDLE;
+    VkDescriptorSetLayout prepareSetLayout = VK_NULL_HANDLE;
+    VkPipelineLayout prepareLayout = VK_NULL_HANDLE;
+    VkPipeline preparePipeline = VK_NULL_HANDLE;
     struct Use {
-        uint64_t id, serial; VkDescriptorSet prepare, present; bool initializedShared, ready;
+        uint64_t id, serial; VkDescriptorSet prepare; bool initializedShared, ready;
         VkQueryPool timing = VK_NULL_HANDLE;
         uint64_t frame = 0, request = 0, epoch = 0;
         Config timingConfig{};
@@ -379,21 +377,18 @@ struct Controller::Impl {
             const VkDevice vk = device->vk;
             for (auto pool : timingPools) vkDestroyQueryPool(vk, pool, nullptr);
             if (preparePipeline) vkDestroyPipeline(vk, preparePipeline, nullptr);
-            if (presentPipeline) vkDestroyPipeline(vk, presentPipeline, nullptr);
             if (prepareLayout) vkDestroyPipelineLayout(vk, prepareLayout, nullptr);
-            if (presentLayout) vkDestroyPipelineLayout(vk, presentLayout, nullptr);
             if (prepareSetLayout) vkDestroyDescriptorSetLayout(vk, prepareSetLayout, nullptr);
-            if (presentSetLayout) vkDestroyDescriptorSetLayout(vk, presentSetLayout, nullptr);
             if (descriptorPool) vkDestroyDescriptorPool(vk, descriptorPool, nullptr);
             if (sampler) vkDestroySampler(vk, sampler, nullptr);
         }
-        preparePipeline = presentPipeline = VK_NULL_HANDLE;
-        prepareLayout = presentLayout = VK_NULL_HANDLE;
-        prepareSetLayout = presentSetLayout = VK_NULL_HANDLE;
+        preparePipeline = VK_NULL_HANDLE;
+        prepareLayout = VK_NULL_HANDLE;
+        prepareSetLayout = VK_NULL_HANDLE;
         descriptorPool = VK_NULL_HANDLE;
         sampler = VK_NULL_HANDLE;
         dilatedDepth.reset(); dilatedMotion.reset(); previousDepth.reset();
-        linearColor.reset(); canonicalDepth.reset(); reactiveMask.reset(); sdkOutput.reset();
+        linearColor.reset(); canonicalDepth.reset(); reactiveMask.reset();
         reactiveScratchUnavailable = false;
         reactiveMaskInitialized = false;
         uses.clear();
@@ -417,25 +412,16 @@ struct Controller::Impl {
         if (result != VK_SUCCESS) { diagnostics.failedApi = "vkCreateSampler"; diagnostics.rawResult = result; return false; }
         prepareSetLayout = MakeLayout(vk, 3, 3, result);
         if (!prepareSetLayout) { diagnostics.failedApi = "vkCreateDescriptorSetLayout(prepare)"; diagnostics.rawResult = result; return false; }
-        presentSetLayout = MakeLayout(vk, 2, 1, result);
-        if (!presentSetLayout) { diagnostics.failedApi = "vkCreateDescriptorSetLayout(present)"; diagnostics.rawResult = result; return false; }
-        if (!prepareSetLayout || !presentSetLayout) return false;
         prepareLayout = MakePipelineLayout(vk, prepareSetLayout, sizeof(PrepareConstants), result);
         if (!prepareLayout) { diagnostics.failedApi = "vkCreatePipelineLayout(prepare)"; diagnostics.rawResult = result; return false; }
-        presentLayout = MakePipelineLayout(vk, presentSetLayout, sizeof(PresentConstants), result);
-        if (!presentLayout) { diagnostics.failedApi = "vkCreatePipelineLayout(present)"; diagnostics.rawResult = result; return false; }
-        if (!prepareLayout || !presentLayout) return false;
         const char* shaderApi = nullptr;
         preparePipeline = MakePipeline(vk, prepareLayout, lo_fsr_prepare_spv, sizeof(lo_fsr_prepare_spv), result, shaderApi);
         if (!preparePipeline) { diagnostics.failedApi = std::string(shaderApi) + "(prepare)"; diagnostics.rawResult = result; return false; }
-        presentPipeline = MakePipeline(vk, presentLayout, lo_fsr_present_spv, sizeof(lo_fsr_present_spv), result, shaderApi);
-        if (!presentPipeline) { diagnostics.failedApi = std::string(shaderApi) + "(present)"; diagnostics.rawResult = result; return false; }
-        if (!preparePipeline || !presentPipeline) return false;
-        VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 5 * 128},
-            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4 * 128}};
+        VkDescriptorPoolSize sizes[] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 3 * 128},
+            {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 * 128}};
         VkDescriptorPoolCreateInfo pool{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         pool.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-        pool.maxSets = 2 * 128;
+        pool.maxSets = 128;
         pool.poolSizeCount = 2;
         pool.pPoolSizes = sizes;
         result = vkCreateDescriptorPool(vk, &pool, nullptr, &descriptorPool);
@@ -443,24 +429,16 @@ struct Controller::Impl {
         return true;
     }
 
-    VkResult AllocateSets(VkDescriptorSet& prepare, VkDescriptorSet& present) {
-        VkDescriptorSetLayout layouts[] = {prepareSetLayout, presentSetLayout};
-        VkDescriptorSet sets[2]{};
+    VkResult AllocateSets(VkDescriptorSet& prepare) {
         VkDescriptorSetAllocateInfo info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
         info.descriptorPool = descriptorPool;
-        info.descriptorSetCount = 2;
-        info.pSetLayouts = layouts;
-        const VkResult result = vkAllocateDescriptorSets(device->vk, &info, sets);
-        if (result != VK_SUCCESS) return result;
-        prepare = sets[0]; present = sets[1];
-        return VK_SUCCESS;
+        info.descriptorSetCount = 1;
+        info.pSetLayouts = &prepareSetLayout;
+        return vkAllocateDescriptorSets(device->vk, &info, &prepare);
     }
 
     void FreeSets(const Use& use) {
-        if (device && descriptorPool) {
-            VkDescriptorSet sets[] = {use.prepare, use.present};
-            vkFreeDescriptorSets(device->vk, descriptorPool, 2, sets);
-        }
+        if (device && descriptorPool) vkFreeDescriptorSets(device->vk, descriptorPool, 1, &use.prepare);
     }
 #endif
 };
@@ -577,9 +555,8 @@ Status Controller::EnsureSession(plume::VulkanDevice& device, const Config& conf
     impl_->previousDepth = makeShared(shared.reconstructedPrevNearestDepth);
     impl_->linearColor = CreateTexture(device, config.renderWidth, config.renderHeight, plume::RenderFormat::R16G16B16A16_FLOAT);
     impl_->canonicalDepth = CreateTexture(device, config.renderWidth, config.renderHeight, plume::RenderFormat::R32_FLOAT);
-    impl_->sdkOutput = CreateTexture(device, config.outputWidth, config.outputHeight, plume::RenderFormat::R16G16B16A16_FLOAT);
     if (!impl_->dilatedDepth || !impl_->dilatedMotion || !impl_->previousDepth ||
-        !impl_->linearColor || !impl_->canonicalDepth || !impl_->sdkOutput)
+        !impl_->linearColor || !impl_->canonicalDepth)
         return impl_->Fail("VulkanDevice::createTexture(FSR shared or conversion)", 0, started);
     if (!impl_->CreatePipelines()) {
         const std::string api = impl_->diagnostics.failedApi;
@@ -627,7 +604,7 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
         };
         std::fprintf(stderr,
             "FSR record guard rejected: frame=%llu reason=%s request=0x%llx geometry_epoch=%llu config=%ux%u->%ux%u quality=%u device_epoch=%llu"
-            " expected_formats={color:R8G8B8A8_UNORM,depth:R32_SFLOAT,motion:R16G16_SFLOAT,output:R8G8B8A8_UNORM}",
+            " expected_formats={color:R8G8B8A8_UNORM,depth:R32_SFLOAT,motion:R16G16_SFLOAT,output:R16G16B16A16_SFLOAT}",
             static_cast<unsigned long long>(inputs.renderFrameId), reason,
             static_cast<unsigned long long>(inputs.plan.requestSignature),
             static_cast<unsigned long long>(inputs.plan.geometryEpoch),
@@ -655,7 +632,7 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
         color.imageFormat != VK_FORMAT_R8G8B8A8_UNORM ||
         depth.imageFormat != VK_FORMAT_R32_SFLOAT ||
         motion.imageFormat != VK_FORMAT_R16G16_SFLOAT ||
-        output.imageFormat != VK_FORMAT_R8G8B8A8_UNORM ||
+        output.imageFormat != VK_FORMAT_R16G16B16A16_SFLOAT ||
         color.textureLayout != plume::RenderTextureLayout::SHADER_READ ||
         depth.textureLayout != plume::RenderTextureLayout::SHADER_READ ||
         motion.textureLayout != plume::RenderTextureLayout::SHADER_READ ||
@@ -664,7 +641,7 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
             color.imageFormat != VK_FORMAT_R8G8B8A8_UNORM ? "color_format" :
             depth.imageFormat != VK_FORMAT_R32_SFLOAT ? "depth_format" :
             motion.imageFormat != VK_FORMAT_R16G16_SFLOAT ? "motion_format" :
-            output.imageFormat != VK_FORMAT_R8G8B8A8_UNORM ? "output_format" :
+            output.imageFormat != VK_FORMAT_R16G16B16A16_SFLOAT ? "output_format" :
             color.textureLayout != plume::RenderTextureLayout::SHADER_READ ? "color_layout" :
             depth.textureLayout != plume::RenderTextureLayout::SHADER_READ ? "depth_layout" :
             motion.textureLayout != plume::RenderTextureLayout::SHADER_READ ? "motion_layout" :
@@ -691,14 +668,14 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
     const plume::VulkanTexture* mask = maskDecision.useReactive ?
         static_cast<const plume::VulkanTexture*>(inputs.fsrMask.sceneContribution.texture) : &color;
 
-    VkDescriptorSet prepare = VK_NULL_HANDLE, present = VK_NULL_HANDLE;
-    if (const VkResult allocate = impl_->AllocateSets(prepare, present); allocate != VK_SUCCESS) {
+    VkDescriptorSet prepare = VK_NULL_HANDLE;
+    if (const VkResult allocate = impl_->AllocateSets(prepare); allocate != VK_SUCCESS) {
         attempt.vkResult = int32_t(allocate);
         attempt.status = allocate == VK_ERROR_DEVICE_LOST ? Status::DeviceLost : Status::Failed;
         return attempt;
     }
     const uint64_t useId = impl_->nextUse++;
-    impl_->uses.push_back({useId, 0, prepare, present, !impl_->sharedInitialized, false});
+    impl_->uses.push_back({useId, 0, prepare, !impl_->sharedInitialized, false});
     attempt.useId = useId;
 
     VkDescriptorImageInfo prepareImages[] = {
@@ -710,23 +687,17 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
         {VK_NULL_HANDLE, maskDecision.useReactive ? impl_->reactiveMask->imageView : impl_->canonicalDepth->imageView,
             VK_IMAGE_LAYOUT_GENERAL}
     };
-    VkDescriptorImageInfo presentImages[] = {
-        {impl_->sampler, impl_->sdkOutput->imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        {impl_->sampler, color.imageView, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL},
-        // The encode pass writes the caller's output directly; no output-size copy.
-        {VK_NULL_HANDLE, output.imageView, VK_IMAGE_LAYOUT_GENERAL}
-    };
-    VkWriteDescriptorSet writes[9]{};
-    for (uint32_t i = 0; i < 9; ++i) {
+    VkWriteDescriptorSet writes[6]{};
+    for (uint32_t i = 0; i < 6; ++i) {
         auto& write = writes[i];
         write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet = i < 6 ? prepare : present;
-        write.dstBinding = i < 6 ? i : i - 6;
-        write.descriptorType = (i < 3 || i == 6 || i == 7) ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        write.dstSet = prepare;
+        write.dstBinding = i;
+        write.descriptorType = i < 3 ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
         write.descriptorCount = 1;
-        write.pImageInfo = i < 6 ? &prepareImages[i] : &presentImages[i - 6];
+        write.pImageInfo = &prepareImages[i];
     }
-    vkUpdateDescriptorSets(impl_->device->vk, 9, writes, 0, nullptr);
+    vkUpdateDescriptorSets(impl_->device->vk, 6, writes, 0, nullptr);
 
     const VkResult resetResult = commands.vk ? vkResetCommandBuffer(commands.vk, 0) : VK_ERROR_INITIALIZATION_FAILED;
     if (resetResult != VK_SUCCESS) {
@@ -760,7 +731,8 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
         Barrier(cmd, impl_->reactiveMask->vk,
             impl_->reactiveMaskInitialized ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_GENERAL);
-    Barrier(cmd, impl_->sdkOutput->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    // The caller's output is already GENERAL; order the SDK's UAV writes after its prior uses.
+    Barrier(cmd, output.vk, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
     if (!impl_->sharedInitialized) {
         Barrier(cmd, impl_->dilatedDepth->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
         Barrier(cmd, impl_->dilatedMotion->vk, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
@@ -803,7 +775,7 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
     dispatch.dilatedDepth = MakeResource(*impl_->dilatedDepth, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
     dispatch.dilatedMotionVectors = MakeResource(*impl_->dilatedMotion, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
     dispatch.reconstructedPrevNearestDepth = MakeResource(*impl_->previousDepth, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
-    dispatch.output = MakeResource(*impl_->sdkOutput, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
+    dispatch.output = MakeResource(output, FFX_RESOURCE_STATE_UNORDERED_ACCESS, FFX_RESOURCE_USAGE_UAV);
     dispatch.jitterOffset = {float(inputs.jitter.pixelX), float(inputs.jitter.pixelY)};
     dispatch.motionVectorScale = {1.0f, 1.0f};
     dispatch.renderSize = {config.renderWidth, config.renderHeight};
@@ -854,17 +826,8 @@ Attempt Controller::RecordIsolated(plume::VulkanCommandList& commands, const Con
         if (result != FFX_OK) capture->reason = "sdk_dispatch_failed";
     }
     if (result == FFX_OK) {
-        Barrier(cmd, impl_->sdkOutput->vk, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->presentPipeline);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, impl_->presentLayout,
-            0, 1, &present, 0, nullptr);
-        const PresentConstants presentParams{int32_t(config.outputWidth), int32_t(config.outputHeight),
-            int32_t(config.renderWidth), int32_t(config.renderHeight),
-            int32_t(inputs.color.x), int32_t(inputs.color.y)};
-        vkCmdPushConstants(cmd, impl_->presentLayout, VK_SHADER_STAGE_COMPUTE_BIT,
-            0, sizeof(presentParams), &presentParams);
-        vkCmdDispatch(cmd, (config.outputWidth + 7) / 8, (config.outputHeight + 7) / 8, 1);
-        Barrier(cmd, impl_->sdkOutput->vk, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_GENERAL);
+        // The SDK wrote the caller's GENERAL output (linear); make its UAV writes available.
+        Barrier(cmd, output.vk, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL);
         if (impl_->uses.back().timing)
             vkCmdWriteTimestamp(cmd, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, impl_->uses.back().timing, 1);
         if (capture) capture->AfterFsr(cmd, output);

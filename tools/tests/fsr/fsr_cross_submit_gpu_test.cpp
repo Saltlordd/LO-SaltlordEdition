@@ -88,7 +88,7 @@ void Run(const char* resultPath) {
     auto depth = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R32_FLOAT));
     auto motion = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R16G16_FLOAT));
     auto invalidity = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R8_UNORM));
-    auto output = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R8G8B8A8_UNORM,
+    auto output = device->createTexture(RenderTextureDesc::Texture2D(Side, Side, 1, RenderFormat::R16G16B16A16_FLOAT,
         RenderTextureFlag::STORAGE | RenderTextureFlag::UNORDERED_ACCESS));
     auto upload = device->createBuffer(RenderBufferDesc::UploadBuffer(5 * ImageBytes));
     auto readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(ImageBytes));

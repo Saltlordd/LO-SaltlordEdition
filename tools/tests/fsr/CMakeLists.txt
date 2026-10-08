@@ -61,11 +61,6 @@ target_include_directories(LoFsrRasterEdgeGpuTest PRIVATE
 target_link_libraries(LoFsrRasterEdgeGpuTest PRIVATE plume fmt::fmt ${CMAKE_DL_LIBS})
 add_test(NAME LoFsrRasterEdgeGpuTest COMMAND LoFsrRasterEdgeGpuTest
     "${CMAKE_CURRENT_BINARY_DIR}/raster-edge-result.json")
-add_executable(LoFsrColorRoundtripGpuTest EXCLUDE_FROM_ALL fsr_color_roundtrip_gpu_test.cpp)
-target_compile_features(LoFsrColorRoundtripGpuTest PRIVATE cxx_std_20)
-target_compile_definitions(LoFsrColorRoundtripGpuTest PRIVATE NOMINMAX)
-target_include_directories(LoFsrColorRoundtripGpuTest PRIVATE "${LO_FSR_SHADER_DIR}")
-target_link_libraries(LoFsrColorRoundtripGpuTest PRIVATE plume)
 if(WIN32)
     add_executable(LoFsrD3D12AdapterGpuTest EXCLUDE_FROM_ALL
         fsr_d3d12_adapter_gpu_test.cpp
@@ -81,10 +76,7 @@ if(WIN32)
     target_link_libraries(LoFsrCrossSubmitGpuTest PRIVATE d3d12 dxgi)
     target_compile_options(LoFsrRasterEdgeGpuTest PRIVATE /utf-8)
     target_link_libraries(LoFsrRasterEdgeGpuTest PRIVATE d3d12 dxgi)
-    target_link_libraries(LoFsrColorRoundtripGpuTest PRIVATE d3d12 dxgi)
 endif()
-add_test(NAME LoFsrColorRoundtripGpuTest COMMAND LoFsrColorRoundtripGpuTest
-    --output "${LO_REPO_ROOT}/out/streamline-fg-p0/fsr-p2-color-roundtrip")
 if(WIN32)
     target_compile_options(LoFsrAdapterGpuTest PRIVATE /utf-8)
     target_link_libraries(LoFsrAdapterGpuTest PRIVATE d3d12 dxgi)

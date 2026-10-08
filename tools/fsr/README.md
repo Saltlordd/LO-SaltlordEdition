@@ -17,7 +17,7 @@ The shader directory contains 40 permutation index headers, their SPIR-V byte-ar
 
 The generator reproduces the upstream GLSL flags, including all six Boolean permutation dimensions and FP16/FP32 families. Upstream GLSL wave64 families use identical compilation flags and a distinct symbol suffix; subgroup size is selected by the Vulkan backend's pipeline creation. HLSL-only WaveSize flags must not be injected into GLSL generation.
 
-The two application color/depth conversion shaders have a separate preparation script and `adapter-manifest.json`; regenerate them when their GLSL changes, without rebuilding SDK shader permutations. Their headers expose `lo_fsr_prepare_spv`, `lo_fsr_present_spv` and byte-size constants through the same include directory.
+The application color/depth conversion shader has a separate preparation script and `adapter-manifest.json`; regenerate it when its GLSL changes, without rebuilding SDK shader permutations. Its header exposes `lo_fsr_prepare_spv` and a byte-size constant through the same include directory.
 
 The Vulkan backend is compiled from a build-directory copy that includes Plume's volk declarations and sets the unused frame-generation callback to null. This prevents a Vulkan function/function-pointer ABI mismatch and removes the link dependency on the excluded frame interpolation swapchain. The game supplies Plume's initialized volk symbols; the standalone link check compiles the same `volk.c` solely to resolve them. It does not initialize Vulkan.
 

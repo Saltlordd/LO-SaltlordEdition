@@ -1195,6 +1195,15 @@ namespace gpu::renderer
                 uint32_t hdrSourceWidth = 0, hdrSourceHeight = 0;
                 uint64_t hdrSourceFrame = ~0ull;
             } sceneCopyPromotion;
+            // A deferred restore: `target` is back in renderTargets but owes its
+            // pixels to `source`, the promoted image. Any colour access draws the
+            // resample first; depth-only draws leave the debt, and the depth
+            // fill that clears every view of those tiles cancels it.
+            struct RestoreDebt {
+                HostTexture* target = nullptr;
+                uint32_t base = 0;
+                std::unique_ptr<HostTexture> source;
+            } restoreDebt;
             // Every SR frame needs two output-size images. Allocating them per
             // frame cost milliseconds of render-thread time and VRAM churn.
             std::vector<PooledTexture> promotionPool;
@@ -2610,15 +2619,14 @@ namespace gpu::renderer
 
             std::unique_ptr<HostTexture> CreateSceneCopyScratch(const HostTexture& source, resolution::Size output)
             {
-                // Provider output has no guest pitch padding. FSR's encoded
-                // output is R8 even when the SDR guest destination uses FP16;
-                // XeSS writes the RGBA8 input format. The RGB-only composite
-                // samples either into that original format.
+                // Provider output has no guest pitch padding. The FSR SDK writes
+                // linear FP16 here and the RGB-only composite encodes it; XeSS
+                // writes the RGBA8 input format. The composite samples either
+                // into the destination's original format.
                 auto scratch = std::make_unique<HostTexture>();
                 scratch->allocationSerial = ++nextTargetAllocation;
-                scratch->format = activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ||
-                    activePlan.requestedUpscaler == upscaling::Upscaler::Xess ?
-                    RenderFormat::R8G8B8A8_UNORM : source.format;
+                scratch->format = activePlan.requestedUpscaler == upscaling::Upscaler::Fsr ? RenderFormat::R16G16B16A16_FLOAT :
+                    activePlan.requestedUpscaler == upscaling::Upscaler::Xess ? RenderFormat::R8G8B8A8_UNORM : source.format;
                 scratch->guestWidth = scratch->width = std::max(1u, output.width);
                 scratch->guestHeight = scratch->height = std::max(1u, output.height);
                 scratch->resolutionSize = output;
@@ -2655,14 +2663,15 @@ namespace gpu::renderer
                     return reject();
                 };
                 if (!promoted || !scratch) return rejectImages();
-                const auto scale = [&](const HostTexture& src) {
+                const auto scale = [&](const HostTexture& src, bool encodeLinear) {
                     SharedConstants constants{};
                     constants.transfer[0] = std::bit_cast<uint32_t>(float(src.width) / float(promoted->width));
                     constants.transfer[1] = std::bit_cast<uint32_t>(float(src.height) / float(promoted->height));
+                    constants.transfer[2] = encodeLinear ? 1u : 0u;
                     return Upload(&constants, sizeof(constants));
                 };
-                const uint64_t fallbackConstants = scale(color);
-                const uint64_t rgbConstants = scale(*promoted);
+                const uint64_t fallbackConstants = scale(color, false);
+                const uint64_t rgbConstants = scale(*promoted, activePlan.requestedUpscaler == upscaling::Upscaler::Fsr);
                 if (fallbackConstants == UINT64_MAX || rgbConstants == UINT64_MAX) return rejectImages();
                 auto* fallbackSet = AcquireSet(1);
                 auto* rgbSet = AcquireSet(1);
@@ -2803,6 +2812,39 @@ namespace gpu::renderer
                 return true;
             }
 
+            // Draws the deferred restore resample into the owed target. It uploads
+            // constants and may rotate slots, so call it only where no guest draw
+            // has borrowed the current slot (as the restore itself is).
+            bool SettleRestoreDebt()
+            {
+                if (!restoreDebt.target) return true;
+                auto& target = *restoreDebt.target;
+                auto& source = *restoreDebt.source;
+                if (!Begin()) return false;
+                SharedConstants constants{};
+                constants.transfer[0] = std::bit_cast<uint32_t>(float(source.width) / float(target.width));
+                constants.transfer[1] = std::bit_cast<uint32_t>(float(source.height) / float(target.height));
+                const uint64_t offset = Upload(&constants, sizeof(constants));
+                auto* set = offset == UINT64_MAX ? nullptr : AcquireSet(1);
+                bool drawn = false;
+                if (set) {
+                    set->setTexture(0, source.texture.get(), RenderTextureLayout::SHADER_READ);
+                    set->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
+                    Transition(source, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
+                    drawn = DrawPromotionResample(target, set, offset, false);
+                }
+                consecutiveResolveCopies.Invalidate();
+                DropRestoreDebt();
+                // Losing the resample leaves stale pixels behind; suppress the plan.
+                if (!drawn) FailCurrentPlan(frame_plan::FailureReason::InvalidInput);
+                return drawn;
+            }
+            void DropRestoreDebt()
+            {
+                if (restoreDebt.source) Gpu().retiredTextures.push_back(std::move(restoreDebt.source));
+                restoreDebt = {};
+            }
+
             bool RestoreSceneCopyDestination(const char* reason)
             {
                 auto& promotion = sceneCopyPromotion;
@@ -2816,23 +2858,18 @@ namespace gpu::renderer
                 if (!promotion.active || !promotion.parkedLow) return fail();
                 auto it = renderTargets.find(promotion.key);
                 if (it == renderTargets.end() || it->second.get() != promotion.active) return fail();
-                if (!Begin()) return false;
-                SharedConstants constants{};
-                constants.transfer[0] = std::bit_cast<uint32_t>(float(promotion.active->width) / float(promotion.parkedLow->width));
-                constants.transfer[1] = std::bit_cast<uint32_t>(float(promotion.active->height) / float(promotion.parkedLow->height));
-                // Upload may rotate slots. Acquire descriptors and record
-                // barriers only afterwards; callers have not borrowed targets.
-                const uint64_t offset = Upload(&constants, sizeof(constants));
-                if (offset == UINT64_MAX) return fail();
-                auto* restoreSet = AcquireSet(1);
-                if (!restoreSet) return fail();
-                restoreSet->setTexture(0, promotion.active->texture.get(), RenderTextureLayout::SHADER_READ);
-                restoreSet->setTexture(1, dummyTexture2D.texture.get(), RenderTextureLayout::SHADER_READ);
-                Transition(*promotion.active, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
-                if (!DrawPromotionResample(*promotion.parkedLow, restoreSet, offset, false)) return fail();
-                auto retired = std::move(it->second);
+                // The low-resolution target goes back into the map owing its
+                // pixels; the resample is drawn only when something needs them.
+                if (!SettleRestoreDebt()) return fail();
+                auto& low = *promotion.parkedLow;
+                low.sdrProducerFrame = ~0ull;
+#if defined(LO_GPU_PLUME)
+                HandleFsrAlphaRgbWriter(low, "promotion_resample_rgb");
+#endif
+                restoreDebt.target = &low;
+                restoreDebt.base = promotion.key.base;
+                restoreDebt.source = std::move(it->second);
                 it->second = std::move(promotion.parkedLow);
-                if (retired) Gpu().retiredTextures.push_back(std::move(retired));
                 if (promotion.scratch) Gpu().retiredTextures.push_back(std::move(promotion.scratch));
                 static const char* loggedReason = nullptr;
                 static uint32_t loggedRepeats = 0;
@@ -6523,6 +6560,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     if (fsrAlphaBridge) fsrAlphaBridge->DiscardUnsubmitted();
 #endif
                     sceneCopyPromotion = {};
+                    restoreDebt = {};
                     promotionPool.clear();
                     framebuffers.clear();
                     renderTargets.clear();
@@ -6632,6 +6670,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         it->second->shadowMap = role == resolution::TargetRole::Shadow;
                         return it->second.get();
                     }
+                    // The growth copy below reads the old pixels.
+                    if (it->second.get() == restoreDebt.target) SettleRestoreDebt();
                     oldTarget = std::move(it->second);
                     renderTargets.erase(it);
                 }
@@ -6695,7 +6735,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // pixels. In the tank intro the title restores the saved scene as
             // fixed 2_10_10_10, then blends light into the same tiles as 7e3.
             // Skipping that transfer retains the old white attenuation clear.
-            HostTexture* AcquireColorTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool forRead = false)
+            // touchesColor is false for draws that leave colour alone (depth-only
+            // passes); an owed target keeps its debt through them.
+            HostTexture* AcquireColorTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool forRead = false,
+                bool touchesColor = true)
             {
                 const uint32_t colorClass = ColorClassOf(format);
                 HostTexture* target = GetRenderTarget(base, format, pitch, height, false);
@@ -6709,10 +6752,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (doTransfer && owner != tileOwner.end() && owner->second != colorClass)
                 {
                     auto prev = renderTargets.find(RenderTargetKey{ base, owner->second, pitch, 0, false });
-                    if (prev != renderTargets.end() && prev->second && prev->second->texture && target && target->texture)
+                    if (prev != renderTargets.end() && prev->second && prev->second->texture && target && target->texture) {
+                        // The transfer reads the old owner and may cover only part of the new one.
+                        if (prev->second.get() == restoreDebt.target || target == restoreDebt.target) SettleRestoreDebt();
                         TransferRegion(*prev->second, *target, owner->second, colorClass);
+                    }
                 }
                 tileOwner[{ base, pitch }] = colorClass;
+                if (target && target == restoreDebt.target && (touchesColor || forRead)) SettleRestoreDebt();
                 return target;
             }
 
@@ -7730,7 +7777,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // must not retire the color pointer we just borrowed.
                     const RenderTargetKey drawKey{colorInfo & 0xFFF, ColorClassOf((colorInfo >> 16) & 0xF), pitch, 0, false};
                     if (!PreparePromotionAccess(drawKey, rtHeight, (depthControl & 3) != 0)) return;
-                    color = AcquireColorTarget(colorInfo & 0xFFF, (colorInfo >> 16) & 0xF, pitch, rtHeight);
+                    // A colour clear rectangle is replayed into every view of its
+                    // tiles after the draw, when settling would rotate a borrowed slot.
+                    const bool touchesColor = colorWrites && (Reg(REG_RB_COLOR_MASK) & 0xF) != 0;
+                    if (touchesColor && restoreDebt.target && restoreDebt.base == (colorInfo & 0xFFF) && info.primitiveType == 8 &&
+                        !info.indexed && info.indexCount <= 6 && (Reg(REG_PA_CL_VTE_CNTL) & 0x100) && !SettleRestoreDebt()) return;
+                    color = AcquireColorTarget(colorInfo & 0xFFF, (colorInfo >> 16) & 0xF, pitch, rtHeight, false, touchesColor);
                     depth = (depthControl & 3) ? GetRenderTarget(depthInfo & 0xFFF, (depthInfo >> 16) & 1, pitch, rtHeight, true) : nullptr;
                     if (!color || !color->texture || ((depthControl & 3) && (!depth || !depth->texture))) {
                         ++drops.pitch;
@@ -11322,6 +11374,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         {
                             if (!tex || k.depth || k.base != (depthInfo & 0xFFF))
                                 continue;
+                            if (tex.get() == restoreDebt.target) DropRestoreDebt(); // The fill replaces every pixel.
                             RenderColor value = UnpackGuestWord(word, k.format);
                             Transition(*tex, RenderTextureLayout::COLOR_WRITE, RenderBarrierStage::GRAPHICS);
                             commandList->setFramebuffer(GetFramebuffer(tex.get(), nullptr));
