@@ -44,6 +44,19 @@ struct Presentation::Impl
     };
     std::vector<Pass> passes[2];
     Pass gainPass;
+    // Framebuffers of caller-owned targets (rotating swap chain images, scene
+    // AA outputs) by texture and size; see ForgetTargets.
+    struct TargetFramebuffer
+    {
+        const RenderTexture *texture = nullptr;
+        uint32_t width = 0, height = 0;
+        uint64_t lastUse = 0;
+        std::unique_ptr<RenderFramebuffer> framebuffer;
+    };
+    static constexpr size_t kTargetFramebuffers = 8;
+    std::vector<TargetFramebuffer> targetFramebuffers;
+    uint64_t targetUses = 0;
+    RenderFramebuffer *FramebufferFor(const RenderTexture *texture, uint32_t width, uint32_t height);
     // Final-pass lookup tables: the guest's display gamma ramp in .rgb (#179)
     // and the player's brightness/gamma curve in .w. Three 4 KB constant
     // buffers rotate when either changes, so a frame still in flight keeps
@@ -86,6 +99,30 @@ RenderBuffer *Presentation::Impl::UpdateGammaRamp(const PresentationOptions *cur
         }
     }
     return rampBuffers[rampIndex].get();
+}
+RenderFramebuffer *Presentation::Impl::FramebufferFor(const RenderTexture *texture, uint32_t width, uint32_t height)
+{
+    TargetFramebuffer *slot = nullptr;
+    for (auto &entry : targetFramebuffers)
+        if (entry.texture == texture) slot = &entry;
+    if (!slot && targetFramebuffers.size() < kTargetFramebuffers) slot = &targetFramebuffers.emplace_back();
+    // More entries than swap chain images: the least recently used one is
+    // frames old, past the present fence that protects it.
+    if (!slot) slot = &*std::min_element(targetFramebuffers.begin(), targetFramebuffers.end(),
+        [](const TargetFramebuffer &a, const TargetFramebuffer &b) { return a.lastUse < b.lastUse; });
+    slot->lastUse = ++targetUses;
+    if (!slot->framebuffer || slot->texture != texture || slot->width != width || slot->height != height) {
+        const RenderTexture *attachment[] = {texture};
+        slot->framebuffer = device->createFramebuffer(RenderFramebufferDesc(attachment, 1));
+        slot->texture = texture;
+        slot->width = width;
+        slot->height = height;
+    }
+    return slot->framebuffer.get();
+}
+void Presentation::ForgetTargets()
+{
+    impl->targetFramebuffers.clear();
 }
 struct Presentation::UiCompositionLease
 {
@@ -657,6 +694,9 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         pass.descriptors->setBuffer(3,ramp,Impl::kRampBytes);
         // Each recorded pass has distinct descriptors/framebuffers. They and the
         // cached intermediate allocations remain owned until the next present fence.
+        // A pass's framebuffer serves its own intermediate; caller targets use
+        // the per-texture cache.
+        RenderFramebuffer *framebuffer=nullptr;
         if(!output) {
             if(pass.width!=tw || pass.height!=th || pass.format!=intermediateFormat) {
                 pass.framebuffer.reset();
@@ -665,9 +705,13 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
                 pass.format=intermediateFormat;
             }
             output=pass.texture.get();
+            if(!pass.framebuffer) {
+                const RenderTexture *attachment[]={output};
+                pass.framebuffer=p.device->createFramebuffer(RenderFramebufferDesc(attachment,1));
+            }
+            framebuffer=pass.framebuffer.get();
         }
-        const RenderTexture *attachment[]={output};
-        pass.framebuffer=p.device->createFramebuffer(RenderFramebufferDesc(attachment,1));
+        else framebuffer=p.FramebufferFor(output,tw,th);
         pass.descriptors->setTexture(0,input,RenderTextureLayout::SHADER_READ);
         auto* calibration = options.calibrationScene ? options.calibrationScene : input;
         pass.descriptors->setTexture(2,calibration,RenderTextureLayout::SHADER_READ);
@@ -675,7 +719,12 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
             commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(calibration,RenderTextureLayout::SHADER_READ));
         commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(input,RenderTextureLayout::SHADER_READ));
         commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(output,RenderTextureLayout::COLOR_WRITE));
-        commands->setFramebuffer(pass.framebuffer.get());commands->clearColor(0,RenderColor(0,0,0,1));
+        // The triangle writes every pixel inside the viewport without blending
+        // or discard, so only letterbox bars need the clear.
+        const bool covered=framebuffer && framebuffer->getWidth()==tw && framebuffer->getHeight()==th &&
+            ox<=0.0f && oy<=0.0f && ox+ew>=float(tw) && oy+eh>=float(th);
+        commands->setFramebuffer(framebuffer);
+        if(!covered) commands->clearColor(0,RenderColor(0,0,0,1));
         RenderViewport viewport(ox,oy,ew,eh);RenderRect scissor(0,0,tw,th);
         commands->setViewports(&viewport,1);commands->setScissors(&scissor,1);
         const bool linearOutput = toSwapchain && output == target && p.output.linear;
@@ -744,6 +793,7 @@ struct Presentation::Impl
 Presentation::Presentation() = default;
 Presentation::~Presentation() = default;
 void Presentation::SetOutputTransform(const hdr::OutputTransform&) {}
+void Presentation::ForgetTargets() {}
 bool Presentation::Init(plume::RenderDevice *)
 {
     return false;

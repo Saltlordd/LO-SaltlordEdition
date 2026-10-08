@@ -62,6 +62,11 @@ class Presentation
     bool Init(plume::RenderDevice *device);
     bool Init(plume::RenderDevice *device, plume::RenderFormat swapchainFormat);
     void SetOutputTransform(const hdr::OutputTransform& transform);
+    // Draw and ProcessSceneColor keep one framebuffer per caller-owned target,
+    // keyed by texture address and size. Call this, with no recorded draw of this
+    // instance pending, before targets are replaced without a size change (swap
+    // chain resize or recreation).
+    void ForgetTargets();
     // Process an opaque, display-encoded pre-UI scene at its actual resolution.
     // Source: sampleable RGBA8 UNORM, at least width x height (top-left crop).
     // Target: distinct, caller-owned RGBA8 UNORM render target, exactly width x

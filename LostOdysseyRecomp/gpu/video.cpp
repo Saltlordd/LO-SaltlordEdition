@@ -2838,6 +2838,7 @@ namespace gpu::video
         const auto surfaceSerial = g_androidSurfaceChangeSerial.load();
         if (surfaceSerial == g_androidAppliedSurfaceChangeSerial && g_swapChain) return true;
         if (!g_queue || !g_window || !WaitForPresentGpu()) return false;
+        if (g_presentation) g_presentation->ForgetTargets();
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_hasPresentedImage = false;
@@ -3497,6 +3498,7 @@ namespace gpu::video
         g_presentedSnapshot.reset();
         g_snapshotWidth = g_snapshotHeight = 0;
         g_snapshotFormat = plume::RenderFormat::UNKNOWN;
+        if (g_presentation) g_presentation->ForgetTargets();
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_d3dFg.reset();
@@ -3703,6 +3705,7 @@ namespace gpu::video
         // The frozen scene copies keep the format they were made in.
         g_hdrCalibrationCache = {};
         settings::SetHdrCalibrationSceneAvailable(false);
+        if (g_presentation) g_presentation->ForgetTargets();
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_hdrSwapchain = desired;
@@ -3885,6 +3888,8 @@ namespace gpu::video
 #if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
             if (g_metalFg) g_metalFg->SuspendAfterHostDrain();
 #endif
+            // Resized images keep their texture addresses, maybe their size too.
+            if (g_presentation) g_presentation->ForgetTargets();
             if (!g_swapChain->resize()) {
                 // Zero extent is transient. Retain the pending transaction and
                 // resize request until the window has a drawable extent again.

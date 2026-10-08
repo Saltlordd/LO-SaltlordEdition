@@ -418,6 +418,9 @@ namespace gpu::renderer
             // Nonzero for scene-copy promotion images: retirement returns the
             // image to the renderer's pool instead of destroying it.
             RenderTextureFlags poolFlags = RenderTextureFlag::NONE;
+            // Cropped resolve fetch views: the resolve write they last copied.
+            uint64_t viewSourceOrdinal = 0, viewSourceAllocation = 0;
+            const RenderTexture* viewSource = nullptr;
         };
 
         // An idle scene-copy promotion image, reused once its slot's fence
@@ -534,6 +537,9 @@ namespace gpu::renderer
                 std::unique_ptr<RenderBuffer> uploadRing;
                 uint8_t* uploadMapped = nullptr;
                 uint64_t uploadOffset = 0;
+                // Renderer-unique, renewed whenever the ring is created or rewound:
+                // an offset recorded under this value still holds its data.
+                uint64_t uploadGeneration = 0;
                 uint64_t arenaOffset = 0;
                 std::vector<std::unique_ptr<RenderDescriptorSet>> setPools[4];
                 // Per pooled set: bindings that may hold a non-dummy view.
@@ -626,6 +632,7 @@ namespace gpu::renderer
             geometry_prepare::VertexCache vertexCache;
             geometry_prepare::IndexCache indexCache;
             uint64_t indexCacheHits = 0, indexCacheMisses = 0;
+            uint64_t uploadGenerations = 0; // Source of GpuSlot::uploadGeneration.
             std::array<uint64_t, kGpuSlots> motionArenaGeneration{};
             void ResetSlotArena(uint32_t i)
             {
@@ -2180,6 +2187,7 @@ namespace gpu::renderer
                     if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
                     g.uploadMapped = static_cast<uint8_t*>(g.uploadRing->map());
                     if (!g.uploadMapped) return InitFailure("upload_ring.map", kUploadRingSize, i);
+                    g.uploadGeneration = ++uploadGenerations;
                 }
                 if (!hostOcclusion)
                     for (auto& g : gpuSlots) g.occlusionQueries.reset();
@@ -4212,6 +4220,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 s.dlssSubmit = {};
                 sceneAABusy=false;
                 s.uploadOffset = 0;
+                s.uploadGeneration = ++uploadGenerations;
                 for (auto& used : s.setPoolUsed)
                     used = 0;
                 uploadedConstants[i] = {};
@@ -4514,6 +4523,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Out of space mid-frame: finish what we have and start over.
                     if (!Flush() || !Begin()) return UINT64_MAX;
                     offset = 0;
+                    Gpu().uploadGeneration = ++uploadGenerations; // Rewound even if Begin did not recycle the slot.
                     if (size > kUploadRingSize)
                         return UINT64_MAX;
                 }
@@ -7010,11 +7020,20 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             return nullptr;
                         }
                         view->shadowMap = rs->tex->shadowMap;
-                        Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
-                        Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
-                        RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
-                        commandList->copyTextureRegion(RenderTextureCopyLocation::Subresource(view->texture.get()),
-                            RenderTextureCopyLocation::Subresource(rs->tex->texture.get()), 0, 0, 0, &box);
+                        // Every resolve write takes a new global ordinal (a fresh
+                        // allocation has none), so an unchanged stamp means the
+                        // view still holds this exact copy.
+                        if (!rs->writeOrdinal || view->viewSourceOrdinal != rs->writeOrdinal ||
+                            view->viewSource != rs->tex->texture.get() || view->viewSourceAllocation != rs->tex->allocationSerial) {
+                            Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
+                            Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
+                            RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
+                            commandList->copyTextureRegion(RenderTextureCopyLocation::Subresource(view->texture.get()),
+                                RenderTextureCopyLocation::Subresource(rs->tex->texture.get()), 0, 0, 0, &box);
+                            view->viewSourceOrdinal = rs->writeOrdinal;
+                            view->viewSource = rs->tex->texture.get();
+                            view->viewSourceAllocation = rs->tex->allocationSerial;
+                        }
                         if (taa_collection::Enabled())
                             view->bindingProducer.Copy(rs->tex->bindingProducer, taa_collection::ConsentEpoch(), frame, true);
                         Transition(*view, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
@@ -9547,8 +9566,21 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // promoted fallback and the original guarded draw.
                 uint64_t preparedIndexOffset = UINT64_MAX;
                 if (useIndices) {
-                    preparedIndexOffset = Upload(indices.data(), indices.size() * 4, 16);
-                    if (preparedIndexOffset == UINT64_MAX) return;
+                    // A cache hit reuses its earlier upload while the ring has not
+                    // been rewound since; the data then lives exactly as long as a
+                    // fresh upload's would (until this slot is recycled).
+                    if (cachedIndexEntry && cachedIndexEntry->ringGeneration &&
+                        cachedIndexEntry->ringGeneration == Gpu().uploadGeneration)
+                        preparedIndexOffset = cachedIndexEntry->ringOffset;
+                    else {
+                        preparedIndexOffset = Upload(indices.data(), indices.size() * 4, 16);
+                        if (preparedIndexOffset == UINT64_MAX) return;
+                        if (cachedIndexEntry) {
+                            // Upload may have flushed into another slot; stamp the one holding the data.
+                            cachedIndexEntry->ringOffset = preparedIndexOffset;
+                            cachedIndexEntry->ringGeneration = Gpu().uploadGeneration;
+                        }
+                    }
                 }
 
                 // Record.

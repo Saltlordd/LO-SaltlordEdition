@@ -112,6 +112,10 @@ namespace gpu::geometry_prepare
         uint64_t motionIndexHash = 0;
         bool motionIndexHashReady = false;
         uint64_t lastFrame = 0;
+        // Last upload of data: its upload-ring offset, valid while the
+        // renderer's ring generation still equals ringGeneration (0: none).
+        uint64_t ringOffset = 0;
+        uint64_t ringGeneration = 0;
         size_t AllocatedBytes() const { return content.AllocatedBytes() + data.capacity() * sizeof(uint32_t); }
     };
 

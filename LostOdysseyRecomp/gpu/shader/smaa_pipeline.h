@@ -169,7 +169,9 @@ float4 neighborhood(float4 pos : SV_Position) : SV_Target {
             RenderTexture *target=i==2?output:stages[i+1].get();
             c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(input,RenderTextureLayout::SHADER_READ));
             c->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(target,RenderTextureLayout::COLOR_WRITE));
-            c->setFramebuffer(i==2?outputFb:fb[i+1].get());c->clearColor(0,RenderColor(0,0,0,0));
+            // Edge detection discards edge-free pixels and needs the clear; the
+            // weight and blend passes write every pixel of the full-size viewport.
+            c->setFramebuffer(i==2?outputFb:fb[i+1].get());if(i==0) c->clearColor(0,RenderColor(0,0,0,0));
             c->setGraphicsPipelineLayout(layout.get());c->setPipeline(i==2&&hdr?hdrNeighborhood.get():pipelines[i].get());
             c->setGraphicsPushConstants(0,metrics);c->setGraphicsDescriptorSet(sets[i].get(),0);c->drawInstanced(3,1,0,0);
         }
