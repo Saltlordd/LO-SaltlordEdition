@@ -217,7 +217,14 @@ std::vector<Entry> ReadXdvdfsEntries(ImageReader& reader)
             {
                 uint64_t fileStartOffset = static_cast<uint64_t>(startSector) * SECTOR;
                 if (fileStartOffset + fileLength > reader.GetLimit())
-                    throw Error("File extends beyond image");
+                {
+                    // Seen when an ISO was cut during copying (FAT32 stops at 4 GB)
+                    // or a transfer stopped early. The caller prefixes the image's
+                    // own name and size; this names the first file past the end.
+                    const uint64_t missing = fileStartOffset + fileLength - reader.GetLimit();
+                    throw Error("the image is incomplete: its '" + relative + "' ends " +
+                        std::to_string(missing) + " bytes past the end of the file (FAT32 storage cuts copies at 4 GB; an interrupted copy also leaves a short file)");
+                }
 
                 entries.push_back({relative, fileStartOffset, fileLength});
             }

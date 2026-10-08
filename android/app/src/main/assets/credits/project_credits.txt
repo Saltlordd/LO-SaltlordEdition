@@ -1,0 +1,26 @@
+LO: Saltlord Edition
+Android adaptation, foldable/touch UX and branding integration: Saltlord. AI-assisted development.
+
+This edition includes native ARM64 gameplay; adjustable 30/60 fps; cover-screen ultrawide and inner-screen 4:3; separate editable touch layouts; invisible floating sticks; haptics; custom driver ZIP import; shader/pipeline caches; and on-demand reports. Driver downloads and guided all-disc/DLC setup are not included yet.
+
+Built on LostOdysseyRecomp — freefrank and the project's contributors.
+https://github.com/freefrank/LostOdysseyRecomp
+GNU General Public License, version 3. Original notices and licensing remain in effect.
+
+Research and tool lineage acknowledged by upstream:
+• UnleashedRecomp — hedge-dev and contributors
+• re:Blue — zolaware and contributors
+• XenonRecomp — hedge-dev and contributors (PowerPC static recompilation)
+• XenosRecomp — hedge-dev and contributors (Xenos shader conversion)
+• plume — renderbag and contributors (rendering interface)
+• Xenia — xenia-project and contributors; audio uses the Xenia FFmpeg fork
+
+The verified upstream README describes static recompilation and this research/tool lineage. It does not identify a separate original Lost Odyssey decompilation project.
+
+Runtime and supporting libraries include SDL (Sam Lantinga and contributors), DirectX Shader Compiler (Microsoft and LLVM contributors), Android NDK/libc++, libadrenotools and linkernsbypass (Billy Laws), o1heap (Pavel Kirienko), unordered_dense (Martin Leitner-Ankerl), fmt, xxHash, SIMDe, Vulkan headers, volk, Vulkan Memory Allocator, and the bundled Xenia/decoder/utility notices. Exact copyright and licence texts are available below.
+
+Saltlord Edition's modifications do not replace the upstream authorship or licences. Dependencies retain their respective licences.
+
+LO: Saltlord Edition is an unofficial, community-made project. It is not affiliated with, endorsed by, sponsored by or associated with Mistwalker, Microsoft, Xbox, or the owners of Lost Odyssey and its intellectual property.
+
+Lost Odyssey and its related names, characters, artwork, trademarks and intellectual property belong to their respective owners. No original disc images or Xbox 360 game executables are supplied by this app. You must provide your own legally obtained, supported game files.

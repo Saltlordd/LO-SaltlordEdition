@@ -46,19 +46,28 @@
 #include <kernel/memory.h>
 #include <os/main_thread.h>
 #include <os/platform.h>
+#if LO_PLATFORM_MACOS
+#include <objc/message.h>
+#include <objc/runtime.h>
+#endif
 #include <os/runtime_libraries.h>
 #include <os/shader_log.h>
 #include <os/user_paths.h>
 #include <hid/hid.h>
+#include <hid/face_buttons.h>
+#if defined(__ANDROID__)
+#include <hid/android_touch.h>
+#endif
 #include <debug/battle_menu.h>
 #include <debug/menu_overlay.h>
 #include <host_ui/host_ui.h>
 #include <host_ui/rasterizer.h>
 
-#include <SDL.h>
-#include <SDL_syswm.h>
+#include <SDL3/SDL.h>
 #include "window_pixels.h"
 #include "window_mode.h"
+#include "display_choice.h"
+#include <os/hang_watch.h>
 #endif
 #include <os/logger.h>
 
@@ -70,6 +79,7 @@
 #endif
 #if LO_PLATFORM_MACOS
 // Declared the way plume's examples do; plume_metal.h pulls in metal-cpp.
+
 namespace plume {
     std::unique_ptr<RenderInterface> CreateMetalInterface();
     void SetMetalMinimumPresentDuration(RenderSwapChain* swapChain, double seconds);
@@ -94,6 +104,139 @@ namespace plume {
 #endif
 #endif
 
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+#include <adrenotools/driver.h>
+#include <dlfcn.h>
+#endif
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
+
+// LO_VK_CUSTOM_DRIVER=<soname>: load a custom Vulkan driver (Mesa Turnip) from
+// LO_CUSTOM_DRIVER_DIR through libadrenotools before plume initialises volk.
+// The Android app sets these from the player's choice on the GPU driver page;
+// the Qualcomm proprietary driver drops the highlighted menu row's text.
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+static bool g_customVulkanDriver = false;
+#endif
+
+static void LoadCustomVulkanDriver()
+{
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+    const char* driver = getenv("LO_VK_CUSTOM_DRIVER");
+    if (!driver || !*driver) return;
+    // Turnip keeps one of the five Adreno 6xx bindless sets for dynamic buffer
+    // offsets and reports four; the renderer binds five sets and has no dynamic
+    // offsets (#185). Mesa reads driconf options from the environment.
+    setenv("tu_dont_reserve_descriptor_set", "true", 0);
+    const char* hookDir = getenv("LO_NATIVE_LIB_DIR");
+    const char* driverDir = getenv("LO_CUSTOM_DRIVER_DIR");
+    void* handle = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, nullptr,
+        hookDir ? hookDir : "", driverDir ? driverDir : "", driver, nullptr, nullptr);
+    if (!handle) {
+        LOG_ERROR("vulkan: custom driver '{}' failed to load (hooks '{}', dir '{}'), using the system driver", driver,
+            hookDir ? hookDir : "", driverDir ? driverDir : "");
+        return;
+    }
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(dlsym(handle, "vkGetInstanceProcAddr"));
+    if (!gipa) {
+        LOG_ERROR("vulkan: custom driver '{}' has no vkGetInstanceProcAddr, using the system driver", driver);
+        return;
+    }
+    volkInitializeCustom(gipa);
+    g_customVulkanDriver = true;
+    // libadrenotools resolves the package lazily: an unloadable .so still ends
+    // up on the system driver, which the "video device" line below reveals.
+    LOG_INFO("vulkan: custom driver '{}' opened through libadrenotools, instance version {:#x}",
+        driver, volkGetInstanceVersion());
+#endif
+}
+
+// A custom driver that loads but cannot create an instance or device: go back
+// to the system loader once (volk re-opens libvulkan.so and replaces the
+// custom entry points) so a bad package never locks the player out.
+static bool RetryWithSystemVulkanDriver(const char* stage)
+{
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+    if (!g_customVulkanDriver) return false;
+    g_customVulkanDriver = false;
+    if (volkInitialize() != VK_SUCCESS) {
+        LOG_ERROR("vulkan: custom driver failed at {} and the system loader could not be reopened", stage);
+        return false;
+    }
+    LOG_WARNING("vulkan: custom driver failed at {}, retrying with the system driver", stage);
+    return true;
+#else
+    (void)stage;
+    return false;
+#endif
+}
+
+#if defined(__ANDROID__) || (defined(_WIN32) && defined(LO_GPU_PLUME) && !defined(LO_VIDEO_SUBMISSION_UNIT))
+// Every GPU the instance reports, before device creation can fail or crash:
+// player reports name a phone, not the driver that actually loaded.
+static void LogVulkanPhysicalDevices(VkInstance instance)
+{
+    uint32_t count = 0;
+    if (!instance || vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS || !count) {
+        LOG_WARNING("vulkan: no physical devices reported");
+        return;
+    }
+    std::vector<VkPhysicalDevice> devices(count);
+    if (vkEnumeratePhysicalDevices(instance, &count, devices.data()) < VK_SUCCESS) return;
+    devices.resize(count);
+    for (const auto device : devices) {
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(device, &properties);
+        const uint32_t driver = properties.driverVersion;
+        LOG_INFO("vulkan gpu: name='{}' type={} vendor={:#06x} device={:#010x} api={}.{}.{} driver_raw={:#x} driver_decoded={}.{}.{}",
+            properties.deviceName, uint32_t(properties.deviceType), properties.vendorID, properties.deviceID,
+            VK_API_VERSION_MAJOR(properties.apiVersion), VK_API_VERSION_MINOR(properties.apiVersion),
+            VK_API_VERSION_PATCH(properties.apiVersion), driver, driver >> 22, (driver >> 12) & 0x3ff, driver & 0xfff);
+        // driverName/driverInfo tell the Qualcomm proprietary driver from
+        // Turnip and carry the Mesa or vendor build string.
+        if (properties.apiVersion < VK_API_VERSION_1_2 || !vkGetPhysicalDeviceProperties2) continue;
+        VkPhysicalDeviceIDProperties idProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+        VkPhysicalDeviceDriverProperties driverProperties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES, &idProperties};
+        VkPhysicalDeviceProperties2 properties2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, &driverProperties};
+        vkGetPhysicalDeviceProperties2(device, &properties2);
+        uint32_t luid[2]{};
+        std::memcpy(luid, idProperties.deviceLUID, sizeof(luid));
+        LOG_INFO("vulkan gpu driver: id={} name='{}' info='{}' conformance={}.{}.{}.{} luid={} node_mask={:#x}",
+            uint32_t(driverProperties.driverID), driverProperties.driverName, driverProperties.driverInfo,
+            driverProperties.conformanceVersion.major, driverProperties.conformanceVersion.minor,
+            driverProperties.conformanceVersion.subminor, driverProperties.conformanceVersion.patch,
+            idProperties.deviceLUIDValid ? fmt::format("{:08x}:{:08x}", luid[1], luid[0]) : std::string("none"),
+            idProperties.deviceNodeMask);
+    }
+}
+#endif
+
+#if defined(__ANDROID__) && !defined(LO_VIDEO_SUBMISSION_UNIT)
+// A driver the renderer cannot use fails the same way on every start. When the
+// native main returns, the activity shows this reason (on the GPU driver page
+// on Qualcomm devices, in a dialog elsewhere) instead of closing (#185).
+static void ReportGraphicsFailureToActivity(const std::string& reason)
+{
+    auto* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    auto activity = static_cast<jobject>(SDL_GetAndroidActivity());
+    if (!env || !activity) return;
+    jclass type = env->GetObjectClass(activity);
+    jmethodID method = type ? env->GetMethodID(type, "reportGraphicsFailure", "(Ljava/lang/String;)V") : nullptr;
+    if (method) {
+        jstring text = env->NewStringUTF(reason.c_str());
+        if (text) {
+            env->CallVoidMethod(activity, method, text);
+            env->DeleteLocalRef(text);
+        }
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+    if (type) env->DeleteLocalRef(type);
+    env->DeleteLocalRef(activity);
+}
+#endif
+
+
 #ifdef LO_GPU_PLUME
 namespace plume
 {
@@ -116,6 +259,19 @@ namespace gpu::video
 
 #if !defined(LO_VIDEO_SUBMISSION_UNIT)
         SDL_Window* g_window = nullptr;
+#if defined(__ANDROID__)
+        std::atomic<uintptr_t> g_androidNativeWindowIdentity{0};
+        std::atomic<uint64_t> g_androidSurfaceChangeSerial{0};
+        std::atomic<bool> g_androidSurfaceReady{false};
+        bool g_androidWasBackgrounded = false; // SDL event thread only.
+
+        uintptr_t CurrentAndroidNativeWindow()
+        {
+            if (!g_window) return 0;
+            return reinterpret_cast<uintptr_t>(SDL_GetPointerProperty(SDL_GetWindowProperties(g_window),
+                SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr));
+        }
+#endif
 #if LO_PLATFORM_MACOS
         // Main-thread owned; the swap chain presents to the view's CAMetalLayer.
         SDL_MetalView g_metalView = nullptr;
@@ -134,7 +290,8 @@ namespace gpu::video
         void SetGameCursorHidden(bool hidden)
         {
             if (!g_cursorManaged || g_cursorHidden == hidden) return;
-            SDL_ShowCursor(hidden ? SDL_DISABLE : SDL_ENABLE);
+            if (hidden) SDL_HideCursor();
+            else SDL_ShowCursor();
             g_cursorHidden = hidden;
         }
 
@@ -143,7 +300,7 @@ namespace gpu::video
         void DestroyWindowResources()
         {
             if (g_cursorManaged) {
-                SDL_ShowCursor(SDL_ENABLE);
+                SDL_ShowCursor();
                 g_cursorManaged = false;
                 g_cursorHidden = false;
             }
@@ -152,6 +309,12 @@ namespace gpu::video
             g_cocoaWindow = g_metalLayer = nullptr;
 #endif
             if (g_window) { SDL_DestroyWindow(g_window); g_window = nullptr; }
+#if defined(__ANDROID__)
+            g_androidNativeWindowIdentity = 0;
+            g_androidSurfaceChangeSerial = 0;
+            g_androidSurfaceReady = false;
+            g_androidWasBackgrounded = false;
+#endif
             g_displayRefreshHz = 0;
             g_nextRefreshPoll = {};
             if (g_videoSubsystemOwned) {
@@ -205,7 +368,6 @@ namespace gpu::video
             }
         }
         std::atomic<int> g_displayMode{-1};
-        std::atomic<uint64_t> g_displaySize{0};
         std::atomic<bool> g_displayFailed{false},g_reapplyWindow{false};
         std::atomic<bool> g_windowResizeRequested{false};
         std::atomic<uint64_t> g_settingsDisplayEpoch{0};
@@ -219,6 +381,13 @@ namespace gpu::video
             std::optional<settings::WindowMode> shortcutMode, shortcutPrevious;
             window_mode::Placement placement;
             SDL_Scancode consumedKey = SDL_SCANCODE_UNKNOWN;
+            // Display our own placement left the window on. Any other display
+            // change came from the system (Win+Shift+arrow, dragging, snapping).
+            int expectedDisplay = -1;
+            std::chrono::steady_clock::time_point topologyChanged{};
+            // Win+Shift+arrow in fullscreen, if Windows itself does not move the window.
+            int hotkeyDirection = 0, hotkeyFrom = -1, hotkeyTarget = -1;
+            std::chrono::steady_clock::time_point hotkeyAt{};
         } g_windowDisplay;
         std::vector<uint32_t> g_menuPixels;
         uint64_t g_menuRevision=0;
@@ -344,6 +513,15 @@ namespace gpu::video
         uint64_t g_uploadCapacity = uint64_t(kMaxWidth) * kMaxHeight * 4;
 #if !defined(LO_VIDEO_SUBMISSION_UNIT)
         std::unique_ptr<Presentation> g_presentation;
+        bool g_hdrSwapchain = false;
+        // An HDR choice whose swap chain could not be created; cleared when the
+        // setting changes.
+        std::optional<bool> g_hdrSwapchainRefused;
+        bool g_hdrSceneEnabled = false;
+        float g_hdrPaperWhiteNits = 203.0f, g_hdrPeakNits = 1000.0f;
+        hdr::OutputTransform g_hdrOutput;
+        plume::RenderFormat g_presentationFormat = plume::RenderFormat::UNKNOWN;
+        std::optional<bool> g_hdrReportedActive;
         FgPresentBridge g_fgPresent;
         uint64_t g_fgPresentSerial = 0;
 #endif
@@ -351,17 +529,40 @@ namespace gpu::video
         std::unique_ptr<plume::RenderTexture> g_presentedSnapshot;
         uint32_t g_snapshotWidth=0,g_snapshotHeight=0;
         plume::RenderFormat g_snapshotFormat=plume::RenderFormat::UNKNOWN;
+        float g_snapshotOutputScale = 1.0f;
+        // Last 3D game scene for the HDR and brightness previews. The game
+        // resolves every frame to one frontbuffer, so the scene is gone once
+        // its own menu draws. Gameplay frames refresh two copies in turn every
+        // 250 ms (FP16 extended gamma when available, otherwise SDR); the first
+        // frame without the scene, or a host menu, freezes the older one: the
+        // newer can hold the frame where the menu blurs the scene.
+        struct HdrCalibrationCache {
+            std::unique_ptr<plume::RenderTexture> copies[2];
+            bool filled[2] = {};
+            uint32_t next = 0; // the copy refreshed next, the older one
+            uint32_t width = 0, height = 0;
+            std::chrono::steady_clock::time_point copied{};
+            plume::RenderTexture* scene = nullptr; // frozen copy
+            bool ready = false, extended = false;
+        } g_hdrCalibrationCache;
         uint32_t g_cpuWidth=0,g_cpuHeight=0;
         uint32_t g_lastPresentedImage=0;
         bool g_hasPresentedImage=false;
         bool g_presentPending=false;
         bool g_forceSwapResize=false;
+#if defined(__ANDROID__)
+        uint64_t g_androidAppliedSurfaceChangeSerial = 0; // Presentation thread only.
+        bool g_androidSurfaceRebuildFailureLogged = false;
+#endif
         struct PresentCaptureCopy {
             bool queued = false;
             std::string failure;
             gpu::present_capture::Ticket ticket{};
             std::unique_ptr<plume::RenderBuffer> buffer;
             uint32_t width = 0, height = 0, pitch = 0;
+            plume::RenderFormat format = plume::RenderFormat::R8G8B8A8_UNORM;
+            float outputScale = 1.0f;
+            bool srgbPreview = false;
             uint64_t d3dFenceValue = 0;
         };
         PresentCaptureCopy g_captureCopy;
@@ -386,10 +587,6 @@ namespace gpu::video
             bool nativeVsyncBaseline = true, nativeVsyncRequested = true;
             bool nativeVsyncReportPending = false;
             double metalMinimumPresentDuration = 0.0;
-#ifdef _WIN32
-            int appliedMode = -1;
-            uint64_t appliedSize = 0, appliedTicket = 0;
-#endif
         } g_presentationDisplay;
         constexpr plume::RenderFormat kSwapChainFormat = plume::RenderFormat::R8G8B8A8_UNORM;
         constexpr uint32_t kSwapChainBuffers = 3;
@@ -663,6 +860,23 @@ namespace gpu::video
             const char* override = std::getenv(overrideVariable);
             return override && *override ? std::filesystem::path(override) : RuntimeDirectory(library) / library;
         }
+        // Directory with libxess_fg.dll and libxell.dll; LO_XESS_FG_RUNTIME_PATH overrides.
+        [[maybe_unused]] std::filesystem::path XessFgRuntimeDirectory()
+        {
+            // Like XeSS SR, independent of LO_DLSS_RUNTIME_PATH.
+            const char* override = std::getenv("LO_XESS_FG_RUNTIME_PATH");
+            if (override && *override) return std::filesystem::path(override);
+            std::error_code error;
+            return os::runtime_libraries::Find("libxess_fg.dll", os::user_paths::ExecutableDir(),
+                std::filesystem::current_path(error));
+        }
+        // Each D3D12 FG adapter's runtime: a file for FidelityFX, a directory otherwise.
+        [[maybe_unused]] std::filesystem::path D3D12FgRuntime(framegen::Provider provider)
+        {
+            if (provider == framegen::Provider::Fsr) return FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll");
+            if (provider == framegen::Provider::Xess) return XessFgRuntimeDirectory();
+            return StreamlineRuntimePath();
+        }
 
         // One parser for every Vulkan FG decision, so device features, SDK
         // sessions, reconciliation and status always see the same request.
@@ -677,6 +891,85 @@ namespace gpu::video
             return frame_generation::ResolveSelection(backend::Backend::Metal, settings::GetConfig(),
                 std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
                 std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        }
+
+        // Frame generation presents through each SDK's own swap chain. D3D12
+        // and Metal recreate that chain in SDR, and the Vulkan FSR presenter
+        // only takes RGBA8/BGRA8. Vulkan DLSS-G accepts the HDR10 chain plume
+        // prefers (Streamline DLSS-G guide 11.0); LO_HDR_FG=0 opts out.
+        bool HdrFrameGenerationCompatible()
+        {
+            const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
+                g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
+                settings::GetConfig(), std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+                std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+            if (!fg.Enabled()) return true;
+            if (!g_vulkan || fg.config.provider != framegen::Provider::Dlss) return false;
+            const char* optOut = std::getenv("LO_HDR_FG");
+            return !optOut || std::strcmp(optOut, "0") != 0;
+        }
+
+        // Per-frame scene conditions. AA runs on the FP16 scene and upscaling
+        // (DLSS/FSR/MetalFX) keeps the pre-upscale scene for presentation's
+        // highlight gain, so only frame generation can still hold HDR back.
+        bool HdrConfigurationCompatible()
+        {
+            return HdrFrameGenerationCompatible();
+        }
+
+        // The swap chain for the current HDR choice: FP16 linear output when
+        // g_hdrSwapchain, which plume presents as scRGB, HDR10 or EDR.
+        plume::RenderSwapChainDesc SwapChainDescription()
+        {
+#ifdef _WIN32
+            plume::RenderSwapChainDesc desc(g_nativeWindow, kSwapChainFormat, kSwapChainBuffers);
+#elif LO_PLATFORM_MACOS
+            plume::RenderSwapChainDesc desc(plume::RenderWindow{ g_cocoaWindow, g_metalLayer }, kSwapChainFormat, kSwapChainBuffers);
+#else
+            plume::RenderSwapChainDesc desc(g_window, kSwapChainFormat, kSwapChainBuffers);
+#endif
+            if (g_hdrSwapchain) {
+                desc.format = plume::RenderFormat::R16G16B16A16_FLOAT;
+                desc.outputMode = plume::RenderOutputMode::HDR_LINEAR;
+            }
+            return desc;
+        }
+
+        void UpdateHdrOutput(bool refreshDisplay = false)
+        {
+            if (!g_swapChain || !g_presentation) return;
+            // D3D12 walks every adapter output to answer this (about half a
+            // millisecond), so poll once a second and on swap chain changes.
+            static plume::RenderDisplayState display;
+            static std::chrono::steady_clock::time_point polled;
+            const auto now = std::chrono::steady_clock::now();
+            if (refreshDisplay || polled == std::chrono::steady_clock::time_point{} || now - polled >= std::chrono::seconds(1)) {
+                display = g_swapChain->getDisplayState();
+                polled = now;
+            }
+            const bool linear = display.encoding != plume::RenderOutputEncoding::SDR;
+            const bool active = display.hdrActive || display.hdrTransport;
+            auto calibration = settings::GetHdrCalibration();
+            const bool relative = display.encoding == plume::RenderOutputEncoding::EDR;
+            const float reportedPeak = relative && active ?
+                float(calibration.paperWhiteNits) * display.headroom : display.peakNits;
+            const uint32_t detected = std::isfinite(reportedPeak) && reportedPeak >= 80.0f && reportedPeak <= 10000.0f ?
+                uint32_t(std::lround(reportedPeak)) : 0u;
+            settings::SetHdrDisplayInfo({active, detected, relative});
+            calibration = settings::GetHdrCalibration();
+            g_hdrPaperWhiteNits = float(calibration.paperWhiteNits);
+            g_hdrPeakNits = float(calibration.effectiveNits);
+            g_hdrOutput = hdr::MakeOutput(linear, display.encoding == plume::RenderOutputEncoding::EDR,
+                active, g_hdrPaperWhiteNits, g_hdrPeakNits, display.encoding == plume::RenderOutputEncoding::HDR10_PQ);
+            g_presentation->SetOutputTransform(g_hdrOutput);
+            g_hdrSceneEnabled = g_hdrSwapchain && g_hdrOutput.active && HdrConfigurationCompatible();
+            renderer::SetHdrSceneEnabled(g_hdrSceneEnabled);
+            if (g_hdrSwapchain && g_hdrReportedActive != g_hdrSceneEnabled) {
+                LOG_INFO("HDR: scene_enabled={} display_active={} display_state_known={} transport={} encoding={} paper_white={} peak={} scale={} ratio={}",
+                    g_hdrSceneEnabled, display.hdrActive, display.hdrStateKnown, display.hdrTransport, uint32_t(display.encoding),
+                    g_hdrPaperWhiteNits, g_hdrPeakNits, g_hdrOutput.scale, g_hdrOutput.peakRatio);
+                g_hdrReportedActive = g_hdrSceneEnabled;
+            }
         }
 
         void LogDlssProbe(const dlss::ProbeReport& report)
@@ -764,6 +1057,7 @@ namespace gpu::video
             g_commandList->barriers(plume::RenderBarrierStage::COPY,plume::RenderTextureBarrier(frame,plume::RenderTextureLayout::COPY_SOURCE));
             g_commandList->barriers(plume::RenderBarrierStage::COPY,plume::RenderTextureBarrier(g_presentedSnapshot.get(),plume::RenderTextureLayout::COPY_DEST));
             g_commandList->copyTexture(g_presentedSnapshot.get(),frame);
+            g_snapshotOutputScale = g_hdrOutput.scale;
         }
 
         void PreparePresentImage(plume::RenderTexture* image) {
@@ -863,13 +1157,17 @@ namespace gpu::video
             g_captureCopy = {};
             if (!ticket || !ticket->active || !frame || !g_swapChain || !g_device || !g_commandList) return;
             g_captureCopy.ticket = *ticket;
+            g_captureCopy.format = g_swapChain->getFormat();
+            g_captureCopy.outputScale = g_hdrOutput.scale;
+            g_captureCopy.srgbPreview = g_hdrOutput.linear && !g_hdrOutput.active;
+            const uint32_t bytesPerPixel = g_captureCopy.format == plume::RenderFormat::R16G16B16A16_FLOAT ? 8u : 4u;
             const uint32_t width = g_swapChain->getWidth(), height = g_swapChain->getHeight();
-            if (!width || !height || width > (UINT32_MAX - 255u) / 4u)
+            if (!width || !height || width > (UINT32_MAX - 255u) / bytesPerPixel)
             {
                 g_captureCopy.failure = "swapchain_extent";
                 return;
             }
-            const uint32_t pitch = (width * 4 + 255u) & ~255u;
+            const uint32_t pitch = (width * bytesPerPixel + 255u) & ~255u;
             auto buffer = g_device->createBuffer(plume::RenderBufferDesc::ReadbackBuffer(uint64_t(pitch) * height));
             ++g_captureAllocs;
             if (!buffer)
@@ -879,7 +1177,7 @@ namespace gpu::video
             }
             g_commandList->barriers(plume::RenderBarrierStage::COPY, plume::RenderTextureBarrier(frame, plume::RenderTextureLayout::COPY_SOURCE));
             g_commandList->copyTextureRegion(
-                plume::RenderTextureCopyLocation::PlacedFootprint(buffer.get(), kSwapChainFormat, width, height, 1, pitch / 4),
+                plume::RenderTextureCopyLocation::PlacedFootprint(buffer.get(), g_captureCopy.format, width, height, 1, pitch / bytesPerPixel),
                 plume::RenderTextureCopyLocation::Subresource(frame, 0));
             ++g_captureCopies;
             g_captureCopy.queued = true;
@@ -979,13 +1277,31 @@ namespace gpu::video
             }
             ++g_captureMaps;
             result->pixels.resize(size_t(result->width) * result->height);
-            for (uint32_t y = 0; y < result->height; ++y)
-                memcpy(result->pixels.data() + size_t(y) * result->width, mapped + size_t(y) * g_captureCopy.pitch, size_t(result->width) * 4);
+            const bool fp16Capture = g_captureCopy.format == plume::RenderFormat::R16G16B16A16_FLOAT;
+            const bool pqCapture = g_captureCopy.format == plume::RenderFormat::R10G10B10A2_UNORM ||
+                g_captureCopy.format == plume::RenderFormat::B10G10R10A2_UNORM;
+            const bool hdrCapture = fp16Capture || pqCapture;
+            for (uint32_t y = 0; y < result->height; ++y) {
+                if (fp16Capture) {
+                    const auto* row = reinterpret_cast<const uint16_t*>(mapped + size_t(y) * g_captureCopy.pitch);
+                    for (uint32_t x = 0; x < result->width; ++x)
+                        result->pixels[size_t(y) * result->width + x] = hdr::PreviewRgba(
+                            hdr::DecodeHalf(row[x * 4]), hdr::DecodeHalf(row[x * 4 + 1]),
+                            hdr::DecodeHalf(row[x * 4 + 2]), g_captureCopy.outputScale, g_captureCopy.srgbPreview);
+                } else if (pqCapture) {
+                    const auto* row = reinterpret_cast<const uint32_t*>(mapped + size_t(y) * g_captureCopy.pitch);
+                    for (uint32_t x = 0; x < result->width; ++x) {
+                        const auto rgb = hdr::DecodePq10(row[x], g_captureCopy.format == plume::RenderFormat::B10G10R10A2_UNORM);
+                        result->pixels[size_t(y) * result->width + x] = hdr::PreviewRgba(rgb[0], rgb[1], rgb[2], g_captureCopy.outputScale);
+                    }
+                } else memcpy(result->pixels.data() + size_t(y) * result->width,
+                    mapped + size_t(y) * g_captureCopy.pitch, size_t(result->width) * 4);
+            }
             g_captureCopy.buffer->unmap();
             g_captureCopy.buffer.reset();
             g_captureCopy.queued = false;
             result->available = true;
-            result->reason = "swapchain_readback";
+            result->reason = hdrCapture ? "hdr_swapchain_sdr_preview" : "swapchain_readback";
         }
 #endif
 #endif
@@ -1018,6 +1334,10 @@ namespace gpu::video
                 g_dlssController->Report().state == dlss::ProbeState::Available;
             snapshot.fsrAvailable = snapshot.deviceReady &&
                 (vulkan ? LO_HAS_FSR : LO_HAS_FSR_D3D12);
+#if defined(_WIN32) && defined(LO_HAS_XESS) && LO_HAS_XESS
+            // libxess.dll and adapter support are checked by the sizing query.
+            snapshot.xessAvailable = snapshot.deviceReady && !vulkan;
+#endif
 #if LO_PLATFORM_MACOS
             snapshot.fsrAvailable = false;
             snapshot.metalFxAvailable = snapshot.deviceReady && g_temporalUpscaler &&
@@ -1296,6 +1616,8 @@ namespace gpu::video
         // No proven completion or lost-device disposal boundary. Never free
         // resources still referenced by native work. OS process teardown is
         // safer than running their destructors against an undrained device.
+        // Pipeline recipes and the driver cache are still written (no GPU wait).
+        if (const auto flush = os::shaderlog::ExitFlush().exchange(nullptr)) flush();
         std::fflush(nullptr);
         std::_Exit(EXIT_FAILURE);
     }
@@ -1403,9 +1725,196 @@ namespace gpu::video
         return true;
 #endif
     }
+    static std::atomic<bool> g_textureCompressionBC{true};
+    bool TextureCompressionBC() { return g_textureCompressionBC.load(std::memory_order_relaxed); }
     std::optional<backend::Backend> SelectedBackend() {
         const auto selected = g_selectedBackend.load();
         return selected < 0 ? std::nullopt : std::optional(static_cast<backend::Backend>(selected));
+    }
+    static std::mutex g_gpuNamesMutex;
+    static std::vector<std::string> g_gpuDeviceNames;
+    static std::string g_activeGpuDeviceName;
+    std::vector<std::string> GpuDeviceNames() {
+        std::lock_guard lock(g_gpuNamesMutex);
+        return g_gpuDeviceNames;
+    }
+    std::string ActiveGpuDeviceName() {
+        std::lock_guard lock(g_gpuNamesMutex);
+        return g_activeGpuDeviceName;
+    }
+    // Window thread liveness for the startup hang watch (#282), in ms of steady time.
+    static std::atomic<int64_t> g_windowPumpBeat{0};
+    static int64_t SteadyMilliseconds() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+#ifdef _WIN32
+    // The game window as Win32 sees it; safe from any thread (no messages).
+    static std::string DescribeNativeWindow() {
+        const HWND window = g_nativeWindow;
+        if (!window) return "hwnd=none";
+        RECT client{}, frame{};
+        GetClientRect(window, &client);
+        GetWindowRect(window, &frame);
+        MONITORINFOEXW monitor{};
+        monitor.cbSize = sizeof(monitor);
+        const bool onMonitor = GetMonitorInfoW(MonitorFromWindow(window, MONITOR_DEFAULTTONULL), &monitor) != FALSE;
+        return fmt::format("hwnd={:#x} client={}x{} frame=({}, {})-({}, {}) monitor={} primary={} visible={} iconic={} foreground={} dpi={}",
+            uintptr_t(window), client.right, client.bottom, frame.left, frame.top, frame.right, frame.bottom,
+            onMonitor ? fmt::format("({}, {})-({}, {})", monitor.rcMonitor.left, monitor.rcMonitor.top,
+                monitor.rcMonitor.right, monitor.rcMonitor.bottom) : std::string("none"),
+            onMonitor && (monitor.dwFlags & MONITORINFOF_PRIMARY), IsWindowVisible(window) != FALSE,
+            IsIconic(window) != FALSE, GetForegroundWindow() == window, GetDpiForWindow(window));
+    }
+    // LO_TRACE_STARTUP: each DXGI adapter with its identity and whether D3D12
+    // can use it (a support check only; no device is kept), and the adapter
+    // plume's automatic choice would take.
+    static void LogDxgiAdapters(os::hang_watch::Watch& watch) {
+        static constexpr const char* kSupportSteps[] = {
+            "D3D12 support check, adapter #0", "D3D12 support check, adapter #1", "D3D12 support check, adapter #2",
+            "D3D12 support check, adapter #3", "D3D12 support check, adapter #4", "D3D12 support check, adapter #5",
+            "D3D12 support check, adapter #6", "D3D12 support check, adapter #7"};
+        IDXGIFactory1* factory = nullptr;
+        if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) || !factory) {
+            LOG_WARNING("dxgi adapters: factory creation failed");
+            return;
+        }
+        int automatic = -1;
+        SIZE_T automaticMemory = 0;
+        for (UINT i = 0; i < 8; ++i) {
+            IDXGIAdapter1* adapter = nullptr;
+            if (factory->EnumAdapters1(i, &adapter) == DXGI_ERROR_NOT_FOUND || !adapter) break;
+            DXGI_ADAPTER_DESC1 desc{};
+            adapter->GetDesc1(&desc);
+            UINT outputs = 0;
+            for (IDXGIOutput* output = nullptr; adapter->EnumOutputs(outputs, &output) != DXGI_ERROR_NOT_FOUND; ++outputs)
+                if (output) output->Release();
+            LARGE_INTEGER umd{};
+            const bool umdKnown = SUCCEEDED(adapter->CheckInterfaceSupport(__uuidof(IDXGIDevice), &umd));
+            const bool skipped = (desc.Flags & (DXGI_ADAPTER_FLAG_REMOTE | DXGI_ADAPTER_FLAG_SOFTWARE)) != 0;
+            std::string name;
+            {
+                const int wideLength = int(wcsnlen(desc.Description, std::size(desc.Description)));
+                const int size = WideCharToMultiByte(CP_UTF8, 0, desc.Description, wideLength, nullptr, 0, nullptr, nullptr);
+                name.resize(size_t(std::max(size, 0)));
+                if (size > 0) WideCharToMultiByte(CP_UTF8, 0, desc.Description, wideLength, name.data(), size, nullptr, nullptr);
+            }
+            LOG_INFO("dxgi adapter #{}: '{}' vendor={:#06x} device={:#06x} subsys={:#010x} rev={:#x} luid={:08x}:{:08x} "
+                     "flags={:#x}{}{} dedicated_video={} dedicated_system={} shared_system={} outputs={} umd={}",
+                i, name, desc.VendorId, desc.DeviceId, desc.SubSysId, desc.Revision,
+                uint32_t(desc.AdapterLuid.HighPart), uint32_t(desc.AdapterLuid.LowPart), desc.Flags,
+                (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) ? " software" : "", (desc.Flags & DXGI_ADAPTER_FLAG_REMOTE) ? " remote" : "",
+                uint64_t(desc.DedicatedVideoMemory), uint64_t(desc.DedicatedSystemMemory), uint64_t(desc.SharedSystemMemory),
+                outputs, umdKnown ? fmt::format("{}.{}.{}.{}", HIWORD(umd.HighPart), LOWORD(umd.HighPart),
+                    HIWORD(umd.LowPart), LOWORD(umd.LowPart)) : std::string("unknown"));
+            if (!skipped) {
+                // Logged before the check so a hang inside it names the adapter.
+                watch.Step(kSupportSteps[i]);
+                const HRESULT support = D3D12CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, __uuidof(ID3D12Device), nullptr);
+                watch.Step("DXGI adapter list");
+                LOG_INFO("dxgi adapter #{}: D3D12 support check result={:#x}", i, uint32_t(support));
+                if (SUCCEEDED(support) && (automatic < 0 || desc.DedicatedVideoMemory > automaticMemory)) {
+                    automatic = int(i);
+                    automaticMemory = desc.DedicatedVideoMemory;
+                }
+            }
+            adapter->Release();
+        }
+        factory->Release();
+        LOG_INFO("dxgi adapters: automatic selection takes #{} (the first usable adapter with the most dedicated video memory)",
+            automatic);
+    }
+    static std::string WindowWatchContext() {
+        const auto beat = g_windowPumpBeat.load(std::memory_order_relaxed);
+        return fmt::format("window thread last pumped {} ms ago; {}",
+            beat ? SteadyMilliseconds() - beat : int64_t(-1), DescribeNativeWindow());
+    }
+#endif
+    static std::vector<display_choice::Display> g_displays;
+    std::vector<display_choice::Display> Displays() {
+        std::lock_guard lock(g_gpuNamesMutex);
+        return g_displays;
+    }
+    static std::string DescribeDisplays(const std::vector<display_choice::Display>& displays) {
+        std::string text;
+        for (size_t i = 0; i < displays.size(); ++i) {
+            const auto& d = displays[i];
+            text += fmt::format("{}#{} \"{}\" {}x{} at {},{}", i ? "; " : "", i, d.name, d.width, d.height, d.x, d.y);
+        }
+        return text.empty() ? std::string("none") : text;
+    }
+    // Window owner thread only: SDL's display list is not thread-safe.
+    static SDL_DisplayID DisplayIDForIndex(int index) {
+        int count = 0;
+        SDL_DisplayID* ids = SDL_GetDisplays(&count);
+        const auto id = ids && index >= 0 && index < count ? ids[index] : SDL_DisplayID(0);
+        SDL_free(ids);
+        return id;
+    }
+    static int DisplayIndexForID(SDL_DisplayID id) {
+        int count = 0;
+        SDL_DisplayID* ids = SDL_GetDisplays(&count);
+        int index = -1;
+        for (int i = 0; ids && i < count; ++i)
+            if (ids[i] == id) { index = i; break; }
+        SDL_free(ids);
+        return index;
+    }
+    static int WindowDisplayIndex(SDL_Window* window) {
+        return DisplayIndexForID(SDL_GetDisplayForWindow(window));
+    }
+    static std::vector<display_choice::Display> QueryDisplays() {
+        std::vector<display_choice::Display> displays;
+        int count = 0;
+        SDL_DisplayID* ids = SDL_GetDisplays(&count);
+        for (int i = 0; i < count; ++i) {
+            const char* name = SDL_GetDisplayName(ids[i]);
+            display_choice::Display display{name && *name ? std::string(name) : "Display " + std::to_string(i + 1)};
+            SDL_Rect bounds{};
+            if (SDL_GetDisplayBounds(ids[i], &bounds)) {
+                display.x = bounds.x; display.y = bounds.y; display.width = bounds.w; display.height = bounds.h;
+            }
+            displays.push_back(std::move(display));
+        }
+        SDL_free(ids);
+        std::lock_guard lock(g_gpuNamesMutex);
+        g_displays = displays;
+        return displays;
+    }
+    // SDL display index for the saved display, or -1 for system placement.
+    static int ChosenDisplay(const settings::Config& config, const std::vector<display_choice::Display>& displays) {
+        const int display = display_choice::Resolve(displays, config.displayName, config.displayIndex);
+        if (display < 0 && !config.displayName.empty())
+            LOG_WARNING("video: display \"{}\"#{} is not connected; using automatic placement",
+                config.displayName, config.displayIndex);
+        return display;
+    }
+    // Window owner thread: the player moved the window to `display` (Win+Shift+
+    // arrow, dragging). A saved display choice follows it without asking;
+    // Automatic stays Automatic.
+    static void OnSystemDisplayMove(int display, const char* how) {
+        auto& state = g_windowDisplay;
+        state.expectedDisplay = display;
+        const auto displays = QueryDisplays();
+        if (display < 0 || size_t(display) >= displays.size()) return;
+        // SDL restores a fullscreen window to its windowed rectangle, which is
+        // still on the old display: put that rectangle on this one.
+        if (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN)
+        {
+            const auto position = SDL_WINDOWPOS_CENTERED_DISPLAY(DisplayIDForIndex(display));
+            SDL_SetWindowPosition(g_window, position, position);
+        }
+        state.placement.valid = false;
+        const auto& name = displays[size_t(display)].name;
+        const bool automatic = settings::GetConfig().displayName.empty();
+        bool saved = false;
+        if (!automatic) {
+            saved = settings::SaveDisplayChoice(name, uint32_t(display));
+            state.applied.displayName = name;
+            state.applied.displayIndex = uint32_t(display);
+        }
+        LOG_INFO("video: window moved by the system to display {} \"{}\" ({}); {}", display, name, how,
+            automatic ? "display choice stays Automatic" : saved ? "display choice saved" : "display choice could not be saved");
     }
 
     // The command thread calls this only before guest startup, or after all
@@ -1462,21 +1971,23 @@ namespace gpu::video
         g_captureCopy = {};
         g_cpuFrame.reset(); g_cpuWidth = g_cpuHeight = 0;
         g_presentedSnapshot.reset(); g_snapshotWidth = g_snapshotHeight = 0; g_snapshotFormat=plume::RenderFormat::UNKNOWN;
+        g_hdrCalibrationCache = {};
+        settings::SetHdrCalibrationSceneAvailable(false);
         // Renderer shutdown above established a completed/lost-device teardown
         // boundary; a failed ordinary wait alone never releases these leases.
         g_fgPresent = FgPresentBridge{}; g_fgPresentSerial = 0;
         g_presentation.reset();
+        g_hdrSwapchain = g_hdrSceneEnabled = false;
+        g_hdrSwapchainRefused.reset();
+        g_hdrOutput = {};
+        g_presentationFormat = plume::RenderFormat::UNKNOWN;
+        settings::SetHdrDisplayInfo({});
+        g_hdrReportedActive.reset();
         g_uploadBuffer.reset();
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
         // Release DLSS-G's NGX feature while both SDK sessions remain live.
         // Renderer and presentation work have already been drained.
         if (g_d3dFg) g_d3dFg->ReleaseFeatureAfterGpuDrain();
-#endif
-#ifdef _WIN32
-        if (g_swapChain && !g_vulkan) {
-            auto* swap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-            if (swap->d3d) swap->d3d->SetFullscreenState(FALSE, nullptr);
-        }
 #endif
         g_swapChain.reset(); g_presentSemaphores.clear();
         if (g_temporalUpscaler) {
@@ -1517,6 +2028,10 @@ namespace gpu::video
         g_temporalUpscaler.reset();
         g_dlssController.reset();
         g_hasPresentedImage = false; g_lastPresentedImage = 0; g_forceSwapResize = false;
+#if defined(__ANDROID__)
+        g_androidAppliedSurfaceChangeSerial = 0;
+        g_androidSurfaceRebuildFailureLogged = false;
+#endif
         g_presentationDisplay = {};
 #endif
     }
@@ -1560,7 +2075,7 @@ namespace gpu::video
         auto createWindow = [] {
             g_windowDisplay = {};
             g_windowModeOverridden = false;
-            if (SDL_InitSubSystem(SDL_INIT_VIDEO) != 0)
+            if (!SDL_InitSubSystem(SDL_INIT_VIDEO))
             {
                 LOG_WARNING("video: SDL video init failed: {}", SDL_GetError());
                 return false;
@@ -1571,31 +2086,57 @@ namespace gpu::video
             // but must never show a window or take focus from the desktop user.
             const bool background = getenv("LO_BACKGROUND") != nullptr;
             const auto config=settings::GetConfig();
-            uint32_t flags = SDL_WINDOW_RESIZABLE | (background ? SDL_WINDOW_HIDDEN : SDL_WINDOW_SHOWN);
+            SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | (background ? SDL_WINDOW_HIDDEN : 0);
 #if LO_PLATFORM_MACOS
             // macOS renders through plume's Metal backend (CAMetalLayer).
             flags |= SDL_WINDOW_METAL;
 #elif !defined(_WIN32)
-            flags |= SDL_WINDOW_VULKAN;
+            // Without it a scaled Wayland desktop gets a logical-size swapchain
+            // that the compositor upscales.
+            flags |= SDL_WINDOW_VULKAN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #endif
-            g_window = SDL_CreateWindow(lo_version::WindowTitle, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                config.width, config.height, flags);
+            // Fullscreen later uses the display the window was created on.
+            const auto displays = QueryDisplays();
+            const int display = ChosenDisplay(config, displays);
+            LOG_INFO("video: displays: {}; configured=\"{}\"#{} chosen={}", DescribeDisplays(displays),
+                config.displayName, config.displayIndex, display);
+            // Create the window on its display: a later move across a DPI
+            // boundary would size the frame for the wrong monitor.
+            const auto position = display >= 0 ? SDL_WINDOWPOS_CENTERED_DISPLAY(DisplayIDForIndex(display)) : SDL_WINDOWPOS_CENTERED;
+            const SDL_PropertiesID windowProperties = SDL_CreateProperties();
+            SDL_SetStringProperty(windowProperties, SDL_PROP_WINDOW_CREATE_TITLE_STRING, lo_version::WindowTitle);
+            SDL_SetNumberProperty(windowProperties, SDL_PROP_WINDOW_CREATE_X_NUMBER, position);
+            SDL_SetNumberProperty(windowProperties, SDL_PROP_WINDOW_CREATE_Y_NUMBER, position);
+            SDL_SetNumberProperty(windowProperties, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, config.width);
+            SDL_SetNumberProperty(windowProperties, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, config.height);
+            SDL_SetNumberProperty(windowProperties, SDL_PROP_WINDOW_CREATE_FLAGS_NUMBER, flags);
+            g_window = SDL_CreateWindowWithProperties(windowProperties);
+            SDL_DestroyProperties(windowProperties);
             if (!g_window)
             {
                 LOG_WARNING("video: window creation failed: {}", SDL_GetError());
                 return false;
             }
+            g_windowDisplay.expectedDisplay = WindowDisplayIndex(g_window);
+#if defined(__ANDROID__)
+            const auto nativeWindow = CurrentAndroidNativeWindow();
+            g_androidNativeWindowIdentity = nativeWindow;
+            g_androidSurfaceChangeSerial = 0;
+            g_androidSurfaceReady = nativeWindow != 0;
+            g_androidWasBackgrounded = false;
+            LOG_INFO("video: Android native surface initial window={:#x}", nativeWindow);
+#endif
 
             // The game never accepts host text entry. Keep SDL text input/IME
             // disabled so an active IME cannot consume gameplay key presses.
-            SDL_StopTextInput();
+            SDL_StopTextInput(g_window);
 
             // Keep the pointer usable for mouse-driven host UI, then hide it
             // after brief inactivity while it remains over the game window.
             g_cursorManaged = !background;
             g_cursorHidden = false;
             if (g_cursorManaged) {
-                SDL_ShowCursor(SDL_ENABLE);
+                SDL_ShowCursor();
                 g_lastPointerActivity = std::chrono::steady_clock::now();
             }
 
@@ -1605,16 +2146,15 @@ namespace gpu::video
             hid::Init();
             hid::SetExternalEventPump(true);
 #ifdef _WIN32
-            SDL_SysWMinfo info{};
-            SDL_VERSION(&info.version);
-            if (!SDL_GetWindowWMInfo(g_window, &info))
+            g_nativeWindow = reinterpret_cast<HWND>(SDL_GetPointerProperty(SDL_GetWindowProperties(g_window),
+                SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+            if (!g_nativeWindow)
             {
                 LOG_WARNING("video: native window lookup failed: {}", SDL_GetError());
                 SDL_DestroyWindow(g_window);
                 g_window = nullptr;
                 return false;
             }
-            g_nativeWindow = info.info.win.window;
             // SDL's Windows class loads the first RT_GROUP_ICON from this EXE.
             // Keep Explorer and the game window on the same shared resource.
             const auto resourceIcon = LoadIconW(GetModuleHandleW(nullptr), L"IDI_LOST_ODYSSEY_RECOMP");
@@ -1623,10 +2163,7 @@ namespace gpu::video
 #endif
 #if LO_PLATFORM_MACOS
             // plume's Metal swap chain presents to this view's CAMetalLayer.
-            SDL_SysWMinfo info{};
-            SDL_VERSION(&info.version);
-            if (SDL_GetWindowWMInfo(g_window, &info))
-                g_metalView = SDL_Metal_CreateView(g_window);
+            g_metalView = SDL_Metal_CreateView(g_window);
             if (!g_metalView)
             {
                 LOG_WARNING("video: Metal view creation failed: {}", SDL_GetError());
@@ -1634,7 +2171,8 @@ namespace gpu::video
                 g_window = nullptr;
                 return false;
             }
-            g_cocoaWindow = info.info.cocoa.window;
+            g_cocoaWindow = SDL_GetPointerProperty(SDL_GetWindowProperties(g_window),
+                SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
             g_metalLayer = SDL_Metal_GetLayer(g_metalView);
 #endif
             return true;
@@ -1682,6 +2220,10 @@ namespace gpu::video
 #endif
 
 #if defined(LO_GPU_PLUME)
+#ifdef _WIN32
+        if (os::hang_watch::StartupTrace())
+            LOG_INFO("video: modules from outside Windows and the game folder at startup: {}", os::hang_watch::ForeignModules());
+#endif
         diagnostics::InstallPlumeLog();
         const auto selection = backend::Select(*requested, [](backend::Backend candidate) -> std::string {
             g_vulkan.store(candidate == backend::Backend::Vulkan);
@@ -1689,6 +2231,13 @@ namespace gpu::video
             g_reapplyWindow.store(true);
             g_initializing = true;
             LOG_INFO("video: trying {}", backend::Name(candidate));
+            // Any startup step that runs past 10 s logs its stack (#282: the
+            // driver's shader cache walk inside D3D12 device creation).
+#ifdef _WIN32
+            os::hang_watch::Watch startupWatch("DLSS controller creation", WindowWatchContext);
+#else
+            os::hang_watch::Watch startupWatch("DLSS controller creation", nullptr);
+#endif
 #ifdef _WIN32
             if (g_vulkan) {
                 g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
@@ -1699,6 +2248,7 @@ namespace gpu::video
 #endif
 #if defined(LO_ENABLE_STREAMLINE_FG)
                 if (fg.Enabled() && fg.config.provider == framegen::Provider::Dlss) {
+                    startupWatch.Step("Streamline runtime initialization");
                     std::string reason;
                     g_fgRuntime = std::make_unique<dlss_fg::Runtime>();
                     if (!g_fgRuntime->Initialize(StreamlineRuntimePath(), reason)) {
@@ -1708,13 +2258,28 @@ namespace gpu::video
                         g_fgDispatch = std::make_unique<dlss_fg::VulkanDispatch>(*g_fgRuntime, *g_dlssController);
                     }
                 }
+                startupWatch.Step("Vulkan instance creation");
                 g_interface = plume::CreateVulkanInterface(g_fgDispatch ? g_fgDispatch->Hooks() : g_dlssController->ExtensionHooks());
 #else
                 g_interface = plume::CreateVulkanInterface(g_dlssController->ExtensionHooks());
 #endif
             } else {
+                // d3d12.dll and dxgi.dll are delay-loaded. A missing DLL or export would
+                // raise an SEH fault on first call, which Select cannot catch.
+                const HMODULE d3d12 = LoadLibraryW(L"d3d12.dll");
+                const HMODULE dxgi = LoadLibraryW(L"dxgi.dll");
+                if (!d3d12 || !GetProcAddress(d3d12, "D3D12CreateDevice") ||
+                    !GetProcAddress(d3d12, "D3D12SerializeRootSignature"))
+                    return "d3d12.dll unavailable";
+                if (!dxgi || !GetProcAddress(dxgi, "CreateDXGIFactory2")) return "dxgi.dll unavailable";
+                if (os::hang_watch::StartupTrace()) {
+                    startupWatch.Step("DXGI adapter list");
+                    LogDxgiAdapters(startupWatch);
+                    startupWatch.Step("DLSS controller creation");
+                }
                 g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
                 g_temporalUpscaler = std::make_unique<TemporalUpscaler>(*g_dlssController);
+                startupWatch.Step("D3D12 interface creation");
                 g_interface = plume::CreateD3D12Interface();
             }
 #elif LO_PLATFORM_MACOS
@@ -1725,9 +2290,20 @@ namespace gpu::video
 #else
             g_dlssController = std::make_unique<dlss::Controller>(DlssApplicationDataPath(), DlssRuntimePath());
             g_temporalUpscaler = std::make_unique<TemporalUpscaler>(*g_dlssController);
+            LoadCustomVulkanDriver();
             g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
+            if (!g_interface && RetryWithSystemVulkanDriver("instance creation"))
+                g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
 #endif
             if (!g_interface) return "API/loader initialization failed";
+#ifdef __ANDROID__
+            LogVulkanPhysicalDevices(static_cast<plume::VulkanInterface*>(g_interface.get())->instance);
+#elif defined(_WIN32)
+            if (g_vulkan && os::hang_watch::StartupTrace()) {
+                startupWatch.Step("Vulkan physical device list");
+                LogVulkanPhysicalDevices(static_cast<plume::VulkanInterface*>(g_interface.get())->instance);
+            }
+#endif
 #if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
             if (g_vulkan) {
                 const auto fg = VulkanFgRequest();
@@ -1735,18 +2311,77 @@ namespace gpu::video
                     fg.Enabled() && fg.config.provider == framegen::Provider::Fsr;
             }
 #endif
-            g_device = g_interface->createDevice();
-            if (g_device) {
-                const uint64_t nextEpoch = g_deviceEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
-                frame_plan::ResetSizing(nextEpoch);
+            // The GPU setting names an adapter as this backend lists it. Plume
+            // picks automatically for an empty name or an adapter it cannot open.
+            std::string preferredGpu = settings::GetConfig().gpuDevice;
+            const auto adapterNames = g_interface->getDeviceNames();
+            {
+                std::string listed;
+                for (const auto& name : adapterNames) listed += (listed.empty() ? "\"" : ", \"") + name + "\"";
+                LOG_INFO("video: {} adapters: {} configured=\"{}\"", backend::Name(candidate),
+                    listed.empty() ? std::string("none") : listed, preferredGpu);
             }
-            if (g_device) {
-                const auto& description = g_device->getDescription();
-                LOG_INFO("video device: backend={} name={} driver_raw={} vendor_enum={} type_enum={} reported_device_memory_bytes={}",
-                    backend::Name(candidate), description.name, description.driverVersion,
-                    uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
+            if (!preferredGpu.empty() && std::find(adapterNames.begin(), adapterNames.end(), preferredGpu) == adapterNames.end()) {
+                LOG_WARNING("video: GPU \"{}\" is not listed by {}; using automatic selection", preferredGpu, backend::Name(candidate));
+                preferredGpu.clear();
             }
-            if (const auto missing = backend::Missing(candidate, backend::Inspect(candidate, g_device.get())); !missing.empty()) return missing;
+            startupWatch.Step("device creation");
+            g_device = g_interface->createDevice(preferredGpu);
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+            if (!g_device && RetryWithSystemVulkanDriver("device creation")) {
+                g_interface.reset();
+                g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
+                if (!g_interface) return "API/loader initialization failed";
+                LogVulkanPhysicalDevices(static_cast<plume::VulkanInterface*>(g_interface.get())->instance);
+                g_device = g_interface->createDevice(preferredGpu);
+            }
+#endif
+            const auto openedDevice = [&] {
+                if (g_device) {
+                    const uint64_t nextEpoch = g_deviceEpoch.fetch_add(1, std::memory_order_acq_rel) + 1;
+                    frame_plan::ResetSizing(nextEpoch);
+                    const auto& description = g_device->getDescription();
+                    LOG_INFO("video device: backend={} name={} driver_raw={} vendor_enum={} type_enum={} reported_device_memory_bytes={}",
+                        backend::Name(candidate), description.name, description.driverVersion,
+                        uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
+                }
+                return backend::Inspect(candidate, g_device.get());
+            };
+            startupWatch.Step("device capability check");
+            auto capabilities = openedDevice();
+#ifdef _WIN32
+            if (os::hang_watch::StartupTrace())
+                LOG_INFO("video: modules from outside Windows and the game folder after device creation: {}",
+                    os::hang_watch::ForeignModules());
+#endif
+            if (!preferredGpu.empty()) {
+                const auto missing = backend::Missing(candidate, capabilities);
+                if (g_device && g_device->getDescription().name != preferredGpu) {
+                    LOG_WARNING("video: GPU \"{}\" could not be opened; automatic selection chose \"{}\"",
+                        preferredGpu, g_device->getDescription().name);
+                } else if (!missing.empty()) { // Includes a failed creation.
+                    // The chosen adapter must not end the only candidate (Linux/macOS).
+                    LOG_WARNING("video: GPU \"{}\" is unusable ({}); using automatic selection", preferredGpu, missing);
+                    g_device.reset();
+                    g_device = g_interface->createDevice();
+                    capabilities = openedDevice();
+                }
+            }
+            {
+                std::vector<std::string> names;
+                for (const auto& name : g_interface->getDeviceNames())
+                    if (std::find(names.begin(), names.end(), name) == names.end()) names.push_back(name);
+                std::lock_guard lock(g_gpuNamesMutex);
+                g_gpuDeviceNames = std::move(names);
+                g_activeGpuDeviceName = g_device ? g_device->getDescription().name : std::string{};
+            }
+            g_textureCompressionBC.store(capabilities.textureCompressionBC, std::memory_order_relaxed);
+            if (g_device && candidate == backend::Backend::Vulkan)
+                LOG_INFO("vulkan limits: sets={} samplers={} sampled_images={} storage_buffers={} push_constants={} bc={}",
+                    capabilities.boundSets, capabilities.samplers, capabilities.sampledImages,
+                    capabilities.storageBuffers, capabilities.pushConstants, capabilities.textureCompressionBC ? 1 : 0);
+            if (const auto missing = backend::Missing(candidate, capabilities); !missing.empty()) return missing;
+            startupWatch.Step("DLSS/NGX capability probe");
             if (g_vulkan && g_dlssController) {
                 bool retainNgxForFg = false;
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
@@ -1764,15 +2399,14 @@ namespace gpu::video
 #endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (!g_vulkan) {
+                startupWatch.Step("D3D12 frame generation initialization");
                 const auto fg = frame_generation::ResolveD3D12Selection(settings::GetConfig(), std::getenv("LO_FG_PROVIDER"),
                     std::getenv("LO_FG_MODE"), std::getenv("LO_FG_MULTIPLIER"),
                     std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"), g_displayRefreshHz.load(std::memory_order_relaxed));
                 if (fg.error) LOG_ERROR("D3D12 FG: {}", fg.error);
                 if (fg.Enabled()) {
                     auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
-                    const auto runtime = fg.config.provider == framegen::Provider::Fsr
-                        ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll")
-                        : StreamlineRuntimePath();
+                    const auto runtime = D3D12FgRuntime(fg.config.provider);
                     std::string reason;
                     if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), fg.config, runtime, reason)) {
                         g_d3dFg = std::move(bridge);
@@ -1784,10 +2418,17 @@ namespace gpu::video
                 }
             }
 #endif
+#ifdef _WIN32
+            const auto outputStart = std::chrono::steady_clock::now();
+            if (os::hang_watch::StartupTrace())
+                LOG_INFO("video: creating queue and swap chain; {}", DescribeNativeWindow());
+#endif
+            startupWatch.Step("command queue creation");
             g_queue = g_device->createCommandQueue(plume::RenderCommandListType::DIRECT);
             if (!g_queue) return "graphics queue creation failed";
 #if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
             if (g_fgDispatch && g_fgDispatch->FeatureSupported()) {
+                startupWatch.Step("Streamline device hooks and session");
                 std::string reason;
                 if (!g_fgDispatch->InstallDeviceHooks(static_cast<plume::VulkanInterface*>(g_interface.get())->instance,
                     static_cast<plume::VulkanDevice*>(g_device.get())->vk, reason)) return reason;
@@ -1803,6 +2444,7 @@ namespace gpu::video
             if (g_vulkan) {
                 const auto fg = VulkanFgRequest();
                 if (fg.Enabled() && fg.config.provider == framegen::Provider::Fsr) {
+                    startupWatch.Step("FSR frame generation session");
                     auto session = std::make_unique<fsr_fg::Session>();
                     std::string reason;
                     if (session->Initialize(*static_cast<plume::VulkanDevice*>(g_device.get()),
@@ -1816,19 +2458,41 @@ namespace gpu::video
                 }
             }
 #endif
+            startupWatch.Step("command list and synchronization objects");
             g_commandList = g_queue->createCommandList();
             g_fence = g_device->createCommandFence();
             g_acquireSemaphore = g_device->createCommandSemaphore();
             g_releaseSemaphore = g_device->createCommandSemaphore();
             if (!g_commandList || !g_fence || !g_acquireSemaphore || !g_releaseSemaphore) return "command/synchronization initialization failed";
+#if defined(__ANDROID__)
+            const auto initialSurfaceSerial = g_androidSurfaceChangeSerial.load();
+#endif
+            const auto hdrConfig = settings::GetConfig();
+            // Vulkan keeps the HDR swap chain while AA/upscaling pause the
+            // scene per frame. D3D12 and Metal frame generation replace the
+            // swap chain in SDR and skip entirely while an HDR one exists.
+            // Without frame generation, ReconcileHdrSwapchain follows the
+            // setting later on.
+            g_hdrSwapchain = hdrConfig.hdr && (g_vulkan ? HdrFrameGenerationCompatible() : HdrConfigurationCompatible());
+            g_hdrPaperWhiteNits = float(hdrConfig.hdrPaperWhiteNits);
+            g_hdrPeakNits = float(hdrConfig.hdrPeakNits);
+            if (!g_hdrSwapchain && hdrConfig.hdr && g_vulkan) {
+                LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain here (FSR FG, or DLSS-G with LO_HDR_FG=0)");
+            } else if (!g_hdrSwapchain && hdrConfig.hdr) {
+                LOG_WARNING("HDR: SDR swap chain retained; frame generation keeps its SDR swap chain on this backend");
+            }
+            startupWatch.Step("swap chain creation");
+            g_swapChain = g_queue->createSwapChain(SwapChainDescription());
 #ifdef _WIN32
-            g_swapChain = g_queue->createSwapChain(plume::RenderSwapChainDesc(g_nativeWindow, kSwapChainFormat, kSwapChainBuffers));
-#elif LO_PLATFORM_MACOS
-            g_swapChain = g_queue->createSwapChain(plume::RenderSwapChainDesc(plume::RenderWindow{ g_cocoaWindow, g_metalLayer }, kSwapChainFormat, kSwapChainBuffers));
-#else
-            g_swapChain = g_queue->createSwapChain(plume::RenderSwapChainDesc(g_window, kSwapChainFormat, kSwapChainBuffers));
+            if (os::hang_watch::StartupTrace())
+                LOG_INFO("video: swap chain creation returned in {} ms ok={}",
+                    std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - outputStart).count(),
+                    g_swapChain && !g_swapChain->isEmpty());
 #endif
             if (!g_swapChain || g_swapChain->isEmpty()) return "window surface/swapchain initialization failed";
+#if defined(__ANDROID__)
+            g_androidAppliedSurfaceChangeSerial = initialSurfaceSerial;
+#endif
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (g_d3dFg) g_fgWindowSynchronization = true;
 #endif
@@ -1854,6 +2518,7 @@ namespace gpu::video
                 else LOG_INFO("Vulkan FSR FG: Vulkan immediate presentation enabled");
             }
 #endif
+            startupWatch.Step("DLSS output sizing");
             if (g_temporalUpscaler && settings::GetConfig().upscaler == upscaling::Upscaler::Dlss) {
                 const auto output = upscaling::ResolveOutputRegion({g_swapChain->getWidth(), g_swapChain->getHeight()});
                 const upscaling::SizingKey key{g_deviceEpoch.load(std::memory_order_acquire), output.width, output.height,
@@ -1877,12 +2542,16 @@ namespace gpu::video
                 frame_plan::PublishSizing(sizing);
             }
             LogOutputPixels("created");
+            startupWatch.Step("presentation resources");
             g_uploadCapacity = uint64_t(kMaxWidth) * kMaxHeight * 4;
             g_uploadBuffer = g_device->createBuffer(plume::RenderBufferDesc::UploadBuffer(g_uploadCapacity));
             if (!g_uploadBuffer) return "presentation upload allocation failed";
             g_presentation = std::make_unique<Presentation>();
             if (!g_presentation->Init(g_device.get(), g_swapChain->getFormat())) return "presentation shader/pipeline initialization failed";
+            g_presentationFormat = g_swapChain->getFormat();
+            startupWatch.Step("renderer initialization");
             if (!getenv("LO_NO_RENDERER") && !renderer::Init()) return "renderer initialization failed";
+            UpdateHdrOutput(true);
             return {};
         }, ResetGpu);
         LOG_INFO("video: backend selection {}; configured={} (unchanged)", selection.Describe(), backend::Name(configured));
@@ -1918,6 +2587,10 @@ namespace gpu::video
             LOG_INFO("video: {} on {}", backend::Name(*selection.selected), g_device->getDescription().name);
         } else {
             LOG_ERROR("video: no usable backend; guest startup aborted: {}", selection.Describe());
+#if defined(__ANDROID__) && !defined(LO_VIDEO_SUBMISSION_UNIT)
+            for (const auto& attempt : selection.attempts)
+                if (attempt.backend == backend::Backend::Vulkan) ReportGraphicsFailureToActivity(attempt.error);
+#endif
             Shutdown();
             g_initAttempted = true; // A repeated call cannot silently start another retry cycle.
         }
@@ -2145,21 +2818,62 @@ namespace gpu::video
         g_reapplyWindow = true;
         return ticket;
     }
+    static std::atomic<uint64_t> g_displayMoves{0};
+    static std::atomic<bool> g_displayRevert{false};
+    static int g_displayMovedFrom = -1; // Window owner thread only.
+    uint64_t DisplayMoveCount() { return g_displayMoves.load(); }
+    uint64_t BeginDisplayRevert(const settings::Config& config) {
+        g_displayRevert = true;
+        return BeginDisplayChange(config);
+    }
     DisplayChangeResult QueryDisplayChange(uint64_t ticket) { return g_displayChanges.Query(ticket); }
 
     namespace {
 #if defined(LO_GPU_PLUME) && !defined(_WIN32)
+#if defined(__ANDROID__)
+    static bool EnsureAndroidSurfaceSwapChain()
+    {
+        if (GpuWorkStopped() || (!g_available && !g_initializing) || !g_androidSurfaceReady.load())
+            return false;
+        const auto surfaceSerial = g_androidSurfaceChangeSerial.load();
+        if (surfaceSerial == g_androidAppliedSurfaceChangeSerial && g_swapChain) return true;
+        if (!g_queue || !g_window || !WaitForPresentGpu()) return false;
+        if (g_presentation) g_presentation->ForgetTargets();
+        g_swapChain.reset();
+        g_presentSemaphores.clear();
+        g_hasPresentedImage = false;
+        g_lastPresentedImage = 0;
+        // Same HDR choice as before the surface went away.
+        g_swapChain = g_queue->createSwapChain(SwapChainDescription());
+        if (!g_swapChain || g_swapChain->isEmpty()) {
+            g_swapChain.reset();
+            if (!g_androidSurfaceRebuildFailureLogged)
+                LOG_WARNING("video: Android native surface swapchain recreation pending serial={}", surfaceSerial);
+            g_androidSurfaceRebuildFailureLogged = true;
+            return false;
+        }
+        g_androidAppliedSurfaceChangeSerial = surfaceSerial;
+        g_androidSurfaceRebuildFailureLogged = false;
+        g_presentationDisplay.nativeVsyncInitialized = false;
+        LOG_INFO("video: Android native surface swapchain recreated window={:#x} serial={}",
+            g_androidNativeWindowIdentity.load(), surfaceSerial);
+        return true;
+    }
+#endif
     static bool UploadAndPresentPixels(const std::vector<uint32_t>& pixels, uint32_t width, uint32_t height,
                                        bool isMenu, uint64_t displayTicket, const PresentationOptions& presentationOptions,
                                        const gpu::present_capture::Ticket *captureTicket, gpu::present_capture::Result *captureResult);
-    static void RenderPreparationScreen(PreparationStage stage, PreparationUnit unit, uint32_t done, uint32_t total)
+    static bool RenderPreparationScreen(PreparationStage stage, PreparationUnit unit, uint32_t done, uint32_t total)
     {
+#if defined(__ANDROID__)
+        if (!EnsureAndroidSurfaceSwapChain()) return false;
+#endif
         if (!g_swapChain || g_swapChain->isEmpty() || (!g_available && !g_initializing) || !g_presentation)
-            return;
+            return false;
         const uint32_t width = g_swapChain->getWidth();
         const uint32_t height = g_swapChain->getHeight();
         if (!width || !height)
-            return;
+            return false;
 
         static std::vector<uint32_t> s_prepPixels;
         const size_t pixelCount = size_t(width) * height;
@@ -2201,7 +2915,7 @@ namespace gpu::video
         r.DrawWString((int(width) - hint2W) / 2, centerY + 68, line2, hintColor, 1.0f);
         r.DrawWString((int(width) - hint3W) / 2, centerY + 91, line3, hintColor, 1.0f);
 
-        UploadAndPresentPixels(s_prepPixels, width, height, true, 0, PresentationOptions{}, nullptr, nullptr);
+        return UploadAndPresentPixels(s_prepPixels, width, height, true, 0, PresentationOptions{}, nullptr, nullptr);
     }
 #endif
 
@@ -2212,8 +2926,8 @@ namespace gpu::video
         g_nextRefreshPoll = now + std::chrono::milliseconds(500);
         uint32_t refresh = 0;
 #ifdef _WIN32
-        // DXGI exclusive fullscreen can change the mode outside SDL's cache.
-        // Query the actual monitor containing this window, not the primary one.
+        // The display mode can change outside SDL's cache. Query the actual
+        // monitor containing this window, not the primary one.
         MONITORINFOEXW monitor{};
         monitor.cbSize = sizeof(monitor);
         DEVMODEW mode{};
@@ -2223,10 +2937,10 @@ namespace gpu::video
             EnumDisplaySettingsW(monitor.szDevice, ENUM_CURRENT_SETTINGS, &mode))
             refresh = mode.dmDisplayFrequency;
 #else
-        const int display = SDL_GetWindowDisplayIndex(g_window);
-        SDL_DisplayMode mode{};
-        if (display >= 0 && SDL_GetCurrentDisplayMode(display, &mode) == 0 && mode.refresh_rate > 0)
-            refresh = uint32_t(mode.refresh_rate);
+        const SDL_DisplayID display = SDL_GetDisplayForWindow(g_window);
+        const SDL_DisplayMode* mode = display ? SDL_GetCurrentDisplayMode(display) : nullptr;
+        if (mode && mode->refresh_rate > 0)
+            refresh = uint32_t(mode->refresh_rate + 0.5f); // SDL3 reports fractional rates (119.99 for 120 Hz)
 #endif
         if (!vrr::OutputLimit(refresh)) refresh = 0; // Unknown, not an invented 60 Hz.
         g_displayRefreshHz.store(refresh, std::memory_order_relaxed);
@@ -2271,6 +2985,7 @@ namespace gpu::video
 
     void PumpWindowEvents()
     {
+        g_windowPumpBeat.store(SteadyMilliseconds(), std::memory_order_relaxed);
         if (!g_window) return;
         // DXGI Present, fullscreen transitions and swapchain release may send
         // synchronous messages to this thread during GPU-owner cleanup. Keep
@@ -2279,19 +2994,25 @@ namespace gpu::video
         if (ExitRequested()) {
             // Service native messages, but do not run UI/settings/display work
             // or accumulate input events after the renderer starts tearing down.
-            SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+            SDL_FlushEvents(SDL_EVENT_FIRST, SDL_EVENT_LAST);
             return;
         }
         // Service close even during an outstanding FG window handshake. The
         // regular event loop below cannot run while that handshake is pending.
         PollDisplayRefresh();
         SDL_Event closeEvent{};
-        if (SDL_PeepEvents(&closeEvent, 1, SDL_GETEVENT, SDL_QUIT, SDL_QUIT) > 0) {
+        if (SDL_PeepEvents(&closeEvent, 1, SDL_GETEVENT, SDL_EVENT_QUIT, SDL_EVENT_QUIT) > 0) {
             RequestExit();
             return;
         }
         static uint64_t shownProgress = 0;
         static auto lastProgressPaint = std::chrono::steady_clock::time_point{};
+#if defined(__ANDROID__)
+        static uint64_t shownSurfaceSerial = 0;
+        const bool surfaceChangePending = shownSurfaceSerial != g_androidSurfaceChangeSerial.load();
+#else
+        const bool surfaceChangePending = false;
+#endif
         const uint64_t progress = g_shaderProgress.load();
         const auto now = std::chrono::steady_clock::now();
         // Scanning can publish hundreds of updates per second. Keep UI updates
@@ -2299,7 +3020,13 @@ namespace gpu::video
         const bool phaseChanged = (progress >> 56) != (shownProgress >> 56);
         const uint32_t total = uint32_t((progress >> 28) & kProgressMask);
         const uint32_t done = uint32_t(progress & kProgressMask);
-        if (g_window && progress != shownProgress &&
+#if defined(__ANDROID__)
+        // The virtual pad publishes JNI snapshots, not SDL controller events.
+        if (total && !ShaderPreparationSkipped() &&
+            (hid::android_touch::Snapshot().buttons & XAMINPUT_GAMEPAD_B))
+            RequestSkipShaderPreparation();
+#endif
+        if (g_window && (progress != shownProgress || surfaceChangePending) &&
             (phaseChanged || done == total || now-lastProgressPaint >= std::chrono::milliseconds(100))) {
             const auto stage=PreparationStage((progress>>56)&15);
             const auto unit=PreparationUnit(progress>>60);
@@ -2327,9 +3054,20 @@ namespace gpu::video
                 DestroyWindow(g_preparationWindow); g_preparationWindow=nullptr;
             }
 #elif defined(LO_GPU_PLUME)
-            if (total && g_swapChain && !g_swapChain->isEmpty() && (g_available || g_initializing) && g_presentation) {
-                RenderPreparationScreen(stage, unit, done, total);
-            } else if (!total && shownProgress != 0 && g_swapChain && !g_swapChain->isEmpty() && (g_available || g_initializing) && g_presentation) {
+#if defined(__ANDROID__)
+            const bool canPaintPreparation = g_queue && (g_available || g_initializing) && g_presentation;
+#else
+            const bool canPaintPreparation = g_swapChain && !g_swapChain->isEmpty() &&
+                (g_available || g_initializing) && g_presentation;
+#endif
+            [[maybe_unused]] bool preparationPainted = false;
+            if (total && canPaintPreparation) {
+                preparationPainted = RenderPreparationScreen(stage, unit, done, total);
+            } else if (!total && shownProgress != 0 && canPaintPreparation
+#if defined(__ANDROID__)
+                && EnsureAndroidSurfaceSwapChain()
+#endif
+                && g_swapChain && !g_swapChain->isEmpty()) {
                 const uint32_t width = g_swapChain->getWidth();
                 const uint32_t height = g_swapChain->getHeight();
                 if (width && height) {
@@ -2337,9 +3075,14 @@ namespace gpu::video
                     const size_t count = size_t(width) * height;
                     if (s_clearPixels.size() != count)
                         s_clearPixels.assign(count, host_ui::MakeColor(255, 0, 0, 0));
-                    UploadAndPresentPixels(s_clearPixels, width, height, true, 0, PresentationOptions{}, nullptr, nullptr);
+                    preparationPainted = UploadAndPresentPixels(s_clearPixels, width, height, true, 0,
+                        PresentationOptions{}, nullptr, nullptr);
                 }
             }
+#if defined(__ANDROID__)
+            if (preparationPainted || (!total && !shownProgress))
+                shownSurfaceSerial = g_androidSurfaceChangeSerial.load();
+#endif
 #endif
             shownProgress = progress;
             lastProgressPaint = now;
@@ -2382,7 +3125,10 @@ namespace gpu::video
         }
         if (state.shortcutMode) config.windowMode = *state.shortcutMode;
         const bool reapply = g_reapplyWindow.exchange(false);
-        if(reapply || !state.initialized || config.width!=state.applied.width || config.height!=state.applied.height || config.windowMode!=state.applied.windowMode) {
+        // Startup already created the window on the saved display.
+        const bool displayChanged = state.initialized &&
+            (config.displayName != state.applied.displayName || config.displayIndex != state.applied.displayIndex);
+        if(reapply || displayChanged || !state.initialized || config.width!=state.applied.width || config.height!=state.applied.height || config.windowMode!=state.applied.windowMode) {
 #if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
             if (g_fgWindowSynchronization && g_fgWindowChange.load() != 2) {
                 g_fgWindowChange = 1;
@@ -2396,30 +3142,71 @@ namespace gpu::video
             const auto mode=getenv("LO_BACKGROUND")?settings::WindowMode::Windowed:config.windowMode;
             const bool wasWindowed = !state.initialized || state.applied.windowMode == settings::WindowMode::Windowed;
             const bool sizeChanged = !state.initialized || config.width != state.applied.width || config.height != state.applied.height;
+            const bool revert = g_displayRevert.exchange(false);
+            if (displayChanged) {
+                const auto displays = QueryDisplays();
+                int target = ChosenDisplay(config, displays);
+                const int current = WindowDisplayIndex(g_window);
+                // A reverted choice may be Automatic, which never moves the window:
+                // go back to the display the confirmed-or-reverted move left.
+                if (revert && g_displayMovedFrom >= 0 && size_t(g_displayMovedFrom) < displays.size())
+                    target = g_displayMovedFrom;
+                if (target >= 0 && target != current) {
+                    if (!revert) { g_displayMovedFrom = current; ++g_displayMoves; }
+                    // SDL only records the position of a fullscreen window, and
+                    // fullscreen covers the display the window is on: leave it,
+                    // move, and let the mode below enter it again.
+                    if (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) SDL_SetWindowFullscreen(g_window, false);
+                    window_mode::CenterOnDisplay(g_window, DisplayIDForIndex(target));
+                    state.placement.valid = false; // The windowed rectangle was on the old display.
+                    LOG_INFO("video: window {} from display {} to display {} \"{}\"; displays: {}",
+                        revert ? "moved back" : "moved", current, target, displays[size_t(target)].name, DescribeDisplays(displays));
+                } else {
+                    LOG_INFO("video: display choice \"{}\"#{} -> {}; window stays on display {}",
+                        config.displayName, config.displayIndex, target, current);
+                }
+            }
+            // Win+Shift+arrow in fullscreen that Windows did not carry out itself:
+            // move to the adjacent display and let the mode below re-enter fullscreen.
+            const int hotkeyTarget = std::exchange(state.hotkeyTarget, -1);
+            if (hotkeyTarget >= 0 && hotkeyTarget != WindowDisplayIndex(g_window)) {
+                if (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) SDL_SetWindowFullscreen(g_window, false);
+                window_mode::CenterOnDisplay(g_window, DisplayIDForIndex(hotkeyTarget));
+            }
             if (wasWindowed && mode != settings::WindowMode::Windowed) state.placement.Capture(g_window);
-            int result=SDL_SetWindowFullscreen(g_window,mode==settings::WindowMode::Borderless?SDL_WINDOW_FULLSCREEN_DESKTOP:(g_vulkan && mode==settings::WindowMode::Exclusive?SDL_WINDOW_FULLSCREEN:0));
-            if (result == 0 && mode == settings::WindowMode::Windowed) {
+            const bool result = SDL_SetWindowFullscreen(g_window, mode == settings::WindowMode::Borderless);
+            if (result && mode == settings::WindowMode::Windowed) {
                 if ((!wasWindowed || reapply) && !sizeChanged && state.placement.valid) state.placement.Restore(g_window);
                 else if (sizeChanged) SDL_SetWindowSize(g_window,config.width,config.height);
             }
-            else if (result == 0 && mode == settings::WindowMode::Exclusive)
-                SDL_SetWindowSize(g_window,config.width,config.height);
 #ifdef _WIN32
             // SDL owns the fullscreen transition. A failed bounds repair must
             // not roll the shortcut back to windowed.
-            if (result == 0 && mode == settings::WindowMode::Borderless)
+            if (result && mode == settings::WindowMode::Borderless)
                 window_mode::FitBorderless(g_nativeWindow);
 #endif
-            g_displayFailed=result!=0;
-            g_displaySize.store(uint64_t(config.width)<<32|config.height);
+            g_displayFailed=!result;
             g_displayMode.store(int(mode));
+            LOG_INFO("video: window mode={} display={} result={}", int(mode), WindowDisplayIndex(g_window), result);
             state.applied=config; state.initialized=true;
+            if (hotkeyTarget >= 0) OnSystemDisplayMove(WindowDisplayIndex(g_window), "Win+Shift+arrow in fullscreen");
+            state.expectedDisplay = WindowDisplayIndex(g_window);
             g_nextRefreshPoll = {}; // Re-query after a mode transition on the next window pump.
             g_windowResizeRequested = true;
-            g_displayChanges.WindowComplete(ticket, result == 0);
+            g_displayChanges.WindowComplete(ticket, result);
 #if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
             g_fgWindowChange = 0;
 #endif
+        }
+        // Windows normally moves the window itself on Win+Shift+arrow (seen as a
+        // display change below). If it has not after a moment, do it here.
+        if (state.hotkeyDirection && now - state.hotkeyAt >= std::chrono::milliseconds(300)) {
+            const int direction = std::exchange(state.hotkeyDirection, 0);
+            const int display = WindowDisplayIndex(g_window);
+            if (display == state.hotkeyFrom && (SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN)) {
+                state.hotkeyTarget = display_choice::Adjacent(QueryDisplays(), display, direction);
+                if (state.hotkeyTarget >= 0) g_reapplyWindow = true;
+            }
         }
         debug_menu::Update();
         hid::PumpHostInput();
@@ -2434,55 +3221,98 @@ namespace gpu::video
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
-            if (event.type == SDL_DISPLAYEVENT ||
-                (event.type == SDL_WINDOWEVENT &&
-                 (event.window.event == SDL_WINDOWEVENT_MOVED || event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
-                  event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED || event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED)))
+            const bool windowEvent = event.type >= SDL_EVENT_WINDOW_FIRST && event.type <= SDL_EVENT_WINDOW_LAST;
+#if defined(__ANDROID__)
+            if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND || event.type == SDL_EVENT_DID_ENTER_BACKGROUND) {
+                g_androidWasBackgrounded = true;
+                g_androidSurfaceReady = false;
+            }
+            if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND ||
+                (windowEvent && event.window.windowID == SDL_GetWindowID(g_window) &&
+                 (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_RESTORED ||
+                  event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || event.type == SDL_EVENT_WINDOW_FOCUS_GAINED))) {
+                const auto nativeWindow = CurrentAndroidNativeWindow();
+                if (nativeWindow) {
+                    const auto previous = g_androidNativeWindowIdentity.exchange(nativeWindow);
+                    if (previous != nativeWindow || g_androidWasBackgrounded) {
+                        const auto serial = g_androidSurfaceChangeSerial.fetch_add(1) + 1;
+                        LOG_INFO("video: Android native surface changed old={:#x} new={:#x} serial={}",
+                            previous, nativeWindow, serial);
+                        g_androidWasBackgrounded = false;
+                    }
+                }
+                g_androidSurfaceReady = nativeWindow != 0;
+            }
+#endif
+            if ((event.type >= SDL_EVENT_DISPLAY_FIRST && event.type <= SDL_EVENT_DISPLAY_LAST) ||
+                event.type == SDL_EVENT_WINDOW_MOVED || event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
+                event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED || event.type == SDL_EVENT_WINDOW_FOCUS_GAINED)
                 g_nextRefreshPoll = {};
+            if (event.type == SDL_EVENT_DISPLAY_ADDED || event.type == SDL_EVENT_DISPLAY_REMOVED) {
+                LOG_INFO("video: displays changed: {}", DescribeDisplays(QueryDisplays())); // Refreshes the menu's list.
+                // Indices shift and Windows may move the window off a removed
+                // display; that is not the player choosing a display.
+                state.topologyChanged = now;
+                state.expectedDisplay = WindowDisplayIndex(g_window);
+            }
             const bool pointerActivity =
-                event.type == SDL_MOUSEMOTION ||
-                event.type == SDL_MOUSEBUTTONDOWN ||
-                event.type == SDL_MOUSEBUTTONUP ||
-                event.type == SDL_MOUSEWHEEL;
+                event.type == SDL_EVENT_MOUSE_MOTION ||
+                event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+                event.type == SDL_EVENT_MOUSE_BUTTON_UP ||
+                event.type == SDL_EVENT_MOUSE_WHEEL;
             if (pointerActivity) {
                 g_lastPointerActivity = std::chrono::steady_clock::now();
                 SetGameCursorHidden(false);
             }
-            if (event.type == SDL_WINDOWEVENT && event.window.windowID == SDL_GetWindowID(g_window)) {
-                if (event.window.event == SDL_WINDOWEVENT_ENTER) {
+            if (windowEvent &&
+                event.window.windowID == SDL_GetWindowID(g_window)) {
+                if (event.type == SDL_EVENT_WINDOW_MOUSE_ENTER) {
                     g_lastPointerActivity = std::chrono::steady_clock::now();
                     SetGameCursorHidden(false);
                 }
-                else if (event.window.event == SDL_WINDOWEVENT_LEAVE ||
-                         event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                else if (event.type == SDL_EVENT_WINDOW_MOUSE_LEAVE ||
+                         event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
                     // Never leave the OS pointer hidden when the user leaves the game.
                     SetGameCursorHidden(false);
                 }
-                else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+                else if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
                     // Reassert the gameplay input contract after focus changes.
-                    SDL_StopTextInput();
+                    SDL_StopTextInput(g_window);
                 }
             }
             if (g_shaderProgress.load() != 0) {
-                if (event.type == SDL_KEYDOWN && !event.key.repeat) {
-                    if (event.key.keysym.sym == SDLK_ESCAPE || event.key.keysym.sym == SDLK_SPACE ||
-                        event.key.keysym.sym == SDLK_b) {
+                if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
+                    if (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_SPACE ||
+                        event.key.key == SDLK_B) {
                         RequestSkipShaderPreparation();
                     }
-                } else if (event.type == SDL_CONTROLLERBUTTONDOWN) {
-                    if (event.cbutton.button == SDL_CONTROLLER_BUTTON_B || event.cbutton.button == SDL_CONTROLLER_BUTTON_START) {
+                } else if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    const auto button = hid::face_buttons::FromEvent(event.gbutton);
+                    if (button == SDL_GAMEPAD_BUTTON_EAST || button == SDL_GAMEPAD_BUTTON_START) {
                         RequestSkipShaderPreparation();
                     }
                 }
             }
-            if (event.type == SDL_KEYUP && event.key.keysym.scancode == state.consumedKey) {
+            if (event.type == SDL_EVENT_KEY_UP && event.key.scancode == state.consumedKey) {
                 state.consumedKey = SDL_SCANCODE_UNKNOWN;
                 continue;
             }
-            if (event.type == SDL_KEYDOWN && event.key.keysym.scancode == state.consumedKey) continue;
-            if (event.type == SDL_KEYDOWN && window_mode::IsToggleChord(event.key) &&
+            if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == state.consumedKey) continue;
+            // Win+Shift+Left/Right: Windows moves windowed windows to the next
+            // display; fullscreen is followed up after a moment if it did not move.
+            if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                (event.key.key == SDLK_LEFT || event.key.key == SDLK_RIGHT) &&
+                (event.key.mod & SDL_KMOD_GUI) && (event.key.mod & SDL_KMOD_SHIFT)) {
+                if ((SDL_GetWindowFlags(g_window) & SDL_WINDOW_FULLSCREEN) && !getenv("LO_BACKGROUND")) {
+                    state.hotkeyDirection = event.key.key == SDLK_LEFT ? -1 : 1;
+                    state.hotkeyFrom = WindowDisplayIndex(g_window);
+                    state.hotkeyAt = now;
+                }
+                continue; // A window shortcut, not game input.
+            }
+            if (event.type == SDL_EVENT_KEY_DOWN && window_mode::IsToggleChord(event.key) &&
                 window_mode::TargetsGameWindow(event.key, SDL_GetWindowID(g_window))) {
-                state.consumedKey = event.key.keysym.scancode ? event.key.keysym.scancode : SDL_SCANCODE_RETURN;
+                state.consumedKey = event.key.scancode ? event.key.scancode : SDL_SCANCODE_RETURN;
                 const auto next = config.windowMode == settings::WindowMode::Windowed
                     ? settings::WindowMode::Borderless : settings::WindowMode::Windowed;
                 const auto ticket = g_displayChanges.TryBegin(config.width, config.height, uint32_t(next));
@@ -2498,22 +3328,53 @@ namespace gpu::video
                 }
                 continue;
             }
-            if (event.type == SDL_KEYDOWN || event.type == SDL_KEYUP)
-                hid::HandleKeyboardEvent(event.key.keysym.scancode, event.type == SDL_KEYDOWN);
-            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+            if (event.type == SDL_EVENT_KEY_DOWN && window_mode::TargetsGameWindow(event.key, SDL_GetWindowID(g_window)) &&
+                !debug_menu::IsOverlayVisible()) {
+                uint32_t key = uint32_t(event.key.key);
+                if (event.key.key >= SDLK_KP_1 && event.key.key <= SDLK_KP_9)
+                    key = '1' + uint32_t(event.key.key - SDLK_KP_1);
+                else if (event.key.key == SDLK_KP_0) key = '0';
+                else if (event.key.key == SDLK_KP_ENTER) key = 13;
+                if (settings::CalibrationKey(key)) { hid::ClearKeyboardState(); continue; }
+            }
+            if (event.type == SDL_EVENT_MOUSE_MOTION && !debug_menu::IsOverlayVisible()) {
+                int w=0,h=0; SDL_GetWindowSize(g_window,&w,&h);
+                const float scale=std::min(w/1280.0f,h/720.0f);
+                if (scale>0) settings::PointerDrag((event.motion.x-(w-1280*scale)*0.5f)/scale,
+                    (event.motion.y-(h-720*scale)*0.5f)/scale, (event.motion.state & SDL_BUTTON_LMASK) != 0);
+            }
+            if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == SDL_BUTTON_LEFT)
+                settings::PointerDrag(0,0,false);
+            if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP)
+                hid::HandleKeyboardEvent(event.key.scancode, event.type == SDL_EVENT_KEY_DOWN);
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
                 state.consumedKey = SDL_SCANCODE_UNKNOWN;
                 hid::ClearKeyboardState();
             }
-            if (event.type == SDL_WINDOWEVENT && event.window.windowID == SDL_GetWindowID(g_window) &&
-                (event.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || event.window.event == SDL_WINDOWEVENT_DISPLAY_CHANGED ||
-                 event.window.event == SDL_WINDOWEVENT_RESTORED)) {
+            if (windowEvent && event.window.windowID == SDL_GetWindowID(g_window) &&
+                (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED || event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED ||
+#if defined(__ANDROID__)
+                 event.type == SDL_EVENT_WINDOW_RESIZED ||
+#endif
+                 event.type == SDL_EVENT_WINDOW_RESTORED)) {
 #ifdef _WIN32
                 if (!getenv("LO_BACKGROUND") && state.applied.windowMode == settings::WindowMode::Borderless)
                     window_mode::FitBorderless(g_nativeWindow);
 #endif
                 g_windowResizeRequested = true;
             }
-            if(event.type==SDL_MOUSEBUTTONDOWN) {
+            // Our own placements set expectedDisplay; any other display change is
+            // the player's (Win+Shift+arrow, dragging, snapping).
+            if (event.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED && event.window.windowID == SDL_GetWindowID(g_window) &&
+                state.initialized && !getenv("LO_BACKGROUND")) {
+                const int display = WindowDisplayIndex(g_window);
+                if (display >= 0 && display != state.expectedDisplay) {
+                    if (now - state.topologyChanged < std::chrono::seconds(3)) state.expectedDisplay = display;
+                    else OnSystemDisplayMove(display, "moved by the player or Windows");
+                    state.hotkeyDirection = 0; // Windows carried out Win+Shift+arrow itself.
+                }
+            }
+            if(event.type==SDL_EVENT_MOUSE_BUTTON_DOWN) {
                 if (!debug_menu::IsOverlayVisible()) {
                     int w=0,h=0; SDL_GetWindowSize(g_window,&w,&h);
                     const float scale=std::min(w/1280.0f,h/720.0f);
@@ -2521,16 +3382,16 @@ namespace gpu::video
                         (event.button.y-(h-720*scale)*0.5f)/scale,event.button.button==SDL_BUTTON_RIGHT);
                 }
             }
-            if (event.type == SDL_KEYDOWN)
-                LOG_INFO("video key: {} name: '{}' repeat {}", event.key.keysym.sym, SDL_GetKeyName(event.key.keysym.sym), event.key.repeat);
-            if (event.type == SDL_KEYDOWN && !event.key.repeat && event.key.keysym.sym == SDLK_F1)
+            if (event.type == SDL_EVENT_KEY_DOWN)
+                LOG_INFO("video key: {} name: '{}' repeat {}", event.key.key, SDL_GetKeyName(event.key.key), event.key.repeat);
+            if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.key == SDLK_F1)
             {
                 LOG_INFO("[host_ui] F1 key triggered!");
                 debug_menu::Toggle();
             }
-            else if (event.type == SDL_KEYDOWN && !event.key.repeat && debug_menu::IsOverlayVisible())
+            else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && debug_menu::IsOverlayVisible())
             {
-                switch (event.key.keysym.sym)
+                switch (event.key.key)
                 {
                 case SDLK_UP: debug_menu::HandleInput(debug_menu::InputAction::Up); break;
                 case SDLK_DOWN: debug_menu::HandleInput(debug_menu::InputAction::Down); break;
@@ -2540,14 +3401,14 @@ namespace gpu::video
                 case SDLK_KP_ENTER: debug_menu::HandleInput(debug_menu::InputAction::Confirm); break;
                 case SDLK_ESCAPE: debug_menu::HandleInput(debug_menu::InputAction::Cancel); break;
                 case SDLK_TAB:
-                case SDLK_q: debug_menu::HandleInput(debug_menu::InputAction::PrevTab); break;
-                case SDLK_e: debug_menu::HandleInput(debug_menu::InputAction::NextTab); break;
+                case SDLK_Q: debug_menu::HandleInput(debug_menu::InputAction::PrevTab); break;
+                case SDLK_E: debug_menu::HandleInput(debug_menu::InputAction::NextTab); break;
                 default: break;
                 }
             }
-            if (event.type == SDL_CONTROLLERDEVICEADDED || event.type == SDL_CONTROLLERDEVICEREMOVED)
-                hid::HandleControllerEvent(event.type, event.cdevice.which);
-            if (event.type == SDL_QUIT)
+            if (event.type == SDL_EVENT_GAMEPAD_ADDED || event.type == SDL_EVENT_GAMEPAD_REMOVED)
+                hid::HandleControllerEvent(event.type, event.gdevice.which);
+            if (event.type == SDL_EVENT_QUIT)
             {
                 RequestExit();
                 return;
@@ -2561,6 +3422,7 @@ namespace gpu::video
     static bool ReconcileD3D12FrameGeneration()
     {
         if (g_vulkan || !g_device || !g_queue || !g_swapChain) return true;
+        if (g_hdrSwapchain) return true; // SDR-only SDK presentation requires a restart with HDR disabled.
         // The window thread owns this handshake. It may be changing the SDL
         // surface after observing the quiescent acknowledgement.
         if (g_fgWindowChange.load() != 0) return true;
@@ -2604,7 +3466,8 @@ namespace gpu::video
             std::lock_guard lock(g_fgSettingsMutex);
             g_fgAppliedConfig = {};
             g_fgFailedRequest = request.config;
-            LOG_WARNING("D3D12 FG: switch from DLSS to FSR requires restart while Streamline is retained for DLSS SR");
+            LOG_WARNING("D3D12 FG: switch from DLSS to {} requires restart while Streamline is retained for DLSS SR",
+                framegen::ProviderName(desired.provider));
             return true;
         }
         if (g_d3dFg && desired.provider == g_d3dFg->Provider()) {
@@ -2620,7 +3483,7 @@ namespace gpu::video
             g_fgFailedRequest.reset();
             renderer::SetFrameGenerationInputCaptureEnabled(true);
             LOG_INFO("D3D12 FG: enabled provider={} multiplier={} without swapchain replacement",
-                desired.provider == framegen::Provider::Dlss ? "dlss" : "fsr", desired.generatedFrames + 1);
+                framegen::ProviderName(desired.provider), desired.generatedFrames + 1);
             return true;
         }
 
@@ -2635,8 +3498,7 @@ namespace gpu::video
         g_presentedSnapshot.reset();
         g_snapshotWidth = g_snapshotHeight = 0;
         g_snapshotFormat = plume::RenderFormat::UNKNOWN;
-        auto* oldSwap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-        if (oldSwap->d3d) oldSwap->d3d->SetFullscreenState(FALSE, nullptr);
+        if (g_presentation) g_presentation->ForgetTargets();
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_d3dFg.reset();
@@ -2644,9 +3506,7 @@ namespace gpu::video
         std::string reason;
         if (desired.provider != framegen::Provider::Off) {
             auto bridge = std::make_unique<frame_generation::D3D12Bridge>();
-            const auto runtime = desired.provider == framegen::Provider::Fsr
-                ? FidelityFxRuntime("LO_FSR_FG_RUNTIME", "amd_fidelityfx_dx12.dll")
-                : StreamlineRuntimePath();
+            const auto runtime = D3D12FgRuntime(desired.provider);
             if (bridge->Initialize(*static_cast<plume::D3D12Device*>(g_device.get()), desired, runtime, reason))
                 g_d3dFg = std::move(bridge);
             else LOG_ERROR("D3D12 FG: provider switch unavailable: {}", reason);
@@ -2695,8 +3555,7 @@ namespace gpu::video
                 ? std::optional(request.config) : std::nullopt;
         }
         LOG_INFO("D3D12 FG: provider switch requested={} applied={} multiplier={} swapchain_replaced=1",
-            desired.provider == framegen::Provider::Dlss ? "dlss" : desired.provider == framegen::Provider::Fsr ? "fsr" : "off",
-            g_d3dFg ? (desired.provider == framegen::Provider::Dlss ? "dlss" : "fsr") : "off",
+            framegen::ProviderName(desired.provider), g_d3dFg ? framegen::ProviderName(desired.provider) : "off",
             desired.generatedFrames + 1);
         return true;
     }
@@ -2749,6 +3608,7 @@ namespace gpu::video
     static bool ReconcileMetalFrameGeneration()
     {
         if (!g_metal) return true;
+        if (g_hdrSwapchain) return true;
         const auto request = MetalFgRequest();
         const auto desired = request.Enabled() ? request.config : framegen::Config{};
         {
@@ -2777,6 +3637,109 @@ namespace gpu::video
     }
 #endif
 
+#if LO_PLATFORM_MACOS
+    // plume's HDR_LINEAR chain puts the CAMetalLayer in EDR with an extended
+    // linear sRGB colorspace; an SDR chain on the same layer needs both back to
+    // the defaults a fresh SDR start has. AppKit layers change on the main thread.
+    static void ResetMetalLayerToSdr()
+    {
+        void* layer = g_metalLayer;
+        if (!layer) return;
+        os::main_thread::Run([layer] {
+            auto object = static_cast<id>(layer);
+            reinterpret_cast<void (*)(id, SEL, void*)>(objc_msgSend)(object, sel_registerName("setColorspace:"), nullptr);
+            reinterpret_cast<void (*)(id, SEL, BOOL)>(objc_msgSend)(object,
+                sel_registerName("setWantsExtendedDynamicRangeContent:"), NO);
+        });
+    }
+#endif
+
+    // HDR follows the setting without a restart: the swap chain is replaced in
+    // the other format, and the resize in PreparePresentation rebuilds the
+    // presentation pipelines for it. Frame generation owns or hooks the swap
+    // chain, so while it is selected, or once a session started in this
+    // process, the HDR choice waits for a restart as before.
+    static bool ReconcileHdrSwapchain()
+    {
+        const bool desired = settings::GetConfig().hdr;
+        if (desired == g_hdrSwapchain || !g_queue || !g_swapChain) {
+            g_hdrSwapchainRefused.reset();
+            return true;
+        }
+        if (g_hdrSwapchainRefused == desired) return true;
+        const auto fg = frame_generation::ResolveSelection(g_metal ? backend::Backend::Metal :
+            g_vulkan ? backend::Backend::Vulkan : backend::Backend::D3D12,
+            settings::GetConfig(), std::getenv("LO_FG_PROVIDER"), std::getenv("LO_FG_MODE"),
+            std::getenv("LO_FG_MULTIPLIER"), std::getenv("LO_FG_TARGET_FPS"), std::getenv("LO_DLSS_FG"));
+        bool session = false;
+#if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
+        session |= bool(g_d3dFg);
+#endif
+#if defined(LO_ENABLE_STREAMLINE_FG) && defined(_WIN32)
+        session |= bool(g_fgSession);
+#endif
+#if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
+        session |= bool(g_fsrVulkanFg);
+#endif
+#if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
+        session |= bool(g_metalFg);
+#endif
+#if (defined(_WIN32) && (defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
+        {
+            std::lock_guard lock(g_fgSettingsMutex);
+            session |= g_fgSessionProvider != framegen::Provider::Off;
+        }
+#endif
+        if (fg.Enabled() || session) return true;
+        if (!renderer::DrainForFrameGenerationReconfigure() || !WaitForPresentGpu()) {
+            LOG_ERROR("HDR: could not drain renderer/presentation for swap chain replacement");
+            return false;
+        }
+        g_fgPresent.CancelAll(frame_generation::HandoffCancel::DisplayChange);
+        renderer::CancelFgHandoffs();
+        g_captureRetained.clear();
+        g_captureCopy = {};
+        g_presentedSnapshot.reset();
+        g_snapshotWidth = g_snapshotHeight = 0;
+        g_snapshotFormat = plume::RenderFormat::UNKNOWN;
+        // The frozen scene copies keep the format they were made in.
+        g_hdrCalibrationCache = {};
+        settings::SetHdrCalibrationSceneAvailable(false);
+        if (g_presentation) g_presentation->ForgetTargets();
+        g_swapChain.reset();
+        g_presentSemaphores.clear();
+        g_hdrSwapchain = desired;
+#if LO_PLATFORM_MACOS
+        if (!g_hdrSwapchain) ResetMetalLayerToSdr();
+#endif
+        g_swapChain = g_queue->createSwapChain(SwapChainDescription());
+        if (!g_swapChain && g_hdrSwapchain) {
+            // Keep presenting in SDR and stop retrying until the setting changes.
+            LOG_ERROR("HDR: HDR swap chain creation failed; SDR retained until the setting changes");
+            g_hdrSwapchainRefused = desired;
+            g_hdrSwapchain = false;
+#if LO_PLATFORM_MACOS
+            ResetMetalLayerToSdr();
+#endif
+            g_swapChain = g_queue->createSwapChain(SwapChainDescription());
+        }
+        if (!g_swapChain) {
+            LOG_ERROR("HDR: swap chain replacement failed");
+            StopGpuWork(-1);
+            return false;
+        }
+        // As after a frame generation swap chain replacement: re-apply the
+        // display mode and vsync policy, and resize before the next acquire.
+        g_presentationDisplay = {};
+        g_forceSwapResize = true;
+        g_hasPresentedImage = false;
+        g_lastPresentedImage = 0;
+        g_fgPresentSerial = 0;
+        g_hdrReportedActive.reset();
+        LOG_INFO("HDR: swap chain replaced hdr={} format={}", g_hdrSwapchain, uint32_t(g_swapChain->getFormat()));
+        return true;
+    }
+
     // Sole presentation-thread entry for mode changes and swap-chain recovery.
     // Both guest frames and host-only frames call this BEFORE reading dimensions
     // or rasterizing UI. The returned ticket belongs to these prepared operations.
@@ -2796,8 +3759,14 @@ namespace gpu::video
             g_fgWindowChange = 2;
         }
 #endif
-        if (!g_available || !g_swapChain || GpuWorkStopped())
+        if (!g_available || GpuWorkStopped())
             return false;
+#if defined(__ANDROID__)
+        if (!EnsureAndroidSurfaceSwapChain()) return false;
+#endif
+        if (!g_swapChain) return false;
+        UpdateHdrOutput();
+        if (!ReconcileHdrSwapchain()) return false;
         // Shared by real game frames and paused host overlays. Saving a new
         // cap applies here before any swapchain acquire, even while paused.
         gpu::SetFrameRateTarget(settings::GetConfig().frameRate);
@@ -2869,46 +3838,41 @@ namespace gpu::video
             g_forceSwapResize = true;
             g_presentationDisplay.resizedTicket = displayTicket;
         }
-#ifdef _WIN32
-        const int mode = g_displayMode.load();
-        const uint64_t size = g_displaySize.load();
-        auto& applied = g_presentationDisplay;
-        if (!g_vulkan && mode >= 0 && (mode != applied.appliedMode || size != applied.appliedSize ||
-            (displayTicket && displayTicket != applied.appliedTicket))) {
-            if (!WaitForPresentGpu()) return false;
-#if defined(LO_ENABLE_D3D12_FG)
-            if (g_d3dFg) g_d3dFg->Quiesce();
-#endif
-            auto* swap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
-            const plume::WindowPixelContext pixels;
-            HRESULT result = swap->d3d->SetFullscreenState(FALSE, nullptr);
-            if (SUCCEEDED(result) && mode == int(settings::WindowMode::Exclusive)) {
-                DXGI_MODE_DESC target{};
-                target.Width = uint32_t(size >> 32); target.Height = uint32_t(size);
-                target.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-                result = swap->d3d->ResizeTarget(&target);
-                if (SUCCEEDED(result)) result = swap->d3d->SetFullscreenState(TRUE, nullptr);
-            }
-            BOOL exclusive = FALSE;
-            const HRESULT queryResult = swap->d3d->GetFullscreenState(&exclusive, nullptr);
-            const bool modeApplied = SUCCEEDED(result) && SUCCEEDED(queryResult) &&
-                bool(exclusive) == (mode == int(settings::WindowMode::Exclusive));
-            if (applied.appliedMode == int(settings::WindowMode::Exclusive) && mode != applied.appliedMode)
-                g_reapplyWindow = true;
-            LOG_INFO("display mode: requested={} exclusive={} result={:#x}", mode, bool(exclusive), uint32_t(result));
-            // Flip-model buffers must be resized even for an equal-size transition.
-            g_forceSwapResize = true;
-            applied.appliedMode = mode; applied.appliedSize = size; applied.appliedTicket = displayTicket;
-            if (!modeApplied) {
-                g_displayFailed = true;
-                g_displayChanges.Complete(displayTicket, false);
-                return false;
-            }
-        }
-#endif
         // Empty is recoverable: minimized Vulkan surfaces may have zero extent.
         // Never return for isEmpty() before giving resize() a chance to recover.
-        if (g_forceSwapResize || g_swapChain->isEmpty() || g_swapChain->needsResize()) {
+#if defined(__ANDROID__)
+        // Android WSI can mandate a native currentExtent larger than SDL's
+        // requested size. Plume's needsResize() compares those two extents and
+        // would rebuild the same swapchain on every frame. SDL resize events
+        // set g_forceSwapResize; preserve out-of-date and present-mode requests.
+        const auto* androidSwap = static_cast<const plume::VulkanSwapChain*>(g_swapChain.get());
+        // The resize event can arrive before the surface reports its new
+        // extent (fold/unfold, rotation), so the rebuild takes the old size
+        // and the frame is stretched. Compare the driver's extent, not SDL's,
+        // for a few seconds after each resize request.
+        static std::chrono::steady_clock::time_point androidExtentCheckUntil{};
+        const auto extentNow = std::chrono::steady_clock::now();
+        if (g_forceSwapResize) androidExtentCheckUntil = extentNow + std::chrono::seconds(3);
+        bool androidExtentStale = false;
+        if (!g_forceSwapResize && extentNow < androidExtentCheckUntil && !g_swapChain->isEmpty()) {
+            VkSurfaceCapabilitiesKHR capabilities{};
+            if (vkGetPhysicalDeviceSurfaceCapabilitiesKHR(androidSwap->commandQueue->device->physicalDevice,
+                    androidSwap->surface, &capabilities) == VK_SUCCESS &&
+                capabilities.currentExtent.width != UINT32_MAX &&
+                (capabilities.currentExtent.width != g_swapChain->getWidth() ||
+                 capabilities.currentExtent.height != g_swapChain->getHeight())) {
+                androidExtentStale = true;
+                LOG_INFO("video output: surface extent now {}x{}, swapchain {}x{}; resizing again",
+                    capabilities.currentExtent.width, capabilities.currentExtent.height,
+                    g_swapChain->getWidth(), g_swapChain->getHeight());
+            }
+        }
+        const bool backendNeedsResize = androidSwap->surfaceOutOfDate || androidExtentStale ||
+            androidSwap->requiredPresentMode != androidSwap->createdPresentMode;
+#else
+        const bool backendNeedsResize = g_swapChain->needsResize();
+#endif
+        if (g_forceSwapResize || g_swapChain->isEmpty() || backendNeedsResize) {
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
             if (g_d3dFg) g_d3dFg->Quiesce();
 #endif
@@ -2924,6 +3888,8 @@ namespace gpu::video
 #if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
             if (g_metalFg) g_metalFg->SuspendAfterHostDrain();
 #endif
+            // Resized images keep their texture addresses, maybe their size too.
+            if (g_presentation) g_presentation->ForgetTargets();
             if (!g_swapChain->resize()) {
                 // Zero extent is transient. Retain the pending transaction and
                 // resize request until the window has a drawable extent again.
@@ -2935,6 +3901,20 @@ namespace gpu::video
             }
             g_forceSwapResize = false;
             g_hasPresentedImage = false;
+            g_presentedSnapshot.reset();
+            g_snapshotFormat = plume::RenderFormat::UNKNOWN;
+            g_snapshotWidth = g_snapshotHeight = 0;
+            if (g_presentationFormat != g_swapChain->getFormat()) {
+                auto replacement = std::make_unique<Presentation>();
+                if (!replacement->Init(g_device.get(), g_swapChain->getFormat())) {
+                    LOG_ERROR("HDR: presentation pipeline rebuild failed after swapchain format change");
+                    g_displayFailed = true;
+                    return false;
+                }
+                g_presentation = std::move(replacement);
+                g_presentationFormat = g_swapChain->getFormat();
+            }
+            UpdateHdrOutput(true);
             LogOutputPixels("resized");
         }
         if (g_swapChain->isEmpty())
@@ -2965,10 +3945,79 @@ namespace gpu::video
         g_frameOnGpu = false;
     }
 
+    // The scene resolve to copy into copies[next] for the calibration previews,
+    // (re)allocating both copies on a size change; null when there is none. The caller
+    // records RecordSceneCopy and, once submitted, calls SceneCopySubmitted.
+    static plume::RenderTexture* PrepareSceneCopy(uint32_t address, uint64_t ordinal, uint32_t width, uint32_t height)
+    {
+        auto& cache = g_hdrCalibrationCache;
+        const bool allocate = !cache.copies[0] || cache.width != width || cache.height != height;
+        // The copies keep the format they were made with: the HDR twin when the
+        // first frame has one, otherwise the SDR resolve presentation shows. A
+        // frame without the twin the copies need is skipped.
+        uint32_t sourceWidth = 0, sourceHeight = 0, sourceFormat = 0;
+        plume::RenderTexture* source = allocate || cache.extended
+            ? renderer::AcquireResolvedWrite(address, ordinal, true, sourceWidth, sourceHeight, sourceFormat) : nullptr;
+        const bool extended = source != nullptr;
+        if (!source && ((!allocate && cache.extended) || !(source = renderer::AcquireResolvedWrite(address, ordinal, false,
+                sourceWidth, sourceHeight, sourceFormat)) || plume::RenderFormat(sourceFormat) != kSwapChainFormat))
+            return nullptr;
+        if (sourceWidth < width || sourceHeight < height) return nullptr;
+        if (allocate) {
+            for (auto& copy : cache.copies)
+                copy = g_device->createTexture(plume::RenderTextureDesc::Texture2D(width, height, 1,
+                    extended ? plume::RenderFormat::R16G16B16A16_FLOAT : kSwapChainFormat));
+            cache.width = width;
+            cache.height = height;
+            cache.extended = extended;
+            cache.filled[0] = cache.filled[1] = false;
+        }
+        return cache.copies[0] && cache.copies[1] ? source : nullptr;
+    }
+
+    static void RecordSceneCopy(plume::RenderTexture* source)
+    {
+        const auto& cache = g_hdrCalibrationCache;
+        auto* target = cache.copies[cache.next].get();
+        g_commandList->barriers(plume::RenderBarrierStage::COPY,
+            plume::RenderTextureBarrier(source, plume::RenderTextureLayout::COPY_SOURCE));
+        g_commandList->barriers(plume::RenderBarrierStage::COPY,
+            plume::RenderTextureBarrier(target, plume::RenderTextureLayout::COPY_DEST));
+        const plume::RenderBox sceneBox(0, 0, int32_t(cache.width), int32_t(cache.height), 0, 1);
+        g_commandList->copyTextureRegion(plume::RenderTextureCopyLocation::Subresource(target),
+            plume::RenderTextureCopyLocation::Subresource(source), 0, 0, 0, &sceneBox);
+    }
+
+    static void SceneCopySubmitted(std::chrono::steady_clock::time_point now)
+    {
+        auto& cache = g_hdrCalibrationCache;
+        cache.filled[cache.next] = true;
+        cache.next ^= 1;
+        cache.copied = now;
+    }
+
+    // Copies stop refreshing and the previews may sample the older one.
+    static void FreezeScene()
+    {
+        auto& cache = g_hdrCalibrationCache;
+        if (cache.ready) return;
+        const uint32_t pick = cache.filled[cache.next] ? cache.next : cache.next ^ 1;
+        if (!cache.filled[pick]) return;
+        cache.scene = cache.copies[pick].get();
+        cache.ready = true;
+        settings::SetHdrCalibrationSceneAvailable(true);
+        static uint32_t logs = 0;
+        if (logs++ < 8)
+            LOG_INFO("calibration: frozen game scene {}x{} extended={}", cache.width, cache.height, cache.extended);
+    }
+
     static bool UploadAndPresentPixels(const std::vector<uint32_t>& pixels, uint32_t width, uint32_t height,
                                        bool isMenu, uint64_t displayTicket, const PresentationOptions& presentationOptions,
                                        const gpu::present_capture::Ticket *captureTicket, gpu::present_capture::Result *captureResult)
     {
+#if defined(__ANDROID__)
+        if (!EnsureAndroidSurfaceSwapChain()) return false;
+#endif
         if (GpuWorkStopped() || (!g_available && !g_initializing) || !g_swapChain || g_swapChain->isEmpty())
             return false;
         g_fgPresent.CancelAll(frame_generation::HandoffCancel::AlternatePresent);
@@ -3003,6 +4052,8 @@ namespace gpu::video
         const uint64_t requiredBytes = uint64_t(rowPitch) * height;
         try {
             if (!WaitForPresentGpu()) return false;
+            // A host menu opened straight over gameplay freezes the last copy.
+            if (isMenu) FreezeScene();
             // Stage allocations before acquiring an image or opening a command
             // list. Failed resizing keeps the previous usable resources intact.
             std::unique_ptr<plume::RenderBuffer> upload;
@@ -3047,8 +4098,37 @@ namespace gpu::video
             0, 0, 0, g_presentation?nullptr:&box);
         // This upload came from guest tiled memory, not the processed GPU resolve.
         // GPU-only scene-AA provenance cannot authorize skipping its legacy AA.
-        if(g_presentation) g_presentation->Draw(g_commandList.get(),g_cpuFrame.get(),backBuffer,width,height,
-            g_swapChain->getWidth(),g_swapChain->getHeight(),isMenu ? PresentationOptions{} : presentationOptions);
+        if(g_presentation) {
+            auto options = isMenu ? PresentationOptions{} : presentationOptions;
+            const auto calibration = settings::GetHdrCalibration();
+            const auto brightness = settings::GetBrightnessCalibration();
+            const bool hdrPage = isMenu && calibration.open && g_hdrOutput.active;
+            const bool brightnessPage = isMenu && brightness.open;
+            if (hdrPage || brightnessPage) {
+                // Both pages share the 1280x720 layout's preview rectangle and
+                // show the menu's unsaved brightness and gamma.
+                const float scale = std::min(width/1280.0f,height/720.0f);
+                const float x = (width-1280*scale)*0.5f, y = (height-720*scale)*0.5f;
+                options.hdrCalibration = hdrPage;
+                options.brightnessPreview = brightnessPage;
+                options.displayBrightness = brightness.brightness;
+                options.displayGamma = brightness.gamma;
+                options.calibrationRect[0] = (x+160*scale)/width;
+                options.calibrationRect[1] = (y+150*scale)/height;
+                options.calibrationRect[2] = (x+1120*scale)/width;
+                options.calibrationRect[3] = (y+470*scale)/height;
+                const bool scenePreview = hdrPage ? calibration.scenePreview && calibration.sceneAvailable
+                                                  : brightness.scenePreview && brightness.sceneAvailable;
+                if (scenePreview && g_hdrCalibrationCache.ready) {
+                    options.calibrationScene = g_hdrCalibrationCache.scene;
+                    options.calibrationSceneExtended = g_hdrCalibrationCache.extended;
+                    options.calibrationExpandRgbRange = brightness.expandRgbRange;
+                    options.calibrationDisplayGammaRamp = true;
+                }
+            }
+            g_presentation->Draw(g_commandList.get(),g_cpuFrame.get(),backBuffer,width,height,
+                g_swapChain->getWidth(),g_swapChain->getHeight(),options);
+        }
         RecordPresentedSnapshot(backBuffer);
         QueuePresentCapture(backBuffer, captureTicket);
         PreparePresentImage(backBuffer);
@@ -3125,10 +4205,17 @@ namespace gpu::video
         ServicePendingDlssSizing();
         renderer::SetOutputSize(menuWidth, menuHeight);
         const auto presentationConfig = settings::GetConfig();
-        const PresentationOptions presentationOptions{
+        PresentationOptions presentationOptions{
             presentationConfig.antialiasing == 3 ? Antialiasing::SMAA : static_cast<Antialiasing>(presentationConfig.antialiasing),
             presentationConfig.scalingQuality ? ScalingFilter::Bicubic : ScalingFilter::Bilinear,
             presentationConfig.expandRgbRange};
+        // Guest frames get the display gamma ramp the game wrote (#179) and the
+        // saved brightness and gamma; host menus and status screens use the
+        // default options without them.
+        presentationOptions.displayGammaRamp = true;
+        presentationOptions.displayAdjust = true;
+        presentationOptions.displayBrightness = presentationConfig.displayBrightness;
+        presentationOptions.displayGamma = presentationConfig.displayGamma;
         // Debug / test trigger: auto-open overlay after N frames if LO_AUTO_OVERLAY is set
         static int s_autoOverlayCountdown = []() {
             const char* env = getenv("LO_AUTO_OVERLAY");
@@ -3189,6 +4276,43 @@ namespace gpu::video
                 uint32_t sourceWidth=width, sourceHeight=height;
                 renderer::ScaleResolvedSize(physicalAddress & 0x1FFFFFFF, sourceWidth, sourceHeight);
                 sourceWidth=std::min(sourceWidth,rw); sourceHeight=std::min(sourceHeight,rh);
+                bool hdrScene = false;
+                plume::RenderTexture* hdrGainSource = nullptr;
+                uint32_t hdrGainValidWidth = 0, hdrGainValidHeight = 0, hdrGainWidth = 0, hdrGainHeight = 0;
+                if (g_hdrSceneEnabled) {
+                    uint32_t hdrWidth = 0, hdrHeight = 0;
+                    auto* hdrSource = renderer::AcquireHdrResolvedSurface(physicalAddress & 0x1FFFFFFF, hdrWidth, hdrHeight);
+                    // MetalFX spatial scaling below outputs RGBA8; keep the SDR
+                    // frame as its input and apply the scene as a gain afterwards.
+                    bool metalFxUpscale = false;
+#if LO_PLATFORM_MACOS
+                    if (g_presentation && g_swapChain && settings::GetConfig().scalingQuality == settings::ScalingMetalFx &&
+                        sourceWidth && sourceHeight) {
+                        const double scale = std::min(double(g_swapChain->getWidth()) / sourceWidth, double(g_swapChain->getHeight()) / sourceHeight);
+                        metalFxUpscale = std::min(g_swapChain->getWidth(), uint32_t(std::lround(sourceWidth * scale))) > sourceWidth ||
+                            std::min(g_swapChain->getHeight(), uint32_t(std::lround(sourceHeight * scale))) > sourceHeight;
+                    }
+#endif
+                    if (hdrSource && metalFxUpscale && hdrWidth >= sourceWidth && hdrHeight >= sourceHeight) {
+                        hdrGainSource = hdrSource;
+                        hdrGainWidth = hdrWidth; hdrGainHeight = hdrHeight;
+                        hdrGainValidWidth = sourceWidth; hdrGainValidHeight = sourceHeight;
+                    } else if (hdrSource && hdrWidth >= sourceWidth && hdrHeight >= sourceHeight) {
+                        source = hdrSource;
+                        hdrScene = true;
+                        static uint32_t admitted = 0;
+                        if (admitted++ < 8)
+                            LOG_INFO("HDR: extended scene selected address={:#x} source={}x{} valid={}x{}",
+                                physicalAddress, hdrWidth, hdrHeight, sourceWidth, sourceHeight);
+                    } else if (!hdrSource && (hdrSource = renderer::AcquireHdrGainSurface(physicalAddress & 0x1FFFFFFF, hdrWidth, hdrHeight))) {
+                        // Pre-upscale scene: applied as a highlight gain to the
+                        // final frame after any spatial upscale below.
+                        hdrGainSource = hdrSource;
+                        hdrGainWidth = hdrWidth; hdrGainHeight = hdrHeight;
+                        hdrGainValidWidth = sourcePlan.cpuSerial && sourcePlan.width ? std::min(sourcePlan.width, hdrWidth) : hdrWidth;
+                        hdrGainValidHeight = sourcePlan.cpuSerial && sourcePlan.height ? std::min(sourcePlan.height, hdrHeight) : hdrHeight;
+                    }
+                }
                 g_frameWidth = sourceWidth;
                 g_frameHeight = sourceHeight;
                 g_frontbufferPhysical = physicalAddress & 0x1FFFFFFF;
@@ -3197,6 +4321,24 @@ namespace gpu::video
                     return;
                 DisplayCompletion completion(g_displayChanges, displayTicket);
                 if (!WaitForPresentGpu()) return;
+                // Calibration previews: scene frames refresh the copy (no earlier
+                // frame still samples it after the wait); the first frame without
+                // the scene freezes it.
+                plume::RenderTexture* sceneCopySource = nullptr;
+                uint64_t sceneOrdinal = 0;
+                const auto now = std::chrono::steady_clock::now();
+                if (renderer::ResolvedScene(physicalAddress & 0x1FFFFFFF, sceneOrdinal)) {
+                    if (g_hdrCalibrationCache.ready) {
+                        // A new stretch of gameplay starts with fresh copies.
+                        g_hdrCalibrationCache.ready = false;
+                        g_hdrCalibrationCache.scene = nullptr;
+                        g_hdrCalibrationCache.filled[0] = g_hdrCalibrationCache.filled[1] = false;
+                        settings::SetHdrCalibrationSceneAvailable(false);
+                    }
+                    if (now - g_hdrCalibrationCache.copied >= std::chrono::milliseconds(250))
+                        sceneCopySource = PrepareSceneCopy(physicalAddress & 0x1FFFFFFF, sceneOrdinal, sourceWidth, sourceHeight);
+                }
+                else FreezeScene();
 #if (defined(_WIN32) && (defined(LO_ENABLE_STREAMLINE_FG) || defined(LO_ENABLE_D3D12_FG) || defined(LO_ENABLE_VULKAN_FSR_FG))) || (defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG))
                 frame_generation::CompositeHandoff composite;
                 double fgProducerWaitMs = 0.0;
@@ -3257,6 +4399,7 @@ namespace gpu::video
                         id.allocation, id.generation, fgHandoff.packet->producer->producerSerial, fgHandoff.packet->resolveSerial);
                 }
                 if (!BeginGpuCommands(g_commandList.get())) return;
+                if (sceneCopySource) RecordSceneCopy(sceneCopySource);
 #if defined(LO_ENABLE_D3D12_FG) && defined(_WIN32)
                 if (g_d3dFg && g_d3dFg->Enabled()) {
                     g_d3dFg->PrepareAfterHostDrain(composite,
@@ -3289,19 +4432,42 @@ namespace gpu::video
                 if (g_presentation && settings::GetConfig().scalingQuality == settings::ScalingMetalFx)
                     source = UpscaleWithMetalFx(source, sourceWidth, sourceHeight);
 #endif
+                if (g_presentation && hdrGainSource) {
+                    if (auto* gained = g_presentation->ComposeHdrGain(g_commandList.get(), source, hdrGainSource,
+                            sourceWidth, sourceHeight, hdrGainValidWidth, hdrGainValidHeight, hdrGainWidth, hdrGainHeight)) {
+                        source = gained;
+                        hdrScene = true;
+                        static uint32_t gainLogs = 0;
+                        if (gainLogs++ < 8)
+                            LOG_INFO("HDR: highlight gain applied address={:#x} scene={}x{} (valid {}x{}) output={}x{}",
+                                physicalAddress, hdrGainWidth, hdrGainHeight, hdrGainValidWidth, hdrGainValidHeight, sourceWidth, sourceHeight);
+                    }
+                }
+                // Periodic tally of how each presented frame reached HDR (or did not).
+                {
+                    static uint32_t directFrames = 0, gainFrames = 0, sdrFrames = 0;
+                    if (hdrScene && hdrGainSource) ++gainFrames;
+                    else if (hdrScene) ++directFrames;
+                    else if (g_hdrSceneEnabled) ++sdrFrames;
+                    if (g_hdrSceneEnabled && (directFrames + gainFrames + sdrFrames) % 600 == 0)
+                        LOG_INFO("HDR: presented frames direct={} gain={} sdr={}", directFrames, gainFrames, sdrFrames);
+                }
                 if(g_presentation) {
                     const auto decision = frame_plan::ResolvePresentationDecision(&sourcePlan,
                         renderer::SceneAAApplied(physicalAddress & 0x1FFFFFFF), uint32_t(presentationOptions.antialiasing),
                         uint32_t(presentationOptions.scalingFilter));
-                    const PresentationOptions sourceOptions{decision.requestedAA == 3 ? Antialiasing::SMAA :
-                        static_cast<Antialiasing>(decision.requestedAA),
+                    // Scene AA already applied: the HDR path takes Draw (not
+                    // DrawComposited) and must not run the pass a second time.
+                    PresentationOptions sourceOptions{decision.bypassAA ? Antialiasing::Off :
+                        decision.requestedAA == 3 ? Antialiasing::SMAA : static_cast<Antialiasing>(decision.requestedAA),
                         decision.scalingQuality ? ScalingFilter::Bicubic : ScalingFilter::Bilinear,
-                        presentationOptions.expandRgbRange};
-                    if(decision.bypassAA)
-                        g_presentation->DrawComposited(g_commandList.get(),source,backBuffer,sourceWidth,sourceHeight,
-                            g_swapChain->getWidth(),g_swapChain->getHeight(),sourceOptions.scalingFilter,
-                            sourceOptions.expandRgbRange);
-                    else g_presentation->Draw(g_commandList.get(),source,backBuffer,sourceWidth,sourceHeight,
+                        presentationOptions.expandRgbRange, hdrScene};
+                    sourceOptions.displayGammaRamp = presentationOptions.displayGammaRamp;
+                    sourceOptions.displayAdjust = presentationOptions.displayAdjust;
+                    sourceOptions.displayBrightness = presentationOptions.displayBrightness;
+                    sourceOptions.displayGamma = presentationOptions.displayGamma;
+                    // With scene AA already applied this is DrawComposited's pass.
+                    g_presentation->Draw(g_commandList.get(),source,backBuffer,sourceWidth,sourceHeight,
                         g_swapChain->getWidth(),g_swapChain->getHeight(),sourceOptions);
                 }
                 else {
@@ -3334,6 +4500,7 @@ namespace gpu::video
                 FgHostSubmitted(submitted, submissionSerial, submitResult);
                 if (!submitted) { LOG_ERROR("video: GPU presentation submit failed raw_result={}", submitResult); ReadPresentCapture(captureResult, false, false, 0); return; }
                 g_fgPresent.Submitted(g_deviceEpoch.load(), submissionSerial);
+                if (sceneCopySource) SceneCopySubmitted(now);
                 FgPresentStart();
                 const bool presented = g_swapChain->present(imageIndex, &signalSemaphore, 1);
                 FgPresented(presented);
@@ -3511,17 +4678,66 @@ namespace gpu::video
         return true;
     }
 
+#ifdef LO_GPU_PLUME
+    // Opt-in diagnostic replay input, preserving the frozen scene before peak
+    // mapping. The payload is tightly packed RGBA16F extended gamma, not a PNG
+    // or an output-encoded HDR image. Normal screenshots never read it back.
+    static bool SaveHdrCalibrationCapture(const char* path)
+    {
+        const auto& scene = g_hdrCalibrationCache;
+        if (!scene.ready || !scene.scene || !scene.extended || !WaitForPresentGpu()) return false;
+        const uint32_t pitch = (scene.width * 8 + 255) & ~255u;
+        auto readback = g_device->createBuffer(plume::RenderBufferDesc::ReadbackBuffer(uint64_t(pitch) * scene.height));
+        if (!readback || !BeginGpuCommands(g_commandList.get())) return false;
+        g_commandList->barriers(plume::RenderBarrierStage::COPY,
+            plume::RenderTextureBarrier(scene.scene, plume::RenderTextureLayout::COPY_SOURCE));
+        g_commandList->copyTextureRegion(plume::RenderTextureCopyLocation::PlacedFootprint(readback.get(),
+            plume::RenderFormat::R16G16B16A16_FLOAT, scene.width, scene.height, 1, pitch / 8),
+            plume::RenderTextureCopyLocation::Subresource(scene.scene));
+        g_commandList->barriers(plume::RenderBarrierStage::GRAPHICS,
+            plume::RenderTextureBarrier(scene.scene, plume::RenderTextureLayout::SHADER_READ));
+        if (!EndGpuCommands(g_commandList.get())) return false;
+        const plume::RenderCommandList* lists[] = {g_commandList.get()};
+        uint64_t serial = 0; int32_t result = 0;
+        if (!SubmitPresentationBatch(lists, 1, nullptr, 0, nullptr, 0, g_fence.get(), &serial, &result)) return false;
+        g_fgPresentSerial = serial;
+        g_presentPending = true;
+        if (!WaitForGpuFence(g_fence.get())) { DrainGpuForShutdown(); return false; }
+        g_presentPending = false;
+        const auto* data = static_cast<const uint8_t*>(readback->map());
+        if (!data) return false;
+        FILE* file = fopen(path, "wb");
+        bool saved = false;
+        if (file) {
+            saved = fprintf(file, "LOHDR1 %u %u\n", scene.width, scene.height) > 0;
+            for (uint32_t y = 0; y < scene.height && saved; ++y)
+                saved = fwrite(data + size_t(y) * pitch, 8, scene.width, file) == scene.width;
+            saved = fclose(file) == 0 && saved;
+        }
+        readback->unmap();
+        return saved;
+    }
+#endif
     bool SaveScreenshot(const char* path)
     {
 #ifdef LO_GPU_PLUME
         if (GpuWorkStopped()) return false;
+        if (const char* capture = getenv("LO_HDR_CALIBRATION_CAPTURE"))
+            LOG_INFO("HDR calibration: frozen source export={} saved={}", capture, SaveHdrCalibrationCapture(capture));
         if(getenv("LO_SCREENSHOT_PRESENTED") && g_hasPresentedImage && g_swapChain) {
             const auto format=g_vulkan ? g_snapshotFormat : g_swapChain->getFormat();
+            const bool fp16Frame = format == plume::RenderFormat::R16G16B16A16_FLOAT;
+            const bool pqFrame = format == plume::RenderFormat::R10G10B10A2_UNORM || format == plume::RenderFormat::B10G10R10A2_UNORM;
+            const bool hdrFrame = fp16Frame || pqFrame;
+            const float outputScale = g_vulkan ? g_snapshotOutputScale : g_hdrOutput.scale;
+            // Vulkan negotiates real SDR surfaces, so only D3D12/Metal keep an inactive linear output.
+            const bool srgbPreview = !g_vulkan && g_hdrOutput.linear && !g_hdrOutput.active;
             if(format!=plume::RenderFormat::R8G8B8A8_UNORM &&
-                format!=plume::RenderFormat::B8G8R8A8_UNORM) return false;
+                format!=plume::RenderFormat::B8G8R8A8_UNORM && !hdrFrame) return false;
             const uint32_t w=g_vulkan ? g_snapshotWidth : g_swapChain->getWidth();
             const uint32_t h=g_vulkan ? g_snapshotHeight : g_swapChain->getHeight();
-            const uint32_t pitch=(w*4+255)&~255u;
+            const uint32_t bytesPerPixel = fp16Frame ? 8u : 4u;
+            const uint32_t pitch=(w*bytesPerPixel+255)&~255u;
             if(!w || !h) return false;
             auto readback=g_device->createBuffer(plume::RenderBufferDesc::ReadbackBuffer(uint64_t(pitch)*h));
             auto* frame=g_vulkan ? g_presentedSnapshot.get() : g_swapChain->getTexture(g_lastPresentedImage);
@@ -3529,7 +4745,7 @@ namespace gpu::video
             if (!WaitForPresentGpu()) return false;
             if (!BeginGpuCommands(g_commandList.get())) return false;
             g_commandList->barriers(plume::RenderBarrierStage::COPY,plume::RenderTextureBarrier(frame,plume::RenderTextureLayout::COPY_SOURCE));
-            g_commandList->copyTextureRegion(plume::RenderTextureCopyLocation::PlacedFootprint(readback.get(),format,w,h,1,pitch/4),plume::RenderTextureCopyLocation::Subresource(frame));
+            g_commandList->copyTextureRegion(plume::RenderTextureCopyLocation::PlacedFootprint(readback.get(),format,w,h,1,pitch/bytesPerPixel),plume::RenderTextureCopyLocation::Subresource(frame));
             if(!g_vulkan) g_commandList->barriers(plume::RenderBarrierStage::NONE,plume::RenderTextureBarrier(frame,plume::RenderTextureLayout::PRESENT));
             if (!EndGpuCommands(g_commandList.get())) return false; const plume::RenderCommandList* lists[]={g_commandList.get()};
             uint64_t submissionSerial = 0; int32_t submitResult = 0;
@@ -3541,7 +4757,34 @@ namespace gpu::video
             if (!WaitForGpuFence(g_fence.get())) { DrainGpuForShutdown(); return false; }
             g_presentPending = false;
             std::vector<uint32_t> pixels(size_t(w)*h); const auto* data=static_cast<const uint8_t*>(readback->map());
-            for(uint32_t y=0;y<h;y++) memcpy(pixels.data()+size_t(y)*w,data+size_t(y)*pitch,w*4);
+            if (!data) return false;
+            float maximumLinear = 0.0f;
+            uint64_t aboveWhite = 0;
+            for(uint32_t y=0;y<h;y++) {
+                if (fp16Frame) {
+                    const auto* row = reinterpret_cast<const uint16_t*>(data + size_t(y) * pitch);
+                    for (uint32_t x=0;x<w;x++) {
+                        const float red = hdr::DecodeHalf(row[x*4]);
+                        const float green = hdr::DecodeHalf(row[x*4+1]);
+                        const float blue = hdr::DecodeHalf(row[x*4+2]);
+                        const float maximum = std::max({red, green, blue});
+                        maximumLinear = std::max(maximumLinear, maximum);
+                        aboveWhite += maximum > outputScale;
+                        pixels[size_t(y)*w+x] = hdr::PreviewRgba(red, green, blue, outputScale, srgbPreview);
+                    }
+                } else if (pqFrame) {
+                    const auto* row = reinterpret_cast<const uint32_t*>(data + size_t(y)*pitch);
+                    for (uint32_t x=0;x<w;x++) {
+                        const auto rgb = hdr::DecodePq10(row[x], format == plume::RenderFormat::B10G10R10A2_UNORM);
+                        const float maximum = std::max({rgb[0],rgb[1],rgb[2]});
+                        maximumLinear = std::max(maximumLinear,maximum);
+                        aboveWhite += maximum > outputScale;
+                        pixels[size_t(y)*w+x] = hdr::PreviewRgba(rgb[0],rgb[1],rgb[2],outputScale);
+                    }
+                } else memcpy(pixels.data()+size_t(y)*w,data+size_t(y)*pitch,w*4);
+            }
+            if (hdrFrame) LOG_INFO("HDR screenshot: SDR preview={} linear_max={} reference_white={} pixels_above_white={}",
+                path, maximumLinear, outputScale, aboveWhite);
             readback->unmap(); return WritePpm(path,pixels,w,h,format==plume::RenderFormat::B8G8R8A8_UNORM);
         }
 #endif

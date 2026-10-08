@@ -1,4 +1,5 @@
 #include "config.h"
+#include <debug/fast_forward.h>
 #include <gpu/frame_rate.h>
 #include <filesystem>
 #include <fstream>
@@ -11,8 +12,17 @@ namespace settings
 namespace
 {
 std::mutex mutex;
+// One settings.ini line: no line breaks, bounded like the adapter/display names it stores.
+std::string TextValue(std::string text)
+{
+    while (!text.empty() && (text.back() == '\r' || text.back() == '\n')) text.pop_back();
+    return text.size() <= 256 && text.find_first_of("\r\n") == std::string::npos ? text : std::string{};
+}
 Config Validate(Config value)
 {
+    value.gpuDevice = TextValue(std::move(value.gpuDevice));
+    value.displayName = TextValue(std::move(value.displayName));
+    if (value.displayName.empty() || value.displayIndex > 63) value.displayIndex = 0;
     if (value.internalResolution != 0 && value.internalResolution != InternalResolutionNative &&
         value.internalResolution != 720 && value.internalResolution != 1080 &&
         value.internalResolution != 1440 && value.internalResolution != 2160)
@@ -24,36 +34,51 @@ Config Validate(Config value)
 #endif
     if (value.anisotropicFiltering != 0 && value.anisotropicFiltering != 2 && value.anisotropicFiltering != 4 &&
         value.anisotropicFiltering != 8 && value.anisotropicFiltering != 16) value.anisotropicFiltering = 0;
+    value.depthOfFieldPercent = std::min(value.depthOfFieldPercent, 100u);
+    value.vibrationPercent = std::min(value.vibrationPercent, 100u);
+    value.hdrPaperWhiteNits = std::clamp(value.hdrPaperWhiteNits, 80u, 400u);
+    value.hdrPeakNits = std::clamp(value.hdrPeakNits, 80u, 10000u);
+    value.hdrPeakNits = std::max(value.hdrPeakNits, value.hdrPaperWhiteNits);
+    value.displayBrightness = std::clamp(value.displayBrightness, -20, 20);
+    value.displayGamma = std::clamp(value.displayGamma, 50u, 150u);
     if (!gpu::upscaling::KnownUpscaler(value.upscaler)) value.upscaler = gpu::upscaling::Upscaler::Off;
     value.dlssQuality = gpu::upscaling::NormalizeDlssQuality(value.dlssQuality);
     value.fsrQuality = gpu::upscaling::NormalizeFsrQuality(value.fsrQuality);
     value.fsrSharpnessPercent = std::min(value.fsrSharpnessPercent, 100u);
-    if (value.frameGenerationProvider != framegen::Provider::Off &&
-        value.frameGenerationProvider != framegen::Provider::Dlss &&
-        value.frameGenerationProvider != framegen::Provider::Fsr &&
-        value.frameGenerationProvider != framegen::Provider::MetalFx)
+    if (!framegen::KnownProvider(value.frameGenerationProvider))
         value.frameGenerationProvider = framegen::Provider::Off;
     if (value.frameGenerationMode != framegen::Mode::Fixed && value.frameGenerationMode != framegen::Mode::Dynamic)
         value.frameGenerationMode = framegen::Mode::Fixed;
     if (value.frameGenerationMultiplier < 2 || value.frameGenerationMultiplier > framegen::kMaxMultiplier)
         value.frameGenerationMultiplier = 2;
     if (value.frameGenerationTargetFps > 1000) value.frameGenerationTargetFps = 0;
-    if (value.frameGenerationProvider == framegen::Provider::Fsr || value.frameGenerationProvider == framegen::Provider::MetalFx)
+    // XeSS-FG offers more than 2x only on Intel GPUs; like FSR it is fixed at 2x here.
+    if (value.frameGenerationProvider == framegen::Provider::Fsr || value.frameGenerationProvider == framegen::Provider::MetalFx ||
+        value.frameGenerationProvider == framegen::Provider::Xess)
     {
         value.frameGenerationMode = framegen::Mode::Fixed;
         value.frameGenerationMultiplier = 2;
         value.frameGenerationTargetFps = 0;
     }
     if (value.antialiasing > 3) value.antialiasing = 0;
+    if (value.shadowResolution != 1 && value.shadowResolution != 2 && value.shadowResolution != 4)
+        value.shadowResolution = 1;
+    if (value.ambientOcclusion > 2) value.ambientOcclusion = 0;
     value.fxaa = value.antialiasing == 1;
     value.frameRate = gpu::frame_rate::Normalize(value.frameRate);
     if (value.debugLanguage > 1) value.debugLanguage = 0;
+    if (value.fastForwardMode > 1) value.fastForwardMode = 0;
+    namespace ff = debug_menu::fast_forward;
+    if (std::find(std::begin(ff::Rates), std::end(ff::Rates), value.fastForwardRate) == std::end(ff::Rates))
+        value.fastForwardRate = 2;
     if (value.uiLanguage > 4)
         value.uiLanguage = 0;
     if (GameLanguageIds[GameLanguageIndex(value.gameLanguage)] != value.gameLanguage)
         value.gameLanguage = 1;
-    if (uint32_t(value.windowMode) > 2)
+    if (uint32_t(value.windowMode) > 1)
         value.windowMode = WindowMode::Windowed;
+    if (value.audioOutput > AudioOutputSurround)
+        value.audioOutput = AudioOutputStereo;
     if (!gpu::backend::Known(value.graphicsBackend))
 #ifdef _WIN32
         value.graphicsBackend = GraphicsBackend::D3D12;
@@ -77,6 +102,7 @@ Config Read()
 {
     Config value;
     bool hasAntialiasing = false;
+    bool hasHdrPeakAuto = false, hasHdrPeakNits = false;
     const auto path = os::user_paths::SettingsPath();
     std::ifstream input(path);
     std::string key;
@@ -92,6 +118,20 @@ Config Read()
         if (name == "anisotropic_filtering") value.anisotropicFiltering = 0;
         uint32_t number = 0;
         const auto digits = key.substr(equal + 1);
+        if (name == "gpu_device" || name == "display_name")
+        {
+            (name == "gpu_device" ? value.gpuDevice : value.displayName) = TextValue(digits);
+            continue;
+        }
+        if (name == "display_brightness")
+        {
+            // The only signed value.
+            int brightness = 0;
+            auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), brightness);
+            if (parsed.ec == std::errc{} && parsed.ptr == digits.data() + digits.size())
+                value.displayBrightness = brightness;
+            continue;
+        }
         auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), number);
         if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size())
             continue;
@@ -109,17 +149,31 @@ Config Read()
         else if (key == "internal_resolution")
             value.internalResolution = number <= 2160 ? int(number) : 0;
         else if (key == "window_mode")
-            value.windowMode = WindowMode(number);
+            value.windowMode = number == 2 ? WindowMode::Borderless : WindowMode(number); // 2 was exclusive fullscreen.
+        else if (key == "display_index")
+            value.displayIndex = number;
         else if (key == "graphics_backend")
             value.graphicsBackend = GraphicsBackend(number);
         else if (key == "antialiasing")
             value.antialiasing = number;
+        else if (key == "shadow_resolution")
+            value.shadowResolution = number;
+        else if (key == "ambient_occlusion")
+            value.ambientOcclusion = number;
         else if (key == "scaling_quality")
             value.scalingQuality = number;
         else if (key == "expand_rgb_range" && number <= 1)
             value.expandRgbRange = number == 1;
+        else if (key == "display_gamma")
+            value.displayGamma = number;
         else if (key == "anisotropic_filtering")
             value.anisotropicFiltering = number;
+        else if (key == "depth_of_field")
+            value.depthOfFieldPercent = number;
+        else if (key == "bloom" && number <= 1)
+            value.bloom = number == 1;
+        else if (key == "vibration")
+            value.vibrationPercent = number;
         else if (key == "upscaler")
             value.upscaler = gpu::upscaling::Upscaler(number);
         else if (key == "dlss_quality")
@@ -129,7 +183,7 @@ Config Read()
         else if (key == "fsr_sharpness")
             value.fsrSharpnessPercent = number;
         else if (key == "frame_generation_provider")
-            value.frameGenerationProvider = number <= uint32_t(framegen::Provider::MetalFx)
+            value.frameGenerationProvider = number <= uint32_t(framegen::Provider::Xess)
                 ? framegen::Provider(number) : framegen::Provider::Off;
         else if (key == "frame_generation_mode")
             value.frameGenerationMode = number <= uint32_t(framegen::Mode::Dynamic)
@@ -142,12 +196,36 @@ Config Read()
             value.variableRefreshRate = number == 1;
         else if (key == "frame_rate")
             value.frameRate = number;
+        else if (key == "hdr" && number <= 1)
+            value.hdr = number == 1;
+        else if (key == "hdr_paper_white_nits")
+            value.hdrPaperWhiteNits = number;
+        else if (key == "hdr_peak_nits")
+        {
+            value.hdrPeakNits = number;
+            hasHdrPeakNits = true;
+        }
+        else if (key == "hdr_peak_auto" && number <= 1)
+        {
+            value.hdrPeakAutomatic = number == 1;
+            hasHdrPeakAuto = true;
+        }
         else if (key == "fxaa")
             value.fxaa = number == 1;
         else if (key == "skip_shader_prebuild")
             value.skipShaderPrebuild = number == 1;
         else if (key == "save_anywhere" && number <= 1)
             value.saveAnywhere = number == 1;
+        else if (key == "no_random_encounters" && number <= 1)
+            value.noRandomEncounters = number == 1;
+        else if (key == "fast_forward" && number <= 1)
+            value.fastForward = number == 1;
+        else if (key == "fast_forward_mode")
+            value.fastForwardMode = number;
+        else if (key == "fast_forward_rate")
+            value.fastForwardRate = number;
+        else if (key == "audio_output")
+            value.audioOutput = number;
         else if (key == "automatic_updates")
         {
             // Unknown values keep the safe package default (enabled).
@@ -155,12 +233,22 @@ Config Read()
         }
     }
     if (!hasAntialiasing) value.antialiasing = value.fxaa ? 1u : 0u;
+    // Profiles written before automatic peak detection use their stored peak
+    // as an explicit choice. A fresh profile follows the current display.
+    if (hasHdrPeakNits && !hasHdrPeakAuto) value.hdrPeakAutomatic = false;
     return Validate(value);
 }
 Config &Current()
 {
     static Config config = Read();
     return config;
+}
+// Debug-menu choices are saved on their own, never through a graphics save.
+void CopyFastForward(Config &to, const Config &from)
+{
+    to.fastForward = from.fastForward;
+    to.fastForwardMode = from.fastForwardMode;
+    to.fastForwardRate = from.fastForwardRate;
 }
 } // namespace
 void ConfigureGameLanguages(const std::filesystem::path &xexPath)
@@ -207,6 +295,9 @@ void PreviewConfig(const Config &value)
     auto merged = Validate(value);
     merged.debugLanguage = Current().debugLanguage;
     merged.saveAnywhere = Current().saveAnywhere;
+    merged.noRandomEncounters = Current().noRandomEncounters;
+    CopyFastForward(merged, Current());
+    merged.audioOutput = Current().audioOutput;
     Current() = merged;
 }
 uint32_t GameLanguage()
@@ -223,24 +314,42 @@ static bool WriteConfig(const Config &value)
     std::ofstream output(temporary, std::ios::trunc);
     output << "ui_language=" << value.uiLanguage << "\ngame_language=" << value.gameLanguage
            << "\nwidth=" << value.width << "\nheight=" << value.height << "\nwindow_mode=" << uint32_t(value.windowMode)
+           << "\ndisplay_name=" << value.displayName << "\ndisplay_index=" << value.displayIndex
            << "\ngraphics_backend=" << uint32_t(value.graphicsBackend)
+           << "\ngpu_device=" << value.gpuDevice
            << "\ndebug_language=" << value.debugLanguage
            << "\nantialiasing=" << value.antialiasing << "\nframe_rate=" << value.frameRate
+           << "\nshadow_resolution=" << value.shadowResolution
+           << "\nambient_occlusion=" << value.ambientOcclusion
            << "\nscaling_quality=" << value.scalingQuality
            << "\nexpand_rgb_range=" << (value.expandRgbRange ? 1 : 0)
+           << "\ndisplay_brightness=" << value.displayBrightness
+           << "\ndisplay_gamma=" << value.displayGamma
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
+           << "\ndepth_of_field=" << value.depthOfFieldPercent
+           << "\nbloom=" << (value.bloom ? 1 : 0)
+           << "\nvibration=" << value.vibrationPercent
            << "\nupscaler=" << uint32_t(value.upscaler) << "\ndlss_quality=" << uint32_t(value.dlssQuality)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)
            << "\nfsr_sharpness=" << value.fsrSharpnessPercent
            << "\nvariable_refresh_rate=" << (value.variableRefreshRate ? 1 : 0)
+           << "\nhdr=" << (value.hdr ? 1 : 0)
+           << "\nhdr_paper_white_nits=" << value.hdrPaperWhiteNits
+           << "\nhdr_peak_auto=" << (value.hdrPeakAutomatic ? 1 : 0)
+           << "\nhdr_peak_nits=" << value.hdrPeakNits
            << "\nframe_generation_provider=" << uint32_t(value.frameGenerationProvider)
            << "\nframe_generation_mode=" << uint32_t(value.frameGenerationMode)
            << "\nframe_generation_multiplier=" << value.frameGenerationMultiplier
            << "\nframe_generation_target_fps=" << value.frameGenerationTargetFps
            << "\ninternal_resolution=" << value.internalResolution
            << "\nfxaa=" << value.fxaa << "\nautomatic_updates=" << value.automaticUpdates
+           << "\naudio_output=" << value.audioOutput
            << "\nskip_shader_prebuild=" << (value.skipShaderPrebuild ? 1 : 0)
-           << "\nsave_anywhere=" << (value.saveAnywhere ? 1 : 0) << '\n';
+           << "\nsave_anywhere=" << (value.saveAnywhere ? 1 : 0)
+           << "\nno_random_encounters=" << (value.noRandomEncounters ? 1 : 0)
+           << "\nfast_forward=" << (value.fastForward ? 1 : 0)
+           << "\nfast_forward_mode=" << value.fastForwardMode
+           << "\nfast_forward_rate=" << value.fastForwardRate << '\n';
     output.flush();
     if (!output)
         return false;
@@ -265,8 +374,34 @@ bool SaveConfig(const Config &requested)
     auto value = Validate(requested);
     value.debugLanguage = Current().debugLanguage;
     value.saveAnywhere = Current().saveAnywhere;
+    value.noRandomEncounters = Current().noRandomEncounters;
+    CopyFastForward(value, Current());
+    value.audioOutput = Current().audioOutput;
     if (!WriteConfig(value)) return false;
     Current() = value;
+    return true;
+}
+bool SaveAudioOutput(uint32_t output)
+{
+    std::lock_guard lock(mutex);
+    // Merge with the persisted settings, not a pending graphics preview.
+    auto persisted = Read();
+    persisted.audioOutput = output <= AudioOutputSurround ? output : AudioOutputStereo;
+    if (!WriteConfig(persisted)) return false;
+    Current().audioOutput = persisted.audioOutput;
+    return true;
+}
+bool SaveDisplayChoice(const std::string &name, uint32_t index)
+{
+    std::lock_guard lock(mutex);
+    // Merge with the persisted settings, not a pending graphics preview.
+    auto persisted = Read();
+    persisted.displayName = name;
+    persisted.displayIndex = index;
+    persisted = Validate(persisted);
+    if (!WriteConfig(persisted)) return false;
+    Current().displayName = persisted.displayName;
+    Current().displayIndex = persisted.displayIndex;
     return true;
 }
 bool SaveDebugLanguage(uint32_t language)
@@ -287,6 +422,27 @@ bool SaveSaveAnywhere(bool enabled)
     persisted.saveAnywhere = enabled;
     if (!WriteConfig(persisted)) return false;
     Current().saveAnywhere = enabled;
+    return true;
+}
+bool SaveNoRandomEncounters(bool enabled)
+{
+    std::lock_guard lock(mutex);
+    auto persisted = Read();
+    persisted.noRandomEncounters = enabled;
+    if (!WriteConfig(persisted)) return false;
+    Current().noRandomEncounters = enabled;
+    return true;
+}
+bool SaveFastForward(bool enabled, uint32_t mode, uint32_t rate)
+{
+    std::lock_guard lock(mutex);
+    auto persisted = Read();
+    persisted.fastForward = enabled;
+    persisted.fastForwardMode = mode;
+    persisted.fastForwardRate = rate;
+    persisted = Validate(persisted);
+    if (!WriteConfig(persisted)) return false;
+    CopyFastForward(Current(), persisted);
     return true;
 }
 } // namespace settings

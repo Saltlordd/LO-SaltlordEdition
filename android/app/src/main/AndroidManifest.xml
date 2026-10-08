@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x00402000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Saltlord Edition is offline: intentionally no INTERNET permission. -->
+    <application android:label="Lost Odyssey XEX Test" android:allowBackup="false" android:debuggable="true"
+        android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen" android:extractNativeLibs="true">
+        <service android:name="io.github.freefrank.lostodyssey.ShaderPreparationService" android:exported="false" android:process=":bootcheck" android:foregroundServiceType="dataSync" />
+        <provider android:name="io.github.freefrank.lostodyssey.LogProvider"
+            android:authorities="io.github.freefrank.lostodyssey.probe.logs"
+            android:exported="false" android:grantUriPermissions="true" />
+        <activity android:name="io.github.freefrank.lostodyssey.ProbeActivity" android:exported="false"
+            android:screenOrientation="landscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode" />
+        <activity android:name="io.github.freefrank.lostodyssey.TestLauncherActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

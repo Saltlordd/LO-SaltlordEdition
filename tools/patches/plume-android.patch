@@ -1,0 +1,9 @@
+diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
+--- a/plume_render_interface_types.h
++++ b/plume_render_interface_types.h
+@@ -64,4 +64,4 @@ namespace plume {
+-#elif defined(__ANDROID__)
++#elif defined(__ANDROID__) && !defined(PLUME_SDL_VULKAN_ENABLED)
+     typedef ANativeWindow* RenderWindow;
+ #elif defined(PLUME_SDL_VULKAN_ENABLED)
+     typedef SDL_Window *RenderWindow;

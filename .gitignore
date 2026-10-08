@@ -158,3 +158,12 @@ docs/MACOS_PORT_TODO.md
 docs/MACOS_PORT_WORKLOG.md
 /saves/
 /dlc-packages/
+
+# Local Android builds and private material
+out/
+*.keystore
+*.jks
+*.apk
+*.idsig
+*.log
+local.properties

@@ -21,7 +21,11 @@ function(lo_add_header_test name source)
         target_compile_options(${name} PRIVATE -UNDEBUG)
     endif()
 endfunction()
+if(NOT ANDROID)
 lo_add_header_test(LoPollWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/poll_wait_test.cpp)
+lo_add_header_test(LoHdrOutputTest ${CMAKE_SOURCE_DIR}/tools/tests/hdr_output_test.cpp)
+lo_add_header_test(LoShadowResolutionTest ${CMAKE_SOURCE_DIR}/tools/tests/shadow_resolution_test.cpp)
+lo_add_header_test(LoHdrSceneShaderTest ${CMAKE_SOURCE_DIR}/tools/tests/hdr_scene_shader_test.cpp)
 lo_add_header_test(LoTimeFieldsTest ${CMAKE_SOURCE_DIR}/tools/tests/time_fields_test.cpp)
 lo_add_header_test(LoNotifiedWaitTest ${CMAKE_SOURCE_DIR}/tools/tests/notified_wait_test.cpp)
 lo_add_header_test(LoFrameGenerationPresentTest ${CMAKE_SOURCE_DIR}/tools/tests/frame_generation_present_test.cpp)
@@ -39,6 +43,7 @@ lo_add_header_test(LoTextureDescriptorCacheTest ${CMAKE_SOURCE_DIR}/tools/tests/
 lo_add_header_test(LoTextureKeyTest ${CMAKE_SOURCE_DIR}/tools/tests/texture_key_test.cpp)
 lo_add_header_test(LoTextureContentTest ${CMAKE_SOURCE_DIR}/tools/tests/texture_content_test.cpp)
 target_link_libraries(LoTextureContentTest PRIVATE xxHash::xxhash)
+lo_add_header_test(LoBcDecodeTest ${CMAKE_SOURCE_DIR}/tools/tests/bc_decode_test.cpp)
 find_package(Threads REQUIRED)
 lo_add_header_test(LoAudioCallbackTest ${CMAKE_SOURCE_DIR}/tools/tests/audio_callback_test.cpp)
 target_link_libraries(LoAudioCallbackTest PRIVATE Threads::Threads)
@@ -59,7 +64,7 @@ target_sources(LoInstallerReviewPreviewTest PRIVATE
     ${LO_RUNTIME_ROOT}/install/installer_font.cpp)
 target_include_directories(LoInstallerReviewPreviewTest PRIVATE ${CMAKE_SOURCE_DIR}/thirdparty/SDL/include)
 target_compile_definitions(LoInstallerReviewPreviewTest PRIVATE LO_INSTALLER_UI_TESTING SDL_MAIN_HANDLED)
-target_link_libraries(LoInstallerReviewPreviewTest PRIVATE SDL2::SDL2-static)
+target_link_libraries(LoInstallerReviewPreviewTest PRIVATE SDL3::SDL3-static)
 lo_add_header_test(LoInstallHostTest ${CMAKE_SOURCE_DIR}/tools/tests/install_host_test.cpp)
 target_sources(LoInstallHostTest PRIVATE ${LO_RUNTIME_ROOT}/install/host.cpp)
 lo_add_header_test(LoFileBrowserFolderTest ${CMAKE_SOURCE_DIR}/tools/tests/file_browser_folder_test.cpp)
@@ -86,7 +91,7 @@ add_executable(LoUpdaterSdlUiTest EXCLUDE_FROM_ALL
     ${LO_RUNTIME_ROOT}/updater/update.cpp)
 target_include_directories(LoUpdaterSdlUiTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoUpdaterSdlUiTest PRIVATE cxx_std_20)
-target_link_libraries(LoUpdaterSdlUiTest PRIVATE SDL2::SDL2-static)
+target_link_libraries(LoUpdaterSdlUiTest PRIVATE SDL3::SDL3-static)
 if(MSVC)
     target_compile_options(LoUpdaterSdlUiTest PRIVATE /utf-8 /UNDEBUG)
 else()
@@ -101,7 +106,7 @@ if(NOT WIN32)
     target_include_directories(LoUpdaterSdlProductionTest PRIVATE ${LO_RUNTIME_ROOT})
     target_compile_features(LoUpdaterSdlProductionTest PRIVATE cxx_std_20)
     target_compile_options(LoUpdaterSdlProductionTest PRIVATE -UNDEBUG)
-    target_link_libraries(LoUpdaterSdlProductionTest PRIVATE SDL2::SDL2-static)
+    target_link_libraries(LoUpdaterSdlProductionTest PRIVATE SDL3::SDL3-static)
 endif()
 add_executable(LoUpdaterGamePromptTest EXCLUDE_FROM_ALL
     ${CMAKE_SOURCE_DIR}/tools/tests/updater_game_prompt_test.cpp
@@ -109,7 +114,8 @@ add_executable(LoUpdaterGamePromptTest EXCLUDE_FROM_ALL
 target_include_directories(LoUpdaterGamePromptTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoUpdaterGamePromptTest PRIVATE cxx_std_20)
 target_compile_definitions(LoUpdaterGamePromptTest PRIVATE SDL_MAIN_HANDLED)
-target_link_libraries(LoUpdaterGamePromptTest PRIVATE SDL2::SDL2-static)
+target_link_libraries(LoUpdaterGamePromptTest PRIVATE SDL3::SDL3-static)
+endif()
 
 set(LO_PRIVATE_DIR ${CMAKE_SOURCE_DIR}/LostOdysseyRecompLib/private)
 
@@ -133,8 +139,22 @@ add_custom_command(
     COMMENT "Generating kernel import stubs"
     VERBATIM)
 
-add_executable(LostOdysseyRecomp ${LO_RUNTIME_SOURCES} ${LO_IMPORT_STUBS})
-lo_stage_portable_shader_pack(LostOdysseyRecomp)
+if(ANDROID)
+    add_library(LostOdysseyRecomp SHARED ${LO_RUNTIME_SOURCES} ${LO_IMPORT_STUBS})
+    set_target_properties(LostOdysseyRecomp PROPERTIES OUTPUT_NAME main)
+    target_link_options(LostOdysseyRecomp PRIVATE "-Wl,-z,max-page-size=16384")
+    # libadrenotools: optional custom Vulkan driver (Mesa Turnip) loading on
+    # Qualcomm devices, selected at runtime with LO_VK_CUSTOM_DRIVER.
+    if(EXISTS "${CMAKE_SOURCE_DIR}/thirdparty/libadrenotools/CMakeLists.txt")
+        add_subdirectory("${CMAKE_SOURCE_DIR}/thirdparty/libadrenotools" "${CMAKE_BINARY_DIR}/adrenotools")
+        target_link_libraries(LostOdysseyRecomp PRIVATE adrenotools)
+        target_compile_definitions(LostOdysseyRecomp PRIVATE LO_HAS_ADRENOTOOLS=1)
+        add_dependencies(LostOdysseyRecomp main_hook file_redirect_hook gsl_alloc_hook hook_impl)
+    endif()
+else()
+    add_executable(LostOdysseyRecomp ${LO_RUNTIME_SOURCES} ${LO_IMPORT_STUBS})
+    lo_stage_portable_shader_pack(LostOdysseyRecomp)
+endif()
 set(LO_BUILD_REVISION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/lo_build_revision.h")
 add_custom_target(LoBuildRevision
     COMMAND ${CMAKE_COMMAND} "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}" "-DOUTPUT=${LO_BUILD_REVISION_HEADER}"
@@ -182,8 +202,10 @@ target_link_libraries(LostOdysseyRecomp PRIVATE
     fmt::fmt
     xxHash::xxhash
     o1heap
-    SDL2::SDL2-static)
-if(UNIX)
+    SDL3::SDL3)
+if(ANDROID)
+    target_link_libraries(LostOdysseyRecomp PRIVATE android log dl nlohmann_json::nlohmann_json)
+elseif(UNIX)
     set_target_properties(LostOdysseyRecomp PROPERTIES
         INSTALL_RPATH "$ORIGIN;$ORIGIN/../lib")
     find_package(CURL REQUIRED)
@@ -201,7 +223,10 @@ if(LO_BUILD_GPU)
         target_include_directories(LostOdysseyRecomp PRIVATE ${CMAKE_SOURCE_DIR}/thirdparty/plume/contrib/metal-cpp)
     endif()
     if(WIN32)
-        target_link_libraries(LostOdysseyRecomp PRIVATE d3d12 dxgi)
+        # Vulkan runs never load the D3D12 runtime; video.cpp probes both DLLs
+        # before the D3D12 attempt so a missing one falls back instead of faulting.
+        target_link_libraries(LostOdysseyRecomp PRIVATE d3d12 dxgi delayimp)
+        target_link_options(LostOdysseyRecomp PRIVATE /DELAYLOAD:d3d12.dll /DELAYLOAD:dxgi.dll)
     endif()
     lo_enable_dlss(LostOdysseyRecomp)
     lo_enable_streamline_fg(LostOdysseyRecomp)
@@ -213,12 +238,14 @@ if(LO_BUILD_GPU)
         target_include_directories(LoDlssFgConstantsTest PRIVATE "${LO_STREAMLINE_SDK_ROOT}/include")
     endif()
     lo_enable_fsr(LostOdysseyRecomp)
+    lo_enable_xess(LostOdysseyRecomp)
 endif()
 
 if(LO_RENDERER_P2_SELFTEST)
     target_compile_definitions(LostOdysseyRecomp PRIVATE LO_RENDERER_P2_SELFTEST=1)
 endif()
 
+if(NOT ANDROID)
 if(WIN32)
     target_link_libraries(LostOdysseyRecomp PRIVATE winmm onecore bcrypt winhttp ole32 shell32)
 
@@ -319,7 +346,7 @@ if(WIN32)
         ${CMAKE_SOURCE_DIR}/tools/tests/game_window_pixels_test.cpp)
     target_compile_features(LoGameWindowPixelsTest PRIVATE cxx_std_20)
     target_compile_options(LoGameWindowPixelsTest PRIVATE /utf-8 /W4 /WX)
-    target_link_libraries(LoGameWindowPixelsTest PRIVATE SDL2::SDL2-static user32)
+    target_link_libraries(LoGameWindowPixelsTest PRIVATE SDL3::SDL3-static user32)
     set_target_properties(LoGameWindowPixelsTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
 
     add_executable(LoRestartTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/restart_test.cpp)
@@ -424,12 +451,32 @@ target_link_libraries(LoGuestPrintfTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRec
 
 # Offline shader translator check (shares gpu/shader with the runtime).
 add_executable(LoHidTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/hid_test.cpp ${LO_RUNTIME_ROOT}/hid/hid.cpp)
+if(ANDROID)
+    target_sources(LoHidTest PRIVATE ${LO_RUNTIME_ROOT}/hid/android_touch.cpp)
+endif()
 target_include_directories(LoHidTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
 target_compile_definitions(LoHidTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_DEFINITIONS>)
 target_compile_options(LoHidTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_OPTIONS>)
 target_compile_features(LoHidTest PRIVATE cxx_std_20)
 set_target_properties(LoHidTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
-target_link_libraries(LoHidTest PRIVATE fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+if(ANDROID)
+    target_link_libraries(LoHidTest PRIVATE fmt::fmt SDL3::SDL3 xxHash::xxhash)
+else()
+    target_link_libraries(LoHidTest PRIVATE fmt::fmt SDL3::SDL3-static xxHash::xxhash)
+endif()
+
+if(NOT ANDROID)
+    # Compile the production HID merger's Android branch with host SDL virtual pads.
+    add_executable(LoAndroidTouchInputTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/android_touch_input_test.cpp
+        ${LO_RUNTIME_ROOT}/hid/android_touch.cpp)
+    target_include_directories(LoAndroidTouchInputTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(LoAndroidTouchInputTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_DEFINITIONS>)
+    target_compile_options(LoAndroidTouchInputTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,COMPILE_OPTIONS>)
+    target_compile_features(LoAndroidTouchInputTest PRIVATE cxx_std_20)
+    set_target_properties(LoAndroidTouchInputTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
+    target_link_libraries(LoAndroidTouchInputTest PRIVATE fmt::fmt SDL3::SDL3-static xxHash::xxhash)
+endif()
 
 add_executable(LoShaderTool
     ${CMAKE_SOURCE_DIR}/tools/xenos_shader_tool/main.cpp
@@ -440,6 +487,30 @@ add_executable(LoShaderTool
 target_compile_features(LoShaderTool PRIVATE cxx_std_20)
 target_compile_definitions(LoShaderTool PRIVATE NOMINMAX)
 target_link_libraries(LoShaderTool PRIVATE fmt::fmt)
+
+# Translates and compiles HLSL with DXC, without a GPU or game assets. On macOS
+# it loads the bundled libdxcompiler.dylib the way the runtime does.
+if(WIN32 OR APPLE)
+    add_executable(LoRenderResolutionShaderTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/render_resolution_shader_test.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/xenos_translator.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+    target_include_directories(LoRenderResolutionShaderTest PRIVATE ${LO_RUNTIME_ROOT}
+        ${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/inc)
+    target_compile_features(LoRenderResolutionShaderTest PRIVATE cxx_std_20)
+    target_compile_definitions(LoRenderResolutionShaderTest PRIVATE NOMINMAX)
+    target_link_libraries(LoRenderResolutionShaderTest PRIVATE fmt::fmt)
+
+    add_executable(LoShadowProjectionShaderTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/shadow_projection_shader_test.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/xenos_translator.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+    target_include_directories(LoShadowProjectionShaderTest PRIVATE ${LO_RUNTIME_ROOT}
+        ${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/inc)
+    target_compile_features(LoShadowProjectionShaderTest PRIVATE cxx_std_20)
+    target_compile_definitions(LoShadowProjectionShaderTest PRIVATE NOMINMAX)
+    target_link_libraries(LoShadowProjectionShaderTest PRIVATE fmt::fmt)
+endif()
 
 # Tests packed mip block origins without game assets.
 add_executable(LoXmaLoopTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/xma_loop_test.cpp)
@@ -461,6 +532,10 @@ target_compile_features(LoShaderResourceVariantsTest PRIVATE cxx_std_20)
 add_executable(LoTextureLayoutTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/texture_layout_test.cpp)
 target_include_directories(LoTextureLayoutTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoTextureLayoutTest PRIVATE cxx_std_20)
+
+add_executable(LoDriverPipelineCacheTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/driver_pipeline_cache_test.cpp)
+target_include_directories(LoDriverPipelineCacheTest PRIVATE ${LO_RUNTIME_ROOT})
+target_compile_features(LoDriverPipelineCacheTest PRIVATE cxx_std_20)
 
 add_executable(LoGamePathTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/game_path_test.cpp)
 target_include_directories(LoGamePathTest PRIVATE ${LO_RUNTIME_ROOT})
@@ -489,16 +564,6 @@ if(WIN32)
     target_include_directories(LoMemoryFailureTest PRIVATE ${LO_RUNTIME_ROOT})
     target_compile_features(LoMemoryFailureTest PRIVATE cxx_std_20)
     target_compile_definitions(LoMemoryFailureTest PRIVATE NOMINMAX)
-
-    # Translates and compiles HLSL with DXC, without a GPU or game assets.
-    add_executable(LoRenderResolutionShaderTest EXCLUDE_FROM_ALL
-        ${CMAKE_SOURCE_DIR}/tools/tests/render_resolution_shader_test.cpp
-        ${LO_RUNTIME_ROOT}/gpu/shader/xenos_translator.cpp
-        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
-    target_include_directories(LoRenderResolutionShaderTest PRIVATE ${LO_RUNTIME_ROOT})
-    target_compile_features(LoRenderResolutionShaderTest PRIVATE cxx_std_20)
-    target_compile_definitions(LoRenderResolutionShaderTest PRIVATE NOMINMAX)
-    target_link_libraries(LoRenderResolutionShaderTest PRIVATE fmt::fmt)
 
     add_executable(LoShaderAluTest EXCLUDE_FROM_ALL
         ${CMAKE_SOURCE_DIR}/tools/tests/shader_alu_test.cpp
@@ -565,11 +630,20 @@ if(WIN32)
         add_executable(LoTemporalAATest EXCLUDE_FROM_ALL
             ${CMAKE_SOURCE_DIR}/tools/tests/temporal_aa_test.cpp
             ${LO_RUNTIME_ROOT}/gpu/temporal_aa.cpp
-            ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+            ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp
+            ${CMAKE_SOURCE_DIR}/tools/tests/motion_replay/platform_stub.cpp)
         target_include_directories(LoTemporalAATest PRIVATE ${LO_RUNTIME_ROOT} ${CMAKE_SOURCE_DIR}/thirdparty/plume)
         target_compile_features(LoTemporalAATest PRIVATE cxx_std_20)
         target_compile_definitions(LoTemporalAATest PRIVATE LO_GPU_PLUME NOMINMAX)
-        target_link_libraries(LoTemporalAATest PRIVATE plume d3d12 dxgi)
+        target_link_libraries(LoTemporalAATest PRIVATE plume d3d12 dxgi fmt::fmt)
+        add_executable(LoAmbientOcclusionGpuTest EXCLUDE_FROM_ALL
+            ${CMAKE_SOURCE_DIR}/tools/tests/ambient_occlusion_gpu_test.cpp
+            ${LO_RUNTIME_ROOT}/gpu/ambient_occlusion.cpp
+            ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+        target_include_directories(LoAmbientOcclusionGpuTest PRIVATE ${LO_RUNTIME_ROOT} ${CMAKE_SOURCE_DIR}/thirdparty/plume)
+        target_compile_features(LoAmbientOcclusionGpuTest PRIVATE cxx_std_20)
+        target_compile_definitions(LoAmbientOcclusionGpuTest PRIVATE LO_GPU_PLUME NOMINMAX)
+        target_link_libraries(LoAmbientOcclusionGpuTest PRIVATE plume d3d12 dxgi fmt::fmt)
         # HistoryOwner capture uses the same TAA/DXC objects as LoTemporalAATest.
         # platform_stub supplies the offline collection hooks. D3D12 is Windows-only;
         # this block is already inside WIN32 and LO_BUILD_GPU.
@@ -610,6 +684,14 @@ add_executable(LoRenderResolutionTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools
 target_include_directories(LoRenderResolutionTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoRenderResolutionTest PRIVATE cxx_std_20)
 
+add_executable(LoAspectLayoutTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/aspect_layout_test.cpp)
+target_include_directories(LoAspectLayoutTest PRIVATE ${LO_RUNTIME_ROOT})
+target_compile_features(LoAspectLayoutTest PRIVATE cxx_std_20)
+
+add_executable(LoEncounterDeferTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/encounter_defer_test.cpp)
+target_include_directories(LoEncounterDeferTest PRIVATE ${LO_RUNTIME_ROOT})
+target_compile_features(LoEncounterDeferTest PRIVATE cxx_std_20)
+
 add_executable(LoFsrProjectionTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/fsr_projection_test.cpp)
 target_include_directories(LoFsrProjectionTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoFsrProjectionTest PRIVATE cxx_std_20)
@@ -642,6 +724,14 @@ target_include_directories(LoDlssStatusLogTest PRIVATE ${LO_RUNTIME_ROOT})
 target_compile_features(LoDlssStatusLogTest PRIVATE cxx_std_20)
 target_compile_definitions(LoDlssStatusLogTest PRIVATE NOMINMAX)
 target_link_libraries(LoDlssStatusLogTest PRIVATE fmt::fmt)
+
+if(WIN32)
+    add_executable(LoHangWatchTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/hang_watch_test.cpp)
+    target_include_directories(LoHangWatchTest PRIVATE ${LO_RUNTIME_ROOT})
+    target_compile_features(LoHangWatchTest PRIVATE cxx_std_20)
+    target_compile_definitions(LoHangWatchTest PRIVATE NOMINMAX)
+    target_link_libraries(LoHangWatchTest PRIVATE fmt::fmt)
+endif()
 
 add_executable(LoTargetMappingTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/target_mapping_test.cpp)
 target_include_directories(LoTargetMappingTest PRIVATE ${LO_RUNTIME_ROOT})
@@ -762,9 +852,10 @@ if(WIN32 AND LO_BUILD_GPU)
         ${CMAKE_SOURCE_DIR}/tools/tests/backend_lifecycle_test.cpp
         ${LO_RUNTIME_ROOT}/os/log_file.cpp
         ${LO_RUNTIME_ROOT}/gpu/presentation.cpp ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
-    target_compile_definitions(LoBackendLifecycleTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED)
+    # video.cpp reads LO_HAS_FSR / LO_HAS_FSR_D3D12; this fixture links no FSR backend.
+    target_compile_definitions(LoBackendLifecycleTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED LO_HAS_FSR=0 LO_HAS_FSR_D3D12=0)
     target_link_options(LoBackendLifecycleTest PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
-    target_link_libraries(LoBackendLifecycleTest PRIVATE plume d3d12 dxgi fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+    target_link_libraries(LoBackendLifecycleTest PRIVATE plume d3d12 dxgi fmt::fmt SDL3::SDL3-static xxHash::xxhash)
     foreach(target LoBackendDeviceTest LoBackendCacheTest LoBackendLifecycleTest)
         target_include_directories(${target} PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
         target_compile_definitions(${target} PRIVATE NOMINMAX)
@@ -814,44 +905,91 @@ if(WIN32 AND LO_BUILD_GPU)
         set_target_properties(${preprocess} PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
         target_link_libraries(LoPresentCaptureTest PRIVATE ${preprocess})
     endforeach()
-    target_compile_definitions(LoPresentCaptureTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED NOMINMAX)
+    target_compile_definitions(LoPresentCaptureTest PRIVATE LO_GPU_PLUME SDL_MAIN_HANDLED NOMINMAX LO_HAS_FSR=0 LO_HAS_FSR_D3D12=0)
     target_include_directories(LoPresentCaptureTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
     target_compile_options(LoPresentCaptureTest PRIVATE /UNDEBUG /utf-8)
     target_compile_features(LoPresentCaptureTest PRIVATE cxx_std_20)
     set_target_properties(LoPresentCaptureTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
     target_link_options(LoPresentCaptureTest PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
-    target_link_libraries(LoPresentCaptureTest PRIVATE plume d3d12 dxgi fmt::fmt SDL2::SDL2-static xxHash::xxhash)
+    target_link_libraries(LoPresentCaptureTest PRIVATE plume d3d12 dxgi fmt::fmt SDL3::SDL3-static xxHash::xxhash)
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LO_BUILD_GPU)
+    add_executable(LoHdrSurfaceTest EXCLUDE_FROM_ALL ${CMAKE_SOURCE_DIR}/tools/tests/hdr_surface_test.cpp)
+    target_compile_features(LoHdrSurfaceTest PRIVATE cxx_std_20)
+    target_link_libraries(LoHdrSurfaceTest PRIVATE plume SDL3::SDL3-static ${CMAKE_DL_LIBS})
+endif()
+
+if(APPLE AND LO_BUILD_GPU)
+    # The same HDR readback fixture runs on a Mac with a Metal device.
+    add_executable(LoPresentationTest EXCLUDE_FROM_ALL
+        ${CMAKE_SOURCE_DIR}/tools/tests/presentation_test.cpp
+        ${LO_RUNTIME_ROOT}/gpu/presentation.cpp
+        ${LO_RUNTIME_ROOT}/gpu/shader/dxc_compiler.cpp)
+    target_include_directories(LoPresentationTest PRIVATE $<TARGET_PROPERTY:LostOdysseyRecomp,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(LoPresentationTest PRIVATE LO_GPU_PLUME NOMINMAX)
+    target_compile_features(LoPresentationTest PRIVATE cxx_std_20)
+    set_target_properties(LoPresentationTest PROPERTIES DISABLE_PRECOMPILE_HEADERS ON)
+    target_link_libraries(LoPresentationTest PRIVATE plume fmt::fmt ${CMAKE_DL_LIBS})
+endif()
+endif() # NOT ANDROID: desktop test executables
 
 # Package the same SPIR-V-capable DXC beside runtime and compiler/GPU fixtures.
 # The Windows SDK compiler is allowed as an explicit fallback, but is not the release contract.
+# One custom target stages each file once. Per-target POST_BUILD copies of the
+# same destination raced on macOS: CMake's copy unlinks and re-creates the
+# destination, so two concurrent copies failed the build with ENOENT.
+set(LO_DXC_RUNTIME_FILES)
+set(LO_DXC_RUNTIME_TARGETS)
 if(WIN32 AND LO_BUILD_GPU)
     set(LO_DXC_BINARY_DIR "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/bin/x64")
-    foreach(target LostOdysseyRecomp LoShaderTool LoShaderAluTest LoPresentationTest LoTemporalAATest LoRenderResolutionShaderTest LoVulkanBackendTest LoVulkanTextureReuseTest LoShaderStartupCacheTest LoBackendCacheTest LoBackendLifecycleTest LoPresentCaptureTest)
-        if(TARGET ${target})
-            foreach(binary dxcompiler.dll dxil.dll)
-                add_custom_command(TARGET ${target} POST_BUILD
-                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                        "${LO_DXC_BINARY_DIR}/${binary}" "$<TARGET_FILE_DIR:${target}>/${binary}" VERBATIM)
-            endforeach()
-        endif()
+    foreach(binary dxcompiler.dll dxil.dll)
+        list(APPEND LO_DXC_RUNTIME_FILES "${LO_DXC_BINARY_DIR}/${binary}")
     endforeach()
-elseif(UNIX AND LO_BUILD_GPU)
+    set(LO_DXC_RUNTIME_TARGETS LostOdysseyRecomp LoShaderTool LoShaderAluTest LoPresentationTest LoTemporalAATest LoAmbientOcclusionGpuTest LoRenderResolutionShaderTest LoVulkanBackendTest LoVulkanTextureReuseTest LoShaderStartupCacheTest LoBackendCacheTest LoBackendLifecycleTest LoPresentCaptureTest)
+elseif(UNIX AND NOT ANDROID AND LO_BUILD_GPU)
     if(LO_TARGET_PLATFORM STREQUAL "macos")
         # Universal (arm64 + x86_64) build shipped with dxc-bin.
         set(LO_DXC_SO "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/lib/arm64/libdxcompiler.dylib")
     else()
-        set(LO_DXC_SO "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/lib/x64/libdxcompiler.so")
+        string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" LO_DXC_PROCESSOR)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND LO_DXC_PROCESSOR MATCHES "^(aarch64|arm64)$")
+            set(LO_DXC_ARCH "arm64")
+        elseif(LO_DXC_PROCESSOR MATCHES "^(x86_64|amd64|x64)$")
+            set(LO_DXC_ARCH "x64")
+        else()
+            set(LO_DXC_ARCH "")
+        endif()
+
+        if(LO_DXC_ARCH)
+            set(LO_DXC_SO "${CMAKE_SOURCE_DIR}/tools/XenosRecomp/thirdparty/dxc-bin/lib/${LO_DXC_ARCH}/libdxcompiler.so")
+        else()
+            set(LO_DXC_SO "")
+            message(STATUS "No bundled Linux DXC architecture mapping for '${CMAKE_SYSTEM_PROCESSOR}'")
+        endif()
     endif()
-    get_filename_component(LO_DXC_SO_NAME "${LO_DXC_SO}" NAME)
-    if(EXISTS "${LO_DXC_SO}")
+    if(LO_DXC_SO AND EXISTS "${LO_DXC_SO}")
         install(FILES "${LO_DXC_SO}" DESTINATION ${CMAKE_INSTALL_LIBDIR})
+        list(APPEND LO_DXC_RUNTIME_FILES "${LO_DXC_SO}")
     endif()
-    foreach(target LostOdysseyRecomp LoShaderTool)
-        if(TARGET ${target} AND EXISTS "${LO_DXC_SO}")
-            add_custom_command(TARGET ${target} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${LO_DXC_SO}" "$<TARGET_FILE_DIR:${target}>/${LO_DXC_SO_NAME}" VERBATIM)
+    set(LO_DXC_RUNTIME_TARGETS LostOdysseyRecomp LoShaderTool LoRenderResolutionShaderTest)
+endif()
+if(LO_DXC_RUNTIME_FILES)
+    # Every target in the list links into this directory (no OUTPUT_DIRECTORY override).
+    set(LO_DXC_STAGED_FILES)
+    foreach(source IN LISTS LO_DXC_RUNTIME_FILES)
+        get_filename_component(LO_DXC_FILE_NAME "${source}" NAME)
+        set(staged "${CMAKE_CURRENT_BINARY_DIR}/${LO_DXC_FILE_NAME}")
+        add_custom_command(OUTPUT "${staged}"
+            COMMAND ${CMAKE_COMMAND} -E copy "${source}" "${staged}"
+            DEPENDS "${source}"
+            COMMENT "Staging ${LO_DXC_FILE_NAME}" VERBATIM)
+        list(APPEND LO_DXC_STAGED_FILES "${staged}")
+    endforeach()
+    add_custom_target(lo_dxc_runtime DEPENDS ${LO_DXC_STAGED_FILES})
+    foreach(target IN LISTS LO_DXC_RUNTIME_TARGETS)
+        if(TARGET ${target})
+            add_dependencies(${target} lo_dxc_runtime)
         endif()
     endforeach()
 endif()

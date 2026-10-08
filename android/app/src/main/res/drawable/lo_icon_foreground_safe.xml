@@ -1,0 +1,1 @@
+<inset xmlns:android="http://schemas.android.com/apk/res/android" android:insetLeft="28.7%" android:insetTop="28.7%" android:insetRight="28.7%" android:insetBottom="28.7%"><bitmap android:src="@drawable/lo_saltlord_icon_foreground" android:gravity="fill" android:filter="true" /></inset>

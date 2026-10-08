@@ -11,6 +11,7 @@ extern "C" PPC_FUNC(__imp__sub_82290AB8);
 extern "C" PPC_FUNC(__imp__sub_827B6E48);
 extern "C" PPC_FUNC(__imp__sub_827BA640);
 extern "C" PPC_FUNC(__imp__sub_823BC138);
+extern "C" PPC_FUNC(__imp__sub_824DD6F8);
 
 namespace gpu::frame_plan
 {
@@ -23,7 +24,7 @@ namespace gpu::frame_plan
         else if (index == CatalogBase + 3) colorInfo = value;
         else if (index == CatalogBase + 4) {
             active = false;
-            if (value == CatalogMagic && surfaceInfo) { committedRole = role; committedSurface = surfaceInfo; committedColor = colorInfo; return true; }
+            if (value == CatalogMagic && surfaceInfo && uint32_t(role) <= uint32_t(SurfaceRole::Shadow)) { committedRole = role; committedSurface = surfaceInfo; committedColor = colorInfo; return true; }
         }
         return false;
     }
@@ -152,8 +153,8 @@ namespace gpu::frame_plan
     {
         if (observation.actualProvider == upscaling::Upscaler::Dlss) { ReportDlssExecution(observation); return; }
         if (!planner.ReportUpscalerExecution(observation) || !ExecutionLogChanged(observation)) return;
-        LOG_INFO("FSR: frame={} outcome={} input={}x{} output={}x{} quality={} serial={} reason={}",
-            observation.renderFrame, observation.outcome == DlssExecutionOutcome::Submitted ? "submitted" : "fallback",
+        LOG_INFO("{}: frame={} outcome={} input={}x{} output={}x{} quality={} serial={} reason={}",
+            UpscalerName(observation.plan.requestedUpscaler), observation.renderFrame, observation.outcome == DlssExecutionOutcome::Submitted ? "submitted" : "fallback",
             observation.plan.width, observation.plan.height, observation.plan.output.width, observation.plan.output.height,
             uint32_t(observation.plan.fsrQuality), observation.submissionSerial, DlssEffectReasonName(observation.reason));
     }
@@ -306,9 +307,8 @@ PPC_FUNC(sub_827BA640)
     __imp__sub_827BA640(ctx, base);
     gpu::frame_plan::DeviceStreamDestroyed();
 }
-PPC_FUNC(sub_823BC138)
+static void PublishSurfaceCatalog(PPCContext& ctx)
 {
-    __imp__sub_823BC138(ctx, base);
     constexpr uint32_t table = 0x8336AD50;
     const uint32_t device = g_memory.base ? __builtin_bswap32(*reinterpret_cast<uint32_t*>(g_memory.base + 0x83302A38)) : 0;
     if (!device || !gpu::frame_plan::CurrentProducerPlan() ||
@@ -316,12 +316,12 @@ PPC_FUNC(sub_823BC138)
     struct Slot { uint32_t offset; gpu::frame_plan::SurfaceRole role; };
     constexpr Slot slots[] = {{0x3C, gpu::frame_plan::SurfaceRole::Scene}, {0x60, gpu::frame_plan::SurfaceRole::Scene},
         {0x84, gpu::frame_plan::SurfaceRole::Scene}, {0xA8, gpu::frame_plan::SurfaceRole::Scene},
-        {0xCC, gpu::frame_plan::SurfaceRole::Fixed}, {0xF0, gpu::frame_plan::SurfaceRole::Fixed},
+        {0xCC, gpu::frame_plan::TableSurfaceRole(0xCC)}, {0xF0, gpu::frame_plan::TableSurfaceRole(0xF0)},
         {0x138, gpu::frame_plan::SurfaceRole::Scene}, {0x15C, gpu::frame_plan::SurfaceRole::Scene},
         {0x180, gpu::frame_plan::SurfaceRole::Scene}, {0x1A4, gpu::frame_plan::SurfaceRole::Scene}};
     struct CatalogKey { uint32_t color, surface; bool operator==(const CatalogKey&) const = default; };
     struct CatalogKeyHash { size_t operator()(const CatalogKey& key) const { return (size_t(key.color) << 16) ^ key.surface; } };
-    struct Roles { bool scene = false, fixed = false; };
+    struct Roles { bool scene = false, fixed = false, shadow = false; };
     static std::unordered_map<CatalogKey, gpu::frame_plan::SurfaceRole, CatalogKeyHash> previous;
     std::unordered_map<CatalogKey, Roles, CatalogKeyHash> current;
     const auto add = [&](gpu::frame_plan::SurfaceRole role, uint32_t surfaceInfo, uint32_t colorInfo) {
@@ -330,6 +330,7 @@ PPC_FUNC(sub_823BC138)
         Roles& roles = current[key];
         roles.scene |= role == gpu::frame_plan::SurfaceRole::Scene;
         roles.fixed |= role == gpu::frame_plan::SurfaceRole::Fixed;
+        roles.shadow |= role == gpu::frame_plan::SurfaceRole::Shadow;
     };
     for (size_t index = 0; index < std::size(slots); ++index) {
         const auto slot = slots[index];
@@ -354,14 +355,23 @@ PPC_FUNC(sub_823BC138)
     }
     for (const auto& [key, roles] : current) {
         const auto old = previous.find(key);
-        // A shared alias with two incompatible roles retains its prior mapping;
-        // a new ambiguous key is deliberately left uncatalogued.
-        if (roles.scene && roles.fixed && old == previous.end()) continue;
-        const auto role = roles.scene && roles.fixed ? old->second : roles.scene ? gpu::frame_plan::SurfaceRole::Scene : gpu::frame_plan::SurfaceRole::Fixed;
+        const auto role = gpu::frame_plan::MergeSurfaceRoles(roles.scene, roles.fixed, roles.shadow,
+            old == previous.end() ? gpu::frame_plan::SurfaceRole::Unknown : old->second);
         if (old == previous.end() || old->second != role) {
             if (gpu::frame_plan::QueueCatalogOnDevice(ctx, device, role, key.surface, key.color)) previous[key] = role;
         }
     }
+}
+
+PPC_FUNC(sub_824DD6F8)
+{
+    __imp__sub_824DD6F8(ctx, base);
+    PublishSurfaceCatalog(ctx);
+}
+PPC_FUNC(sub_823BC138)
+{
+    __imp__sub_823BC138(ctx, base);
+    PublishSurfaceCatalog(ctx);
 }
 
 // Mid-assembly queue boundaries preserve the producer's tag lifetime. The

@@ -6,6 +6,9 @@
 #include <cstdlib>
 #include <mutex>
 #include <thread>
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 enum class LogType
 {
@@ -73,6 +76,17 @@ namespace os::logger
             fwrite(line.data(), 1, line.size(), g_file);
             fflush(g_file);
         }
+#ifdef __ANDROID__
+        // Android stderr is a file (native-stderr.log); logcat replaces the
+        // terminal copy, and stderr keeps only lines without a log file.
+        const int priority = type == LogType::Error ? ANDROID_LOG_ERROR
+            : type == LogType::Warning ? ANDROID_LOG_WARN
+            : type == LogType::Info ? ANDROID_LOG_INFO
+            : type == LogType::Verbose ? ANDROID_LOG_VERBOSE : ANDROID_LOG_DEBUG;
+        __android_log_write(priority, "LostOdyssey", line.c_str());
+        if (g_file)
+            return;
+#endif
         fwrite(line.data(), 1, line.size(), stderr);
         fflush(stderr);
     }

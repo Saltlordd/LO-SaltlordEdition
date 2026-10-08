@@ -1,0 +1,20 @@
+diff --git a/include/llvm/ADT/StringRef.h b/include/llvm/ADT/StringRef.h
+index c103fdbf..80837c1f 100644
+--- a/include/llvm/ADT/StringRef.h
++++ b/include/llvm/ADT/StringRef.h
+@@ -574,6 +574,7 @@ namespace llvm {
+ // StringRef provides an operator string; that trips up the std::pair noexcept specification,
+ // which (a) enables the moves constructor (because conversion is allowed), but (b)
+ // misclassifies the the construction as nothrow.
++#if !defined(__ANDROID__)
+ namespace std {
+   template<>
+   struct is_nothrow_constructible <std::string, llvm::StringRef>
+@@ -588,6 +589,7 @@ namespace std {
+     : std::false_type {
+   };
+ }
++#endif
+ // HLSL Change Ends
+ 
+ #endif

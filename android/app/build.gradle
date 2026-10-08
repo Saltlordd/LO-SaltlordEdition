@@ -1,0 +1,25 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'io.github.freefrank.lostodyssey'
+    compileSdk 35
+    ndkVersion '27.3.13750724'
+    defaultConfig {
+        applicationId 'io.github.freefrank.lostodyssey.probe'
+        minSdk 28
+        targetSdk 35
+        versionCode 4
+        versionName 'phase3-xex-probe'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake {
+                arguments '-DLO_ANDROID_DIAGNOSTICS=ON',
+                    '-DANDROID_STL=c++_shared', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+                targets 'lo_android_probe', 'SDL2'
+            }
+        }
+    }
+    externalNativeBuild { cmake { path '../../CMakeLists.txt'; version '3.31.6' } }
+    sourceSets.main.java.srcDirs += '../../thirdparty/SDL/android-project/app/src/main/java'
+    buildTypes { debug { debuggable true } }
+    packaging { jniLibs { useLegacyPackaging true } }
+}

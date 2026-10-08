@@ -2,16 +2,17 @@
 #include <cstdint>
 #include <filesystem>
 #include <span>
+#include <string>
 #include "gpu/backend_selection.h"
 #include "gpu/upscaling_plan.h"
 #include "../../shared/frame_generation/core.h"
 namespace settings
 {
+// Persisted 2 (the removed exclusive fullscreen) loads as Borderless.
 enum class WindowMode : uint32_t
 {
     Windowed,
-    Borderless,
-    Exclusive
+    Borderless
 };
 using GraphicsBackend = gpu::backend::Backend;
 // Stable persisted IDs: retain the original EN/TW UI values.
@@ -37,6 +38,9 @@ inline uint32_t GameLanguageIndex(uint32_t id)
 // Scaling filter: MetalFX spatial upscaling before presentation (macOS only).
 inline constexpr uint32_t ScalingMetalFx = 2;
 inline constexpr int InternalResolutionNative = 1;
+// Audio output: the stereo downmix, or the game's 5.1 channels passed through.
+inline constexpr uint32_t AudioOutputStereo = 0;
+inline constexpr uint32_t AudioOutputSurround = 1;
 
 struct Config
 {
@@ -54,12 +58,32 @@ struct Config
 #else
     GraphicsBackend graphicsBackend = GraphicsBackend::Vulkan; // Applied on the next process start.
 #endif
+    // Adapter name as the backend lists it; empty selects automatically.
+    // Applied on the next process start.
+    std::string gpuDevice;
+    // SDL display name, plus its index to tell equal names apart. An empty name
+    // leaves window placement to the system. Applied when saved.
+    std::string displayName;
+    uint32_t displayIndex = 0;
     uint32_t antialiasing = 0; // 0 Off, 1 FXAA, 2 SMAA, 3 experimental camera-based TAA.
+    uint32_t shadowResolution = 1; // Shadow map width and height multiplier: 1/2/4.
+    uint32_t ambientOcclusion = 0; // 0 Off, 1 SSAO, 2 GTAO.
     uint32_t frameRate = 30;
     bool variableRefreshRate = false; // Opt-in VRR-friendly presentation; does not enable monitor/driver VRR.
+    bool hdr = false; // HDR output preference; applied on the next process start.
+    uint32_t hdrPaperWhiteNits = 203; // Content reference white; Metal maps this to the system SDR white.
+    bool hdrPeakAutomatic = true; // Follow the active display's reported peak when available.
+    uint32_t hdrPeakNits = 1000; // Manual peak retained independently of automatic mode.
     uint32_t scalingQuality = 1; // 0 bilinear, 1 bicubic spatial resampling, ScalingMetalFx (macOS).
     bool expandRgbRange = false; // Expand game image RGB 16-235 to 0-255 at presentation.
+    // Player picture adjustment, applied to the game image after Expanded RGB
+    // range: black level (-20..20, 0 = unchanged) and gamma in hundredths
+    // (50..150, 100 = unchanged; higher is brighter midtones).
+    int displayBrightness = 0;
+    uint32_t displayGamma = 100;
     uint32_t anisotropicFiltering = 0; // 0 Off, otherwise 2/4/8/16x. Applied live by the renderer.
+    uint32_t depthOfFieldPercent = 100; // Tone-map DoF strength; 0 Off, 100 retail. Applied live.
+    bool bloom = true; // Tone-map bloom. Applied live by the renderer.
     gpu::upscaling::Upscaler upscaler = gpu::upscaling::Upscaler::Off;
     gpu::upscaling::DlssQuality dlssQuality = gpu::upscaling::DlssQuality::Quality;
     gpu::upscaling::FsrQuality fsrQuality = gpu::upscaling::FsrQuality::Quality;
@@ -68,10 +92,18 @@ struct Config
     framegen::Mode frameGenerationMode = framegen::Mode::Fixed;
     uint32_t frameGenerationMultiplier = 2; // Requested total output frames per rendered frame.
     uint32_t frameGenerationTargetFps = 0; // Dynamic mode: 0 asks the SDK to use the display rate.
+    uint32_t vibrationPercent = 100; // Controller rumble strength; 0 Off, 100 retail. Applied live.
     bool fxaa = false; // Legacy serialized mirror; antialiasing is authoritative.
     bool automaticUpdates = true;
+    uint32_t audioOutput = AudioOutputStereo; // Applied live; saved by SaveAudioOutput.
     bool skipShaderPrebuild = false;
     bool saveAnywhere = false; // Debug-only preference; defaults off for existing profiles.
+    bool noRandomEncounters = false; // Debug-only preference, persisted like saveAnywhere.
+    // Debug-menu fast-forward, persisted like saveAnywhere: switch, 0 Hold / 1 Toggle,
+    // multiplier (one of debug_menu::fast_forward::Rates).
+    bool fastForward = false;
+    uint32_t fastForwardMode = 0;
+    uint32_t fastForwardRate = 2;
     bool operator==(const Config &) const = default;
 };
 Config GetConfig();
@@ -80,5 +112,11 @@ void PreviewConfig(const Config &config);
 bool SaveConfig(const Config &config);
 bool SaveDebugLanguage(uint32_t language);
 bool SaveSaveAnywhere(bool enabled);
+bool SaveNoRandomEncounters(bool enabled);
+bool SaveFastForward(bool enabled, uint32_t mode, uint32_t rate);
+bool SaveAudioOutput(uint32_t output);
+// The player moved the window to another display (Win+Shift+arrow, dragging):
+// saves only the display choice, merged with the persisted settings.
+bool SaveDisplayChoice(const std::string &name, uint32_t index);
 uint32_t GameLanguage();
 } // namespace settings

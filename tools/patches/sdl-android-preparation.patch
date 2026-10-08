@@ -1,0 +1,26 @@
+--- a/src/video/android/SDL_androidvideo.c
++++ b/src/video/android/SDL_androidvideo.c
+@@ -81,6 +81,14 @@
+     SDL_free(device);
+ }
+ 
++static void Android_PumpEvents_PreparationAware(_THIS)
++{
++    if (SDL_GetHintBoolean("LO_ANDROID_SHADER_PREPARATION", SDL_FALSE))
++        Android_PumpEvents_NonBlocking(_this);
++    else
++        Android_PumpEvents_Blocking(_this);
++}
++
+ static SDL_VideoDevice *Android_CreateDevice(void)
+ {
+     SDL_VideoDevice *device;
+@@ -108,7 +116,7 @@
+     device->VideoQuit = Android_VideoQuit;
+     block_on_pause = SDL_GetHintBoolean(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, SDL_TRUE);
+     if (block_on_pause) {
+-        device->PumpEvents = Android_PumpEvents_Blocking;
++        device->PumpEvents = Android_PumpEvents_PreparationAware;
+     } else {
+         device->PumpEvents = Android_PumpEvents_NonBlocking;
+     }

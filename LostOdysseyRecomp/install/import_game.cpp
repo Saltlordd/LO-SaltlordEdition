@@ -22,7 +22,7 @@
 #include <functional>
 #include <iostream>
 #include <map>
-#include "../../tools/XenonRecomp/thirdparty/tomlplusplus/vendor/json.hpp"
+#include <os/json.h>
 #include <memory>
 #include <optional>
 #include <set>
@@ -938,7 +938,15 @@ ContentScan ScanContent(const std::vector<std::filesystem::path>& paths, const C
         for (size_t i = 0; i < std::min<size_t>(4, scanResult.rejected.size()); ++i)
         {
             if (!details.empty()) details += "; ";
-            details += scanResult.rejected[i].first.filename().string() + ": " + scanResult.rejected[i].second;
+            const auto& source = scanResult.rejected[i].first;
+            details += source.filename().string();
+            // The size the player sees in their file manager; a short image is
+            // the usual reason an ISO that works elsewhere is rejected (#251).
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(source, ec) && !ec)
+                if (const auto bytes = std::filesystem::file_size(source, ec); !ec)
+                    details += " (" + std::to_string(bytes) + " bytes)";
+            details += ": " + scanResult.rejected[i].second;
         }
         std::string suffix = details.empty() ? "" : (" Details: " + details);
         throw Error("No supported Lost Odyssey discs or DLC found." + suffix);
@@ -1148,7 +1156,9 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
     {
         for (const auto& d : selection.discs)
         {
-            if (!replace && std::filesystem::exists(dest / ("disc" + std::to_string(d.disc)), ec))
+            const auto slot = dest / ("disc" + std::to_string(d.disc));
+            if (!replace && std::filesystem::exists(slot, ec) &&
+                !(std::filesystem::is_directory(slot, ec) && std::filesystem::is_empty(slot, ec)))
                 throw Error("Disc " + std::to_string(d.disc) + " is already installed; existing files were kept");
         }
 
@@ -1156,7 +1166,11 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         for (uint32_t n = 1; n <= 4; ++n)
         {
             auto existing = dest / ("disc" + std::to_string(n));
-            if (std::filesystem::exists(existing, ec) &&
+            // An empty slot folder (made by hand or by an older Android app
+            // that prepared disc1-disc4) holds no disc to retain.
+            const bool emptySlot = !IsSymlinkOrReparse(existing) &&
+                std::filesystem::is_directory(existing, ec) && std::filesystem::is_empty(existing, ec);
+            if (!emptySlot && std::filesystem::exists(existing, ec) &&
                 std::none_of(selection.discs.begin(), selection.discs.end(), [n](const DiscInfo& disc) { return disc.disc == n; }))
             {
                 if (IsSymlinkOrReparse(existing)) throw Error("Disc destination is a link: " + existing.string());
@@ -1526,6 +1540,9 @@ static InstallResult ImportContentImpl(const ContentScan& selection,
         {
             if (IsSymlinkOrReparse(slot.target)) throw Error("Import target is a link: " + slot.target.string());
             std::filesystem::create_directories(slot.target.parent_path());
+            // An empty slot folder holds nothing to back up.
+            if (std::filesystem::is_directory(slot.target) && std::filesystem::is_empty(slot.target))
+                std::filesystem::remove(slot.target);
             if (std::filesystem::exists(slot.target))
             {
                 if (!replace) throw Error("Import target already exists: " + slot.target.string());

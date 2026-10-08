@@ -1,0 +1,1 @@
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"><item><shape><solid android:color="#10161d" /></shape></item><item><bitmap android:src="@drawable/lo_saltlord_icon_background" android:gravity="fill" android:filter="true" /></item></layer-list>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest package="io.github.freefrank.lostodyssey.runtimecheck" xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.vulkan.version" android:version="0x00402000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad" android:required="false" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Saltlord Edition is offline: intentionally no INTERNET permission. -->
+    <application android:label="LO: Saltlord Edition" android:allowBackup="false" android:debuggable="true"
+        android:theme="@style/SaltlordTheme" android:icon="@mipmap/lo_launcher" android:roundIcon="@mipmap/lo_launcher" android:extractNativeLibs="true">
+        <service android:name="io.github.freefrank.lostodyssey.ShaderPreparationService" android:exported="false" android:process=":bootcheck" android:foregroundServiceType="dataSync" />
+        <provider android:name="io.github.freefrank.lostodyssey.LogProvider"
+            android:authorities="io.github.freefrank.lostodyssey.runtimecheck.logs"
+            android:exported="false" android:grantUriPermissions="true" />
+        <provider android:name="io.github.freefrank.lostodyssey.FlexLaunchProvider"
+            android:authorities="io.github.freefrank.lostodyssey.runtimecheck.flex"
+            android:exported="false" />
+        <activity android:name="io.github.freefrank.lostodyssey.RestartActivity" android:exported="false" android:screenOrientation="sensorLandscape" />
+        <activity android:name="io.github.freefrank.lostodyssey.RuntimeReadinessActivity" android:exported="true"
+            android:process=":bootcheck"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
