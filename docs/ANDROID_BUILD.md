@@ -19,6 +19,6 @@ Packaging now includes all production Java classes, retains uncompressed WAV ass
 
 ## Validation boundary
 
-The latest phone-tested APK was build 50, before the restart-only completion change. This branch removes Continue anyway and updates public packaging/documentation. A clean end-to-end build from this public checkout and a freshly compiled restart-only APK remain release gates. Historical ANDROID_PHASE*.md files describe earlier development checkpoints, not current installation instructions.
+The latest phone-tested APK was build 50, before the restart-only completion change. This branch removes Continue anyway and updates public packaging/documentation. Build 51 passed complete Java/resources/DEX compilation, original-certificate signing, 16 KiB ZIP alignment and byte retention checks for all nine native libraries. The restart-only dialog still needs phone confirmation. A clean end-to-end native build from this public checkout remains a release gate. Historical ANDROID_PHASE*.md files describe earlier development checkpoints, not current installation instructions.
 
 Do not enable a release workflow that embeds private generated code, game files or signing keys. A maintained reproducible build recipe and secure release signing configuration are still being prepared; no successful clean public-source build is claimed here.

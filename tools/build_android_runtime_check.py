@@ -36,8 +36,8 @@ def main():
         run([strip, '--strip-unneeded', destination])
     android_jar = sdk / 'platforms/android-35/android.jar'
     sources = sorted((ROOT / 'thirdparty/SDL/android-project/app/src/main/java').rglob('*.java'))
-    java_root = ROOT / 'android/app/src/main/java/io/github/freefrank/lostodyssey'
-    sources += sorted(f for f in java_root.glob('*.java') if f.name not in ('ProbeActivity.java', 'TestLauncherActivity.java'))
+    java_root = ROOT / 'android/app/src/main/java'
+    sources += sorted(f for f in java_root.rglob('*.java') if f.name not in ('ProbeActivity.java', 'TestLauncherActivity.java'))
     javac = [shutil.which('javac')] if shutil.which('javac') else ['java', '-m', 'jdk.compiler/com.sun.tools.javac.Main']
     run([*javac, '-encoding', 'UTF-8', '--release', '8', '-classpath', android_jar, '-d', classes, *sources])
     jar = package / 'classes.jar'

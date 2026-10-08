@@ -1,8 +1,8 @@
-<p align="center"><img src="android/app/src/main/assets/branding/lo_saltlord_logo_full.png" alt="LO: Saltlord Edition" width="560"></p>
+<p align="center"><img src="docs/images/lo_saltlord_logo_full.png" alt="LO: Saltlord Edition" width="560"></p>
 
 # LO: Saltlord Edition
 
-An Android adaptation of [LostOdysseyRecomp](https://github.com/freefrank/LostOdysseyRecomp), with touch controls, foldable display layouts and guided setup. Developed and playtested by Saltlord on a Samsung Galaxy Z Fold 8 Ultra, with AI-assisted development.
+An Android adaptation of [LostOdysseyRecomp](https://github.com/freefrank/LostOdysseyRecomp), with touch controls, foldable display layouts and guided setup. Developed and playtested by Saltlord (my gamer tag) on a Samsung Galaxy Z Fold 8 Ultra, with AI-assisted development.
 
 **First beta preparation is underway.** A release APK will appear on the [Releases page](https://github.com/Saltlordd/LO-SaltlordEdition/releases) when published. This branch is a source/documentation candidate, not a published beta release.
 
@@ -57,4 +57,4 @@ Include app version, device model, RAM, storage, chipset, driver, graphics choic
 
 ## Source, credits and licence
 
-See [Android build notes](docs/ANDROID_BUILD.md), [credits](docs/SALTLORD_CREDITS.md) and the [upstream README](README.upstream.md). LostOdysseyRecomp and its contributors provide the underlying recompilation/runtime. This fork preserves upstream licensing and notices; see [LICENSE](LICENSE). The repository does not contain game assets, generated game code, private logs, saves or signing keys.
+See [Android build notes](docs/ANDROID_BUILD.md), [credits](docs/SALTLORD_CREDITS.md) and the [upstream README](README.upstream.md). LostOdysseyRecomp and its contributors provide the underlying recompilation/runtime. This fork preserves upstream licensing and notices; see [LICENSE](LICENSE). This Android source preparation excludes game assets, generated game code, private logs, saves and signing keys.
