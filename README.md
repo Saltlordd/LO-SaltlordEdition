@@ -27,7 +27,7 @@ Keep gameplay above a separate control pane, with its own layout and opacity set
 Separate cover and inner layouts let you arrange controls for each display.
 
 <details>
-<summary>See the layout editor, graphics profiles and guided setup</summary>
+<summary><strong>See the layout editor, graphics profiles and guided setup</strong></summary>
 
 ### Touch layout editor
 
