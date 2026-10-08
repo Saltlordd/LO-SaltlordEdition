@@ -4,18 +4,106 @@
 
 An Android adaptation of [LostOdysseyRecomp](https://github.com/freefrank/LostOdysseyRecomp), with touch controls, foldable display layouts and guided setup. Developed and playtested by Saltlord (my gamer tag) on a Samsung Galaxy Z Fold 8 Ultra, with AI-assisted development.
 
-**First beta preparation is underway.** A release APK will appear on the [Releases page](https://github.com/Saltlordd/LO-SaltlordEdition/releases) when published. This branch is a source/documentation candidate, not a published beta release.
+**v0.1.0 Beta is available.** [Download the Android APK and checksum](https://github.com/Saltlordd/LO-SaltlordEdition/releases/tag/v0.1.0-beta). This is an early beta; device compatibility and later-game coverage are still being tested.
 
-## Features
+## Screenshots
 
-- Guided disc/DLC import, custom GPU driver selection and first-run shader preparation.
-- Full-colour or monochrome custom touch artwork; editable positions, sizes, opacity and grid spacing. Invisible floating sticks, haptics, manual/automatic hiding and optional hiding with a connected controller.
-- Separate cover/inner display layouts and live Adaptive/16:9 fitting. Experimental Flex mode places the game above a separate control pane, with two orientations, its own editor and a cover-layout copy option.
-- Graphics profiles, live resolution/frame-target/AA choices and an optional configurable performance monitor.
-- Controller remapping and named profiles; saved Fast Forward settings.
-- Save Anywhere, save ZIP backup/restore and overlay JSON backup/restore. Restore saves and layouts during setup or from Options.
-- Options pauses gameplay without sending the game's Start button.
-- Local diagnostic reports saved through Android's file picker. No automatic report sending; this build requests no INTERNET permission.
+### Gameplay on the inner display
+
+![Lost Odyssey exploration with the custom touch overlay](docs/images/screenshots/inner-gameplay.jpg)
+
+Custom touch artwork and an adaptive viewport on the foldable inner display.
+
+### Experimental Flex mode
+
+![Battle gameplay above a dedicated Flex control pane](docs/images/screenshots/flex-gameplay.jpg)
+
+Keep gameplay above a separate control pane, with its own layout and opacity settings.
+
+### Widescreen cover display
+
+![Battle gameplay with touch controls on a widescreen cover display](docs/images/screenshots/cover-gameplay.jpg)
+
+Separate cover and inner layouts let you arrange controls for each display.
+
+<details>
+<summary>See the layout editor, graphics profiles and guided setup</summary>
+
+### Touch layout editor
+
+![Touch layout editor with medium grid snapping](docs/images/screenshots/layout-editor.jpg)
+
+Move controls with adjustable grid snapping, including a free-placement option.
+
+### Graphics profiles
+
+![Graphics options and four quick performance profiles](docs/images/screenshots/graphics-profiles.jpg)
+
+Choose a quick profile or customise resolution, frame-rate target and anti-aliasing.
+
+### Guided setup
+
+![Welcome page of the seven-step setup wizard](docs/images/screenshots/setup-wizard.jpg)
+
+Import game files, choose a driver, restore backups and prepare shaders through guided setup.
+
+### Flex layout selection
+
+![Flex mode orientation choices with hinge diagrams](docs/images/screenshots/flex-options.jpg)
+
+Hinge diagrams help you choose an orientation. Both choices place gameplay above the controls.
+
+</details>
+
+Screenshots show the Android beta on the tester's device; they do not guarantee performance on other hardware.
+
+## Saltlord Edition features
+
+These are the Android experience additions and changes in this fork. The underlying game recompilation and runtime come from LostOdysseyRecomp; see the upstream credits below.
+
+### Touch controls and personalisation
+
+- Custom Lost Odyssey-themed, full-colour touch artwork, with a monochrome alternative.
+- A layout editor with adjustable grid spacing and no-grid placement.
+- Individual and overall control sizing, adjustable opacity, floating sticks and haptic feedback.
+- Manual overlay hiding, automatic hiding and optional hiding when a controller connects.
+- Separate saved layouts for cover and inner displays.
+- Overlay layout backup and restore, including restoration during initial setup.
+
+### Foldable displays and Flex mode
+
+- Adaptive viewport fitting and a live 16:9 lock.
+- Navy, charcoal or black viewport borders.
+- Experimental Flex mode with the game above a dedicated lower-half control pane.
+- Landscape-fold and portrait-fold choices, illustrated with hinge diagrams.
+- Dedicated Flex layout editing, saved sizes and opacity, and a copy-cover-layout shortcut.
+- Flex controls start at full opacity. Auto-hide is temporarily suspended; manual Hide still works.
+- Flex mode is explicitly launched for a session; cold launches return to the ordinary fullscreen flow.
+
+### Graphics and performance tools
+
+- Four quick graphics profiles, available during setup and in Options.
+- Resolution, anti-aliasing and frame-rate choices, with saved preferences between launches.
+- Steady 30 and experimental Dynamic 60 targets; higher-workload combinations remain available after confirmation.
+- Off, FXAA and SMAA anti-aliasing choices, with guidance about image clarity and workload.
+- A configurable performance monitor with size, opacity and individual metric toggles. Android and driver support determine which metrics are available.
+- Gameplay pauses while Options is open, without sending the game's Start button.
+
+### Controllers, saves and setup
+
+- Connected-controller selection, button/axis remapping and named controller profiles.
+- Saved Fast Forward preferences.
+- Save Anywhere, plus save ZIP backup and restore. Save Anywhere is not a save state; original Xbox 360 compatibility is unverified.
+- Save and overlay restoration together during setup, to make migration easier.
+- Guided game-disc/DLC import and custom GPU driver selection.
+- First-run shader preparation with progress, optional notifications and a completion restart; later cached loads use a simpler loading screen.
+- A dedicated app main menu with Start game, Options, Flex access, acknowledgements and licences.
+
+### Diagnostics and offline operation
+
+- Local diagnostic reports exported to a location chosen through Android's file picker.
+- Bug-report guidance with the device, driver, settings and reproduction details needed for investigation.
+- No automatic report sending. This beta requests no INTERNET permission.
 
 ## Getting started
 
@@ -57,4 +145,4 @@ Include app version, device model, RAM, storage, chipset, driver, graphics choic
 
 ## Source, credits and licence
 
-See [Android build notes](docs/ANDROID_BUILD.md), [credits](docs/SALTLORD_CREDITS.md) and the [upstream README](README.upstream.md). LostOdysseyRecomp and its contributors provide the underlying recompilation/runtime. This fork preserves upstream licensing and notices; see [LICENSE](LICENSE). This Android source preparation excludes game assets, generated game code, private logs, saves and signing keys.
+See [Android build notes](docs/ANDROID_BUILD.md), [credits](docs/SALTLORD_CREDITS.md) and the [upstream README](README.upstream.md). LostOdysseyRecomp and its contributors provide the underlying recompilation/runtime. This fork preserves upstream licensing and notices; see [LICENSE](LICENSE). This Android source tree excludes game assets, generated game code, private logs, saves and signing keys.
