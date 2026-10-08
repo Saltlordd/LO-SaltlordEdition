@@ -1,52 +1,23 @@
 ---
-name: Bug report
-about: Report a crash, gameplay, audio, or visual issue
-title: "[Bug] "
+name: Android bug report
+about: Report a problem with LO Saltlord Edition
 labels: ''
-assignees: ''
 ---
 
-## Required attachments
+**App version:**
+**Device / chipset / RAM / storage:**
+**Android version / GPU driver:**
+**Graphics (resolution / target / AA):**
+**Cover / inner / Flex layout:**
+**Controller:**
 
-**Game running issues:** Attach the latest log from the affected run. Logs are in the **`logs` folder inside your game folder** (for example, `logs/runtime-<timestamp>.log`). Include the complete file, not just a screenshot or a few lines.
-
-**Visual bugs:** Also attach a render-state capture archive (`.zip` on Windows or `.tar.gz` on Linux):
-
-1. While the visual issue is visible, press **F1** to open the **Debug Menu**.
-2. Scroll to the bottom and click **Capture render state** to save frame information.
-3. Wait for capture and automatic archive compression to finish. The status displays the saved archive path.
-4. Upload that **archive** here. A screenshot or video can help show the issue, but does not replace the archive.
-
-If no log was created, or a crash/freeze prevents capture, explain that here and attach any available evidence.
-
-<!-- Drag and drop files here. -->
-
-## Description
-
-Describe what went wrong and how often it happens.
+## What happened / what you expected
 
 ## Steps to reproduce
-
 1.
-2.
-3.
 
-Map name/ID or story progress, if known:
+## Frequency
+Every time, occasionally, or only on first encounter?
 
-## Expected and actual behavior
-
-- Expected:
-- Actual:
-
-## Environment
-
-- LostOdysseyRecomp version or commit:
-- OS and version:
-- CPU:
-- GPU and driver version:
-- Game language:
-- Relevant settings or modifications:
-
-## Additional context
-
-<!-- Optional. -->
+## Diagnostics
+Save a report in Options → Setup, features & reports → Save diagnostic report. Review it before attaching. Optional screenshot/video. Do not attach game files, save backups or private signing material. Reports may also be emailed to saltlordstrikes@gmail.com.
