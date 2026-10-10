@@ -8,6 +8,7 @@ import android.widget.TextView;
 import android.widget.SeekBar;
 import android.widget.ScrollView;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.RadioGroup;
 import android.widget.RadioButton;
 import android.graphics.Color;
@@ -347,6 +348,10 @@ final class TouchGamepadView extends View {
         LinearLayout visibility=section(touchSection,"Feedback & visibility",false);
         LinearLayout graphicsSection=section(layout,"Graphics",false);
         LinearLayout displaySection=graphicsSection;
+        Button rgb=new Button(getContext());
+        Runnable refreshRgb=()->rgb.setText("RGB range: "+(MobilePresentation.rgb(getContext())==0?"Standard":"Expanded")+" · next launch");
+        rgb.setOnClickListener(v->{try{MobilePresentation.choose(getContext(),"rgb",1-MobilePresentation.rgb(getContext()));refreshRgb.run();}catch(RuntimeException e){android.widget.Toast.makeText(getContext(),e.getMessage(),android.widget.Toast.LENGTH_LONG).show();}});refreshRgb.run();displaySection.addView(rgb);
+        BrandUi.help(displaySection,"RGB range","Expanded maps the game's limited colour range to full-range output. This is a colour preference, not a performance or resolution setting. Restart the app to apply.");
         Button surround=new Button(getContext());String[] borderNames={"Navy","Charcoal","Black"};
         Runnable refreshBorder=()->surround.setText("Viewport border: "+borderNames[DisplayAppearance.border(getContext())]);
         surround.setOnClickListener(v->{DisplayAppearance.setBorder(getContext(),(DisplayAppearance.border(getContext())+1)%3);refreshBorder.run();});refreshBorder.run();displaySection.addView(surround);
@@ -379,7 +384,16 @@ final class TouchGamepadView extends View {
         String[] quickAaNames={"Off","FXAA","SMAA"};Button quickAa=new Button(getContext());
         Runnable refreshAa=()->{int a=RuntimeReadinessActivity.nativeAntiAliasing(-1);quickAa.setText("Anti-aliasing: "+(a>=0&&a<3?quickAaNames[a]:"Advanced (in-game setting)")+" — tap to change");};
         quickAa.setOnClickListener(v->GraphicsChoices.selectAa(getContext(),refreshAa));refreshAa.run();graphicsSection.addView(quickAa);
-        GraphicsChoices.presets(getContext(),graphicsSection,()->{refreshGraphics.run();refreshAa.run();});
+        String[] effectNames={"Motion blur","Dynamic shadows"};
+        for(int effect=0;effect<effectNames.length;effect++){
+            final int id=effect;Button toggle=new Button(getContext());
+            Runnable refreshEffect=()->toggle.setText(effectNames[id]+": "+(RuntimeReadinessActivity.nativeGraphicsEffect(id,-1)==1?"On":"Off"));
+            toggle.setOnClickListener(v->{int current=RuntimeReadinessActivity.nativeGraphicsEffect(id,-1);RuntimeReadinessActivity.nativeGraphicsEffect(id,current==1?0:1);refreshEffect.run();});
+            refreshEffect.run();graphicsSection.addView(toggle);
+        }
+        BrandUi.help(graphicsSection,"Motion blur","The game's blur during fast camera and character movement. Turn it off to keep moving scenes sharper. Applies immediately and is saved between launches.");
+        BrandUi.help(graphicsSection,"Dynamic shadows","Real-time shadows cast by characters and objects. Turning them off removes these shadows and may reduce graphics workload. Performance gains vary by scene and device. Applies immediately and is saved between launches.");
+        GraphicsChoices.presets(getContext(),graphicsSection,()->{refreshGraphics.run();refreshAa.run();refreshRgb.run();});
         BrandUi.help(graphicsSection,"Graphics guidance",GraphicsChoices.HELP);
         BrandUi.help(graphicsSection,"Anti-aliasing",GraphicsChoices.HELP);
         BrandUi.help(graphicsSection,"Render resolution","720p at 30 FPS with anti-aliasing Off is the recommended starting point. 1080p draws more pixels and may slow down demanding scenes. Switch while playing to suit your phone. This changes the internal scene resolution immediately. Android presents it to the fitted game surface at its actual size; the desktop-style output resolution shown in the in-game menu does not describe that Android surface. 1080p still adds rendering work even when the image is scaled for display.");
@@ -406,6 +420,8 @@ final class TouchGamepadView extends View {
         debug.setEnabled(!launcher);debug.setOnClickListener(v->{options.dismiss();release();RuntimeReadinessActivity.nativeDebugMenu();});debugSection.addView(debug);
         TextView debugHelp=new TextView(getContext());debugHelp.setTag("secondary");debugHelp.setText("Use the D-pad or sticks to navigate, A to select and B to go back. LB/RB change tabs; LT/RT change categories. Memory-editing cheats can change your save; back up saves first.");debugSection.addView(debugHelp);
         LinearLayout aboutSection=section(layout,"Setup, features & reports",false);
+        Button previousReport=new Button(getContext());previousReport.setText("Save diagnostic report (also after a failed launch)");
+        previousReport.setOnClickListener(v->((RuntimeReadinessActivity)getContext()).saveDiagnosticReport());aboutSection.addView(previousReport);
         Button wizard=new Button(getContext());wizard.setText("Preview startup wizard");
         wizard.setEnabled(!launcher);wizard.setOnClickListener(v->showWizard(0));aboutSection.addView(wizard);
         Button features=new Button(getContext());features.setText("About LO: Saltlord Edition");
@@ -529,10 +545,16 @@ final class TouchGamepadView extends View {
             "Start with Disc 1, or add all four discs now. Use matching USA/Europe discs from your own copy.\n\nDLC is optional. Add its ZIP or original Xbox packages from any folder. Tap Add more files until your list is ready, then install everything together.",
             "The system driver works without extra setup.\n\nAlready have a compatible custom driver? Import its ZIP below. You can change drivers later in Options.",
             "Moving from another Saltlord Edition build or upstream recomp? Restore game saves and touch layouts here before playing. You can skip this page on a fresh install. Game files, drivers and graphics preferences are kept separate.",
-            "Choose a profile below or adjust each setting. Our preferred performance balance on a Z Fold 8 Ultra is 720p, SMAA and Dynamic 60. For sharper detail on the inner screen, Quality uses 1080p, SMAA and Steady 30; our latest tested scene held approximately 30 FPS. Low-spec is the conservative initial default. Results vary by scene, device, driver and cooling. These are test-based choices, not promises of a stable entire playthrough. Saved choices are retained across launches.\n\n"+DeviceUi.layoutNote(getContext())+" Customise controls later in Overlay options.",
+            "Choose a profile below or adjust each setting. Our preferred performance balance on a Z Fold 8 Ultra is 720p, SMAA and Dynamic 60. For sharper detail on the inner screen, Quality uses 1080p, SMAA and Steady 30; our latest tested scene held approximately 30 FPS. Low-spec is the conservative initial default. Results vary by scene, device, driver and cooling. These are test-based choices, not promises of a stable entire playthrough. Your resolution, anti-aliasing, frame target and motion/shadow choices are saved between launches.\n\n"+DeviceUi.layoutNote(getContext())+" Customise controls later in Overlay options.",
             ShaderPreparationView.WARNING,
             "Setup is ready. Start game will finish installing any files waiting in your list and prepare shaders.\n\nLO: Saltlord Edition is an unofficial community project. You provide your own game files. Credits and full notices are available below and in About."};
         LinearLayout extras=new LinearLayout(getContext());extras.setOrientation(LinearLayout.VERTICAL);
+        {
+            Button report=new Button(getContext());report.setText("Save diagnostic report");
+            report.setOnClickListener(v->app.saveDiagnosticReport());
+            report.setGravity(android.view.Gravity.START|android.view.Gravity.CENTER_VERTICAL);extras.addView(report);
+            BrandUi.help(extras,"Crashed during setup?","Save a report here to help us investigate. You can export before shader preparation or gameplay.");
+        }
         if(step==1)extras.addView(app.setupFilesPanel());
         if(step==2)extras.addView(app.setupDriverPanel());
         if(step==5)extras.addView(app.notificationSetupPanel(()->{showWizard(step+1);wizardChime.play();}));

@@ -20,10 +20,16 @@ inline int PositionVPSlot(uint64_t shader) {
     // f13429-f13431: alpha-tested depth shares ff9da/a27a geometry; c4-c7
     // feed only position, while its object UV and alpha color remain unchanged.
     case 0x8d3c80b318235b22ull:
+    // Map tour 2026-10-01 (Uhra - Army Sewers, Eastern Gohtza Railroad Track):
+    // the 8d3c program with a 12-dword vertex stride, a scene depth writer.
+    case 0xb9b8056050a4c194ull:
     // f5914: stride-56 static depth companion of 799c/eeae; c4-c7 position only.
     case 0x52e4405f97159d2full:
     // f16385-f16387: alpha-tested depth; UV/color outputs are independent of VP.
     case 0xfe3efe042c311110ull:
+    // Map tour 2026-10-01 (Experimental Staff Marine Division): the fe3e program
+    // with a 14-dword vertex stride, a scene depth writer.
+    case 0xf964d2661094b1a0ull:
     // f11745: static depth companion of a936; c4-c7 position only.
     case 0xb2eaed9ab75471f9ull:
     case 0xb030ab4e17a20783ull:case 0xf1b330b3ceea9a3bull:case 0xf7fd88506d704a3dull:return 4;
@@ -63,7 +69,14 @@ inline int PositionVPSlot(uint64_t shader) {
     case 0xa027ab99fa3e3b0dull:
     // f25276 Burning Cave: static material over f7fd depth; c7-c10 feed only oPos
     // and o4, of which PS 042e reads only W. fetch94 light and c11 eye stay intact.
-    case 0x61bc9947f1e88573ull:return 7;
+    case 0x61bc9947f1e88573ull:
+    // Map tour 2026-10-01: static materials over 52e4 depth whose c7-c10 feed only
+    // oPos and the o4 copy, of which their only seen PS reads just W.
+    // 2441 + d7f3: Snow-Covered Trail. f8b1 + e5b7: Astral Square, Numara Palace.
+    case 0x24418a5936c2d236ull:case 0xf8b1457ed05cacdfull:
+    // 8d66 over b030 depth (Ice Canyon - Ice Gorge, Frozen Trail): the same chain;
+    // PS c795 and 9e1c read only W of the o1 copy.
+    case 0x8d6658641e3b780dull:return 7;
     case 0x1da1ddc75da8e994ull:case 0x22557143e0f243ddull:case 0x4c87bb5b986defc8ull:case 0xa6c8c11c6dd07144ull:
     case 0xe8c0d438c690c784ull:case 0x576d669b2ad3c898ull:
     case 0x188061ace0615678ull:case 0xdc7f83af67c53ba1ull:case 0x68014a17a2a9a4bdull:
@@ -87,6 +100,11 @@ inline int PositionVPSlot(uint64_t shader) {
     // PS 4907455386b2b291 samples a same-frame resolve of jittered slot-0
     // passes through o5.xy/w, so that lookup must follow the raster jitter.
     case 0xe9b8dd7e7c5a3425ull:case 0xd31e2122a3b51434ull:
+    // Opening battle 2026-10-01: alpha-tested depth writers 7def and c511 use the
+    // scene camera at c8-c11 for oPos and its o2/o4 copy only (the c12 eye stays
+    // intact). Their nine player-feedback PS partners read only W of the copy and
+    // kill on alpha sampled at mesh UVs.
+    case 0x7def181705ff29c9ull:case 0xc511136caf4421ebull:
     // f6131-f6133: late additive floor lighting matches the f7fd depth and
     // ff769 material geometry. c8-c11 feed oPos and o5; PS 4013372b6413788f
     // samples the current scene light resolve through o5.xy/w, so the lookup
@@ -145,24 +163,122 @@ inline constexpr SkyMaterialPair SkyMaterialPairs[]{
     // Legacy of the Eastern Tribe f1800-f1802 (#102), f7fd depth. Its PS reads
     // only the clip W copy; object motion replays like the depth companion.
     {0xdb23a2ad4493bbb4ull, 0x02ee5f0608be581aull, false},
+    // Map tour 2026-10-01, Gohtza - Southernmost Cape: the #102 sky program with
+    // another vertex component order, over f7fd depth; PS 311b reads only clip W.
+    {0xcbadff38155833b6ull, 0x311b14004ee00284ull, false},
     // Old Sorceress' Mansion (#121): the #67 VS with the #102 PS over b030 depth,
     // from two runtime suspect logs. Same VS, so the same motion fallback as #67.
     {0xbda41a11626a545cull, 0x02ee5f0608be581aull, true},
     // Ice Canyon - Snowy Plateau (F1 f12139): the #67 VS with PS 1dee over b030
     // depth. 1dee reads only the clip W copy; same VS, same fallback as #67.
     {0xbda41a11626a545cull, 0x1dee52ba32155a53ull, true},
+    // Map tour 2026-10-01: the #67 VS over b030 depth with six more PS that read
+    // only the clip W copy and sample at mesh UVs (triage_suspect.py review).
+    // e086: Numara Palace, Ghost Town, Armored Vehicle, Ipsilon Mountains hut.
+    {0xbda41a11626a545cull, 0xe086f5f676c72482ull, true},
+    // e2b8: Saman - Main Street, Port of Saman.
+    {0xbda41a11626a545cull, 0xe2b89a553d00ef47ull, true},
+    // 72bc: Experimental Staff Marine Division, Ice Canyon - Glacier Fang, White Boa.
+    {0xbda41a11626a545cull, 0x72bcd05d7ab61ce1ull, true},
+    // bbba: Uhra - Amphitheater of the Sky, Grand Staff - Central Connector.
+    {0xbda41a11626a545cull, 0xbbbac6693e441760ull, true},
+    // 4049: The White Boa - Main Deck.
+    {0xbda41a11626a545cull, 0x40496f0784d54689ull, true},
+    // 1693: Aurora-Bound Train - Engine Car.
+    {0xbda41a11626a545cull, 0x1693d368b809e65dull, true},
+    // Sea of Baus battle (#203): the #67 VS over b030 depth with PS fd46, which
+    // reads only the clip W copy and samples at mesh UVs. Same fallback as #67.
+    {0xbda41a11626a545cull, 0xfd46e0190f5f6c50ull, true},
+    // Cutscene tour 2026-10-04: bda4 with PS 6426 is the depth-writing base pass
+    // under the 2496/42b1 light; it reads only clip W. db23 with PS 1693 (xx4)
+    // reads only W of the o1 copy. Same policies as their VS's other pairs.
+    {0xbda41a11626a545cull, 0x642665c9452ccafbull, true},
+    {0xdb23a2ad4493bbb4ull, 0x1693d368b809e65dull, false},
 };
 inline const SkyMaterialPair* FindSkyMaterialPair(uint64_t vs, uint64_t ps) {
     for (const auto& pair : SkyMaterialPairs)
         if (pair.vs == vs && pair.ps == ps) return &pair;
     return nullptr;
 }
-// e810 has eleven observed PS partners. Only this independently reviewed pair
-// may use the slot-7 path, and only with a constant single-texel screen sample.
-// Keep it out of the VS-wide table so other consumers cannot self-anchor it.
+// Reviewed per-light passes drawn over the geometry of a jittered slot-7 scene
+// draw without writing depth. Their c7-c10 feed only oPos and the o4 copy; the
+// PS samples tex0 at o4.xy/w (light attenuation at ScreenPosition, like the
+// f6131 2078/4013 floor light), so the lookup follows the raster jitter.
+struct ScreenLightPair { uint64_t vs, ps; };
+inline constexpr ScreenLightPair ScreenLightPairs[]{
+    // Old Sorceress' Mansion battle (#212): both over the 4053 floor draw with
+    // the same world and camera; unjittered, the GEQUAL depth test made the
+    // floor lighting flicker. 9bde is e810 with an extra fetch94 scalar.
+    {0xe810cfacc107fd3cull, 0xc44ebbbc0207b5a9ull},
+    {0x9bdef27080ca3ab4ull, 0xd122f0139a58bdacull},
+    // The same floor light in a battle entered from the Entrance Hall.
+    {0xe810cfacc107fd3cull, 0xa800980dfc9e4efeull},
+    // Cutscene tour 2026-10-04: the other e810 partners, each the same i4
+    // attenuation fetch multiplied into the light (a5c3/dba6 add a spot cone).
+    {0xe810cfacc107fd3cull, 0x3b45f8f248182356ull}, {0xe810cfacc107fd3cull, 0x5b11f88a8bb293dfull},
+    {0xe810cfacc107fd3cull, 0x78a5c96b2d7eaa91ull}, {0xe810cfacc107fd3cull, 0x7e18a8faa49f6a35ull},
+    {0xe810cfacc107fd3cull, 0x827f18c3f617e562ull}, {0xe810cfacc107fd3cull, 0x8bc0c849ae1ec109ull},
+    {0xe810cfacc107fd3cull, 0xa5c326bc64cc266aull}, {0xe810cfacc107fd3cull, 0xab5e0c09e5a377f5ull},
+    {0xe810cfacc107fd3cull, 0xd0d7801796e1ca87ull}, {0xe810cfacc107fd3cull, 0xdba6015f3b42f468ull},
+    {0xe810cfacc107fd3cull, 0xfe31f3d6588fde95ull},
+    // Cutscene tour: per-light passes of other vertex formats, same structure
+    // (world via c0-c3, camera c7-c10 to oPos and one clip copy, tex0 at it).
+    {0x00e3a3a34ae36a53ull, 0xaa4c50854f436570ull}, {0x00e3a3a34ae36a53ull, 0xb08ab38de8f5b470ull},
+    {0x2214874b92125316ull, 0x4a2275404b5560b2ull}, {0x2496cf2dd8440be6ull, 0x42b12599b7f6a94eull},
+    {0x2ec5f87f29727f06ull, 0xc0894ed7e71f3199ull}, {0x3fbb7967479aa2faull, 0xe2b7e7e5d683411bull},
+    {0x6c057b35ec257977ull, 0x6d97859b109fcdebull}, {0x6c057b35ec257977ull, 0xdbb8f8521845fcc5ull},
+    {0x83f8d16827cb5fb3ull, 0x3745a935e66fb8b9ull}, {0x83f8d16827cb5fb3ull, 0xb38356d8e0623584ull},
+    {0xc2eec5754e89870dull, 0xb598060d9a65ea8bull}, {0xc2eec5754e89870dull, 0xcea9fc0081567198ull},
+    {0xd9732b36fcc9dc49ull, 0x08678429d24ed0efull}, {0xda5bafb8e0f5ea2dull, 0x921f6bf1ab35afd7ull},
+    {0xdd4737cd63de5942ull, 0x8901785286fadee6ull}, {0xef71c9c08352b01aull, 0x4098c2df329dc2b1ull},
+    {0xf1833d2ba6fbb269ull, 0xa60815deff98d748ull}, {0xf7fff3419840491eull, 0x55bf9fedd9777eddull},
+    // RT_183B: lights over the 66fe depth writer in ReviewedPairs, left behind it
+    // once 66fe was jittered.
+    {0x3fc19a69242fafedull, 0x638386a1e1151b03ull}, {0xc559554e1745f863ull, 0x6c26c0428188562dull},
+};
+inline bool IsScreenLightPair(uint64_t vs, uint64_t ps) {
+    for (const auto& pair : ScreenLightPairs)
+        if (pair.vs == vs && pair.ps == ps) return true;
+    return false;
+}
+// Other reviewed exact pairs (the 2026-10-04 cutscene tour and later reports),
+// with the slot the runtime found the scene camera in. Each VS feeds that matrix
+// only to oPos and plain clip copies; each PS reads at most clip W or samples a
+// same-frame buffer at the pixel. Notes: docs/notes/jitter-cutscene-tour-2026-10-04.md.
+struct ReviewedPair { uint64_t vs, ps; int slot; };
+inline constexpr ReviewedPair ReviewedPairs[]{
+    // Depth writers and materials that read only clip W (or no clip copy).
+    {0x1c0053e696cb6770ull, 0x30731f7aad7cb542ull, 8}, {0x4cca1cb1d14cad0cull, 0xe3a453ca3a9f399bull, 7},
+    {0x66fe184a69d65dc5ull, 0x0fed3017c576229dull, 7}, {0xa8d2318208e7c3a0ull, 0x00afc8726e2a884aull, 4},
+    {0xac328a81ee03a7c8ull, 0xdfdf2b514e15f620ull, 0}, {0xbd4c84ecc2898862ull, 0xf7ff3169953b3a36ull, 7},
+    {0xe275fec97d4e7cfbull, 0x07153d2546a589ebull, 7}, {0xeb5f611c4321708eull, 0x38b953b91dcfd9ceull, 0},
+    // Slot-8 per-light pass (c7 is its UV transform).
+    {0xcabb0b7ea3077c96ull, 0xb1d4594c12ff35d4ull, 8},
+    // Cutscene characters: skinned light/depth passes like 3148/118a (camera
+    // c233-c236 after the bone blend); one tex0 attenuation fetch at the clip copy.
+    {0x258051387347ab2full, 0x957d8f92546fe31aull, 233}, {0x258051387347ab2full, 0x8724d5f1834d7842ull, 233},
+    {0x6261e0eb6b69ec62ull, 0xaab158a074b29bcfull, 233}, {0x6261e0eb6b69ec62ull, 0x0aa1c2c4ec7933c1ull, 233},
+    {0x69605181e9299128ull, 0xc4689958cc72c568ull, 233},
+    // Experimental Staff Marine Division boats (#307): c189 and 3305 are e7b3 and
+    // 6742 with a 14-dword vertex stride, HLSL otherwise identical. The c189 base
+    // passes draw over the jittered 52e4/f964 depth (GEQUAL, no depth write) and
+    // sample the light attenuation at their o4 clip copy, as e7b3 does with the
+    // same two PS. 3305 writes depth; its PS read only W of the o1 clip copy.
+    {0xc1896d4be9e73859ull, 0x6ad300f19bb477d0ull, 7}, {0xc1896d4be9e73859ull, 0xb3bdd4cd8b83a350ull, 7},
+    {0x330542fa74d064deull, 0x8a7a046c63f1213eull, 7}, {0x330542fa74d064deull, 0x8116c07a39250830ull, 7},
+};
+inline int ReviewedPairSlot(uint64_t vs, uint64_t ps) {
+    for (const auto& pair : ReviewedPairs)
+        if (pair.vs == vs && pair.ps == ps) return pair.slot;
+    return -1;
+}
+// e810 stays out of the VS-wide table: only its reviewed PS partners may use
+// the slot-7 path, so an unreviewed consumer cannot self-anchor it.
 inline int DrawPositionVPSlot(uint64_t vs, uint64_t ps, bool constantScreenSample = false) {
     if (FindSkyMaterialPair(vs, ps)) return 7;
     if (vs == 0xe810cfacc107fd3cull && ps == 0xfe31f3d6588fde95ull && constantScreenSample) return 7;
+    if (IsScreenLightPair(vs, ps)) return 7;
+    if (const int slot = ReviewedPairSlot(vs, ps); slot >= 0) return slot;
     return PositionVPSlot(vs);
 }
 // Sky pairs jitter only against a scene camera observed before them; they
@@ -198,6 +314,7 @@ public:
     void ObserveCamera(const SceneAnchor& anchor)
     {
         ++draws_;
+        RememberCamera(anchor);
         if (draws_ == 1)
         {
             anchor_ = anchor;
@@ -212,6 +329,7 @@ public:
     }
     void ObserveDepth(uint64_t sourceAllocation, const SceneResolve& resolve)
     {
+        RememberDepth(sourceAllocation, resolve);
         // Shadow/other view resolves cannot substitute for the selected allocation.
         if (!draws_ || sourceAllocation != anchor_.depthAllocation) return;
         if (depth_.ordinal) { Reject(Rejection::RepeatedDepth); return; }
@@ -238,7 +356,37 @@ public:
     const SceneAnchor& Anchor() const { return anchor_; }
     const SceneResolve& Depth() const { return depth_; }
     const SceneResolve& Color() const { return color_; }
+    // Some cutscene shots draw a second full scene view with another camera
+    // (#212). Draws without their own anchor (shadow volumes, projections,
+    // lights) jitter with the observed camera they use, and a projection may
+    // sample that view's depth resolve; the first camera stays the frame's.
+    const SceneAnchor& AnchorFor(const uint32_t* vp) const
+    {
+        for (uint32_t i = 0; i < cameraCount_; ++i)
+            if (std::equal(cameras_[i].vpBits.begin(), cameras_[i].vpBits.end(), vp)) return cameras_[i];
+        return anchor_;
+    }
+    const SceneResolve& DepthFor(const SceneResolve* sampled) const
+    {
+        for (uint32_t i = 0; sampled && i < depthCount_; ++i)
+            if (depths_[i].ordinal == sampled->ordinal && depths_[i].address == sampled->address) return depths_[i];
+        return depth_;
+    }
 private:
+    void RememberCamera(const SceneAnchor& anchor)
+    {
+        for (uint32_t i = 0; i < cameraCount_; ++i)
+            if (cameras_[i].vpBits == anchor.vpBits && cameras_[i].depthAllocation == anchor.depthAllocation &&
+                SameViewport(cameras_[i].viewport, anchor.viewport)) return;
+        if (cameraCount_ < cameras_.size()) cameras_[cameraCount_++] = anchor;
+    }
+    void RememberDepth(uint64_t sourceAllocation, const SceneResolve& resolve)
+    {
+        if (resolve.frame != frame_ || !resolve.ordinal || !resolve.fullExtent || depthCount_ == depths_.size()) return;
+        for (uint32_t i = 0; i < cameraCount_; ++i)
+            if (cameras_[i].depthAllocation == sourceAllocation && resolve.width == cameras_[i].viewport.width &&
+                resolve.height == cameras_[i].viewport.height) { depths_[depthCount_++] = resolve; return; }
+    }
     static bool SameViewport(const Viewport& a, const Viewport& b)
     {
         return a.x == b.x && a.y == b.y && a.width == b.width && a.height == b.height &&
@@ -250,5 +398,8 @@ private:
     Rejection rejection_ = Rejection::None;
     SceneAnchor anchor_{};
     SceneResolve depth_{}, color_{};
+    std::array<SceneAnchor, 4> cameras_{};
+    std::array<SceneResolve, 8> depths_{};
+    uint32_t cameraCount_ = 0, depthCount_ = 0;
 };
 }

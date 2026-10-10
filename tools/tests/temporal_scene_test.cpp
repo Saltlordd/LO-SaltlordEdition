@@ -42,5 +42,23 @@ int main()
     begin(); Check(!s.ObserveColor(color), "composition without observed depth rejected");
     s.Reset(10); auto invalid = camera; invalid.vpBits = {}; s.ObserveCamera(invalid);
     s.ObserveDepth(42, depth); Check(!s.ObserveColor(color), "singular camera rejected");
+    // #212 RT_084B: a second full scene view with its own camera after the first.
+    // Its lights and shadow passes jitter with that camera and its depth resolve;
+    // the frame keeps the first camera and still rejects the composition.
+    begin(); s.ObserveDepth(42, depth);
+    auto second = camera; second.vpBits[12] = std::bit_cast<uint32_t>(3.f); s.ObserveCamera(second);
+    const SceneResolve secondDepth{10, 105, 0x9800, 4102, 1280, 720, true};
+    s.ObserveDepth(42, secondDepth);
+    Check(&s.AnchorFor(second.vpBits.data()) != &s.Anchor() && s.AnchorFor(second.vpBits.data()).vpBits == second.vpBits &&
+        s.AnchorFor(camera.vpBits.data()).vpBits == camera.vpBits, "each observed camera anchors its own passes");
+    auto unseen = camera; unseen.vpBits[13] = std::bit_cast<uint32_t>(4.f);
+    Check(&s.AnchorFor(unseen.vpBits.data()) == &s.Anchor(), "an unobserved camera falls back to the frame anchor");
+    Check(s.DepthFor(&secondDepth).ordinal == 105 && s.DepthFor(&depth).ordinal == 100 && s.Depth().ordinal == 100,
+        "projections match the depth resolve of their own view");
+    auto otherDepth = secondDepth; otherDepth.ordinal = 106;
+    Check(&s.DepthFor(&otherDepth) == &s.Depth() && &s.DepthFor(nullptr) == &s.Depth(), "unobserved resolves fall back");
+    Check(!s.ObserveColor(color), "two scene views still reject the composition");
+    s.Reset(10); s.ObserveCamera(camera); s.ObserveDepth(99, secondDepth);
+    Check(&s.DepthFor(&secondDepth) == &s.Depth(), "shadow allocation resolves are not scene depth");
     std::puts("PASS: temporal scene ordering, allocation, ambiguity and reset cases");
 }

@@ -16,8 +16,16 @@
 #include "f3449_sky_jitter_capture.h"
 #include "f1800_sky_jitter_capture.h"
 #include "issue121_sky_ge1_jitter_capture.h"
+#include "issue203_sky_jitter_capture.h"
+#include "issue212_light_jitter_capture.h"
+#include "tour_cutscene_20261004_capture.h"
+#include "issue307_boat_capture.h"
 #include "f12139_sky_jitter_capture.h"
 #include "f25276_cave_jitter_capture.h"
+#include "tour_sky_20261001_capture.h"
+#include "tour_batch2_20261001_capture.h"
+#include "tour_8d66_20261001_capture.h"
+#include "battle_depth_20261001_capture.h"
 #include "feedback_mapping_cases.h"
 #include "screen_batch_cases.h"
 
@@ -1481,10 +1489,12 @@ static void CapturedF6131E810ConstantSample()
             "e810 wrong dimension, base, format, size, wrap or fetch type is rejected");
     Check(!IsSingleTexelScreenFetch(fetch0,fetch1,fetch2,fetch5,true),
         "e810 same-address resolved surface is not a constant guest upload");
-    Check(PositionVPSlot(draw.vs)==-1 && DrawPositionVPSlot(draw.vs,draw.ps,false)==-1 &&
+    // The 2026-10-04 cutscene tour reviewed fe31 with the other e810 light
+    // partners, so the pair no longer needs the constant-sample gate.
+    Check(PositionVPSlot(draw.vs)==-1 && DrawPositionVPSlot(draw.vs,draw.ps,false)==7 &&
         DrawPositionVPSlot(draw.vs,draw.ps,true)==7 &&
-        DrawPositionVPSlot(draw.vs,0x5b11f88a8bb293dfull,true)==-1,
-        "e810 remains outside VS-wide map and accepts only the exact eligible PS pair");
+        DrawPositionVPSlot(draw.vs,0x0123456789abcdefull,true)==-1,
+        "e810 remains outside VS-wide map and accepts only reviewed PS pairs");
     double oldSeparation=0;
     for (const auto extent:{Viewport{0,0,2560,1440},Viewport{0,0,3840,2160}})
         for (uint64_t phase=0;phase<32;++phase)
@@ -1523,15 +1533,14 @@ static void CapturedF6131E810ConstantSample()
                     oldSeparation=std::max(oldSeparation,std::abs(pixels));
                 }
             }
-            for (unsigned variant=0;variant<2;++variant)
             {
                 auto rejected=original,rejectedPs=originalPs;
-                const auto failure=ApplyDrawJitter(draw.vs,variant?0x5b11f88a8bb293dfull:draw.ps,
+                const auto failure=ApplyDrawJitter(draw.vs,0x0123456789abcdefull,
                     phase,true,true,&anchor,54,extent,rejected.data(),rejectedPs.data(),
-                    nullptr,nullptr,1,nullptr,variant!=0);
+                    nullptr,nullptr,1,nullptr,true);
                 Check(!failure.applied && failure.rejection==JitterRejection::UnknownShader &&
                     rejected==original && rejectedPs==originalPs,
-                    "e810 without eligibility or with another PS leaves both banks unchanged");
+                    "e810 with an unreviewed PS leaves both banks unchanged");
             }
         }
     Check(oldSeparation>.3,"unmapped e810 control separates from jittered depth by a visible phase");
@@ -1754,6 +1763,372 @@ static void CapturedF25276Cave()
 {
     CapturedMaterialOverDepth({"f25276 cave",0x61bc9947f1e88573ull,0x042ef823a22e1498ull,0xf7fd88506d704a3dull,273,10},
         gs4_cave_f25276::draws[0]);
+}
+// Map tour 2026-10-01: six more PS partners of the #67 sky VS over b030 depth,
+// with banks from runtime suspect lines (first reported draw of each pair).
+// b9b8 is the mapped depth VS 8d3c with a 12-dword vertex stride.
+static void CapturedTourSky()
+{
+    for (const auto& draw:tour_sky_20261001::draws)
+    {
+        char label[32];
+        std::snprintf(label,sizeof(label),"tour sky %04x",unsigned(draw.ps>>48));
+        CapturedSky({label,0xbda41a11626a545cull,draw.ps,0xb030ab4e17a20783ull,draw.draw,draw.depthDraw,
+            true,0x4013372b6413788full},draw);
+    }
+    Check(PositionVPSlot(0xb9b8056050a4c194ull)==4 && PositionVPSlot(0x8d3c80b318235b22ull)==4,
+        "tour depth VS b9b8 maps to slot 4 with 8d3c, its 10-dword stride twin");
+}
+// Map tour 2026-10-01, second pass: runtime-only shader variants reviewed from
+// microcode dumped where they were drawn. 2441 and f8b1 are slot-7 materials
+// over 52e4 depth, cbad the #102 sky program over f7fd depth, f964 the mapped
+// depth VS fe3e with a 14-dword vertex stride.
+static void CapturedTourBatch2()
+{
+    const auto& draws=tour_batch2_20261001::draws;
+    CapturedMaterialOverDepth({"tour 2441",0x24418a5936c2d236ull,0xd7f3f85d208dc73dull,0x52e4405f97159d2full,
+        draws[0].draw,draws[0].depthDraw},draws[0]);
+    CapturedMaterialOverDepth({"tour f8b1",0xf8b1457ed05cacdfull,0xe5b735783b09888bull,0x52e4405f97159d2full,
+        draws[1].draw,draws[1].depthDraw},draws[1]);
+    CapturedSky({"tour cbad",0xcbadff38155833b6ull,0x311b14004ee00284ull,0xf7fd88506d704a3dull,
+        draws[2].draw,draws[2].depthDraw,false,0x4013372b6413788full},draws[2]);
+    Check(PositionVPSlot(0xf964d2661094b1a0ull)==4 && PositionVPSlot(0xfe3efe042c311110ull)==4,
+        "tour depth VS f964 maps to slot 4 with fe3e, its 10-dword stride twin");
+}
+// Map tours 2026-10-01: VS 8d66 (HLSL 430-447) is the TireMaterialFf9 chain over
+// b030 depth and copies its clip to o1; PS c795 (Ice Canyon - Ice Gorge) and 9e1c
+// (Frozen Trail) read only i1.w and sample at mesh UVs.
+static void CapturedTour8d66()
+{
+    const auto& draws=tour_8d66_20261001::draws;
+    CapturedMaterialOverDepth({"tour 8d66/c795",0x8d6658641e3b780dull,0xc7956695c6ba859bull,0xb030ab4e17a20783ull,
+        draws[0].draw,draws[0].depthDraw},draws[0]);
+    CapturedMaterialOverDepth({"tour 8d66/9e1c",0x8d6658641e3b780dull,0x9e1cd4d452f7380dull,0xb030ab4e17a20783ull,
+        draws[1].draw,draws[1].depthDraw},draws[1]);
+}
+// Sea of Baus battle (#203): the #67 sky VS with PS fd46 over b030 depth, from the
+// player's v0.8.10 and v0.8.15 logs. fd46 reads only i1.w and samples at mesh UVs.
+// This sky world sits 1,607 units above the battle camera, so the default points
+// land far off screen; these synthetic points project on screen at W 3,000-20,000.
+static void CapturedIssue203Sky()
+{
+    const auto& draw=issue203_sky::draws[0];
+    CapturedSky({"#203 sea battle",0xbda41a11626a545cull,0xfd46e0190f5f6c50ull,0xb030ab4e17a20783ull,
+        draw.draw,draw.depthDraw,true,0x4013372b6413788full,
+        {{{3000,200,-1400,1},{8000,-1500,-2500,1},{20000,4000,1000,1}}}},draw);
+}
+// Synthetic input only: the local point (W 1) whose clip under clip(bank, .)
+// lands at the given NDC and W. clip is affine in the point, so three unit
+// steps give its columns.
+template<class Clip>
+static Float4 LocalForClip(Clip clip, const Constants& bank, double ndcX, double ndcY, double w)
+{
+    const auto origin=clip(bank,Float4{0,0,0,1});
+    const unsigned axes[3]{0,1,3};
+    const double target[3]{ndcX*w,ndcY*w,w};
+    double m[3][3],b[3];
+    for (unsigned column=0;column<3;++column)
+    {
+        Float4 step{0,0,0,1};
+        step[column]=1;
+        const auto moved=clip(bank,step);
+        for (unsigned i=0;i<3;++i) m[i][column]=double(moved[axes[i]])-origin[axes[i]];
+    }
+    for (unsigned i=0;i<3;++i) b[i]=target[i]-origin[axes[i]];
+    const auto det=[](const double a[3][3]) {
+        return a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1])-a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0])+
+            a[0][2]*(a[1][0]*a[2][1]-a[1][1]*a[2][0]); };
+    const double d=det(m);
+    Float4 local{0,0,0,1};
+    for (unsigned k=0;k<3;++k)
+    {
+        double replaced[3][3];
+        for (unsigned i=0;i<3;++i)
+            for (unsigned j=0;j<3;++j) replaced[i][j]=j==k?b[i]:m[i][j];
+        local[k]=float(det(replaced)/d);
+    }
+    return local;
+}
+// Old Sorceress' Mansion battle (#212), from the player's v0.8.15 log: per-light
+// floor passes e810/c44e and 9bde/d122 over the 4053 floor draw (slot 7,
+// TireMaterialFf9 chain), same world and camera, no depth write, GEQUAL test.
+// 9bde HLSL 440-454 is the E810Clip chain and copies the clip to o4; both PS
+// sample tex0 (light attenuation) at i4.xy/w through c0 as E810Tex0 does. Draw 3,
+// e810/a800, lit the floor around an enemy in a local Entrance Hall battle.
+static void CapturedIssue212Light()
+{
+    double oldSeparation=0,maxPixelError=0;
+    const auto startChecks=checks;
+    for (const auto& draw:issue212_light::draws)
+    {
+        Constants original{},originalDepth{},originalPs{};
+        std::copy(draw.vertex.begin(),draw.vertex.end(),original.begin());
+        std::copy(draw.vertexLate.begin(),draw.vertexLate.end(),original.begin()+254*4);
+        std::copy_n(draw.depth.begin(),16,originalDepth.begin());
+        std::copy_n(draw.depth.begin()+16,16,originalDepth.begin()+7*4);
+        std::copy(draw.pixel.begin(),draw.pixel.end(),originalPs.begin());
+        std::array<uint32_t,16> vp{};
+        std::copy_n(original.begin()+7*4,16,vp.begin());
+        Check(draw.depthVs==0x4053f2a21dbb92ddull && draw.slot==7 &&
+            std::equal(original.begin(),original.begin()+16,originalDepth.begin()) &&
+            std::equal(vp.begin(),vp.end(),originalDepth.begin()+7*4),
+            "#212 light pass and 4053 floor share captured world and slot-7 camera");
+        Check(IsScreenLightPair(draw.vs,draw.ps) && PositionVPSlot(draw.vs)==-1 &&
+            DrawPositionVPSlot(draw.vs,draw.ps)==7 && PositionVPSlot(draw.depthVs)==7 &&
+            !RequiresEarlierSceneAnchor(draw.vs,draw.ps) && !RetainsMotionFallback(draw.vs,draw.ps),
+            "#212 exact light pair maps to slot 7 with the ordinary anchor and motion policy");
+        Check(DrawPositionVPSlot(draw.vs,0x0123456789abcdefull,true)==-1 &&
+            DrawPositionVPSlot(0x9bdef27080ca3ab4ull,0xc44ebbbc0207b5a9ull)==-1,
+            "#212 other PS partners of the light VS stay held");
+        std::array<Float4,3> locals{};
+        const double placement[3][3]{{-.6,-.4,8},{.1,.3,40},{.7,-.2,300}};
+        for (unsigned i=0;i<3;++i)
+            locals[i]=LocalForClip(E810Clip,original,placement[i][0],placement[i][1],placement[i][2]);
+        for (const auto extent:{Viewport{0,0,1114,626},Viewport{0,0,2560,1440},Viewport{0,0,3840,2160}})
+            for (uint64_t phase=0;phase<32;++phase)
+            {
+                const SceneAnchor anchor{vp,extent,21};
+                auto depth=originalDepth,layer=original,ps=originalPs,depthPs=originalPs;
+                Check(ApplyDrawJitter(draw.depthVs,0,phase,true,true,&anchor,21,extent,
+                    depth.data(),depthPs.data()).applied,"#212 4053 floor accepts jitter");
+                const auto result=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,21,extent,
+                    layer.data(),ps.data());
+                Check(result.applied && result.slot==7 && !result.shadowCompensated && ps==originalPs,
+                    "#212 light pass jitters slot 7 without changing PS constants");
+                for (unsigned i=0;i<layer.size();++i)
+                    if (i<7*4 || i>=11*4 || i%4>=2)
+                        Check(layer[i]==original[i],"#212 world, light and clip ZW constants stay exact");
+                for (const auto& local:locals)
+                {
+                    const auto floor=TireMaterialFf9(depth,local);
+                    const auto current=E810Clip(layer,local),old=E810Clip(original,local);
+                    Check(std::isfinite(floor[3]) && floor[3]>1,"#212 synthetic point has nondegenerate clip W");
+                    Check(current[2]==old[2] && current[3]==old[3],"#212 light pass keeps clip Z and W");
+                    const auto sample=E810Tex0(ps,current),oldSample=E810Tex0(originalPs,old);
+                    for (unsigned axis=0;axis<2;++axis)
+                    {
+                        const double size=axis?extent.height:extent.width,sign=axis?-.5:.5;
+                        const double toFloor=(double(current[axis])/current[3]-double(floor[axis])/floor[3])*size*sign;
+                        const double pixels=(double(current[axis])/current[3]-double(old[axis])/old[3])*size*sign;
+                        const double samplePixels=(double(sample[axis])-oldSample[axis])*size;
+                        maxPixelError=std::max(maxPixelError,std::abs(toFloor));
+                        oldSeparation=std::max(oldSeparation,std::abs(pixels));
+                        Check(std::abs(toFloor)<.003,"#212 light pass clip and its o4 copy align with the jittered floor");
+                        Check(std::abs(samplePixels-pixels)<.003,"#212 tex0 lookup follows the same screen pixel shift");
+                    }
+                }
+                for (unsigned mutation=0;mutation<2;++mutation)
+                {
+                    auto rejected=original,rejectedPs=originalPs;
+                    if (!mutation) rejected[7*4]^=1;
+                    const auto before=rejected;
+                    const auto failure=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,
+                        mutation?22:21,extent,rejected.data(),rejectedPs.data());
+                    Check(!failure.applied && rejected==before && rejectedPs==originalPs &&
+                        failure.rejection==(mutation?JitterRejection::DepthMismatch:JitterRejection::CameraMismatch),
+                        "#212 camera or depth mismatch rejects without changing constants");
+                }
+            }
+    }
+    Check(oldSeparation>.3,"#212 unmapped light pass separates from its jittered floor by a visible phase");
+    std::printf("Captured #212 light passes: %u checks, three draws, 32 phases, 626p/1440p/4K; old separation %.6f px, max floor error %.6f px\n",
+        checks-startChecks,oldSeparation,maxPixelError);
+}
+// Reviewed exact pairs with their first logged banks. Each maps to the slot the
+// runtime found the camera in, jitters only the x/y of that matrix's rows,
+// leaves every other constant and the PS bank exact, and gets the same matrix
+// as its jittered depth companion. Returns how many carry such a companion.
+template<size_t N>
+static unsigned CheckLoggedPairs(const tour_cutscene::Draw (&draws)[N])
+{
+    unsigned companions=0;
+    for (const auto& draw:draws)
+    {
+        Check(DrawPositionVPSlot(draw.vs,draw.ps)==int(draw.slot),"logged pair maps to its logged camera slot");
+        Check(RequiresEarlierSceneAnchor(draw.vs,draw.ps)==(FindSkyMaterialPair(draw.vs,draw.ps)!=nullptr),
+            "logged pair keeps its table's anchor policy");
+        Constants original{},originalPs{};
+        std::copy(draw.vertex.begin(),draw.vertex.end(),original.begin());
+        std::copy(draw.late.begin(),draw.late.end(),original.begin()+254*4);
+        if (draw.slot<=60)
+            Check(std::equal(draw.camera.begin(),draw.camera.end(),original.begin()+draw.slot*4),
+                "logged camera bank matches the logged vertex bank");
+        std::copy(draw.camera.begin(),draw.camera.end(),original.begin()+draw.slot*4);
+        std::copy(draw.pixel.begin(),draw.pixel.end(),originalPs.begin());
+        std::array<uint32_t,16> vp{};
+        std::copy(draw.camera.begin(),draw.camera.end(),vp.begin());
+        const int depthSlot=draw.depthVs?PositionVPSlot(draw.depthVs):-1;
+        const bool companion=depthSlot>=0 && unsigned(depthSlot)==draw.depthSlot &&
+            std::equal(draw.depth.begin()+16,draw.depth.end(),vp.begin());
+        companions+=companion;
+        for (const auto extent:{Viewport{0,0,1114,626},Viewport{0,0,3840,2160}})
+            for (uint64_t phase=0;phase<32;phase+=3)
+            {
+                const SceneAnchor anchor{vp,extent,31};
+                auto layer=original,ps=originalPs;
+                const auto result=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,31,extent,layer.data(),ps.data());
+                Check(result.applied && result.slot==int(draw.slot) && !result.shadowCompensated && ps==originalPs,
+                    "logged pair jitters its slot without changing PS constants");
+                for (unsigned i=0;i<layer.size();++i)
+                    if (i<draw.slot*4 || i>=draw.slot*4+16 || i%4>=2)
+                        Check(layer[i]==original[i],"logged pair leaves every other constant exact");
+                if (companion)
+                {
+                    Constants depth{},depthPs{};
+                    std::copy_n(draw.depth.begin(),16,depth.begin());
+                    std::copy_n(draw.depth.begin()+16,16,depth.begin()+depthSlot*4);
+                    Check(ApplyDrawJitter(draw.depthVs,0,phase,true,true,&anchor,31,extent,depth.data(),depthPs.data()).applied &&
+                        std::equal(depth.begin()+depthSlot*4,depth.begin()+depthSlot*4+16,layer.begin()+draw.slot*4),
+                        "logged pair and its depth companion get the same jittered camera");
+                }
+                auto rejected=original,rejectedPs=originalPs;
+                rejected[draw.slot*4]^=1;
+                const auto before=rejected;
+                const auto failure=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,31,extent,rejected.data(),rejectedPs.data());
+                Check(!failure.applied && failure.rejection==JitterRejection::CameraMismatch && rejected==before,
+                    "logged pair with another camera stays unjittered");
+            }
+    }
+    return companions;
+}
+// Cutscene tour 2026-10-04: the 45 reviewed pairs (PC, psvita and Mac).
+static void CapturedCutsceneTour()
+{
+    const auto startChecks=checks;
+    const unsigned companions=CheckLoggedPairs(tour_cutscene::draws);
+    Check(companions>=30,"most tour pairs carry a mapped depth companion with the same camera");
+    std::printf("Captured cutscene tour: %u checks, %zu pairs, %u with a depth companion\n",
+        checks-startChecks,std::size(tour_cutscene::draws),companions);
+}
+// #307 Experimental Staff Marine Division boats: c189 and 3305 are e7b3 and
+// 6742 (slot 7) with a 14-dword vertex stride. All four pairs draw over the
+// jittered 52e4/f964 depth with GEQUAL; the c189 base passes without a depth
+// write, 3305 with one. Only these four exact pairs are mapped.
+static void CapturedIssue307Boat()
+{
+    const auto startChecks=checks;
+    const unsigned companions=CheckLoggedPairs(issue307_boat::draws);
+    Check(std::size(issue307_boat::draws)==4 && companions==4,
+        "#307 all four boat pairs draw over a jittered 52e4/f964 depth companion with the same camera");
+    for (const auto& draw:issue307_boat::draws)
+        Check(draw.slot==7 && !RequiresEarlierSceneAnchor(draw.vs,draw.ps) && !RetainsMotionFallback(draw.vs,draw.ps) &&
+            DrawPositionVPSlot(draw.vs,0x0123456789abcdefull)==-1,
+            "#307 boat pair keeps the ordinary anchor and motion policy; other PS partners stay held");
+    Check(PositionVPSlot(0xc1896d4be9e73859ull)==-1 && PositionVPSlot(0x330542fa74d064deull)==-1 &&
+        PositionVPSlot(0xe7b38eb08c70e5e1ull)==7 && PositionVPSlot(0x6742ec1abe49589eull)==7,
+        "#307 boat VS are not mapped as a whole; their 10-dword twins keep slot 7");
+    std::printf("Captured #307 boats: %u checks, %zu pairs, %u with a depth companion\n",
+        checks-startChecks,std::size(issue307_boat::draws),companions);
+}
+// Opening battle 2026-10-01: depth writers 7def (HLSL 534-543) and c511 (540-549)
+// end with oPos = P.x*c11 + P.w*c10 + P.z*c9 + P.y*c8 for a position P built from
+// the vertex, the world rows and the c12 eye. No depth companion draws the same
+// geometry; the log found the scene camera at c8-c11 on each draw.
+static Float4 BattleBillboardClip(const Constants& c, const Float4& p)
+{
+    auto r=Mul(p[0],C(c,11));
+    r=Mad(p[3],C(c,10),r);
+    r=Mad(p[2],C(c,9),r);
+    return Mad(p[1],C(c,8),r);
+}
+// Synthetic input only: the P with P.x=1 (c11 holds the translation) whose clip
+// lands at the given NDC and W under this bank's camera.
+static Float4 BattleBillboardPoint(const Constants& c, double ndcX, double ndcY, double w)
+{
+    const auto row=[&](unsigned slot,unsigned axis) { return double(C(c,slot)[axis]); };
+    const unsigned axes[3]{0,1,3};
+    const double target[3]{ndcX*w,ndcY*w,w};
+    double m[3][3],b[3];
+    for (unsigned i=0;i<3;++i)
+    {
+        m[i][0]=row(8,axes[i]); m[i][1]=row(9,axes[i]); m[i][2]=row(10,axes[i]);
+        b[i]=target[i]-row(11,axes[i]);
+    }
+    const auto det=[](const double a[3][3]) {
+        return a[0][0]*(a[1][1]*a[2][2]-a[1][2]*a[2][1])-a[0][1]*(a[1][0]*a[2][2]-a[1][2]*a[2][0])+
+            a[0][2]*(a[1][0]*a[2][1]-a[1][1]*a[2][0]); };
+    const double d=det(m);
+    double p[3];
+    for (unsigned k=0;k<3;++k)
+    {
+        double replaced[3][3];
+        for (unsigned i=0;i<3;++i)
+            for (unsigned j=0;j<3;++j) replaced[i][j]=j==k?b[i]:m[i][j];
+        p[k]=det(replaced)/d;
+    }
+    return {1.f,float(p[0]),float(p[1]),float(p[2])};
+}
+static void CapturedBattleDepthWriters()
+{
+    double maxPixelError=0,oldSeparation=0;
+    const auto startChecks=checks;
+    for (const auto& draw:battle_depth_20261001::draws)
+    {
+        char label[48];
+        std::snprintf(label,sizeof(label),"battle %04x/%04x f%u",unsigned(draw.vs>>48),unsigned(draw.ps>>48),draw.frame);
+        const auto message=[&](const char* text) { return std::string(label)+" "+text; };
+        Constants original{},originalPs{};
+        std::copy(draw.vertex.begin(),draw.vertex.end(),original.begin());
+        std::copy(draw.vertexLate.begin(),draw.vertexLate.end(),original.begin()+254*4);
+        std::copy(draw.pixel.begin(),draw.pixel.end(),originalPs.begin());
+        Check(draw.slot==8 && std::equal(draw.camera.begin(),draw.camera.end(),original.begin()+8*4),
+            message("log found the scene camera at c8-c11").c_str());
+        Check(PositionVPSlot(draw.vs)==8 && DrawPositionVPSlot(draw.vs,draw.ps)==8 &&
+            !RequiresEarlierSceneAnchor(draw.vs,draw.ps) && !RetainsMotionFallback(draw.vs,draw.ps),
+            message("depth writer maps VS-wide to slot 8 with the ordinary anchor and motion policy").c_str());
+        for (const auto extent:{Viewport{0,0,2560,1440},Viewport{0,0,3840,2160}})
+            for (uint64_t phase=0;phase<32;++phase)
+            {
+                const SceneAnchor anchor{draw.camera,extent,14};
+                auto values=original,ps=originalPs;
+                const auto result=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,14,extent,
+                    values.data(),ps.data());
+                Check(result.applied && result.slot==8 && !result.shadowCompensated && ps==originalPs,
+                    message("depth writer jitters slot 8 without changing PS constants").c_str());
+                auto reference=original,referencePs=originalPs;
+                Check(ApplyDrawJitter(0x1da1ddc75da8e994ull,0,phase,true,true,&anchor,14,extent,
+                    reference.data(),referencePs.data()).applied &&
+                    std::equal(values.begin()+8*4,values.begin()+12*4,reference.begin()+8*4),
+                    message("depth writer gets the jittered camera of mapped slot-8 VS 1da1").c_str());
+                for (unsigned i=0;i<values.size();++i)
+                    if (i<8*4 || i>=12*4 || i%4>=2)
+                        Check(values[i]==original[i],message("world, eye, UV and clip ZW constants stay exact").c_str());
+                for (const auto& target:{std::array<double,3>{.3,-.2,60},{-.55,.4,250},{.1,.65,900}})
+                {
+                    const auto p=BattleBillboardPoint(original,target[0],target[1],target[2]);
+                    const auto current=BattleBillboardClip(values,p);
+                    const auto old=BattleBillboardClip(original,p);
+                    Check(current[2]==old[2] && current[3]==old[3],
+                        message("depth writer keeps clip Z and the W its PS reads").c_str());
+                    Check(std::isfinite(old[3]) && std::abs(old[3])>1,
+                        message("synthetic point has nondegenerate clip W").c_str());
+                    for (unsigned axis=0;axis<2;++axis)
+                    {
+                        const double pixels=(double(current[axis])/current[3]-double(old[axis])/old[3])*
+                            (axis?extent.height:extent.width)*(axis?-.5:.5);
+                        const double wanted=axis?result.sample.pixelY:result.sample.pixelX;
+                        maxPixelError=std::max(maxPixelError,std::abs(pixels-wanted));
+                        oldSeparation=std::max(oldSeparation,std::abs(pixels));
+                        Check(std::abs(pixels-wanted)<.003,
+                            message("depth writer clip shift matches the requested physical jitter").c_str());
+                    }
+                }
+                for (unsigned mutation=0;mutation<2;++mutation)
+                {
+                    auto rejected=original,rejectedPs=originalPs;
+                    if (!mutation) rejected[8*4]^=1;
+                    const auto before=rejected;
+                    const auto failure=ApplyDrawJitter(draw.vs,draw.ps,phase,true,true,&anchor,
+                        mutation?15:14,extent,rejected.data(),rejectedPs.data());
+                    Check(!failure.applied && rejected==before && rejectedPs==originalPs &&
+                        failure.rejection==(mutation?JitterRejection::DepthMismatch:JitterRejection::CameraMismatch),
+                        message("camera or depth mismatch rejects without changing constants").c_str());
+                }
+            }
+    }
+    Check(oldSeparation>.3,"unmapped battle depth writers separate from the jittered scene by a visible phase");
+    std::printf("Captured battle depth writers: %u checks, %zu draws (7def, c511), 32 phases, 1440p/4K; old separation %.6f px, max jitter error %.6f px\n",
+        checks-startChecks,std::size(battle_depth_20261001::draws),oldSeparation,maxPixelError);
 }
 // Runtime suspect locator (no F1 capture): camera slot choice, same-frame
 // companion lookup, per-pair settling and the fixture-bearing log format.
@@ -2009,6 +2384,14 @@ static const NamedCase namedCases[]{
     {"--captured-issue121-sky",CapturedIssue121Sky,true},
     {"--captured-f12139-sky",CapturedF12139Sky,true},
     {"--captured-f25276-cave",CapturedF25276Cave,true},
+    {"--captured-tour-sky",CapturedTourSky,true},
+    {"--captured-tour-batch2",CapturedTourBatch2,true},
+    {"--captured-tour-8d66",CapturedTour8d66,true},
+    {"--captured-issue203-sky",CapturedIssue203Sky,true},
+    {"--captured-issue212-light",CapturedIssue212Light,true},
+    {"--captured-cutscene-tour",CapturedCutsceneTour,true},
+    {"--captured-issue307-boat",CapturedIssue307Boat,true},
+    {"--captured-battle-depth",CapturedBattleDepthWriters,true},
     {"--suspect-tracker",SuspectLocator,true},
     {"--feedback-mapping-batch",FeedbackMappingBatch,true},
     {"--screen-mapping-batch",ScreenMappingBatch,true},
@@ -2112,6 +2495,16 @@ int main(int argc,char** argv)
             Check(std::equal(base.begin()+16, base.begin()+32, shadow.begin()), "shadow raster samples the same jittered camera");
             Check(std::equal(ps.begin(), ps.begin()+16, originalPs.begin()) &&
                 std::equal(ps.begin()+20, ps.end(), originalPs.begin()+20), "shadow compensation touches only c4");
+            // The modulated character shadow (67b1) and the adaptive PCF filter
+            // (a195) share d55's c0-c5 reconstruction.
+            for (const uint64_t variant : {0x67b10ad6a0e3d811ull, 0xa195c4db25859691ull})
+            {
+                auto variantVp = bank(0), variantPs = originalPs;
+                const auto variantResult = ApplyDrawJitter(0x99c2b4b0960a9ccdull, variant, frame, true, true,
+                    &anchor, 37, extent, variantVp.data(), variantPs.data(), &sceneDepth, &sceneDepth);
+                Check(variantResult.shadowCompensated && variantVp == shadow && variantPs == ps,
+                    "shadow projection variants receive the same reconstruction correction");
+            }
             for (double depth : {.002, .006, .03})
                 for (const auto xy : {std::array<double,2>{-.2,-.3}, std::array<double,2>{.5,.7}})
                 {

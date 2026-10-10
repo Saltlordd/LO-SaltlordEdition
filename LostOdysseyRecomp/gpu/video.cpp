@@ -124,6 +124,7 @@ namespace plume
 // the Qualcomm proprietary driver drops the highlighted menu row's text.
 #if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
 static bool g_customVulkanDriver = false;
+static PFN_vkGetInstanceProcAddr g_customVulkanEntry = nullptr;
 #endif
 
 static void LoadCustomVulkanDriver()
@@ -146,6 +147,7 @@ static void LoadCustomVulkanDriver()
         return;
     }
     volkInitializeCustom(gipa);
+    g_customVulkanEntry = gipa;
     g_customVulkanDriver = true;
     // libadrenotools resolves the package lazily: an unloadable .so still ends
     // up on the system driver, which the "video device" line below reveals.
@@ -1803,6 +1805,13 @@ namespace gpu::video
             g_interface = plume::CreateVulkanInterface(g_window, g_dlssController->ExtensionHooks());
             if(!g_interface&&RetryWithSystemVulkanDriver("instance creation"))g_interface=plume::CreateVulkanInterface(g_window,g_dlssController->ExtensionHooks());
 #endif
+#if defined(__ANDROID__) && defined(LO_HAS_ADRENOTOOLS)
+            if (g_customVulkanDriver) {
+                const bool preserved = vkGetInstanceProcAddr == g_customVulkanEntry;
+                LOG_INFO("vulkan: selected custom loader entry point preserved={}", preserved);
+                if (!preserved) return "Selected GPU driver loader was replaced during Vulkan startup";
+            }
+#endif
             if (!g_interface) return "API/loader initialization failed";
 #if defined(LO_ENABLE_VULKAN_FSR_FG) && defined(_WIN32)
             if (g_vulkan) {
@@ -1828,6 +1837,19 @@ namespace gpu::video
                 LOG_INFO("video device: backend={} name={} driver_raw={} vendor_enum={} type_enum={} reported_device_memory_bytes={}",
                     backend::Name(candidate), description.name, description.driverVersion,
                     uint32_t(description.vendor), uint32_t(description.type), description.dedicatedVideoMemory);
+#ifdef __ANDROID__
+                if (g_vulkan && vkGetPhysicalDeviceProperties2) {
+                    VkPhysicalDeviceDriverProperties driverProperties{};
+                    driverProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+                    VkPhysicalDeviceProperties2 properties{};
+                    properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    properties.pNext = &driverProperties;
+                    vkGetPhysicalDeviceProperties2(static_cast<plume::VulkanDevice*>(g_device.get())->physicalDevice, &properties);
+                    LOG_INFO("Android active Vulkan driver: id={} name={} info={}",
+                        uint32_t(driverProperties.driverID), driverProperties.driverName, driverProperties.driverInfo);
+                }
+#endif
+
             }
             if (const auto missing = backend::Missing(candidate, backend::Inspect(candidate, g_device.get())); !missing.empty()) return missing;
 
@@ -2745,6 +2767,7 @@ namespace gpu::video
         g_snapshotFormat = plume::RenderFormat::UNKNOWN;
         auto* oldSwap = static_cast<plume::D3D12SwapChain*>(g_swapChain.get());
         if (oldSwap->d3d) oldSwap->d3d->SetFullscreenState(FALSE, nullptr);
+        if (g_presentation) g_presentation->ForgetTargets();
         g_swapChain.reset();
         g_presentSemaphores.clear();
         g_d3dFg.reset();
@@ -2778,7 +2801,8 @@ namespace gpu::video
         };
         bool swapReady = createSwapchain();
         if (!swapReady && g_d3dFg) {
-            g_swapChain.reset();
+            if (g_presentation) g_presentation->ForgetTargets();
+        g_swapChain.reset();
             LOG_ERROR("D3D12 FG: provider swapchain creation failed; returning to ordinary presentation");
             g_d3dFg.reset();
             if (queue->recreateNativeQueue()) swapReady = createSwapchain();
@@ -3067,6 +3091,7 @@ namespace gpu::video
 #if defined(__APPLE__) && defined(LO_ENABLE_METALFX_FG)
             if (g_metalFg) g_metalFg->SuspendAfterHostDrain();
 #endif
+            if (g_presentation) g_presentation->ForgetTargets();
             if (!g_swapChain->resize()) {
                 // Zero extent is transient. Retain the pending transaction and
                 // resize request until the window has a drawable extent again.
@@ -3256,6 +3281,7 @@ namespace gpu::video
         const gpu::present_capture::Ticket *capture, gpu::present_capture::Result *captureResult)
     {
 #if defined(__ANDROID__)
+        const auto presentStarted = std::chrono::steady_clock::now();
         if(g_vulkan && g_device) {
             auto* device=static_cast<plume::VulkanDevice*>(g_device.get());
             static bool cacheReported=false;
@@ -3268,10 +3294,12 @@ namespace gpu::video
             const auto now=std::chrono::steady_clock::now();
             if(now-cacheSaveTime>=std::chrono::seconds(15)) {
                 cacheSaveTime=now;
+                const auto cacheStarted=std::chrono::steady_clock::now();
                 device->saveAndroidPipelineCache();
+                const auto cacheMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-cacheStarted).count();
+                if(cacheMs>=2.0)LOG_INFO("Android driver-cache snapshot: hostMs={} (included in host presentation timing)",cacheMs);
             }
         }
-        const auto presentStarted = std::chrono::steady_clock::now();
         static auto previousPresentStarted = presentStarted;
         const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(presentStarted - previousPresentStarted).count();
         previousPresentStarted = presentStarted;
@@ -3293,7 +3321,7 @@ namespace gpu::video
                 if(count && g_androidGuestPresents.fetch_add(count,std::memory_order_relaxed)==0)
                     LOG_INFO("Android first guest frontbuffer presentation: PASS width={} height={} (image content not validated)",width,height);
             }
-        } observation{CompletedPresentCount(),width,height};
+        } observation{CompletedPresentCount(),width,height,presentStarted};
 #endif
         struct CaptureExit {
             const gpu::present_capture::Ticket *ticket;

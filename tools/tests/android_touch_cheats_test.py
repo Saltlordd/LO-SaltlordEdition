@@ -27,6 +27,8 @@ PREAMBLE = r'''
 #include <sys/mman.h>
 using namespace std::chrono_literals;
 unsigned checks=0;
+unsigned persistenceCalls=0;
+void PersistAndroidFastForward() { ++persistenceCalls; }
 void Check(bool b,const char* message) { ++checks;if(!b) {fprintf(stderr,"FAIL: %s\n",message);abort();} }
 uint32_t Load32(const uint8_t* b,uint32_t p) { return (uint32_t(b[p])<<24)|(uint32_t(b[p+1])<<16)|(uint32_t(b[p+2])<<8)|b[p+3]; }
 #define PPC_LOAD_U32(p) Load32(base,uint32_t(p))
@@ -167,6 +169,7 @@ int main() {
     fast_forward::SetRate(7);Check(fast_forward::GetStatus().multiplier==8,"unsupported rate rejected");
     fast_forward::Enable(false);PollHostControls();Check(!fast_forward::GetStatus().active,"disable shared feature stops boost");
     host_ui::RequestStop();PollHostControls();Check(!fast_forward::GetStatus().active,"shutdown stops boost");
+    Check(persistenceCalls>0,"Android configuration changes request persistence");
     munmap(base,AddressSpace);
     printf("PASS: %u actual adapter checks; synthetic allocations, retail flag lifecycle, SDL focus/menu/hotplug/lease\n",checks);
 }

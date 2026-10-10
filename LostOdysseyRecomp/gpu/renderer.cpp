@@ -114,6 +114,7 @@ namespace plume {
 #include <fstream>
 #include <iomanip>
 #include <future>
+#include <bitset>
 #include <set>
 #include <tuple>
 #include <map>
@@ -131,8 +132,10 @@ namespace gpu::renderer
     namespace {
         std::mutex framePlanMutex;
         frame_plan::FramePlan committedPlan{};
+        std::atomic<uint64_t> framePlanGeneration{1};
         std::mutex catalogMutex;
         std::unordered_map<uint64_t, frame_plan::SurfaceRole> catalogRoles;
+        std::atomic<uint64_t> catalogGeneration{1};
         uint64_t CatalogKey(uint32_t surfaceInfo, uint32_t colorInfo)
         {
             return (uint64_t(colorInfo & 0xFFF) << 32) | (surfaceInfo & 0x3FFF);
@@ -201,10 +204,16 @@ namespace gpu::renderer
 
     namespace
     {
-        // A guest waits in GetData (NoteOcclusionWait); only Mode::Strict
-        // leaves END records for the command processor to complete.
+        // A guest waits in GetData (NoteOcclusionWait). Only Mode::Strict leaves
+        // END records for the command processor to complete; g_occlusionAwaited
+        // is set while any is unwritten. The guest polls GetData in a loop, so a
+        // poll that misses the flag is repeated.
         std::atomic<bool> g_occlusionWait{false};
-        std::atomic<bool> g_occlusionStrict{false};
+        std::atomic<bool> g_occlusionAwaited{false};
+        // Owner of each guest query record slot, as the pool allocation hook
+        // last reported it (NoteOcclusionQueryOwner).
+        std::mutex g_occlusionOwnerMutex;
+        std::unordered_map<uint32_t, uint64_t> g_occlusionOwners;
 
         // ---- register indices ---------------------------------------------
         constexpr uint32_t REG_RB_SURFACE_INFO = 0x2000;
@@ -342,6 +351,8 @@ namespace gpu::renderer
         struct HostTexture
         {
             uint64_t allocationSerial = 0; // Render-target identity, never a recycled host pointer.
+            uint64_t viewSourceOrdinal = 0, viewSourceAllocation = 0;
+            const RenderTexture* viewSource = nullptr;
             // Opt-in conservative per-allocation write generation. Writable
             // binding invalidates the SR lineage, even for a same-layout write.
             uint64_t fgWriteGeneration = 0;
@@ -475,14 +486,18 @@ namespace gpu::renderer
                 std::unique_ptr<RenderCommandFence> fence;
                 std::unique_ptr<RenderQueryPool> timingQueries;
                 // Host queries around guest draws inside guest occlusion
-                // queries, reset when the slot's list opens.
-                std::unique_ptr<RenderQueryPool> occlusionQueries;
+                // queries, reset when the slot's list opens. Query i lives in
+                // pool i / kOcclusionPoolQueries; only pools in use are read.
+                std::vector<std::unique_ptr<RenderQueryPool>> occlusionQueries;
+                std::vector<uint64_t> occlusionResults;
                 uint32_t occlusionUsed = 0;
+                uint32_t occlusionPoolsDirty = 0; // pools [0, n) need a reset before use
                 uint64_t occlusionBatch = 0;
                 draw_timing::Probe drawProbe;
                 std::unique_ptr<RenderBuffer> uploadRing;
                 uint8_t* uploadMapped = nullptr;
                 uint64_t uploadOffset = 0;
+                uint64_t uploadGeneration = 0;
                 uint64_t arenaOffset = 0;
                 std::vector<std::unique_ptr<RenderDescriptorSet>> setPools[4];
                 // Per pooled set: bindings that may hold a non-dummy view.
@@ -556,9 +571,16 @@ namespace gpu::renderer
             // Guest occlusion queries counted by host queries (see
             // occlusion_queries.h). Off when LO_ZPD_MODE selects a fake mode or
             // the backend has no occlusion queries; the command processor then
-            // writes its fake counts instead.
-            static constexpr uint32_t kOcclusionQueriesPerSlot = 1024;
+            // writes its fake counts instead. A batch can measure up to
+            // kOcclusionQueriesPerSlot draws; later ones read as visible. Reading
+            // a pool's results costs time for every query in it, used or not,
+            // so the queries come in pools of kOcclusionPoolQueries.
+            static constexpr uint32_t kOcclusionPoolQueries = 1024;
+            static constexpr uint32_t kOcclusionPoolsPerSlot = 4;
+            static constexpr uint32_t kOcclusionQueriesPerSlot = kOcclusionPoolQueries * kOcclusionPoolsPerSlot;
             gpu::occlusion::Tracker occlusion;
+            gpu::occlusion::Policy occlusionPolicy = gpu::occlusion::Policy::Adaptive;
+            gpu::occlusion::AdaptiveMode occlusionAdaptive;
             uint64_t nextOcclusionBatch = 1;
             bool hostOcclusion = false;
 
@@ -574,6 +596,7 @@ namespace gpu::renderer
             geometry_prepare::VertexCache vertexCache;
             geometry_prepare::IndexCache indexCache;
             uint64_t indexCacheHits = 0, indexCacheMisses = 0;
+            uint64_t uploadGenerations = 0;
             std::array<uint64_t, kGpuSlots> motionArenaGeneration{};
             void ResetSlotArena(uint32_t i)
             {
@@ -950,6 +973,8 @@ namespace gpu::renderer
             uint64_t appliedPlanEpoch=~0ull;
             resolution::Size internalSize{}, requestedInternalSize{};
             frame_plan::FramePlan activePlan{};
+            uint64_t activePlanGeneration = 0;
+            bool activePlanFailed = false;
             // Allocation failures are recorded by the GPU and can be observed
             // after later plan markers have already been committed.
             std::unordered_set<uint64_t> failedPlanEpochs;
@@ -1137,6 +1162,9 @@ namespace gpu::renderer
             // 2048-entry sampler heap, including the immutable host table.
             static constexpr size_t kSamplerVersionsPerBatch = 8;
             std::map<std::pair<const RenderTexture*, const RenderTexture*>, std::unique_ptr<RenderFramebuffer>> framebuffers;
+            // Last GetFramebuffer hit; cleared wherever framebuffers loses entries.
+            std::pair<const RenderTexture*, const RenderTexture*> lastFramebufferKey{};
+            RenderFramebuffer* lastFramebuffer = nullptr;
 
             std::string shaderCacheDir;
             uint32_t drawsThisFrame = 0;
@@ -1371,10 +1399,19 @@ namespace gpu::renderer
                 if (state.fail()) return;
                 std::error_code error; std::filesystem::rename(temporary, destination, error);
             }
+            // Request files are read at most every 250 ms, PollTaaLive's rate.
+            static bool RequestPollDue(std::chrono::steady_clock::time_point& next)
+            {
+                const auto now = std::chrono::steady_clock::now();
+                if (now < next) return false;
+                next = now + std::chrono::milliseconds(250);
+                return true;
+            }
             void PollTaaDiagnostic()
             {
                 static const char* path = getenv("LO_TAA_DIAGNOSTIC_REQUEST");
-                if (!path) return;
+                static std::chrono::steady_clock::time_point nextPoll{};
+                if (!path || !RequestPollDue(nextPoll)) return;
                 std::ifstream input(path);
                 std::string serialText, extra;
                 int aa, jitter, history, bloom, hdr = 0, materials = 1;
@@ -1533,7 +1570,8 @@ namespace gpu::renderer
                 BeginDebugCapture();
                 if (!debugCaptureDir.empty()) return;
                 static const char* path = getenv("LO_CAPTURE_REQUEST");
-                if (!path) return;
+                static std::chrono::steady_clock::time_point nextPoll{};
+                if (!path || !RequestPollDue(nextPoll)) return;
                 {
                     std::lock_guard lock(captureMutex);
                     if (fsrCaptureBusy) return;
@@ -1652,6 +1690,7 @@ namespace gpu::renderer
                 uint32_t samplerIndex[32];
                 uint32_t textureInfo[32];
                 uint32_t textureSize[32]; // packed guest width/height; physical resolves may be larger.
+                uint64_t vertexArenaAddress;
             };
 
             static_assert(offsetof(SharedConstants,ndcScale)==160);
@@ -1685,6 +1724,8 @@ namespace gpu::renderer
             static_assert(offsetof(SharedConstants,samplerIndex)==640);
             static_assert(offsetof(SharedConstants,textureInfo)==768);
             static_assert(offsetof(SharedConstants,textureSize)==896);
+            static_assert(offsetof(SharedConstants,vertexArenaAddress)==1024);
+            static_assert(gpu::render_arena::kVertexArenaSize == 1073741824ull);
 
             struct UploadedConstants
             {
@@ -1697,17 +1738,18 @@ namespace gpu::renderer
                 // Snapshot version each uploaded ALU bank came from; 0 when
                 // unknown or when the draw modified its copy (jitter).
                 uint64_t vsGeneration = 0, psGeneration = 0;
+                // vs/ps hold the bytes at vsOffset/psOffset. Versioned uploads
+                // skip the copy: a new version almost never repeats old bytes.
+                bool vsCopy = false, psCopy = false;
             };
             UploadedConstants uploadedConstants[kGpuSlots];
 
-            // ALU banks are rebuilt when command writes advance their generation;
-            // zero-register MMIO fallbacks are checked on reuse. drawConstants is
-            // the copy a draw may modify (TAA jitter).
-            uint32_t constantSnapshot[2][256 * 4]{};
+            // ALU banks follow command writes by dirty block and zero-register
+            // MMIO stores by compare. drawConstants is the copy a draw may modify
+            // (TAA jitter).
+            ConstantBankSnapshot constantSnapshot[2];
             uint64_t constantSnapshotGeneration[2]{UINT64_MAX, UINT64_MAX};
             uint64_t constantSnapshotVersion[2]{};
-            uint16_t constantFallbackOffsets[2][256 * 4]{};
-            uint32_t constantFallbackCount[2]{};
             uint32_t drawConstants[2][256 * 4]{};
             bool drawConstantsModified[2]{true, true};
 
@@ -1722,7 +1764,8 @@ namespace gpu::renderer
                     return lastOffset;
                 const void* last = bank == 0 ? static_cast<const void*>(before.vs) :
                     bank == 1 ? static_cast<const void*>(before.ps) : static_cast<const void*>(&before.shared);
-                if (lastOffset != UINT64_MAX && std::memcmp(last, data, size) == 0) {
+                const bool lastCopy = bank == 0 ? before.vsCopy : bank == 1 ? before.psCopy : true;
+                if (lastOffset != UINT64_MAX && lastCopy && std::memcmp(last, data, size) == 0) {
                     if (bank == 0) before.vsGeneration = generation;
                     else if (bank == 1) before.psGeneration = generation;
                     return lastOffset;
@@ -1731,9 +1774,13 @@ namespace gpu::renderer
                 auto& after = uploadedConstants[gpuSlot];
                 if (offset != UINT64_MAX)
                 {
-                    if (bank == 0) { std::memcpy(after.vs, data, size); after.vsOffset = offset; after.vsGeneration = generation; }
-                    else if (bank == 1) { std::memcpy(after.ps, data, size); after.psOffset = offset; after.psGeneration = generation; }
-                    else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
+                    if (bank == 0) {
+                        if (!generation) std::memcpy(after.vs, data, size);
+                        after.vsCopy = !generation; after.vsOffset = offset; after.vsGeneration = generation;
+                    } else if (bank == 1) {
+                        if (!generation) std::memcpy(after.ps, data, size);
+                        after.psCopy = !generation; after.psOffset = offset; after.psGeneration = generation;
+                    } else { std::memcpy(&after.shared, data, size); after.sharedOffset = offset; }
                 }
                 return offset;
             }
@@ -1812,16 +1859,19 @@ namespace gpu::renderer
                     LOG_WARNING("renderer: optional position evidence collection unavailable: {}",error.what());
                 }
 
-                const auto occlusionMode = gpu::occlusion::HostMode(getenv("LO_ZPD_MODE"));
-                hostOcclusion = occlusionMode && device->getCapabilities().occlusionQueries;
-                if (occlusionMode) occlusion.SetMode(*occlusionMode);
+                const auto occlusionHostPolicy = gpu::occlusion::HostPolicy(getenv("LO_ZPD_MODE"));
+                hostOcclusion = occlusionHostPolicy && device->getCapabilities().occlusionQueries;
+                if (occlusionHostPolicy) occlusionPolicy = *occlusionHostPolicy;
+                occlusion.SetMode(occlusionPolicy == gpu::occlusion::Policy::Strict ? gpu::occlusion::Mode::Strict : gpu::occlusion::Mode::Fast);
                 for (uint32_t i = 0; i < kGpuSlots; ++i) {
                     auto& g = gpuSlots[i];
                     // Optional: without these pools the command processor keeps its fake counts.
-                    if (hostOcclusion) {
-                        g.occlusionQueries = device->createOcclusionQueryPool(kOcclusionQueriesPerSlot);
-                        hostOcclusion = g.occlusionQueries && g.occlusionQueries->getCount() == kOcclusionQueriesPerSlot;
+                    for (uint32_t p = 0; hostOcclusion && p < kOcclusionPoolsPerSlot; ++p) {
+                        auto pool = device->createOcclusionQueryPool(kOcclusionPoolQueries);
+                        hostOcclusion = pool && pool->getCount() == kOcclusionPoolQueries;
+                        g.occlusionQueries.push_back(std::move(pool));
                     }
+                    g.occlusionPoolsDirty = kOcclusionPoolsPerSlot; // new queries start undefined
                     g.list = queue->createCommandList();
                     if (!g.list) return InitFailure("command_list.create", 0, i);
                     if (dlssController || temporalUpscaler) {
@@ -1832,20 +1882,37 @@ namespace gpu::renderer
                     }
                     g.fence = device->createCommandFence();
                     if (!g.fence) return InitFailure("command_fence.create", 0, i);
-                    g.uploadRing = device->createBuffer(RenderBufferDesc::UploadBuffer(kUploadRingSize, vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE | RenderBufferFlag::INDEX | RenderBufferFlag::STORAGE : RenderBufferFlag::NONE));
-                    if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
+                    // SPIR-V constant reads add their offset to the low address word
+                    // only (common_hlsl.h XeBankAddress), so the ring and 4 KiB of
+                    // slack must sit inside one 4 GiB window. A replacement cannot
+                    // overlap the rejected buffer, so it never straddles the same boundary.
+                    std::vector<std::unique_ptr<RenderBuffer>> straddling;
+                    for (;;) {
+                        g.uploadRing = device->createBuffer(RenderBufferDesc::UploadBuffer(kUploadRingSize, vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE | RenderBufferFlag::INDEX | RenderBufferFlag::STORAGE : RenderBufferFlag::NONE));
+                        if (!g.uploadRing) return InitFailure("upload_ring.create", kUploadRingSize, i);
+                        if (!vulkan) break;
+                        const uint64_t address = g.uploadRing->getDeviceAddress();
+                        if (!address) return InitFailure("upload_ring.device_address", kUploadRingSize, i);
+                        if ((address >> 32) == ((address + kUploadRingSize + 4095) >> 32)) break;
+                        LOG_INFO("renderer: upload ring {} at {:#x} straddles a 4 GiB boundary; reallocating", i, address);
+                        if (straddling.size() == 3) return InitFailure("upload_ring.window", kUploadRingSize, i);
+                        straddling.push_back(std::move(g.uploadRing));
+                    }
                     g.uploadMapped = static_cast<uint8_t*>(g.uploadRing->map());
                     if (!g.uploadMapped) return InitFailure("upload_ring.map", kUploadRingSize, i);
+                    g.uploadGeneration = ++uploadGenerations;
                 }
                 if (!hostOcclusion)
-                    for (auto& g : gpuSlots) g.occlusionQueries.reset();
-                g_occlusionStrict.store(hostOcclusion && occlusionMode == gpu::occlusion::Mode::Strict, std::memory_order_relaxed);
-                LOG_INFO("renderer: occlusion queries {} (precise={} LO_ZPD_MODE={})",
-                    !hostOcclusion ? "fake" : occlusionMode == gpu::occlusion::Mode::Strict ? "host-strict" : "host-fast",
-                    device->getCapabilities().occlusionQueryPrecise, getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "unset");
+                    for (auto& g : gpuSlots) g.occlusionQueries.clear();
+                LOG_INFO("renderer: occlusion queries {} (precise={} per_batch={} LO_ZPD_MODE={})",
+                    !hostOcclusion ? "fake" : occlusionPolicy == gpu::occlusion::Policy::Strict ? "host-strict" :
+                    occlusionPolicy == gpu::occlusion::Policy::Fast ? "host-fast" : "host-adaptive",
+                    device->getCapabilities().occlusionQueryPrecise, kOcclusionQueriesPerSlot,
+                    getenv("LO_ZPD_MODE") ? getenv("LO_ZPD_MODE") : "unset");
                 BindGpuSlot();
-                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, RenderBufferFlag::STORAGE));
+                vertexArena = device->createBuffer(RenderBufferDesc::UploadBuffer(gpu::render_arena::kVertexArenaSize, RenderBufferFlag::STORAGE | (vulkan ? RenderBufferFlag::DEVICE_ADDRESSABLE : RenderBufferFlag::NONE)));
                 if (!vertexArena) return InitFailure("vertex_arena.create", gpu::render_arena::kVertexArenaSize);
+                if (vulkan && !vertexArena->getDeviceAddress()) return InitFailure("vertex_arena.device_address", gpu::render_arena::kVertexArenaSize);
                 arenaMapped = static_cast<uint8_t*>(vertexArena->map());
                 if (!arenaMapped) return InitFailure("vertex_arena.map", gpu::render_arena::kVertexArenaSize);
                 readback = device->createBuffer(RenderBufferDesc::ReadbackBuffer(kReadbackSize));
@@ -1912,7 +1979,7 @@ namespace gpu::renderer
                 staticSet0 = setBuilders[0].create(device);
                 if (!staticSet0) return InitFailure("vertex_fetch_set.create");
                 for (uint32_t i = 0; i < (vulkan?1:kVertexFetchSlots); i++)
-                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), gpu::render_arena::kVertexArenaSize);
+                    staticSet0->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), vulkan ? 16 : gpu::render_arena::kVertexArenaSize);
                 defaultSampler = device->createSampler(sampling::Describe(sampling::DefaultKey));
                 if (!defaultSampler) return InitFailure("default_sampler.create");
                 for (uint32_t i = 0; i < kSamplerPalette; i++)
@@ -3553,6 +3620,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             // stored together, after every other count.
             void WriteOcclusionRecords(const std::vector<gpu::occlusion::Write>& writes)
             {
+                if (!writes.empty()) g_commandProcessor.AdvanceSyncEpoch();
                 for (const auto& write : writes) {
                     if (!write.apply) continue;
                     auto* words = reinterpret_cast<uint32_t*>(Phys(write.address));
@@ -3569,42 +3637,92 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             bool OcclusionQueryEvent(uint32_t address)
             {
                 if (!hostOcclusion || (address & 0x1F)) return false;
-                if (gpu::occlusion::IsBeginRecord(address)) WriteOcclusionRecords({occlusion.Begin(address)});
+                if (gpu::occlusion::IsBeginRecord(address)) {
+                    uint64_t owner = 0;
+                    {
+                        std::lock_guard lock(g_occlusionOwnerMutex);
+                        const auto known = g_occlusionOwners.find(gpu::occlusion::SlotOf(address));
+                        if (known != g_occlusionOwners.end()) owner = known->second;
+                    }
+                    WriteOcclusionRecords({occlusion.Begin(address, owner)});
+                }
                 else if (auto end = occlusion.End(address)) WriteOcclusionRecords({*end});
+                PublishOcclusionAwaited();
                 return true;
+            }
+
+            // NoteOcclusionWait wakes the command processor only while an END
+            // record waits for host results.
+            bool occlusionAwaitedPublished = false;
+            void PublishOcclusionAwaited()
+            {
+                const bool awaited = occlusion.HasAwaited();
+                if (awaited == occlusionAwaitedPublished) return;
+                occlusionAwaitedPublished = awaited;
+                g_occlusionAwaited.store(awaited, std::memory_order_release);
             }
 
             // The host query for a draw inside a guest occlusion query, or ~0u.
             uint32_t OcclusionQueryForDraw()
             {
-                if (!hostOcclusion || !occlusion.Active() || Gpu().occlusionUsed >= kOcclusionQueriesPerSlot) return ~0u;
-                return Gpu().occlusionUsed++;
+                if (!hostOcclusion || !occlusion.Active()) return ~0u;
+                if (Gpu().occlusionUsed >= kOcclusionQueriesPerSlot) { ++occlusionStats.capped; return ~0u; }
+                const uint32_t index = Gpu().occlusionUsed++;
+                Gpu().occlusionPoolsDirty = std::max(Gpu().occlusionPoolsDirty, index / kOcclusionPoolQueries + 1);
+                return index;
             }
 
             // The slot's fence has completed, so its host queries are final.
             void CompleteOcclusionQueries(GpuSlot& s)
             {
                 if (!s.occlusionUsed) return;
-                s.occlusionQueries->queryResults();
-                const auto writes = occlusion.Complete(s.occlusionBatch,
-                    std::span<const uint64_t>(s.occlusionQueries->getResults(), s.occlusionUsed));
+                const auto readStart = std::chrono::steady_clock::now();
+                s.occlusionResults.resize(s.occlusionUsed);
+                for (uint32_t first = 0; first < s.occlusionUsed; first += kOcclusionPoolQueries) {
+                    auto& pool = *s.occlusionQueries[first / kOcclusionPoolQueries];
+                    pool.queryResults();
+                    std::copy_n(pool.getResults(), std::min(kOcclusionPoolQueries, s.occlusionUsed - first),
+                        s.occlusionResults.begin() + first);
+                }
+                occlusionStats.readbackUs += uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - readStart).count());
+                const auto writes = occlusion.Complete(s.occlusionBatch, s.occlusionResults);
                 WriteOcclusionRecords(writes);
+                PublishOcclusionAwaited();
                 s.occlusionUsed = 0;
+                uint32_t measured = 0, zero = 0;
                 for (const auto& write : writes) {
                     ++occlusionStats.resolved;
+                    measured += write.measured;
+                    zero += write.measured && !write.samples;
                     occlusionStats.zero += write.measured && !write.samples;
                     occlusionStats.fallback += !write.measured;
                     if (occlusionStats.resolved <= 16 || occlusionStats.resolved % 4096 == 0)
-                        LOG_INFO("renderer: occlusion result f{} record={:#x} samples={} measured={} fast={} resolved={} zero={} fallback={} guest_waits={} wait_flushes={} wait_ms={:.1f}",
+                        LOG_INFO("renderer: occlusion result f{} record={:#x} samples={} measured={} fast={} resolved={} zero={} fallback={} capped={} guest_waits={} wait_flushes={} wait_ms={:.1f} readback_ms={:.1f} mode={}",
                             frame, write.address, write.samples, write.measured, !write.apply, occlusionStats.resolved,
-                            occlusionStats.zero, occlusionStats.fallback, occlusionStats.waits,
-                            occlusionStats.flushes, occlusionStats.waitUs / 1000.0);
+                            occlusionStats.zero, occlusionStats.fallback, occlusionStats.capped, occlusionStats.waits,
+                            occlusionStats.flushes, occlusionStats.waitUs / 1000.0, occlusionStats.readbackUs / 1000.0,
+                            occlusion.CurrentMode() == gpu::occlusion::Mode::Strict ? "strict" : "fast");
                 }
+                occlusionAdaptive.Add(measured, zero);
             }
 
             struct {
-                uint64_t resolved = 0, zero = 0, fallback = 0, waits = 0, flushes = 0, waitUs = 0;
+                uint64_t resolved = 0, zero = 0, fallback = 0, capped = 0, waits = 0, flushes = 0, waitUs = 0, readbackUs = 0;
             } occlusionStats;
+
+            // End of a guest frame: Policy::Adaptive picks the next frame's mode.
+            void OcclusionFrameEnd()
+            {
+                if (!hostOcclusion || occlusionPolicy != gpu::occlusion::Policy::Adaptive || !occlusionAdaptive.EndFrame()) return;
+                const auto mode = occlusionAdaptive.Current();
+                occlusion.SetMode(mode);
+                static uint64_t switches = 0;
+                if (++switches <= 32 || switches % 64 == 0)
+                    LOG_INFO("renderer: occlusion mode {} f{} zero_share={:.2f} zeros_per_frame={:.0f} cooldown={} switches={}",
+                        mode == gpu::occlusion::Mode::Strict ? "strict" : "fast", frame, occlusionAdaptive.ZeroShare(),
+                        occlusionAdaptive.ZerosPerFrame(), occlusionAdaptive.Cooldown(), switches);
+            }
 
             void LogOcclusionDraw(uint32_t index, bool pixelShader, const HostTexture* target)
             {
@@ -3621,6 +3739,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             {
                 for (auto& s : gpuSlots) s.occlusionUsed = 0;
                 WriteOcclusionRecords(occlusion.AbandonAll());
+                PublishOcclusionAwaited();
             }
 
             // A guest waits in GetData. Submit the open batch when a waiting
@@ -3725,6 +3844,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             i, vk_object_trace::Id(texture->allocationSerial), vk_object_trace::Id(image.vk),
                             vk_object_trace::Id(image.imageView), vk_object_trace::Id(s.temporalSerial), vk_object_trace::Id(s.srSubmissionSerial));
                     }
+                    lastFramebuffer = nullptr;
                     for (auto fb = framebuffers.begin(); fb != framebuffers.end();)
                         if (fb->first.first == texture->texture.get() || fb->first.second == texture->texture.get())
                             fb = framebuffers.erase(fb);
@@ -3753,6 +3873,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 s.dlssSubmit = {};
                 sceneAABusy=false;
                 s.uploadOffset = 0;
+                s.uploadGeneration = ++uploadGenerations;
                 for (auto& used : s.setPoolUsed)
                     used = 0;
                 uploadedConstants[i] = {};
@@ -3807,7 +3928,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     }
                     if (hostOcclusion) {
                         // Outside any render pass, before this batch's first query.
-                        commandList->resetQueryPool(Gpu().occlusionQueries.get(), 0, kOcclusionQueriesPerSlot);
+                        // Pools untouched since their last reset need none.
+                        for (uint32_t p = 0; p < Gpu().occlusionPoolsDirty; ++p)
+                            commandList->resetQueryPool(Gpu().occlusionQueries[p].get(), 0, kOcclusionPoolQueries);
+                        Gpu().occlusionPoolsDirty = 0;
                         Gpu().occlusionUsed = 0;
                         Gpu().occlusionBatch = nextOcclusionBatch++;
                     }
@@ -4053,6 +4177,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Out of space mid-frame: finish what we have and start over.
                     if (!Flush() || !Begin()) return UINT64_MAX;
                     offset = 0;
+                    Gpu().uploadGeneration = ++uploadGenerations;
                     if (size > kUploadRingSize)
                         return UINT64_MAX;
                 }
@@ -4188,7 +4313,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 auto set = setBuilders[vulkan ? 4 : 0].create(device);
                 if (!set) return {};
                 if (!vulkan) for (uint32_t i = 0; i < kVertexFetchSlots; ++i)
-                    set->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), gpu::render_arena::kVertexArenaSize);
+                    set->setBuffer(vfetchDescriptorBase + i, vertexArena.get(), vulkan ? 16 : gpu::render_arena::kVertexArenaSize);
                 for (uint32_t i = 0; i < kSamplerPalette; ++i)
                     set->setSampler(samplerDescriptorBase + i, handles[i].get());
                 if (render_timing::Enabled()) {
@@ -5179,16 +5304,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             bool ApplyInternalResolution()
             {
                 if (video::GpuWorkStopped()) return false;
-                frame_plan::FramePlan selected;
-                bool failed = false;
-                {
+                if (framePlanGeneration.load(std::memory_order_acquire) != activePlanGeneration) {
                     std::lock_guard lock(framePlanMutex);
-                    selected = committedPlan;
-                    failed = selected.geometryEpoch != 0 && failedPlanEpochs.contains(selected.geometryEpoch);
+                    activePlan = committedPlan;
+                    activePlanFailed = activePlan.geometryEpoch != 0 && failedPlanEpochs.contains(activePlan.geometryEpoch);
+                    activePlanGeneration = framePlanGeneration.load(std::memory_order_relaxed);
                 }
-                activePlan = selected;
-                if (failed)
-                    return false;
+                if (activePlanFailed) return false;
+                const frame_plan::FramePlan& selected = activePlan;
                 const resolution::Size requested{selected.width, selected.height};
                 const bool first = appliedPlanEpoch == ~0ull;
                 const bool requestChanged = requested != requestedInternalSize;
@@ -5239,6 +5362,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
 #endif
                     sceneCopyPromotion = {};
                     framebuffers.clear();
+                    lastFramebuffer = nullptr;
                     renderTargets.clear();
                     resolved.clear();
                     tileOwner.clear();
@@ -5264,6 +5388,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     std::lock_guard lock(framePlanMutex);
                     if (!failedPlanEpochs.emplace(activePlan.geometryEpoch).second)
                         return;
+                    framePlanGeneration.fetch_add(1, std::memory_order_release);
                 }
                 const uint32_t fallback = activePlan.height > 720 ? std::max(720u, activePlan.height * 3 / 4) : 720u;
                 if (reason == frame_plan::FailureReason::Unknown)
@@ -5298,6 +5423,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return committedPlan.geometryEpoch != 0 && failedPlanEpochs.contains(committedPlan.geometryEpoch);
             }
 
+            struct CatalogRoleCache {
+                uint64_t key = ~0ull, generation = 0;
+                resolution::TargetRole role{};
+            } catalogRoleCache[2];
+
             HostTexture* GetRenderTarget(uint32_t base, uint32_t format, uint32_t pitch, uint32_t height, bool depth)
             {
                 // EDRAM targets have no intrinsic height and ours is only guessed
@@ -5315,7 +5445,12 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 uint32_t effectiveHeight = height;
                 if (it != renderTargets.end())
                     effectiveHeight = std::max(effectiveHeight, it->second->guestHeight);
-                const auto role = ResolveCatalogRole(base, pitch);
+                auto& cachedRole = catalogRoleCache[depth];
+                const uint64_t roleKey = (uint64_t(base) << 32) | pitch;
+                if (const uint64_t generation = catalogGeneration.load(std::memory_order_acquire);
+                    cachedRole.key != roleKey || cachedRole.generation != generation)
+                    cachedRole = {roleKey, generation, ResolveCatalogRole(base, pitch)};
+                const auto role = cachedRole.role;
                 const resolution::Size legacySize{activePlan.legacyWidth,activePlan.legacyHeight};
                 resolution::Size desiredSize = resolution::TargetSizeForPlan(role, pitch, effectiveHeight, internalSize, legacySize);
                 if (sceneCopyPromotion.activeMapping && key == sceneCopyPromotion.key && sceneCopyPromotion.frame == frame &&
@@ -5399,16 +5534,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // behavior remains opt-in for diagnostic A/B runs (=read); =0/none
                 // disables transfers entirely.
                 static const char* transferMode = getenv("LO_EDRAM_TRANSFER") ? getenv("LO_EDRAM_TRANSFER") : "draw";
-                const bool doTransfer = strcmp(transferMode, "0") != 0 && strcmp(transferMode, "none") != 0 &&
-                    (forRead || strcmp(transferMode, "draw") == 0);
-                auto owner = tileOwner.find({ base, pitch });
-                if (doTransfer && owner != tileOwner.end() && owner->second != colorClass)
+                static const bool transferNever = strcmp(transferMode, "0") == 0 || strcmp(transferMode, "none") == 0;
+                static const bool transferOnDraw = strcmp(transferMode, "draw") == 0;
+                const bool doTransfer = !transferNever && (forRead || transferOnDraw);
+                auto [owner, firstOwner] = tileOwner.try_emplace(std::pair{base, pitch}, colorClass);
+                if (doTransfer && !firstOwner && owner->second != colorClass)
                 {
                     auto prev = renderTargets.find(RenderTargetKey{ base, owner->second, pitch, 0, false });
                     if (prev != renderTargets.end() && prev->second && prev->second->texture && target && target->texture)
                         TransferRegion(*prev->second, *target, owner->second, colorClass);
                 }
-                tileOwner[{ base, pitch }] = colorClass;
+                owner->second = colorClass;
                 return target;
             }
 
@@ -5416,10 +5552,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             {
                 if (color) MarkFgWritable(*color, "color_framebuffer");
                 if (depth) MarkFgWritable(*depth, "depth_framebuffer");
-                auto key = std::make_pair(color ? color->texture.get() : nullptr, depth ? depth->texture.get() : nullptr);
+                std::pair<const RenderTexture*, const RenderTexture*> key{color ? color->texture.get() : nullptr, depth ? depth->texture.get() : nullptr};
+                if (lastFramebuffer && key == lastFramebufferKey)
+                    return lastFramebuffer;
                 auto it = framebuffers.find(key);
-                if (it != framebuffers.end())
-                    return it->second.get();
+                if (it != framebuffers.end()) {
+                    lastFramebufferKey = key;
+                    return lastFramebuffer = it->second.get();
+                }
                 if (nativeVulkan && vk_object_trace::Permit()) {
                     const auto* c = static_cast<const VulkanTexture*>(key.first);
                     const auto* d = static_cast<const VulkanTexture*>(key.second);
@@ -5657,11 +5797,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             LOG_ERROR("renderer: fetch view allocation failed guest={}x{} physical={}x{}; native resolution fallback next frame", width, height, physicalWidth, physicalHeight);
                             return nullptr;
                         }
+                        // A nonzero resolve ordinal names one write to one allocation.
+                        if (!rs->writeOrdinal || view->viewSourceOrdinal != rs->writeOrdinal ||
+                            view->viewSource != rs->tex->texture.get() || view->viewSourceAllocation != rs->tex->allocationSerial) {
                         Transition(*rs->tex, RenderTextureLayout::COPY_SOURCE, RenderBarrierStage::COPY);
                         Transition(*view, RenderTextureLayout::COPY_DEST, RenderBarrierStage::COPY);
                         RenderBox box{ 0, 0, int32_t(physicalWidth), int32_t(physicalHeight), 0, 1 };
                         commandList->copyTextureRegion(RenderTextureCopyLocation::Subresource(view->texture.get()),
                             RenderTextureCopyLocation::Subresource(rs->tex->texture.get()), 0, 0, 0, &box);
+                            view->viewSourceOrdinal = rs->writeOrdinal;
+                            view->viewSource = rs->tex->texture.get();
+                            view->viewSourceAllocation = rs->tex->allocationSerial;
+                        }
                         if (taa_collection::Enabled())
                             view->bindingProducer.Copy(rs->tex->bindingProducer, taa_collection::ConsentEpoch(), frame, true);
                         Transition(*view, RenderTextureLayout::SHADER_READ, RenderBarrierStage::GRAPHICS);
@@ -6096,6 +6243,36 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             }
 
             // ---- vertex buffers ------------------------------------------------------------
+            // A cached vertex/index source is compared with its snapshot once per
+            // sync epoch. Between two sync points only an unsynchronized guest CPU
+            // write racing the GPU can change memory a draw already read; such a
+            // write is seen at the next epoch instead of at the next draw.
+            // LO_REVALIDATE_EVERY_DRAW=1 compares on every draw; LO_REVALIDATE_VERIFY=1
+            // compares skipped sources too and logs mismatches.
+            uint64_t revalidationChecks = 0, revalidationSkips = 0, revalidationMismatches = 0;
+            uint64_t revalidationEpoch = 0;
+            template<class Matches>
+            bool SourceMatches(uint64_t& validatedEpoch, Matches&& matches, uint32_t address)
+            {
+                static const bool everyDraw = [] { const char* v = getenv("LO_REVALIDATE_EVERY_DRAW"); return v && strcmp(v, "0") != 0; }();
+                static const bool verify = [] { const char* v = getenv("LO_REVALIDATE_VERIFY"); return v && strcmp(v, "0") != 0; }();
+                const uint64_t epoch = g_commandProcessor.SyncEpoch();
+                if (!everyDraw && validatedEpoch == epoch) {
+                    ++revalidationSkips;
+                    if (!verify || matches()) return true;
+                    static uint32_t reported = 0;
+                    if (reported++ < 32)
+                        LOG_ERROR("renderer: source {:#x} changed within sync epoch {} (frame {})", address, epoch, frame);
+                    ++revalidationMismatches;
+                    validatedEpoch = 0;
+                    return false;
+                }
+                ++revalidationChecks;
+                const bool ok = matches();
+                validatedEpoch = ok ? epoch : 0;
+                return ok;
+            }
+
             // Returns the arena offset of the swapped copy of a guest vertex buffer.
             uint64_t GetVertexBuffer(uint32_t address, uint32_t sizeDwords, uint32_t endian)
             {
@@ -6116,7 +6293,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     const bool matches = [&] {
                         VertexStageTimer timer(vertexTiming.match, vertexTimingEnabled, address, bytes);
-                        return it->second.content.Matches(guest, bytes);
+                        return SourceMatches(it->second.validatedEpoch,
+                            [&] { return it->second.content.Matches(guest, bytes); }, address);
                     }();
                     if (gpu::render_arena::VertexCacheReusable(matches))
                     {
@@ -6147,6 +6325,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 const uint64_t offset = gpu::render_arena::SlotBase(allocSlot) + local;
                 local += needed;
                 VertexEntry entry{ offset, {}, frame, uint8_t(allocSlot) };
+                entry.validatedEpoch = g_commandProcessor.SyncEpoch();
                 {
                     VertexStageTimer timer(vertexTiming.capture, vertexTimingEnabled, address, bytes);
                     entry.content.Capture(guest, bytes);
@@ -6470,34 +6649,35 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 } else {
                     for (uint32_t bank = 0; bank < 2; ++bank) {
                         const uint64_t generation = g_commandProcessor.ConstantGeneration(bank);
+                        auto& snapshot = constantSnapshot[bank];
                         const bool refresh = generation != constantSnapshotGeneration[bank];
-                        bool snapshotChanged = refresh;
-                        if (refresh) {
-                            constantFallbackCount[bank] = g_commandProcessor.ReadConstantBank(
-                                bank, constantSnapshot[bank], constantFallbackOffsets[bank]);
-                            constantSnapshotGeneration[bank] = generation;
-                            ++constantSnapshotVersion[bank];
-                        } else if (g_commandProcessor.RefreshConstantFallbacks(bank,
-                            constantFallbackOffsets[bank], constantFallbackCount[bank],
-                            constantSnapshot[bank], constantSnapshotVersion[bank])) {
-                            snapshotChanged = true;
-                        }
-                        if (!refresh && verifyConstants) {
+                        uint64_t changedBlocks = g_commandProcessor.UpdateConstantSnapshot(bank, snapshot);
+                        constantSnapshotGeneration[bank] = generation;
+                        if (refresh || changedBlocks) ++constantSnapshotVersion[bank];
+                        if (verifyConstants) {
                             uint32_t check[256 * 4];
                             g_commandProcessor.ReadRegisters(REG_ALU_CONSTANTS + bank * 256 * 4, 256 * 4, check);
-                            if (std::memcmp(check, constantSnapshot[bank], sizeof(check)) != 0) {
+                            if (std::memcmp(check, snapshot.values, sizeof(check)) != 0) {
                                 static uint32_t reported = 0;
                                 if (reported++ < 16)
-                                    LOG_ERROR("renderer: {} constants changed without a generation change (frame {})",
+                                    LOG_ERROR("renderer: {} constants changed without a generation change or dirty block (frame {})",
                                         bank ? "pixel" : "vertex", frame);
-                                std::memcpy(constantSnapshot[bank], check, sizeof(check));
+                                std::memcpy(snapshot.values, check, sizeof(check));
+                                snapshot.valid = false;
                                 ++constantSnapshotVersion[bank];
-                                snapshotChanged = true;
+                                changedBlocks = ~0ull;
                             }
                         }
-                        if (snapshotChanged || drawConstantsModified[bank]) {
-                            std::memcpy(drawConstants[bank], constantSnapshot[bank], sizeof(drawConstants[bank]));
+                        if (drawConstantsModified[bank]) {
+                            std::memcpy(drawConstants[bank], snapshot.values, sizeof(drawConstants[bank]));
                             drawConstantsModified[bank] = false;
+                        } else {
+                            // An unmodified copy equals the snapshot outside the changed blocks.
+                            constexpr size_t kBlock = ConstantBankSnapshot::kBlockWords;
+                            for (uint64_t blocks = changedBlocks; blocks; blocks &= blocks - 1) {
+                                const size_t first = size_t(std::countr_zero(blocks)) * kBlock;
+                                std::memcpy(drawConstants[bank] + first, snapshot.values + first, kBlock * sizeof(uint32_t));
+                            }
                         }
                         constantGeneration[bank] = constantSnapshotVersion[bank];
                     }
@@ -6646,6 +6826,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 std::optional<temporal::SceneAnchor> temporalDrawAnchor;
 
                 SharedConstants shared{};
+                shared.vertexArenaAddress = vertexArena->getDeviceAddress();
                 for (uint32_t i = 0; i < 8; i++) shared.bools[i] = Reg(REG_BOOL_CONSTANTS + i);
                 for (uint32_t i = 0; i < 32; i++) shared.loops[i] = Reg(REG_LOOP_CONSTANTS + i);
                 shared.transfer[0] = Reg(REG_PA_SU_POINT_SIZE);
@@ -6721,9 +6902,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalDrawAnchor=anchor;
                 }
                 const auto* jitterAnchor = temporalDrawAnchor ? &*temporalDrawAnchor :
-                    (temporalScene.Draws() ? &temporalScene.Anchor() : nullptr);
+                    (!temporalScene.Draws() ? nullptr : temporalSlot >= 0 && temporalSlot <= 252 ?
+                        &temporalScene.AnchorFor(vsConstants + temporalSlot * 4) : &temporalScene.Anchor());
                 std::optional<temporal::SceneResolve> jitterSampledDepth;
-                const bool jitterShadowPair = key.vs == 0x99c2b4b0960a9ccdull && key.ps == 0xd55a20d004031279ull;
+                const bool jitterShadowPair = temporal::IsShadowProjectionPair(key.vs, key.ps);
                 if (temporalActive && temporalJitter && jitterShadowPair)
                 {
                     const uint32_t fetch0 = Reg(REG_FETCH_CONSTANTS), fetch1 = Reg(REG_FETCH_CONSTANTS + 1);
@@ -6812,7 +6994,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     temporalActive && temporalJitter && !diagnosticMaterialBypass, temporalViewport, jitterAnchor,
                     depth ? depth->allocationSerial : 0,
                     {rasterViewport.x, rasterViewport.y, rasterViewport.width, rasterViewport.height},
-                    vsConstants, psConstants, &temporalScene.Depth(), jitterSampledDepth ? &*jitterSampledDepth : nullptr,
+                    vsConstants, psConstants, &temporalScene.DepthFor(jitterSampledDepth ? &*jitterSampledDepth : nullptr), jitterSampledDepth ? &*jitterSampledDepth : nullptr,
                     ActiveTaaOptions().jitter_scale, dlssSrRequested ? &frameRasterJitter : nullptr,
                     constantScreenSample);
                 // Jitter writes the draw's constant copy; the next draw restores it.
@@ -6904,9 +7086,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         // RB_COLOR_INFO.color_exp_bias (signed 6 bits at +20) scales what
                         // the hardware writes to EDRAM; log which values the title uses.
                         const int32_t bias = int32_t(colorInfo << 6) >> 26;
-                        static std::set<int32_t> seenBias;
-                        if (seenBias.insert(bias | (int32_t(cfmt) << 8)).second)
+                        static std::bitset<16 * 64> seenBias;
+                        if (const size_t seen = (cfmt << 6) | (uint32_t(bias) & 63); !seenBias.test(seen)) {
+                            seenBias.set(seen);
                             LOG_INFO("renderer: colour format {} uses exp_bias {}", cfmt, bias);
+                        }
                     }
                     float m = 1.0f;            // 8_8_8_8, 8_8_8_8_GAMMA, 2_10_10_10, _AS_10_10_10_10
                     if (cfmt == 3 || cfmt == 12) m = 31.875f;   // 2_10_10_10_FLOAT (7e3)
@@ -7760,8 +7944,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // Index buffer / primitive conversion. Static geometry skips
                 // ConvertIndices and primitive expansion on an exact-content
                 // hit; the cached output is already post-expansion.
-                auto& indices = indexScratch;
-                if (!info.indexed) indices.clear();
+                auto& converted = indexScratch;
+                if (!info.indexed) converted.clear();
                 bool useIndices = false;
                 RenderFormat indexFormat = RenderFormat::R32_UINT;
                 uint32_t indexCount = info.indexCount;
@@ -7781,9 +7965,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         indexKey = { info.indexBase, indexSrcCount, info.primitiveType,
                             uint8_t(info.index32 ? 1 : 0), uint8_t(info.indexEndian & 3) };
                         auto it = indexCache.find(indexKey);
-                        if (it != indexCache.end() && it->second.content.Matches(indexSrc, indexSrcBytes))
+                        if (it != indexCache.end() && SourceMatches(it->second.validatedEpoch,
+                            [&] { return it->second.content.Matches(indexSrc, indexSrcBytes); }, info.indexBase))
                         {
-                            indices = it->second.data;
                             cachedIndexEntry = &it->second;
                             it->second.lastFrame = frame;
                             if (cpuTimingEnabled) ++indexCacheHits;
@@ -7793,15 +7977,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         else
                         {
                             // Convert below, then replace the cached result.
-                            indices.resize(indexSrcCount);
-                            geometry_prepare::ConvertIndices(indexSrc, indices.data(), indexSrcCount, info.index32, info.indexEndian);
+                            converted.resize(indexSrcCount);
+                            geometry_prepare::ConvertIndices(indexSrc, converted.data(), indexSrcCount, info.index32, info.indexEndian);
                             useIndices = true;
                         }
                     }
                     else
                     {
-                        indices.resize(indexSrcCount);
-                        geometry_prepare::ConvertIndices(indexSrc, indices.data(), indexSrcCount, info.index32, info.indexEndian);
+                        converted.resize(indexSrcCount);
+                        geometry_prepare::ConvertIndices(indexSrc, converted.data(), indexSrcCount, info.index32, info.indexEndian);
                         useIndices = true;
                     }
                 }
@@ -7810,13 +7994,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                 case 13: // quad list -> triangle list
                 {
-                    geometry_prepare::ExpandQuadList(indices, primitiveScratch, useIndices, info.indexCount);
+                    geometry_prepare::ExpandQuadList(converted, primitiveScratch, useIndices, info.indexCount);
                     break;
                 }
                 case 8: // rect list -> six encoded corners per rectangle
                 {
                     if (!rectListExpansion) break;
-                    const uint32_t skipped = xenos::rect_list::ExpandIndices(indices, primitiveScratch, useIndices,
+                    const uint32_t skipped = xenos::rect_list::ExpandIndices(converted, primitiveScratch, useIndices,
                         info.indexCount, Reg(REG_VGT_INDX_OFFSET));
                     if (skipped && rectListSkipped++ < 8)
                         LOG_WARNING("renderer: rect list skipped {} rectangle(s) (non-consecutive indices or vertex range)", skipped);
@@ -7826,14 +8010,14 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     auto& out = primitiveScratch;
                     out.clear();
-                    uint32_t n = useIndices ? uint32_t(indices.size()) : info.indexCount;
+                    uint32_t n = useIndices ? uint32_t(converted.size()) : info.indexCount;
                     out.reserve(n > 2 ? size_t(n - 2) * 3 : 0);
                     for (uint32_t i = 2; i < n; i++)
                     {
-                        uint32_t a = useIndices ? indices[0] : 0, b = useIndices ? indices[i - 1] : i - 1, c = useIndices ? indices[i] : i;
+                        uint32_t a = useIndices ? converted[0] : 0, b = useIndices ? converted[i - 1] : i - 1, c = useIndices ? converted[i] : i;
                         out.insert(out.end(), { a, b, c });
                     }
-                    indices.swap(out);
+                    converted.swap(out);
                     useIndices = true;
                     break;
                 }
@@ -7848,12 +8032,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     // Store the post-expansion result against the exact source
                     // bytes; a later identical draw copies it verbatim.
                     geometry_prepare::IndexEntry entry;
-                    entry.data = indices;
+                    entry.data = converted;
                     entry.content.Capture(indexSrc, indexSrcBytes);
                     entry.lastFrame = frame;
+                    entry.validatedEpoch = g_commandProcessor.SyncEpoch();
                     indexCache.emplace(indexKey, std::move(entry));
                     if (cpuTimingEnabled) ++indexCacheMisses;
                 }
+                // A hit uses the cached entry in place, as cachedIndexEntry already does.
+                const std::vector<uint32_t>& indices = cachedIndexEntry ? cachedIndexEntry->data : converted;
                 if (useIndices)
                     indexCount = uint32_t(indices.size());
                 if (indexCount == 0)
@@ -7870,8 +8057,17 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 // promoted fallback and the original guarded draw.
                 uint64_t preparedIndexOffset = UINT64_MAX;
                 if (useIndices) {
-                    preparedIndexOffset = Upload(indices.data(), indices.size() * 4, 16);
-                    if (preparedIndexOffset == UINT64_MAX) return;
+                    if (cachedIndexEntry && cachedIndexEntry->ringGeneration &&
+                        cachedIndexEntry->ringGeneration == Gpu().uploadGeneration)
+                        preparedIndexOffset = cachedIndexEntry->ringOffset;
+                    else {
+                        preparedIndexOffset = Upload(indices.data(), indices.size() * 4, 16);
+                        if (preparedIndexOffset == UINT64_MAX) return;
+                        if (cachedIndexEntry) {
+                            cachedIndexEntry->ringOffset = preparedIndexOffset;
+                            cachedIndexEntry->ringGeneration = Gpu().uploadGeneration;
+                        }
+                    }
                 }
 
                 // Record.
@@ -8187,8 +8383,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 // Inside a guest occlusion query, count exactly this draw's samples.
                 const uint32_t occlusionIndex = OcclusionQueryForDraw();
-                if (occlusionIndex != ~0u)
-                    commandList->beginOcclusionQuery(Gpu().occlusionQueries.get(), occlusionIndex);
+                RenderQueryPool* occlusionPool = occlusionIndex != ~0u
+                    ? Gpu().occlusionQueries[occlusionIndex / kOcclusionPoolQueries].get() : nullptr;
+                if (occlusionPool)
+                    commandList->beginOcclusionQuery(occlusionPool, occlusionIndex % kOcclusionPoolQueries);
                 if (useIndices)
                 {
                     RenderIndexBufferView view(RenderBufferReference(uploadRing, preparedIndexOffset), uint32_t(indices.size() * 4), RenderFormat::R32_UINT);
@@ -8199,8 +8397,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 {
                     commandList->drawInstanced(indexCount, 1, uint32_t(baseVertex), 0);
                 }
-                if (occlusionIndex != ~0u) {
-                    commandList->endOcclusionQuery(Gpu().occlusionQueries.get(), occlusionIndex);
+                if (occlusionPool) {
+                    commandList->endOcclusionQuery(occlusionPool, occlusionIndex % kOcclusionPoolQueries);
                     const HostTexture* measured = depth ? depth : color;
                     occlusion.DrawMeasured({Gpu().occlusionBatch, occlusionIndex, gpu::occlusion::SampleScale(
                         measured->guestWidth, measured->guestHeight, measured->width, measured->height, (surfaceInfo >> 16) & 3)});
@@ -9740,6 +9938,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
             void AdvanceAfterPublicFlush() {
                 if (fgUiCapture && fgUiCapture->frame == frame && !fgUiCapture->finalRecorded)
                     ExportFgUiCapture(fgUiCapture);
+                OcclusionFrameEnd();
                 ++frame; drawsThisFrame = 0; drops = {};
             }
             frame_generation::ResolveIdentity FgIdentity(const ResolvedSurface& rs) const
@@ -10311,6 +10510,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         destBase, destFormat, destEndian, x0, y0, copyWidth, copyHeight, destPitch, uint32_t(color->format), nonZero, drawsThisFrame);
                 }
                 uint8_t* dst = Phys(destBase);
+                g_commandProcessor.AdvanceSyncEpoch();
                 uint32_t pitchBlocks = (destPitch + 31) & ~31u;
                 for (uint32_t y = 0; y < copyHeight; y++)
                 {
@@ -10530,9 +10730,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         return g_renderer && g_renderer->OcclusionQueryEvent(physicalAddress);
     }
 
+    void NoteOcclusionQueryOwner(uint32_t physicalSlot, uint64_t owner)
+    {
+        std::lock_guard lock(g_occlusionOwnerMutex);
+        g_occlusionOwners[gpu::occlusion::SlotOf(physicalSlot)] = owner;
+    }
+
     void NoteOcclusionWait()
     {
-        if (g_occlusionStrict.load(std::memory_order_relaxed) &&
+        if (g_occlusionAwaited.load(std::memory_order_acquire) &&
             !g_occlusionWait.exchange(true, std::memory_order_acq_rel))
             g_commandProcessor.Wake();
     }
@@ -10923,6 +11129,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     r.frame, r.indexCacheHits, r.indexCacheMisses, r.indexCache.size(),
                     r.indexCache.AllocatedBytes(), r.indexCache.PeakBytes(), r.indexCache.Evictions());
                 r.indexCacheHits = r.indexCacheMisses = 0;
+            }
+            {
+                static const bool verify = [] { const char* v = getenv("LO_REVALIDATE_VERIFY"); return v && strcmp(v, "0") != 0; }();
+                auto& r = *g_renderer;
+                const uint64_t epoch = g_commandProcessor.SyncEpoch();
+                if (render_timing::Enabled() || (verify && r.frame % 60 == 0))
+                    LOG_INFO("source revalidation frame={} sync_epochs={} compared={} skipped={} verify_mismatches={} scope=since_previous_line",
+                        r.frame, epoch - r.revalidationEpoch, r.revalidationChecks, r.revalidationSkips, r.revalidationMismatches);
+                if (render_timing::Enabled() || r.frame % 60 == 0) {
+                    r.revalidationEpoch = epoch;
+                    r.revalidationChecks = r.revalidationSkips = r.revalidationMismatches = 0;
+                }
             }
             if (render_timing::Enabled()) {
                 Renderer& r = *g_renderer;
@@ -11383,6 +11601,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
     void Draw(const DrawInfo&) {}
     bool OcclusionQueryEvent(uint32_t) { return false; }
     void NoteOcclusionWait() {}
+    void NoteOcclusionQueryOwner(uint32_t, uint64_t) {}
     void ServiceOcclusionQueries() {}
     bool DrainForFrameGenerationReconfigure() { return true; }
     void Flush() {}
@@ -11420,6 +11639,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         if (!plan.width || !plan.height) return;
         std::lock_guard lock(framePlanMutex);
         committedPlan = plan;
+        framePlanGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void RegisterCatalogSurface(frame_plan::SurfaceRole role, uint32_t surfaceInfo, uint32_t colorInfo)
@@ -11429,13 +11649,18 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         const uint64_t key = CatalogKey(surfaceInfo, colorInfo);
         const auto found = catalogRoles.find(key);
         if (role == frame_plan::SurfaceRole::Unknown) {
-            if (found != catalogRoles.end()) catalogRoles.erase(found);
+            if (found != catalogRoles.end()) {
+                catalogRoles.erase(found);
+                catalogGeneration.fetch_add(1, std::memory_order_release);
+            }
             return;
         }
         if (found != catalogRoles.end() && found->second != role)
             LOG_WARNING("renderer: catalog role conflict base={:#x} pitch={} old={} new={}", colorInfo & 0xFFF, surfaceInfo & 0x3FFF,
                 uint32_t(found->second), uint32_t(role));
+        if (found != catalogRoles.end() && found->second == role) return;
         catalogRoles[key] = role;
+        catalogGeneration.fetch_add(1, std::memory_order_release);
     }
 
     void ClearMovieBars(uint32_t surfaceInfo, uint32_t colorInfo,

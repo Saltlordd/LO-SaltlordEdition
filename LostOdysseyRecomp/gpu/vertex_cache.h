@@ -12,6 +12,7 @@ namespace gpu::geometry_prepare
         VertexSampledContent content;
         uint64_t lastFrame;
         uint8_t slot = 0;
+        uint64_t validatedEpoch = 0; // CommandProcessor::SyncEpoch of the last content match
     };
 
     // This is lookup metadata, not ownership of arena bytes. Discarding an
@@ -112,6 +113,11 @@ namespace gpu::geometry_prepare
         uint64_t motionIndexHash = 0;
         bool motionIndexHashReady = false;
         uint64_t lastFrame = 0;
+        // Last upload of data: its upload-ring offset, valid while the
+        // renderer's ring generation still equals ringGeneration (0: none).
+        uint64_t ringOffset = 0;
+        uint64_t ringGeneration = 0;
+        uint64_t validatedEpoch = 0; // CommandProcessor::SyncEpoch of the last content match
         size_t AllocatedBytes() const { return content.AllocatedBytes() + data.capacity() * sizeof(uint32_t); }
     };
 

@@ -30,6 +30,8 @@ class Presentation
     ~Presentation();
     bool Init(plume::RenderDevice *device);
     bool Init(plume::RenderDevice *device, plume::RenderFormat swapchainFormat);
+    // Call only after the present GPU fence, before replacing caller-owned targets.
+    void ForgetTargets();
     // Process an opaque, display-encoded pre-UI scene at its actual resolution.
     // Source: sampleable RGBA8 UNORM, at least width x height (top-left crop).
     // Target: distinct, caller-owned RGBA8 UNORM render target, exactly width x

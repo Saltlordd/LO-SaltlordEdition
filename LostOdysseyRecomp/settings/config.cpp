@@ -120,6 +120,10 @@ Config Read()
             value.expandRgbRange = number == 1;
         else if (key == "anisotropic_filtering")
             value.anisotropicFiltering = number;
+        else if (key == "motion_blur" && number <= 1)
+            value.motionBlur = number == 1;
+        else if (key == "dynamic_shadows" && number <= 1)
+            value.dynamicShadows = number == 1;
         else if (key == "upscaler")
             value.upscaler = gpu::upscaling::Upscaler(number);
         else if (key == "dlss_quality")
@@ -201,6 +205,11 @@ Config GetConfig()
     std::lock_guard lock(mutex);
     return Current();
 }
+void ReloadConfig()
+{
+    std::lock_guard lock(mutex);
+    Current() = Read();
+}
 static bool WriteConfig(const Config &value);
 void PreviewFrameRate(uint32_t fps)
 {
@@ -243,6 +252,8 @@ static bool WriteConfig(const Config &value)
            << "\nscaling_quality=" << value.scalingQuality
            << "\nexpand_rgb_range=" << (value.expandRgbRange ? 1 : 0)
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
+           << "\nmotion_blur=" << (value.motionBlur ? 1 : 0)
+           << "\ndynamic_shadows=" << (value.dynamicShadows ? 1 : 0)
            << "\nupscaler=" << uint32_t(value.upscaler) << "\ndlss_quality=" << uint32_t(value.dlssQuality)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)
            << "\nfsr_sharpness=" << value.fsrSharpnessPercent

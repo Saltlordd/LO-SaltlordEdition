@@ -1,0 +1,39 @@
+diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
+--- a/plume_vulkan.cpp
++++ b/plume_vulkan.cpp
+@@ -9,6 +9,9 @@
+ #define VOLK_IMPLEMENTATION 
+ 
+ #include "plume_vulkan.h"
++#ifdef __ANDROID__
++#include "plume_android_loader.h"
++#endif
+ #include "plume_log.h"
+ #include "plume_surface_extent.h"
+ 
+@@ -5015,7 +5018,11 @@
+     VulkanInterface::VulkanInterface(const VulkanExtensionHooks &extensionHooks) {
+ #endif
+         this->extensionHooks = extensionHooks;
++#ifdef __ANDROID__
++        VkResult res = InitializeAndroidVulkanLoader();
++#else
+         VkResult res = volkInitialize();
++#endif
+         if (res != VK_SUCCESS) {
+             PLUME_LOG_ERROR("Vulkan", "volkInitialize", LogErrorDomain::VkResult, res, "");
+             return;
+diff --git a/plume_android_loader.h b/plume_android_loader.h
+new file mode 100644
+--- /dev/null
++++ b/plume_android_loader.h
+@@ -0,0 +1,9 @@
++#pragma once
++#include "contrib/volk/volk.h"
++namespace plume {
++// Keep the app-selected custom loader. System fallback explicitly installs
++// its own loader before retrying; desktop bootstrap is unchanged.
++inline VkResult InitializeAndroidVulkanLoader() {
++    return vkGetInstanceProcAddr ? VK_SUCCESS : volkInitialize();
++}
++}

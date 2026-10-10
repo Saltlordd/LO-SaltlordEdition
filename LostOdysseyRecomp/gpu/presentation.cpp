@@ -37,8 +37,46 @@ struct Presentation::Impl
         uint32_t width = 0, height = 0;
     };
     std::vector<Pass> passes;
+    // Framebuffers of caller-owned targets (rotating swap chain images, scene
+    // AA outputs) by texture and size; see ForgetTargets.
+    struct TargetFramebuffer
+    {
+        const RenderTexture *texture = nullptr;
+        uint32_t width = 0, height = 0;
+        uint64_t lastUse = 0;
+        std::unique_ptr<RenderFramebuffer> framebuffer;
+    };
+    static constexpr size_t kTargetFramebuffers = 8;
+    std::vector<TargetFramebuffer> targetFramebuffers;
+    uint64_t targetUses = 0;
+    RenderFramebuffer *FramebufferFor(const RenderTexture *texture, uint32_t width, uint32_t height);
+
     bool EnsureUiPipelines();
 };
+RenderFramebuffer *Presentation::Impl::FramebufferFor(const RenderTexture *texture, uint32_t width, uint32_t height)
+{
+    TargetFramebuffer *slot = nullptr;
+    for (auto &entry : targetFramebuffers)
+        if (entry.texture == texture) slot = &entry;
+    if (!slot && targetFramebuffers.size() < kTargetFramebuffers) slot = &targetFramebuffers.emplace_back();
+    // More entries than swap chain images: the least recently used one is
+    // frames old, past the present fence that protects it.
+    if (!slot) slot = &*std::min_element(targetFramebuffers.begin(), targetFramebuffers.end(),
+        [](const TargetFramebuffer &a, const TargetFramebuffer &b) { return a.lastUse < b.lastUse; });
+    slot->lastUse = ++targetUses;
+    if (!slot->framebuffer || slot->texture != texture || slot->width != width || slot->height != height) {
+        const RenderTexture *attachment[] = {texture};
+        slot->framebuffer = device->createFramebuffer(RenderFramebufferDesc(attachment, 1));
+        slot->texture = texture;
+        slot->width = width;
+        slot->height = height;
+    }
+    return slot->framebuffer.get();
+}
+void Presentation::ForgetTargets()
+{
+    impl->targetFramebuffers.clear();
+}
 struct Presentation::UiCompositionLease
 {
     std::unique_ptr<RenderDescriptorSet> descriptors;
@@ -352,6 +390,7 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
         }
         // Each recorded pass has distinct descriptors/framebuffers. They and the
         // cached intermediate allocations remain owned until the next present fence.
+        RenderFramebuffer *framebuffer=nullptr;
         if(!output) {
             if(pass.width!=tw || pass.height!=th) {
                 pass.framebuffer.reset();
@@ -359,13 +398,18 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
                 pass.width=tw;pass.height=th;
             }
             output=pass.texture.get();
-        }
-        const RenderTexture *attachment[]={output};
-        pass.framebuffer=p.device->createFramebuffer(RenderFramebufferDesc(attachment,1));
+            if(!pass.framebuffer) {
+                const RenderTexture *attachment[]={output};
+                pass.framebuffer=p.device->createFramebuffer(RenderFramebufferDesc(attachment,1));
+            }
+            framebuffer=pass.framebuffer.get();
+        } else framebuffer=p.FramebufferFor(output,tw,th);
         pass.descriptors->setTexture(0,input,RenderTextureLayout::SHADER_READ);
         commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(input,RenderTextureLayout::SHADER_READ));
         commands->barriers(RenderBarrierStage::GRAPHICS,RenderTextureBarrier(output,RenderTextureLayout::COLOR_WRITE));
-        commands->setFramebuffer(pass.framebuffer.get());
+        const bool covered=framebuffer && framebuffer->getWidth()==tw && framebuffer->getHeight()==th &&
+            ox<=0.0f && oy<=0.0f && ox+ew>=float(tw) && oy+eh>=float(th);
+        commands->setFramebuffer(framebuffer);
 #if defined(__ANDROID__)
         // Only the final output's unused surround is tinted. Intermediate AA and
         // scaling targets keep their original clear; guest/movie pixels draw normally.
@@ -374,9 +418,9 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
             ? (border == 1 ? RenderColor(16.0f/255.0f, 17.0f/255.0f, 20.0f/255.0f, 1.0f)
                            : RenderColor(11.0f/255.0f, 17.0f/255.0f, 25.0f/255.0f, 1.0f))
             : RenderColor(0, 0, 0, 1);
-        commands->clearColor(0,surround);
+        if(!covered)commands->clearColor(0,surround);
 #else
-        commands->clearColor(0,RenderColor(0,0,0,1));
+        if(!covered)commands->clearColor(0,RenderColor(0,0,0,1));
 #endif
         RenderViewport viewport(ox,oy,ew,eh);RenderRect scissor(0,0,tw,th);
         commands->setViewports(&viewport,1);commands->setScissors(&scissor,1);
@@ -390,8 +434,16 @@ void Presentation::Draw(RenderCommandList *commands, RenderTexture *source, Rend
     // AA is evaluated once at actual source resolution, independent of scaling.
     if(options.antialiasing==Antialiasing::SMAA)
         source=p.smaa.Draw(commands,source,sw,sh,p.layout.get(),p.pipeline.get());
-    else if(options.antialiasing==Antialiasing::FXAA)
+    else if(options.antialiasing==Antialiasing::FXAA) {
+        // Same-size scene processing needs no second copy after FXAA.
+        // Final swapchain presentation and range conversion retain the normal path.
+        if(!toSwapchain && sw==ow && sh==oh && !options.expandRgbRange) {
+            render(source,target,sw,sh,ow,oh,0,0,float(sw),float(sh),1,0,0,p.pipeline.get());
+            commands->barriers(RenderBarrierStage::COPY,RenderTextureBarrier(original,RenderTextureLayout::COPY_SOURCE));
+            return;
+        }
         source=render(source,nullptr,sw,sh,sw,sh,0,0,float(sw),float(sh),1,0,0,p.pipeline.get());
+    }
     // Large reductions use full coverage at each stage. No tap count truncation,
     // and no artificial reduced input presented as a game rendering speedup.
     const uint32_t desiredW=std::max(1u,uint32_t(std::ceil(width)));
@@ -418,6 +470,7 @@ struct Presentation::Impl
 };
 Presentation::Presentation() = default;
 Presentation::~Presentation() = default;
+void Presentation::ForgetTargets() {}
 bool Presentation::Init(plume::RenderDevice *)
 {
     return false;

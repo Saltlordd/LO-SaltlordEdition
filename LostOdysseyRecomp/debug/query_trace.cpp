@@ -2,10 +2,13 @@
 #include <os/logger.h>
 #include <cpu/poll_wait.h>
 #include <gpu/renderer.h>
+#include <gpu/occlusion_queries.h>
+#include <unordered_map>
 
 extern "C" PPC_FUNC(__imp__sub_827B7408);
 extern "C" PPC_FUNC(__imp__sub_823CDCA8);
 extern "C" PPC_FUNC(__imp__sub_823CF3F0);
+extern "C" PPC_FUNC(__imp__sub_823CCCE8);
 void ArmGuestWriteWatchpoint(uint32_t address, uint32_t length);
 
 namespace
@@ -26,6 +29,35 @@ void NoteQueryResult(bool occlusion, int32_t result)
     if (occlusion && result == 1) gpu::renderer::NoteOcclusionWait();
     poll_wait::QueryResult(result);
 }
+}
+
+// The renderer's occlusion query pool (sub_823CCCE8) hands out query objects
+// in allocation order and restarts at index 0 every frame, so a query's
+// records belong to whichever object asks first. Report each allocation's call
+// site and per-frame ordinal at that site as the owner of the query's record
+// slot, so Fast answers follow the object (gpu/occlusion_queries.h).
+PPC_FUNC(sub_823CCCE8)
+{
+    const uint32_t pool = PPC_LOAD_U32(0x83235AB8);
+    const uint32_t index = pool ? PPC_LOAD_U32(pool + 0x20) : 0;
+    const uint32_t caller = uint32_t(ctx.lr);
+    __imp__sub_823CCCE8(ctx, base);
+    const uint32_t query = ctx.r3.u32;
+    if (!query) return;
+    // Allocation is single-threaded (the render thread of the game).
+    static std::unordered_map<uint32_t, uint32_t> ordinals;
+    if (index == 0) ordinals.clear();
+    const uint32_t ordinal = ordinals[caller]++;
+    // query+28: guest address of the query's first record slot (D3D GetData).
+    const uint32_t record = PPC_LOAD_U32(query + 28);
+    const uint32_t physical = (record & 0x1FFFFFFF) + (record >= 0xE0000000 ? 0x1000 : 0);
+    static uint32_t logged = 0;
+    if (logged < 8 || (caller == 0x823D5688 && logged < 16)) {
+        ++logged;
+        LOG_INFO("occlusion query owner: query={:#x} pool_index={} caller={:#x} ordinal={} record={:#x} slot={:#x}",
+            query, index, caller, ordinal, record, physical);
+    }
+    gpu::renderer::NoteOcclusionQueryOwner(physical, gpu::occlusion::OwnerKey(caller, ordinal));
 }
 
 PPC_FUNC(sub_823CF3F0)

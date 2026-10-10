@@ -147,6 +147,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     os::user_paths::InitializeAndroid(files, cache);
+    settings::ReloadConfig();
     std::error_code pathError;
     std::filesystem::create_directories(os::user_paths::ConfigDir(), pathError);
     if (!pathError) std::filesystem::current_path(os::user_paths::ConfigDir(), pathError);

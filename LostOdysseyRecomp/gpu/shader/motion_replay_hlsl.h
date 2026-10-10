@@ -21,6 +21,18 @@ inline std::string ExtendPushConstants(std::string source) {
     const auto at = source.find(needle);
     if (at == std::string::npos) return {};
     source.insert(at + needle.size(), "\n    uint64_t MotionHistory;");
+    // The Android vertex-BDA prelude reconstructs addresses from uint2 push
+    // members. Extend both its raw layout and its reconstructed address.
+    const std::string wordsNeedle = "    uint2 PixelShaderConstants;";
+    if (const auto wordsAt = source.find(wordsNeedle); wordsAt != std::string::npos) {
+        source.insert(wordsAt + wordsNeedle.size(), "\n    uint2 MotionHistory;");
+        const std::string assignment =
+            "    addresses.PixelShaderConstants = XeDeviceAddress(xePushWords.PixelShaderConstants);";
+        const auto assignAt = source.find(assignment);
+        if (assignAt == std::string::npos) return {};
+        source.insert(assignAt + assignment.size(),
+            "\n    addresses.MotionHistory = XeDeviceAddress(xePushWords.MotionHistory);");
+    }
     return source;
 }
 inline constexpr const char* kPreviousBindings = R"HLSL(

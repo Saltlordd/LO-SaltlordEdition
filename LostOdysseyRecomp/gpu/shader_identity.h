@@ -43,6 +43,18 @@ namespace gpu::shader_identity
         }
     };
 
+    // In-memory index of a microcode snapshot: FNV-1a over the words in four
+    // interleaved lanes, folded in lane order (shorter multiply chains).
+    inline uint64_t CommandWordHash(const uint32_t* words, uint32_t count)
+    {
+        uint64_t lane[4] = {0xcbf29ce484222325ull, 0xcbf29ce484222325ull ^ 1, 0xcbf29ce484222325ull ^ 2, 0xcbf29ce484222325ull ^ 3};
+        for (uint32_t i = 0; i < count; ++i)
+            lane[i & 3] = (lane[i & 3] ^ words[i]) * 0x100000001b3ull;
+        uint64_t hash = lane[0];
+        for (int k = 1; k < 4; ++k) hash = (hash ^ lane[k]) * 0x100000001b3ull;
+        return hash;
+    }
+
     // IM_LOAD captures microcode on the command-processor thread. Guest memory
     // may change at any time, but draws consume this owned snapshot until the
     // next load. Revalidate all incoming bytes at each load, then resolve the
@@ -62,11 +74,7 @@ namespace gpu::shader_identity
             if (words.size() == count && !std::memcmp(words.data(), source, size))
                 return false;
             words.assign(source, source + count);
-            commandHash = 0xcbf29ce484222325ull;
-            for (uint32_t word : words) {
-                commandHash ^= word;
-                commandHash *= 0x100000001b3ull;
-            }
+            commandHash = CommandWordHash(words.data(), count);
             rendererHashValid = false;
             return true;
         }

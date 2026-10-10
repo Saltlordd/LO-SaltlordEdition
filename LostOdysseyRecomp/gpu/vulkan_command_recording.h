@@ -4,12 +4,10 @@
 namespace gpu::submission {
 // Plume's virtual begin/end return void. Observe native results before callers
 // record commands or publish an executable list, retaining its bookkeeping ABI.
+// Forgets every binding plume tracks to skip redundant commands, including
+// the last viewport and scissor, which a new command buffer does not have.
 inline void ClearBindings(plume::VulkanCommandList& list) {
-    list.targetFramebuffer = nullptr;
-    list.activeComputePipelineLayout = nullptr;
-    list.activeGraphicsPipelineLayout = nullptr;
-    list.activeRaytracingPipelineLayout = nullptr;
-    list.activeGraphicsDescriptorSets.clear();
+    list.invalidateExternalCommandState();
 }
 inline VkResult BeginCommands(plume::VulkanCommandList& list) {
     if (!list.vk || list.recording || list.externalCommandsOpen || list.activeRenderPass)

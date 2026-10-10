@@ -178,7 +178,9 @@ public final class RuntimeReadinessActivity extends SDLActivity {
     static native long[] nativePerformanceSnapshot();
     static native int nativeRenderResolution(int height);
     static native int[] nativeGraphicsPreset(int height,int aa);
+    static native void nativeMobileBaseline(int filter,int range);
     static native int nativeAntiAliasing(int choice);
+    static native int nativeGraphicsEffect(int effect,int enabled);
     static native long nativePreparationProgress();
     static native boolean nativeGuestStarted();
     static native boolean nativePreparationStopped();
@@ -336,7 +338,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         try{SaveBackup.recover(SaveBackup.root(getFilesDir()));SaveBackup.remove(new File(getCacheDir(),"save-import"));}catch(IOException e){Log.e("LO.Saves","Save recovery failed",e);runOnUiThread(()->saveMessage("Could not recover an interrupted save restore. Restart before playing. Existing backup is retained."));return false;}
         // Storage is initialized here; a pre-bootstrap native query may have cached defaults.
         // Snapshot the complete tuple before JNI setters persist their merged configuration.
-        try{int[] saved=SavedGraphics.read(getFilesDir());nativeRenderResolution(saved[0]);nativeAntiAliasing(saved[2]);nativeFrameRate(saved[1]);}
+        try{int[] saved=SavedGraphics.read(getFilesDir());nativeRenderResolution(saved[0]);nativeAntiAliasing(saved[2]);nativeFrameRate(saved[1]);nativeGraphicsEffect(0,saved[3]);nativeGraphicsEffect(1,saved[4]);}
         catch(IOException e){Log.e("LO.Graphics","Cannot restore saved graphics",e);}
         restoreFastForward();
         if(!skipLauncher){
@@ -353,6 +355,11 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         }
         startup.edit().putBoolean("prepare-shaders",true).commit();
         if(destroyed||isFinishing())return false;
+        // The native baseline is retained for compatible mobile output defaults.
+        // Restore the player's choices after its diagnostic resolution/AA reset.
+        int selectedResolution=nativeRenderResolution(0),selectedAa=nativeAntiAliasing(-1);
+        nativeMobileBaseline(MobilePresentation.scaling(this),MobilePresentation.rgb(this));
+        nativeRenderResolution(selectedResolution);nativeAntiAliasing(selectedAa);
         applySelectedDriver();
         runOnUiThread(()->ShaderPreparationService.begin(this));
         return true;
@@ -570,7 +577,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
                     try(java.io.InputStream input=getContentResolver().openInputStream(uri)){
                         if(input==null)throw new IOException("Cannot open driver ZIP");
                         File root=GpuDriverStore.root(this);if(!root.isDirectory()&&!root.mkdirs())throw new IOException("Cannot create driver folder");
-                        GpuDriverStore.Installed driver=GpuDriverStore.installFromStream(input,new File(root,"import-"+java.util.UUID.randomUUID()));
+                        GpuDriverStore.Installed driver=GpuDriverStore.importDriver(this,input);
                         GpuDriverStore.select(this,driver.id());message=driver.metadata.name+(launcherVisible?" selected. It will be used when you press Start game.":setupInProgress()?" selected. It will be used when setup finishes.":" selected. Restart the app to use it.");
                     }catch(IOException|RuntimeException e){message="Driver import failed: "+e.getMessage();}
                     final String resultMessage=message;runOnUiThread(()->{importing.dismiss();refreshSetupStatus();if(!isFinishing()&&!isDestroyed())new AlertDialog.Builder(this).setTitle("GPU driver").setMessage(resultMessage).setPositiveButton("OK",null).show();});
@@ -599,10 +606,14 @@ public final class RuntimeReadinessActivity extends SDLActivity {
     }
     @Override protected String[] getArguments() {
         // Called once before the native boot thread starts, not on resume or fold changes.
-        try {LaunchFrameRate.prepare(getFilesDir());}
+        try {MobilePresentation.prepare(this);LaunchFrameRate.prepare(getFilesDir());}
         catch(IOException e){Log.e("LO.Launch","Could not prepare missing launch defaults; retained settings",e);}
+        MobilePresentation.prefs(this).edit().putBoolean(PipelineWarmupSeeds.RESET,false).putBoolean("renderer-timings",false).commit();
+        try{PipelineWarmupSeeds.prepare(this);}
+        catch(IOException|RuntimeException e){MobilePresentation.prefs(this).edit().putString("pipeline-seed-status","Preparation failed: "+e.getMessage()).commit();Log.e("LO.Launch","Pipeline seed preparation failed; native preparation remains available",e);}
         String failed=GpuDriverStore.takeFailedBoot(this);
         if(failed!=null)runOnUiThread(()->Toast.makeText(this,"Previous custom-driver launch did not finish initialising. Using the system driver.",Toast.LENGTH_LONG).show());
+        nativeSetenv("LO_RENDER_TIMING",MobilePresentation.timings(this)?"1":"0");
         nativeSetenv("LO_TRACE_LANGUAGE","1");
         nativeSetenv("LO_NATIVE_LIB_DIR",getApplicationInfo().nativeLibraryDir+"/");
         return new String[] { "--android-files", getFilesDir().getAbsolutePath(), "--android-cache", getCacheDir().getAbsolutePath(), "--android-first-boot" };
@@ -648,7 +659,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
 
     private File pendingLogExport;
     private boolean logExportBusy;
-    static final String REPORT_HELP="Email the saved report to saltlordstrikes@gmail.com. Include your device model, RAM, storage capacity, chipset, what happened, what you expected, and detailed steps to reproduce it. Say whether it happens every time or only on a first encounter, and whether you used the cover, inner or Flex layout. Screenshots or a short video are helpful. Automatically detected device details are included where available; please correct or complete them. Saves are not included.";
+    static final String REPORT_HELP="Email the saved report to saltlordstrikes@gmail.com. Include your device model, RAM, storage capacity, chipset, what happened, what you expected, and detailed steps to reproduce it. Say whether it happens every time or only on a first encounter, and whether you used the cover, inner or Flex layout. Screenshots or a short video are helpful. Automatically detected device details are included where available; please correct or complete them. Pipeline state/hash warmup metadata may be included; shader binaries and saves are not included.";
     void saveDiagnosticReport() {
         if(logExportBusy){Toast.makeText(this,"Finish or cancel the open file picker first.",Toast.LENGTH_SHORT).show();return;}
         logExportBusy=true;
@@ -656,7 +667,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         new Thread(()->{File snapshot=null;try{
             File directory=new File(getCacheDir(),"log-export");if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("Cannot create report folder");
             snapshot=File.createTempFile("diagnostic-",".txt",directory);
-            try(FileOutputStream output=new FileOutputStream(snapshot)){output.write(DiagnosticReport.header(this).getBytes(java.nio.charset.StandardCharsets.UTF_8));try(FileInputStream input=new FileInputStream(source)){DiagnosticReport.copy(input,output);}output.getFD().sync();}
+            try(FileOutputStream output=new FileOutputStream(snapshot)){output.write(DiagnosticReport.header(this).getBytes(java.nio.charset.StandardCharsets.UTF_8));if(source.isFile()){try(FileInputStream input=new FileInputStream(source)){DiagnosticReport.copy(input,output);}}else output.write("\nNo native runtime log is available yet. Device and setup details are included above.\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));PipelineWarmupReport.append(new File(getFilesDir(),"data/cache/shaders/pipelines_vk12_1.bin"),output);output.getFD().sync();}
             final File ready=snapshot;runOnUiThread(()->{if(destroyed||isFinishing()){ready.delete();return;}pendingLogExport=ready;try{startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("text/plain").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,"LO-Saltlord-Report-"+new java.text.SimpleDateFormat("yyyyMMdd-HHmmss",java.util.Locale.US).format(new java.util.Date())+".txt"),86);}catch(RuntimeException e){ready.delete();pendingLogExport=null;logExportBusy=false;saveMessage("Cannot open file picker: "+e.getMessage());}});
         }catch(IOException|RuntimeException e){if(snapshot!=null)snapshot.delete();runOnUiThread(()->{logExportBusy=false;saveMessage("Could not prepare report: "+e.getMessage());});}},"diagnostic-snapshot").start();
     }

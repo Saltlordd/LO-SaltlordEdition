@@ -237,6 +237,30 @@ final class GpuDriverStore {
         }
     }
 
+    /** Reimporting identical loader inputs keeps their existing directory and native cache namespace. */
+    static Installed importDriver(Context context, InputStream input) throws IOException {
+        File temporary=new File(root(context),"import-"+java.util.UUID.randomUUID());
+        Installed imported=installFromStream(input,temporary);
+        try {
+            String identity=DriverPackageIdentity.fingerprint(temporary);
+            List<Installed> candidates=new ArrayList<>();
+            Installed selected=selectedDriver(context);if(selected!=null)candidates.add(selected);
+            File[] directories=root(context).listFiles(File::isDirectory);
+            if(directories!=null)for(File directory:directories){
+                if(directory.equals(temporary)||(selected!=null&&directory.equals(selected.directory)))continue;
+                Installed existing=read(directory);if(existing!=null&&existing.library().isFile())candidates.add(existing);
+            }
+            for(Installed existing:candidates){
+                try{if(identity.equals(DriverPackageIdentity.fingerprint(existing.directory))){deleteRecursively(temporary);return existing;}}
+                catch(IOException ignored){/* An incomplete older package must not prevent a valid import. */}
+            }
+            File stable=new File(root(context),"sha256-"+identity);
+            if(stable.exists())throw new IOException("Existing driver identity directory is incomplete");
+            if(!temporary.renameTo(stable))throw new IOException("Cannot finish driver import");
+            return new Installed(stable,imported.metadata);
+        }catch(IOException|RuntimeException e){deleteRecursively(temporary);throw e;}
+    }
+
     /**
      * Validates and extracts a package. Entries are flat; meta.json is the first
      * .json entry; the library must be the file meta.json names and must be

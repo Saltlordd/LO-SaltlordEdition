@@ -5,6 +5,7 @@
 #include <kernel/guest_address_space.h>
 #include <hid/hid.h>
 #include <gpu/shader/dxc_compiler.h>
+#include <gpu/shader/resource_cpx_index_sha256.h>
 #include <os/logger.h>
 #include <os/log_file.h>
 #include <os/user_paths.h>
@@ -86,6 +87,17 @@ Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeAntiAliasing
     if(choice>=0&&choice<=2){config.antialiasing=uint32_t(choice);config.fxaa=choice==1;settings::PreviewConfig(config);if(!settings::SaveConfig(config))LOG_ERROR("Could not save anti-aliasing choice; current session updated");}
     return jint(config.antialiasing);
 }
+extern "C" JNIEXPORT jint JNICALL
+Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeGraphicsEffect(JNIEnv*,jclass,jint effect,jint enabled){
+    auto config=settings::GetConfig();
+    if(effect!=0&&effect!=1)return -1;
+    bool& value=effect==0?config.motionBlur:config.dynamicShadows;
+    if(enabled==0||enabled==1){
+        value=enabled==1;settings::PreviewConfig(config);
+        if(!settings::SaveConfig(config))LOG_ERROR("Could not save graphics effect choice; current session updated");
+    }
+    return value?1:0;
+}
 extern "C" JNIEXPORT jlong JNICALL
 Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativePreparationProgress(JNIEnv*,jclass){return jlong(gpu::video::AndroidShaderPreparationProgress());}
 extern "C" JNIEXPORT jintArray JNICALL
@@ -99,6 +111,18 @@ Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeGraphicsPres
         settings::PreviewConfig(config);if(!settings::SaveConfig(config))LOG_ERROR("Could not save wizard graphics preset");
     }
     jint data[]={jint(config.internalResolution),jint(config.antialiasing)};auto out=env->NewIntArray(2);if(out)env->SetIntArrayRegion(out,0,2,data);return out;
+}
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeMobileBaseline(JNIEnv*,jclass,jint filter,jint range){
+    auto config=settings::GetConfig();
+    config.internalResolution=720;config.antialiasing=0;config.fxaa=false;
+    config.anisotropicFiltering=0;config.scalingQuality=filter==1?1:0;
+    config.expandRgbRange=range==1;config.upscaler=gpu::upscaling::Upscaler::Off;
+    config.fsrSharpnessPercent=0;config.frameGenerationProvider=framegen::Provider::Off;
+    config.variableRefreshRate=false;
+    settings::PreviewConfig(config);
+    if(!settings::SaveConfig(config))LOG_ERROR("Could not save Android mobile baseline");
+    LOG_INFO("Android mobile baseline: render=720 AA=Off AF=Off scaling={} RGB={} upscaler=Off frameGeneration=Off VRR=false frameRate={} motionBlur={} dynamicShadows={}",config.scalingQuality,config.expandRgbRange,config.frameRate,config.motionBlur,config.dynamicShadows);
 }
 // Persist only the shared configuration; held/active trigger state is session-only.
 void PersistAndroidFastForward(){
@@ -484,6 +508,18 @@ int RunAndroidFirstBootCheck() {
         SDL_WINDOWPOS_UNDEFINED,1280,720,SDL_WINDOW_FULLSCREEN);
     if(!window){SDL_Quit();return 1;}
     if(!ChooseStartupPreparation()){SDL_DestroyWindow(window);SDL_Quit();return 0;}
+    // Retain a separate driver cache for each selected package. Compatibility
+    // is still checked by Plume against the actual Vulkan cache UUID.
+    const char* customDir=getenv("LO_CUSTOM_DRIVER_DIR");
+    const char* customLibrary=getenv("LO_VK_CUSTOM_DRIVER");
+    std::string driverKey=customDir&&customLibrary&&customLibrary[0]?
+        std::string(customDir)+"\n"+customLibrary:"system";
+    const auto driverDigest=xenos::resources::Sha256Hex(xenos::resources::Sha256(
+        {reinterpret_cast<const uint8_t*>(driverKey.data()),driverKey.size()}));
+    const auto selectedCache=(os::user_paths::AndroidCacheDir()/("vulkan-pipelines-"+driverDigest+".bin")).string();
+    setenv("LO_ANDROID_VK_PIPELINE_CACHE",selectedCache.c_str(),1);
+    LOG_INFO("Android selected driver cache: {}",selectedCache);
+
     const bool prepareBeforeGameplay=true;
     LOG_INFO("Android shader preparation selected: {} (required runtime compilation remains enabled)",prepareBeforeGameplay?"recommended startup preparation":"compile while playing");
     const auto destination=os::user_paths::AndroidFilesDir()/"game";

@@ -60,6 +60,8 @@ struct Config
     uint32_t scalingQuality = 1; // 0 bilinear, 1 bicubic spatial resampling, ScalingMetalFx (macOS).
     bool expandRgbRange = false; // Expand game image RGB 16-235 to 0-255 at presentation.
     uint32_t anisotropicFiltering = 0; // 0 Off, otherwise 2/4/8/16x. Applied live by the renderer.
+    bool motionBlur = true; // Original effect; live Android Graphics toggle.
+    bool dynamicShadows = true; // Original shadow rendering; live Android Graphics toggle.
     gpu::upscaling::Upscaler upscaler = gpu::upscaling::Upscaler::Off;
     gpu::upscaling::DlssQuality dlssQuality = gpu::upscaling::DlssQuality::Quality;
     gpu::upscaling::FsrQuality fsrQuality = gpu::upscaling::FsrQuality::Quality;
@@ -75,6 +77,9 @@ struct Config
     bool operator==(const Config &) const = default;
 };
 Config GetConfig();
+// Android UI can query settings before its files path has been initialized.
+// Reload the complete persisted configuration once that path is authoritative.
+void ReloadConfig();
 void PreviewFrameRate(uint32_t fps);
 void PreviewConfig(const Config &config);
 // Atomic replacement, preserving the previous file if writing fails.

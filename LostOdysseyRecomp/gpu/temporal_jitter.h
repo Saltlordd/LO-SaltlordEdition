@@ -62,6 +62,27 @@ inline bool IsFullSceneDepthFetch(uint32_t fetchSize, uint32_t fetchControl,
         ((fetchSize >> 13) & 0x1fff) + 1 == resolvedGuestHeight;
 }
 
+// UE3 shadow projection pixel shaders drawn with VS 99c2: the light attenuation
+// pass (d55a), the modulated per-object shadow that darkens characters in
+// cutscenes (67b1), the adaptive PCF filter (a195) and their other 4/12/16-tap
+// variants. All twelve sample scene depth at i0.xy/i0.w and reconstruct the
+// receiver as linearDepth * (ndcX*c2 + ndcY*c3 + c4) + c5 with the same
+// component order for c2-c5; this is every known pixel shader with that code.
+inline bool IsShadowProjectionPair(uint64_t vs, uint64_t ps)
+{
+    if (vs != 0x99c2b4b0960a9ccdull) return false;
+    switch (ps)
+    {
+    case 0xd55a20d004031279ull: case 0x67b10ad6a0e3d811ull: case 0xa195c4db25859691ull:
+    case 0x04649260f1b96778ull: case 0x3ddddf554d19e6d5ull: case 0x7985cac15bd23af0ull:
+    case 0x230fb18cbd76739full: case 0x55d83a2f4612a41bull: case 0x9a2473d303785a5aull:
+    case 0xd2b7b151fbad68abull: case 0xaa57d5d3f60cde53ull: case 0xfa9c9d4fe29fc6ceull:
+        return true;
+    default:
+        return false;
+    }
+}
+
 struct DrawJitter
 {
     int slot = -1;
@@ -110,7 +131,7 @@ inline DrawJitter ApplyDrawJitter(uint64_t vs, uint64_t ps, uint64_t frame,
         return reject(JitterRejection::IncompatibleViewport);
     result.sample = frameSample ? *frameSample : FrameJitter(frame, rasterViewport.width, rasterViewport.height, jitterScale);
     if (!result.sample.phase) return reject(JitterRejection::InvalidExtent);
-    const bool shadow = vs == 0x99c2b4b0960a9ccdull && ps == 0xd55a20d004031279ull;
+    const bool shadow = IsShadowProjectionPair(vs, ps);
     if (shadow && !IsSceneDepthSample(frame, sceneDepth, sampledDepth))
         return reject(JitterRejection::ShadowDepthMismatch);
     for (unsigned i = 0; i < 16; ++i)
@@ -128,7 +149,7 @@ inline DrawJitter ApplyDrawJitter(uint64_t vs, uint64_t ps, uint64_t frame,
     }
     if (shadow)
     {
-        // VS 99c2 passes its jittered clip position to both oPos and o0. PS d55
+        // VS 99c2 passes its jittered clip position to both oPos and o0. The PS
         // samples scene depth at i0.xy/i0.w, then reconstructs (before swizzling):
         // linearDepth * (ndcX*c2 + ndcY*c3 + c4) + c5.
         // Keep the jittered depth lookup, but remove the offset from that ray.

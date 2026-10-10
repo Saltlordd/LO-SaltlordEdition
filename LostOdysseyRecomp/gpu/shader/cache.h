@@ -11,7 +11,7 @@
 
 namespace xenos::cache {
 // Shared by the runtime and offline compiler. Bump for translation changes.
-inline constexpr unsigned Version = 26;
+inline constexpr unsigned Version = 27;
 using Backend = gpu::backend::Backend;
 enum class Format { Dxil, Spirv, Dxbc };
 struct Identity {
@@ -27,7 +27,7 @@ struct Identity {
 inline std::string DefaultOptions(Backend backend) {
     switch (backend) {
     case Backend::D3D12: return "main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;strip-reflect";
-    case Backend::Vulkan: return "main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;spirv;vulkan1.2;dx-layout;vs-invert-y";
+    case Backend::Vulkan: return "main;vs/ps_6_0;HV2021;no-parentheses-equality;no-unused-value;all-resources-bound;O3;strip-debug;spirv;vulkan1.2;dx-layout;vs-invert-y;vertex-bda-shared1024-v2-u32-push;low32-banks-v1";
     case Backend::D3D11: return "reserved-dxbc-sm5-no-compiler";
     }
     return {};

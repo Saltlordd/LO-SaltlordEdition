@@ -258,7 +258,7 @@ namespace gpu
     bool CommandProcessor::Init()
     {
         m_registers.assign(REGISTER_COUNT, 0);
-        for (auto& generation : m_constantGeneration) generation.fetch_add(1, std::memory_order_release);
+        for (uint32_t bank = 0; bank < 2; ++bank) MarkConstantsChanged(bank, ~0ull);
 
         // Registers the guest reads back through plain loads: keep the MMIO
         // window populated with big-endian values (Xenia ReadRegister defaults).
@@ -393,6 +393,19 @@ namespace gpu
         m_writePtrChanged.notify_one();
     }
 
+    // Dirty blocks before the generation: a reader that sees the new generation
+    // also takes its blocks. Guest MMIO stores reach WriteRegister on other threads.
+    inline void CommandProcessor::MarkConstantsChanged(uint32_t bank, uint64_t blocks)
+    {
+        m_constantDirty[bank].fetch_or(blocks, std::memory_order_release);
+        m_constantGeneration[bank].fetch_add(1, std::memory_order_release);
+    }
+
+    static uint64_t ConstantBlockBit(uint32_t index)
+    {
+        return 1ull << ((index - CommandProcessor::kAluConstantBase) % CommandProcessor::kAluConstantBankSize / 16);
+    }
+
     void CommandProcessor::WriteRegister(uint32_t index, uint32_t value)
     {
         if (index >= frame_plan::wire::CatalogBase && index <= frame_plan::wire::CatalogBase + 4)
@@ -458,13 +471,13 @@ namespace gpu
 
         const bool constantChanged = index - kAluConstantBase < 2 * kAluConstantBankSize && m_registers[index] != value;
         m_registers[index] = value;
-        if (constantChanged)
-            m_constantGeneration[(index - kAluConstantBase) / kAluConstantBankSize].fetch_add(1, std::memory_order_release);
 
         // Guest code reads registers back with plain loads from the MMIO
         // window (the D3D interrupt handler inspects the scratch registers),
         // so keep the big-endian memory image in sync.
         *reinterpret_cast<be<uint32_t>*>(g_memory.Translate(MMIO_BASE + index * 4)) = value;
+        if (constantChanged)
+            MarkConstantsChanged((index - kAluConstantBase) / kAluConstantBankSize, ConstantBlockBit(index));
 
         if (index >= REG_SCRATCH_REG0 && index <= REG_SCRATCH_REG7)
         {
@@ -477,6 +490,7 @@ namespace gpu
             if ((1u << scratchReg) & umsk)
             {
                 *reinterpret_cast<be<uint32_t>*>(TranslatePhysical(scratchAddr + scratchReg * 4)) = value;
+                AdvanceSyncEpoch();
                 static uint32_t logged = 0;
                 if (logged++ < 4 || (g_swapCount >= 110 && scratchReg <= 1))
                     LOG_VERBOSE("scratch writeback reg{} = {:#x} -> physical {:#x} (umsk {:#x}) swap #{}", scratchReg, value, scratchAddr + scratchReg * 4, umsk, g_swapCount.load());
@@ -488,12 +502,12 @@ namespace gpu
         }
     }
 
-    // WriteRegister's side effects all lie below 0x2400 (scratch writeback,
-    // coherency, read-only status) or at REGISTER_COUNT and above (frame plan,
-    // catalog, movie clear). The constant, fetch and bool/loop banks in between
-    // only update the register file and the big-endian MMIO image that guest
-    // loads read.
-    constexpr uint32_t kPlainRegisterFirst = 0x2400;
+    // WriteRegister's side effects all lie below 0x2000 (display gamma, scratch
+    // writeback, coherency, read-only status) or at REGISTER_COUNT and above
+    // (frame plan, catalog, movie clear). The context, constant, fetch and
+    // bool/loop banks in between only update the register file and the
+    // big-endian MMIO image that guest loads read.
+    constexpr uint32_t kPlainRegisterFirst = 0x2000;
     static_assert(REG_SCRATCH_REG7 < kPlainRegisterFirst && REG_COHER_STATUS_HOST < kPlainRegisterFirst &&
         REG_RB_EDRAM_TIMING < kPlainRegisterFirst && REG_RB_BC_CONTROL < kPlainRegisterFirst &&
         REG_D1MODE_V_COUNTER < kPlainRegisterFirst && REG_INTERRUPT_STATUS < kPlainRegisterFirst &&
@@ -505,10 +519,11 @@ namespace gpu
     {
         if (index >= kPlainRegisterFirst && index < REGISTER_COUNT)
         {
-            if (index - kAluConstantBase < 2 * kAluConstantBankSize && m_registers[index] != value)
-                m_constantGeneration[(index - kAluConstantBase) / kAluConstantBankSize].fetch_add(1, std::memory_order_release);
+            const bool constantChanged = index - kAluConstantBase < 2 * kAluConstantBankSize && m_registers[index] != value;
             m_registers[index] = value;
             reinterpret_cast<be<uint32_t>*>(g_memory.Translate(MMIO_BASE))[index] = value;
+            if (constantChanged)
+                MarkConstantsChanged((index - kAluConstantBase) / kAluConstantBankSize, ConstantBlockBit(index));
             return;
         }
         WriteRegister(index, value);
@@ -523,18 +538,37 @@ namespace gpu
         if (first < kPlainRegisterFirst || uint64_t(first) + count > REGISTER_COUNT)
             return false;
         std::memcpy(static_cast<uint8_t*>(g_memory.Translate(MMIO_BASE)) + size_t(first) * 4, guestWords, size_t(count) * 4);
-        uint32_t* registers = m_registers.data() + first;
-        bool changed[2]{};
-        for (uint32_t i = 0; i < count; ++i)
+        uint32_t* registers = m_registers.data();
+        const uint32_t end = first + count;
+        auto copy = [&](uint32_t from, uint32_t to) {
+            for (uint32_t i = from; i < to; ++i) registers[i] = ByteSwap(guestWords[i - first]);
+        };
+        // ALU constants: one compare and dirty bit per 16-word block.
+        constexpr uint32_t kConstantEnd = kAluConstantBase + 2 * kAluConstantBankSize;
+        const uint32_t constantFirst = std::max(first, kAluConstantBase), constantEnd = std::min(end, kConstantEnd);
+        if (constantFirst >= constantEnd)
         {
-            const uint32_t value = ByteSwap(guestWords[i]);
-            const uint32_t index = first + i;
-            if (index - kAluConstantBase < 2 * kAluConstantBankSize && registers[i] != value)
-                changed[(index - kAluConstantBase) / kAluConstantBankSize] = true;
-            registers[i] = value;
+            copy(first, end);
+            return true;
         }
+        copy(first, constantFirst);
+        uint64_t changed[2]{};
+        for (uint32_t block = constantFirst; block < constantEnd;)
+        {
+            const uint32_t blockEnd = std::min(constantEnd, (block & ~15u) + 16);
+            uint32_t diff = 0;
+            for (uint32_t i = block; i < blockEnd; ++i)
+            {
+                const uint32_t value = ByteSwap(guestWords[i - first]);
+                diff |= registers[i] ^ value;
+                registers[i] = value;
+            }
+            if (diff) changed[(block - kAluConstantBase) / kAluConstantBankSize] |= ConstantBlockBit(block);
+            block = blockEnd;
+        }
+        copy(constantEnd, end);
         for (uint32_t bank = 0; bank < 2; ++bank)
-            if (changed[bank]) m_constantGeneration[bank].fetch_add(1, std::memory_order_release);
+            if (changed[bank]) MarkConstantsChanged(bank, changed[bank]);
         return true;
     }
 
@@ -555,23 +589,14 @@ namespace gpu
             std::span<uint32_t>(destination, count), mmio);
     }
 
-    uint32_t CommandProcessor::ReadConstantBank(uint32_t bank, uint32_t* destination, uint16_t* fallbackOffsets)
+    uint64_t CommandProcessor::UpdateConstantSnapshot(uint32_t bank, ConstantBankSnapshot& snapshot)
     {
-        const uint32_t first = kAluConstantBase + (bank & 1) * kAluConstantBankSize;
-        ReadRegisters(first, kAluConstantBankSize, destination);
-        return static_cast<uint32_t>(CollectRegisterFallbackOffsets(
-            std::span<const uint32_t>(m_registers).subspan(first, kAluConstantBankSize),
-            std::span<uint16_t>(fallbackOffsets, kAluConstantBankSize)));
-    }
-
-    bool CommandProcessor::RefreshConstantFallbacks(uint32_t bank, const uint16_t* fallbackOffsets,
-        uint32_t fallbackCount, uint32_t* snapshot, uint64_t& snapshotVersion)
-    {
-        const uint32_t first = kAluConstantBase + (bank & 1) * kAluConstantBankSize;
-        const auto* mmio = reinterpret_cast<const be<uint32_t>*>(g_memory.Translate(MMIO_BASE + first * 4));
-        return RefreshRegisterSnapshotFallbacks(
-            std::span<const uint16_t>(fallbackOffsets, fallbackCount),
-            std::span<uint32_t>(snapshot, kAluConstantBankSize), mmio, snapshotVersion);
+        bank &= 1;
+        const uint32_t first = kAluConstantBase + bank * kAluConstantBankSize;
+        const uint64_t dirty = m_constantDirty[bank].load(std::memory_order_relaxed)
+            ? m_constantDirty[bank].exchange(0, std::memory_order_acquire) : 0;
+        return UpdateConstantBankSnapshot(snapshot, m_registers.data() + first,
+            static_cast<const uint32_t*>(g_memory.Translate(MMIO_BASE + first * 4)), dirty);
     }
 
     void CommandProcessor::MmioWrite32(uint32_t address, uint32_t value)
@@ -675,6 +700,7 @@ namespace gpu
 
             if (m_readPtrWritebackPhysical)
                 *reinterpret_cast<be<uint32_t>*>(TranslatePhysical(m_readPtrWritebackPhysical)) = m_readPtrIndex;
+            AdvanceSyncEpoch();
         }
     }
 
@@ -948,6 +974,16 @@ namespace gpu
 
         switch (opcode)
         {
+        case PM4_INTERRUPT: case PM4_XE_SWAP: case PM4_WAIT_REG_MEM: case PM4_REG_TO_MEM: case PM4_MEM_WRITE:
+        case PM4_COND_WRITE: case PM4_EVENT_WRITE_SHD: case PM4_EVENT_WRITE_EXT: case PM4_EVENT_WRITE_ZPD:
+            AdvanceSyncEpoch();
+            break;
+        default:
+            break;
+        }
+
+        switch (opcode)
+        {
         case PM4_ME_INIT:
         case PM4_NOP:
         case PM4_WAIT_FOR_IDLE:
@@ -1070,8 +1106,11 @@ namespace gpu
                 static const char* requestPath = getenv("LO_SCREENSHOT_REQUEST");
                 static uint64_t lastRequest = 0;
                 static uint32_t requestedShots = 0;
-                if (requestPath)
+                // Polled at most every 250 ms, like the renderer's request files.
+                static auto nextRequestPoll = std::chrono::steady_clock::time_point{};
+                if (requestPath && std::chrono::steady_clock::now() >= nextRequestPoll)
                 {
+                    nextRequestPoll = std::chrono::steady_clock::now() + std::chrono::milliseconds(250);
                     uint64_t serial = 0;
                     uint32_t count = 0;
                     std::ifstream request(requestPath);
@@ -1246,6 +1285,8 @@ namespace gpu
                 else
                     std::this_thread::yield();
             }
+            // Guest writes made before the waited-for value are visible from here.
+            AdvanceSyncEpoch();
             return true;
         }
 
@@ -1378,8 +1419,10 @@ namespace gpu
                 // 64-byte slots, END record at the slot base, BEGIN record at +0x20;
                 // D3D stamps 0xFFFFFEED into ZPass_A (or ZFail_A) of a record it is
                 // waiting for. LO_ZPD_MODE selects the counts:
-                //   host  - (default) host GPU queries, answered with the last
-                //           measured count; grow when the backend has none
+                //   host  - (default) host GPU queries; fast answers, exact ones
+                //           while most queried objects are hidden; grow when the
+                //           backend has none
+                //   fast  - host GPU queries, answered with the last measured count
                 //   strict- host GPU queries, exact results the game waits for
                 //   grow  - every event overwrites its record with a growing count
                 //           (previous behaviour; BEGIN records get clobbered too)

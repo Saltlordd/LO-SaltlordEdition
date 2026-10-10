@@ -64,7 +64,7 @@ def main():
         prefix = records(snapshot)
         assert events[:len(prefix)] == prefix
     identities = [e for e in events if e["category"] == "identity"]
-    assert {e["hash_namespace"] for e in identities} == {"renderer-byte-fnv1a64", "command-processor-word-fnv1a64"}
+    assert {e["hash_namespace"] for e in identities} == {"renderer-byte-fnv1a64", "command-processor-word-fnv1a64x4"}
     assert 'escaped="\\\r\n\t中文' in identities[0]["detail"]
     malformed = next(e for e in events if e["category"] == "malformed-utf8")
     assert malformed["detail"].endswith("\u00ff\u00c0\u00af\u00ed\u00a0\u0080")

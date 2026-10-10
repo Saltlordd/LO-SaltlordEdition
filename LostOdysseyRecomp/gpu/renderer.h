@@ -69,6 +69,9 @@ namespace gpu::renderer
     bool OcclusionQueryEvent(uint32_t physicalAddress);
     // A guest waits in GetData for a query result. Any thread.
     void NoteOcclusionWait();
+    // The game's query pool handed the query whose records sit in the slot at
+    // physicalSlot to `owner` (gpu::occlusion::OwnerKey). Guest thread.
+    void NoteOcclusionQueryOwner(uint32_t physicalSlot, uint64_t owner);
     // Command processor thread, when it has nothing to execute or is about to
     // block: completes the queries a waiting guest needs.
     void ServiceOcclusionQueries();

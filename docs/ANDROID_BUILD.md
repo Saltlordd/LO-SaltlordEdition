@@ -1,6 +1,6 @@
 # Android source and build status
 
-The Android adaptation was developed against upstream commit `66f033b76a7ad44ca8d3491adb3a83a933dd6c1e`. This preparation branch starts from that tested baseline; newer upstream commits have not yet been integrated or validated.
+The Android adaptation retains its tested upstream baseline and selectively backports newer changes. See [Test 1 integration](UPSTREAM_V0861_INTEGRATION.md) and [Test 2 integration](UPSTREAM_TEST2_INTEGRATION.md) for the exact scope and validation boundaries.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ The runtime requires generated guest code produced from a supported executable s
 - `tools/build_android_drivers.py`: driver loader dependencies.
 - `tools/build_android_runtime_check.py`: Java/resources/DEX and APK packaging from completed native dependency builds. Run each helper with `--help` for explicit path arguments.
 
-Packaging now includes all production Java classes, retains uncompressed WAV assets, and identifies the candidate as version 0.1.0-beta / code 51. Its local debug key is generated if absent; such an independently generated key cannot update the maintainer-signed installed APK.
+Packaging includes the production Java classes and uncompressed WAV assets. The private Test 2 candidate uses version 0.1.1-test2 / code 53. Restore the original private signing key and supply its password privately to preserve update compatibility; never substitute a new key for a maintainer update.
 
 ## Validation boundary
 
