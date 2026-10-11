@@ -1992,18 +1992,8 @@ namespace gpu::video
             g_presentation = std::make_unique<Presentation>();
             if (!g_presentation->Init(g_device.get(), g_swapChain->getFormat())) return "presentation shader/pipeline initialization failed";
             if (!getenv("LO_NO_RENDERER") && !renderer::Init()) return "renderer initialization failed";
-#if defined(__ANDROID__)
-            // Startup only, GPU owner after preparation workers have joined. A
-            // restart must not race the normal asynchronous driver-cache write.
-            if(g_vulkan){
-                auto* cache=static_cast<plume::VulkanDevice*>(g_device.get());
-                cache->saveAndroidPipelineCache();
-                if(cache->androidPipelineCacheWrite.valid()){
-                    try{const bool saved=cache->androidPipelineCacheWrite.get();if(!saved)cache->androidPipelineSavedGeneration=0;LOG_INFO("Android preparation driver-cache checkpoint: saved={}",saved);}
-                    catch(const std::exception& e){cache->androidPipelineSavedGeneration=0;LOG_WARNING("Android preparation cache checkpoint failed: {}",e.what());}
-                }
-            }
-#endif
+// Renderer initialization checkpoints the shared driver cache after worker join.
+
             return {};
         }, ResetGpu);
         LOG_INFO("video: backend selection {}; configured={} (unchanged)", selection.Describe(), backend::Name(configured));
@@ -3282,24 +3272,7 @@ namespace gpu::video
     {
 #if defined(__ANDROID__)
         const auto presentStarted = std::chrono::steady_clock::now();
-        if(g_vulkan && g_device) {
-            auto* device=static_cast<plume::VulkanDevice*>(g_device.get());
-            static bool cacheReported=false;
-            if(!cacheReported) {
-                cacheReported=true;
-                LOG_INFO("Android Vulkan pipeline cache: enabled={} loadedBytes={} (driver binary; hit rate unknown)",
-                    device->androidPipelineCache!=VK_NULL_HANDLE,device->androidPipelineLoadedBytes);
-            }
-            static auto cacheSaveTime=std::chrono::steady_clock::time_point{};
-            const auto now=std::chrono::steady_clock::now();
-            if(now-cacheSaveTime>=std::chrono::seconds(15)) {
-                cacheSaveTime=now;
-                const auto cacheStarted=std::chrono::steady_clock::now();
-                device->saveAndroidPipelineCache();
-                const auto cacheMs=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-cacheStarted).count();
-                if(cacheMs>=2.0)LOG_INFO("Android driver-cache snapshot: hostMs={} (included in host presentation timing)",cacheMs);
-            }
-        }
+        // Renderer harvest owns persistence of the shared driver pipeline cache.
         static auto previousPresentStarted = presentStarted;
         const auto gapMs = std::chrono::duration_cast<std::chrono::milliseconds>(presentStarted - previousPresentStarted).count();
         previousPresentStarted = presentStarted;

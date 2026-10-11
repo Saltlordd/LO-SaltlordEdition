@@ -736,7 +736,6 @@ namespace gpu::renderer
             std::unordered_map<uint64_t, std::shared_ptr<PrefetchJob>> prefetchShaderJobs[2];
             // Recipes whose shader modules are still being made.
             std::vector<std::pair<PipelineKey, std::shared_ptr<PrefetchBatch>>> prefetchWaiting;
-            uint64_t prefetchHarvested = 0;
             bool scenePrefetchEnabled = false;
             bool prefetchShadersChanged = false; // a draw took a shader job over
             std::unordered_set<PipelineKey, PipelineKeyHash> failedPrefetch;
@@ -4545,8 +4544,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     return configured;
                 std::vector<std::filesystem::path> directories;
                 if (!portableShaderPackPath.empty()) directories.push_back(portableShaderPackPath.parent_path());
-                for (const auto& pack : xenos::portable_pack::CandidatePaths(PortablePackFlavor()))
-                    directories.push_back(pack.parent_path());
+                directories.push_back(xenos::portable_pack::DefaultPath(PortablePackFormat()).parent_path());
                 for (const auto& directory : directories) {
                     std::error_code ec;
                     if (auto path = directory / "pipelines_corpus.bin"; std::filesystem::is_regular_file(path, ec)) return path;

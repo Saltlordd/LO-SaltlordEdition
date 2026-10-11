@@ -93,7 +93,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         if(!DeviceUi.flexAvailable(this,flexMode)){Toast.makeText(this,DeviceUi.flexUnavailable(this),Toast.LENGTH_LONG).show();return;}
         if(assetBusy||(!launcherVisible&&setupInProgress())){Toast.makeText(this,"Finish setup or importing before changing the layout.",Toast.LENGTH_LONG).show();return;}
         LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);int pad=BrandUi.dp(this,16);panel.setPadding(pad,pad,pad,pad);
-        TextView help=new TextView(this);help.setText("Hold your open phone in landscape (wide) and look at the crease. Choose the matching picture below. Both modes put the game above the controls.\n\nAuto-Hide is temporarily off in Flex mode; your saved setting resumes in fullscreen. The manual Hide Overlay button still works.");panel.addView(help);
+        TextView help=new TextView(this);help.setText("Open your phone in landscape and choose the picture matching its crease. Gameplay sits above the controls.\n\nUse Hide manually in Flex mode; auto-hide is temporarily disabled. Cold launches return to fullscreen.");panel.addView(help);
         for(int mode=1;mode<=2;mode++){
             final int selected=mode;android.widget.Button choice=new android.widget.Button(this);
             choice.setEnabled(DeviceUi.flexAvailable(this,0));choice.setAlpha(choice.isEnabled()?1f:0.45f);
@@ -103,7 +103,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         }
         android.widget.Button customise=new android.widget.Button(this);customise.setText("Customise Flex controls");customise.setOnClickListener(v->flexControls(false));panel.addView(customise);
         android.widget.Button copy=new android.widget.Button(this);copy.setText("Copy cover layout");copy.setOnClickListener(v->flexControls(true));panel.addView(copy);
-        TextView settingsNote=new TextView(this);settingsNote.setTag("secondary");settingsNote.setText("Flex starts with 100% control opacity. Each fold layout has its own saved positions, sizes and opacity; editing is confined to the lower half.");panel.addView(settingsNote);
+        TextView settingsNote=new TextView(this);settingsNote.setTag("secondary");settingsNote.setText("Each Flex orientation saves its own layout and opacity. Edit controls in the lower pane.");panel.addView(settingsNote);
         TextView note=new TextView(this);note.setTag("secondary");note.setText("Pictures show the phone held wide. The split is centred manually. Closing and reopening the app returns to fullscreen.");panel.addView(note);
         if(flexMode!=0){android.widget.Button full=new android.widget.Button(this);full.setText("Return to fullscreen");full.setOnClickListener(v->confirmFlexMode(0));panel.addView(full);}
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(panel);
@@ -244,7 +244,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         if(assetBusy){Toast.makeText(this,"Installation is still running.",Toast.LENGTH_SHORT).show();return;}
         loadQueue();if(contentPicker!=null&&contentPicker.isShowing()){refreshContentRows();return;}
         LinearLayout page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);int pad=BrandUi.dp(this,16);page.setPadding(pad,pad,pad,pad);
-        TextView help=new TextView(this);help.setText("Add files from any folder. Keep adding until your list is ready, then install them together.\n\nStart with Disc 1, or add all four matching discs. DLC is optional: select its ZIP or Xbox package files.");page.addView(help);
+        TextView help=new TextView(this);help.setText("Add Disc 1 or all four matching discs from any folder. Optional DLC accepts ZIPs or Xbox packages. Review your list, then install together.");page.addView(help);
         contentRows=new LinearLayout(this);contentRows.setOrientation(LinearLayout.VERTICAL);page.addView(contentRows);
         android.widget.Button add=new android.widget.Button(this);add.setText("+ Add more files");add.setOnClickListener(v->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION),73));page.addView(add);
         TextView restart=new TextView(this);restart.setText(setupInProgress()?"Your files will be installed before the game starts. Large discs take time. Leave this screen running; a crystal chime confirms successful completion.":"Restart is necessary to use newly installed files. After restart, this screen shows what is installed. Your saves and originals are kept.");page.addView(restart);
@@ -365,19 +365,19 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         runOnUiThread(()->ShaderPreparationService.begin(this));
         return true;
     }
-    private static final String SAVE_ANYWHERE_NOTE="Enables the original game's System → Save action outside normal save points. Close Options, then reopen the game's System menu. This is an experimental feature, not a save state; it cannot capture battles or cutscenes. The game's own save restriction is retained during split-party sections. Keep a separate normal save. These use the ordinary recomp save format, but unusual save locations may not reload safely. Xbox 360 compatibility has not been verified; raw recomp files are not Xbox 360 container files.";
+    private static final String SAVE_ANYWHERE_NOTE="Use the game’s System → Save outside normal save points. Reopen that menu after enabling.\n\nExperimental; not a save state. Battles, cutscenes and split-party restrictions still apply. Keep a normal save too. Xbox 360 compatibility is unverified.";
     void changeSaveAnywhere(android.widget.Button button){
         if(nativeSaveAnywhere(-1)!=0){int result=nativeSaveAnywhere(0);button.setText("Save Anywhere (experimental): "+(nativeSaveAnywhere(-1)!=0?"on":"off"));if(result==-2)saveMessage("The setting changed for this session, but could not be saved. Try again before closing.");return;}
         AlertDialog d=new AlertDialog.Builder(this).setTitle("Enable Save Anywhere?").setMessage(SAVE_ANYWHERE_NOTE).setNegativeButton("Cancel",null).setPositiveButton("Enable",(dialog,which)->{int result=nativeSaveAnywhere(1);button.setText("Save Anywhere (experimental): "+(nativeSaveAnywhere(-1)!=0?"on":"off"));if(result==-2)saveMessage("The setting changed for this session, but could not be saved. Try again before closing.");}).create();d.show();BrandUi.finishDialog(d);
     }
     LinearLayout saveToolsPanel(boolean wizard){
         LinearLayout panel=new LinearLayout(this);panel.setOrientation(LinearLayout.VERTICAL);
-        TextView note=new TextView(this);note.setTag("secondary");note.setText(wizard?"Restore saves and touch layouts before your first game. Both are optional. To move between builds, export your backups before uninstalling; uninstalling deletes app storage.":"Transfer ordinary game saves using a ZIP. Backup and restore are available from this app's start menu before Start game, so the game cannot write to slots during a transfer. Export before uninstalling. Touch layouts have a separate backup.");panel.addView(note);
+        TextView note=new TextView(this);note.setTag("secondary");note.setText(wizard?"Restore backups before playing, or skip this step. Export saves and layouts before uninstalling; uninstalling deletes app storage.":"Back up or restore saves as a ZIP from the start menu before playing. Export before uninstalling. Touch layouts have a separate backup.");panel.addView(note);
         android.widget.Button restore=new android.widget.Button(this);restore.setText("Restore game saves from ZIP");restore.setOnClickListener(v->restoreSaves());panel.addView(restore);
         if(!wizard){android.widget.Button backup=new android.widget.Button(this);backup.setText("Backup game saves to ZIP");backup.setOnClickListener(v->exportSaves(false));panel.addView(backup);
             android.widget.Button previous=new android.widget.Button(this);previous.setText("Export backup from before last restore");previous.setEnabled(SaveBackup.previous(getFilesDir()).isFile());previous.setOnClickListener(v->exportSaves(true));panel.addView(previous);
             android.widget.Button anywhere=new android.widget.Button(this);anywhere.setText("Save Anywhere (experimental): "+(nativeSaveAnywhere(-1)!=0?"on":"off"));anywhere.setOnClickListener(v->changeSaveAnywhere(anywhere));panel.addView(anywhere);BrandUi.help(panel,"Save Anywhere",SAVE_ANYWHERE_NOTE);}
-        TextView formats=new TextView(this);formats.setTag("secondary");formats.setText("Accepts Saltlord backups and ZIPs containing upstream recomp or extracted Xenia user00-style save folders. Slot names are kept. Original Xbox 360 container files must be converted first. Save data is checked structurally; loading and progression still need testing in game.");panel.addView(formats);return panel;
+        TextView formats=new TextView(this);formats.setTag("secondary");formats.setText("Accepts Saltlord backups and ZIPs of upstream recomp or extracted Xenia user00 saves. Keeps slot names. Xbox 360 containers need conversion; compatibility is unverified. Check restored saves in game.");panel.addView(formats);return panel;
     }
     private boolean beginSaveTransfer(){
         if(assetBusy){saveMessage("Wait for the current import or backup to finish.");return false;}
@@ -414,7 +414,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
     private void closeSavePlan(SaveBackup.Plan plan){if(plan!=null)new Thread(()->{try{plan.close();}catch(IOException e){Log.w("LO.Saves","Staging cleanup failed",e);}},"save-cleanup").start();}
     private void installSavePlan(SaveBackup.Plan plan){
         pendingSaveRestore=null;AlertDialog busy=new AlertDialog.Builder(this).setTitle("Restore game saves").setMessage("Restoring checked saves…").setCancelable(false).create();busy.show();BrandUi.finishDialog(busy);
-        new Thread(()->{String message;try{if(nativeGuestStarted())throw new IOException("Game started; restart before restoring");SaveBackup.install(plan,SaveBackup.root(getFilesDir()),SaveBackup.previous(getFilesDir()));message="Game saves restored. Use Continue or Load Game after Start game. Your other slots and settings are kept. Any previous saves were backed up; export that backup from Saves & backups before uninstalling.";}catch(Exception e){Log.e("LO.Saves","Save restore failed",e);message="Could not restore saves: "+e.getMessage()+". Restart before playing; the previous saves or their backup are retained.";}finally{closeSavePlan(plan);}final String result=message;runOnUiThread(()->{busy.dismiss();assetBusy=false;saveMessage(result);});},"save-restore").start();
+        new Thread(()->{String message;try{if(nativeGuestStarted())throw new IOException("Game started; restart before restoring");SaveBackup.install(plan,SaveBackup.root(getFilesDir()),SaveBackup.previous(getFilesDir()));message="Saves restored. Start game, then choose Continue or Load Game. Previous saves were backed up; export that backup before uninstalling.";}catch(Exception e){Log.e("LO.Saves","Save restore failed",e);message="Could not restore saves: "+e.getMessage()+". Restart before playing; the previous saves or their backup are retained.";}finally{closeSavePlan(plan);}final String result=message;runOnUiThread(()->{busy.dismiss();assetBusy=false;saveMessage(result);});},"save-restore").start();
     }
     private void saveMessage(String message){if(!destroyed&&!isFinishing()&&!isDestroyed()){AlertDialog d=new AlertDialog.Builder(this).setTitle("Saves & backups").setMessage(message).setPositiveButton("OK",null).create();d.show();BrandUi.finishDialog(d);}}
     void exportLayouts(){
@@ -422,7 +422,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         catch(Exception e){layoutMessage("Backup failed: "+e.getMessage());}
     }
     void restoreLayouts(){
-        new AlertDialog.Builder(this).setTitle("Restore touch layouts?").setMessage("Replaces saved button positions, sizes, opacity, joystick settings and touch preferences from your backup. Game files, saves and graphics settings are kept.").setNegativeButton("Cancel",null).setPositiveButton("Choose backup",(d,w)->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),82)).show();
+        new AlertDialog.Builder(this).setTitle("Restore touch layouts?").setMessage("Restores touch positions, sizes, opacity, sticks and preferences. Game files, saves and graphics settings are kept.").setNegativeButton("Cancel",null).setPositiveButton("Choose backup",(d,w)->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),82)).show();
     }
     private void layoutMessage(String message){if(!isFinishing()&&!isDestroyed()){AlertDialog d=new AlertDialog.Builder(this).setTitle("Touch layout backup").setMessage(message).setPositiveButton("OK",null).create();d.show();BrandUi.finishDialog(d);}}
     private void layoutDocument(int request,Intent data){
@@ -463,7 +463,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
     android.view.View notificationSetupPanel(Runnable proceed){
         android.widget.LinearLayout panel=new android.widget.LinearLayout(this);panel.setOrientation(android.widget.LinearLayout.VERTICAL);
         android.widget.TextView why=new android.widget.TextView(this);
-        why.setText("Optional progress notifications show shader preparation while the app is minimised and let you return with a tap. You can play without allowing them. Without notifications, reopen the app to check progress.");panel.addView(why);
+        why.setText("Allow notifications to follow shader preparation while minimised. This is optional; otherwise reopen the app to check progress.");panel.addView(why);
         android.widget.Button allow=new android.widget.Button(this);allow.setText(notificationsAllowed()?"Progress notifications allowed":"Allow progress notifications");allow.setEnabled(!notificationsAllowed());
         allow.setOnClickListener(v->{getSharedPreferences("startup-options",MODE_PRIVATE).edit().putBoolean("notifications-explained",true).apply();if(android.os.Build.VERSION.SDK_INT>=33)requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS},83);});notificationPermissionButton=allow;panel.addView(allow);
         android.widget.Button skip=new android.widget.Button(this);skip.setText("Continue without notifications");skip.setVisibility(notificationsAllowed()?android.view.View.GONE:android.view.View.VISIBLE);
@@ -666,7 +666,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
 
     private File pendingLogExport;
     private boolean logExportBusy;
-    static final String REPORT_HELP="Email the saved report to saltlordstrikes@gmail.com. Include your device model, RAM, storage capacity, chipset, what happened, what you expected, and detailed steps to reproduce it. Say whether it happens every time or only on a first encounter, and whether you used the cover, inner or Flex layout. Screenshots or a short video are helpful. Automatically detected device details are included where available; please correct or complete them. Pipeline state/hash warmup metadata may be included; shader binaries and saves are not included.";
+    static final String REPORT_HELP="Attach the report to a GitHub issue or email saltlordstrikes@gmail.com. Add what happened, what you expected and steps to reproduce it. Mention whether it happens only on first encounter. Review the report before sharing; nothing is sent automatically.";
     void saveDiagnosticReport() {
         if(logExportBusy){Toast.makeText(this,"Finish or cancel the open file picker first.",Toast.LENGTH_SHORT).show();return;}
         logExportBusy=true;
@@ -679,7 +679,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         }catch(IOException|RuntimeException e){if(snapshot!=null)snapshot.delete();runOnUiThread(()->{logExportBusy=false;saveMessage("Could not prepare report: "+e.getMessage());});}},"diagnostic-snapshot").start();
     }
     private void saveLogDocument(Uri uri){File snapshot=pendingLogExport;pendingLogExport=null;if(snapshot==null||!snapshot.isFile()||snapshot.length()==0){logExportBusy=false;saveMessage("The prepared report is unavailable. Please retry Save diagnostic report.");return;}
-        new Thread(()->{String message;try(java.io.InputStream input=new FileInputStream(snapshot);java.io.OutputStream output=getContentResolver().openOutputStream(uri,"wt")){if(output==null)throw new IOException("Cannot open destination");DiagnosticReport.copy(input,output);output.flush();message="Report saved.\n\n"+REPORT_HELP;}catch(IOException|RuntimeException e){message="Could not save report: "+e.getMessage()+". Retry Save diagnostic report.";}finally{snapshot.delete();}final String result=message;runOnUiThread(()->{logExportBusy=false;if(!destroyed&&!isFinishing())saveMessage(result);});},"diagnostic-save").start();
+        new Thread(()->{String message;try(java.io.InputStream input=new FileInputStream(snapshot);java.io.OutputStream output=getContentResolver().openOutputStream(uri,"wt")){if(output==null)throw new IOException("Cannot open destination");DiagnosticReport.copy(input,output);output.flush();message="Report saved.\n\nEmail it to saltlordstrikes@gmail.com or attach it to a GitHub issue. Include what happened and how to reproduce it. Review before sharing.";}catch(IOException|RuntimeException e){message="Could not save report: "+e.getMessage()+". Retry Save diagnostic report.";}finally{snapshot.delete();}final String result=message;runOnUiThread(()->{logExportBusy=false;if(!destroyed&&!isFinishing())saveMessage(result);});},"diagnostic-save").start();
     }
 
     @Override protected void onDestroy() {

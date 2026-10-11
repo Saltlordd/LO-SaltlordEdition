@@ -1,11 +1,11 @@
 package io.github.freefrank.lostodyssey;
 import android.app.AlertDialog;import android.content.Context;import android.widget.*;
 final class GraphicsChoices {
- static final String HELP="SMAA smooths edges and was visually clearer at 720p in Z Fold 8 Ultra testing. FXAA can soften small text and make a 720p image look muddy. This is an image-quality observation, not proof that SMAA is faster. Dynamic 60 targets up to 60 FPS, not a guaranteed steady 60; demanding scenes can run lower. Steady 30 targets more consistent pacing. Results vary by device, cooling, driver and scene. Some upstream in-game graphics settings are intended for PC or unavailable on Android; use these Android controls first and revert experimental changes if they cause problems.";
+ static final String HELP="Dynamic 60 targets up to 60 FPS; Steady 30 targets consistent pacing. SMAA smooths edges; FXAA gives a softer image. Lower resolution or turn AA off if gameplay slows.";
  static int[] current(){return new int[]{RuntimeReadinessActivity.nativeRenderResolution(0),RuntimeReadinessActivity.nativeFrameRate(0),RuntimeReadinessActivity.nativeAntiAliasing(-1)};}
  static void choose(Context context,int h,int fps,int aa,boolean preset,Runnable changed){int[] old=current();String warning="";
-  if(h==1080&&fps==60&&(old[0]!=h||old[1]!=fps))warning="1080p with Dynamic 60 substantially increases graphics workload. This combination is experimental and has not yet been validated in our Z Fold 8 Ultra testing. Even powerful devices may struggle. Use at your discretion; try 720p or Steady 30 if motion slows.";
-  if(h==1080&&aa!=0&&(old[0]!=h||old[2]!=aa))warning+=(warning.isEmpty()?"":"\n\n")+"Anti-aliasing at 1080p adds graphics workload and may slow your device. 1080p with SMAA held approximately 30 FPS during one Z Fold 8 Ultra test; other scenes and devices may differ. Use at your discretion.";
+  if(h==1080&&fps==60&&(old[0]!=h||old[1]!=fps))warning="1080p with Dynamic 60 adds substantial workload. Try 720p or Steady 30 if gameplay slows.";
+  if(h==1080&&aa!=0&&(old[0]!=h||old[2]!=aa))warning+=(warning.isEmpty()?"":"\n\n")+"Anti-aliasing at 1080p adds workload. Performance varies by device and scene.";
   Runnable apply=()->{if(preset){MobilePresentation.choose(context,"rgb",1);RuntimeReadinessActivity.nativeGraphicsPreset(h,aa);}else{RuntimeReadinessActivity.nativeRenderResolution(h);RuntimeReadinessActivity.nativeAntiAliasing(aa);}RuntimeReadinessActivity.nativeFrameRate(fps);changed.run();};
   if(warning.isEmpty()){apply.run();return;}AlertDialog dialog=new AlertDialog.Builder(context).setTitle("Demanding graphics combination").setMessage(warning).setNegativeButton("Cancel",null).setPositiveButton("Use anyway",(d,n)->apply.run()).create();dialog.show();BrandUi.finishDialog(dialog);
  }
@@ -13,6 +13,6 @@ final class GraphicsChoices {
  static void presets(Context c,LinearLayout panel,Runnable changed){String[] names={"Low-spec","Balanced","Performance","Quality"};int[][] choices={{720,30,0},{720,60,0},{720,60,2},{1080,30,2}};
   TextView heading=new TextView(c);heading.setText("Quick performance profiles");heading.setTextColor(BrandUi.PRIMARY);panel.addView(heading);
   for(int i=0;i<names.length;i++){final int index=i;Button b=new Button(c);int[] p=choices[i];b.setText(names[i]+" · "+p[0]+"p / "+(p[1]==60?"Dynamic 60":"Steady 30")+" / "+(p[2]==2?"SMAA":"AA Off")+(i>=2?" · Higher-end":""));b.setOnClickListener(v->choose(c,p[0],p[1],p[2],true,changed));panel.addView(b);}
-  BrandUi.help(panel,"Performance profiles","Low-spec: conservative 720p, Steady 30 and AA Off; not a guarantee that every low-end phone can run the game. Balanced: 720p and Dynamic 60 with AA Off. Performance: 720p and Dynamic 60 plus SMAA for clearer edges; our preferred motion/detail balance on Z Fold 8 Ultra. Quality: 1080p, Steady 30 and SMAA for sharper detail; approximately 30 FPS in our latest tested scene. Performance and Quality suit more capable devices. A profile uses Basic output filtering and Expanded RGB, with no upscaling/frame generation. Resolution, frame-rate target and anti-aliasing are retained on restart. You can customise afterwards. Neither 60 FPS nor an entire stable playthrough is guaranteed. Your last selections are retained.");
+  BrandUi.help(panel,"Performance profiles","Low-spec is the conservative default. Performance and Quality suit more capable devices. Profiles use Expanded RGB; you can customise settings afterwards. Results vary by device and scene.");
  }
 }

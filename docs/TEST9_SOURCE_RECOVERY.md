@@ -13,13 +13,21 @@ The original Test9 commit 8843e7549ee5844e00c665df23b429077c88f8bf was not recov
 
 ## Verification performed
 
-Production Android Java compile against SDK35 and D8 passed. Recipe tests passed normalization, v1 migration, scene tags, corruption/truncation, exact roundtrip and atomic writes. Generic/Android driver cache tests passed identity and preservation. Java corpus checks passed 3974 records, corruption/schema/truncation rejection, separate installation, learned v2/opaque-file preservation, saves/driver-cache preservation and repeat installation. Integrated Plume patch replay byte-matched all 10 modified files on base d890ac899e505fb30040e037a4037cdeca68f033. Diff whitespace checks passed.
+Production Android Java compile against SDK35 and D8 passed. Recipe tests passed normalization, v1 migration, scene tags, corruption/truncation, exact roundtrip and atomic writes. Generic/Android driver cache tests passed identity and preservation. Java corpus checks passed 3974 records, corruption/schema/truncation rejection, separate installation, learned v2/opaque-file preservation, saves/driver-cache preservation and repeat installation. Integrated Plume patch replay byte-matched all 11 modified files on base d890ac899e505fb30040e037a4037cdeca68f033. Diff whitespace checks passed.
+
+## Native rebuild completed (2026-10-11)
+
+All 88 runtime translation units and the Plume Vulkan backend compile with Android NDK r29 and link successfully with no unresolved symbols. Preserved PPC and support archives are reused, not regenerated. PPCContext size/alignment and all 206 member offsets match preserved Test9 DWARF. All 29 settings Config member offsets also match. Executable-section comparisons identify remaining differences; equality of section bytes alone does not prove relocation, data or behavioral equivalence. ARM64 runtime load segments use 16 KiB alignment.
+
+Build checks exposed and corrected missing Plume logging-header packaging, the CurrentBattle prefetch dependency, an orphan desktop map-command reference, portable-pack path/contract API mismatches and duplicate legacy video cache calls. The shared renderer now owns driver-cache persistence. The inactive Android motion-replay dependency patch is restored and compiled. The unused prefetchHarvested field was removed to restore the original renderer member layout.
+
+Final wizard/options/report text was recovered from the preserved version63 DEX string table: 37 long literals, the Performance heading, removal of the layout-note paragraph and the separate concise report-success message. This does not establish identical Java bytecode or exact original source.
 
 ## Not yet complete
 
-The reconstructed native runtime has NOT been compiled or linked. Motion replay #376 dependency fix still needs conflict resolution (inactive under ordinary Android Off/SMAA). Final shortened wizard/options/report strings have not been recovered verbatim. This checkpoint does not establish native equivalence, APK equivalence, full-game/device compatibility or reproducible end-to-end builds. The older warmup Java test targets the superseded v1 merge behavior; use pipeline_corpus_recovery_test.py for this branch.
+The original commit is still missing. Native/DEX/APK equivalence and phone performance remain unverified. No new signed APK is produced by this checkpoint; the original signing key must be recovered privately before a newly packaged build can update existing installs. Never generate a replacement signing key. The build reuses compiled game code and support libraries, so it is not a reproducible end-to-end source build.
 
-Do not build/publish a beta from this checkpoint without native validation. Keep the excellent tested version63 APK unchanged: SHA256 ce98db7ea326fd29fce049ad5ed9bcbe2ca3c006424aa7f5204b9e305ae3a655, 145945848 bytes. Corpus SHA256 5ced4aa19e9326ba1ad9a8ab695d94d720feef173ec2d68b16700d9abccb5c18.
+Keep the excellent tested version63 APK unchanged: SHA256 ce98db7ea326fd29fce049ad5ed9bcbe2ca3c006424aa7f5204b9e305ae3a655, 145945848 bytes. Corpus SHA256 5ced4aa19e9326ba1ad9a8ab695d94d720feef173ec2d68b16700d9abccb5c18.
 
 ## Plume preparation
 
@@ -27,6 +35,6 @@ On this reconstruction branch, check out Plume d890ac899e505fb30040e037a4037cdec
 
 ## Next steps
 
-Recover NDK r29 and the pinned dependency headers privately. Use preserved Test9 runtime-commands.json/build-native.py as the compilation specification, remapping source/build/toolchain paths; preserve generated PPC objects unchanged. Compile/link the runtime, resolve errors, and compare against preserved objects/symbols and APK. Resolve inactive replay dependency and exact final copy. Re-run Android Java/D8 and native tests after changes. Secure verified matching source before releasing beta0.1.1.
+Use the private native rebuild checkpoint for compiler commands, headers, logs and comparisons. Resolve remaining native differences against preserved Test9 objects; recover the original signing key privately; package a clearly labelled recovery test and compare certificates/support libraries/corpus before a phone regression test. Secure verified source before releasing beta0.1.1. The older warmup Java test targets superseded v1 merge behavior; use pipeline_corpus_recovery_test.py for this branch.
 
-No signing secrets, compiled recovery objects or user game files belong in the source archive. Integration by Saltlord with AI assistance; upstream freefrank and contributors retain their attribution/licences.
+No signing secrets, compiled recovery objects or user game files belong in the public source archive. Integration by Saltlord with AI assistance; upstream freefrank and contributors retain their attribution/licences.

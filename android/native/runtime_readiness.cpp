@@ -147,8 +147,13 @@ Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeFastForward(
 }
 extern "C" JNIEXPORT jint JNICALL
 Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeCulling(JNIEnv*, jclass, jint percent) {
-    if (percent >= 0 && percent <= 200) settings::PreviewCulling(uint32_t(percent));
-    return jint(settings::GetConfig().cullingPercent);
+    auto config = settings::GetConfig();
+    if (percent >= 0 && percent <= 200) {
+        config.cullingPercent = uint32_t(percent);
+        settings::PreviewConfig(config);
+        if (!settings::SaveConfig(config)) LOG_ERROR("Could not save culling choice; current session updated");
+    }
+    return jint(config.cullingPercent);
 }
 extern "C" JNIEXPORT jint JNICALL
 Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeFrameRate(JNIEnv*, jclass, jint fps) {

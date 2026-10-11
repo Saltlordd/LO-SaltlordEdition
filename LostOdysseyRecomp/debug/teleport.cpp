@@ -189,12 +189,9 @@ void PollCommandFile()
     uint64_t poiId = 0;
     if (operation == "poi" && !(stream >> poiId)) return;
     if ((operation == "offset" || operation == "absolute") && !(stream >> p.x >> p.y >> p.z)) return;
-    std::string map;
-    if (operation == "map" && !(stream >> map)) return;
     previousSerial = serial;
     bool accepted = false;
-    if (operation == "map") accepted = debug_menu::RequestMapJump(map.c_str()) == nullptr;
-    else if (operation == "save") accepted = debug_menu::RequestSavePosition();
+    if (operation == "save") accepted = debug_menu::RequestSavePosition();
     else if (operation == "restore") accepted = debug_menu::RequestRestorePosition();
     else if (operation == "offset") accepted = debug_menu::RequestTeleportOffset(p);
     else if (operation == "absolute") accepted = debug_menu::RequestTeleport(p);

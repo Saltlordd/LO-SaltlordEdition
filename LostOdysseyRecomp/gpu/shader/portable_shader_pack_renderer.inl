@@ -40,8 +40,9 @@ bool TryOpenPortableShaderPack(std::span<const uint8_t> xex)
             if (configured && *configured) LOG_WARNING("renderer: configured portable shader pack is missing: {}", path.string());
             return false;
         }
+        const auto contract = PortableShaderContract(xex);
         auto pack = std::make_unique<xenos::portable_pack::Reader>(path,
-            PortableShaderContract(xex), PortablePackFormat());
+            contract, PortablePackFormat());
         const auto& report = pack->Info();
         LOG_INFO("renderer: portable shader pack hit: {} records, {} unique binaries, {} file bytes, {} index bytes; lazy modules, no guest shader DXC prebuild",
             report.records, report.uniqueBinaries, report.fileBytes, report.indexBytes);

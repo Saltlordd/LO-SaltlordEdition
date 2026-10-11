@@ -340,7 +340,7 @@ final class TouchGamepadView extends View {
         idleHandler.removeCallbacks(hideIdle);cancelIdleFade();release();RuntimeReadinessActivity.nativeAppMenu(true);
         LinearLayout layout=new LinearLayout(getContext());layout.setOrientation(LinearLayout.VERTICAL);
         int pad=(int)(20*getResources().getDisplayMetrics().density);layout.setPadding(pad,pad,pad,pad);
-        TextView note=new TextView(getContext());note.setTag("secondary");note.setText("Your chosen frame-rate target is saved between launches. Steady 30 prioritises consistent motion; Dynamic 60 targets up to 60 FPS and may drop below it. Return to 30 if motion slows or becomes uneven. "+DeviceUi.layoutNote(getContext())+" "+(launcher?"Changes apply when you start the game.":"Gameplay and audio pause while Options is open; closing it resumes the previous game state."));layout.addView(note);
+        TextView note=new TextView(getContext());note.setTag("secondary");note.setText("Steady 30 targets consistent pacing. Dynamic 60 targets up to 60 FPS. Choose 30 if motion becomes uneven. Your choice is saved. "+DeviceUi.layoutNote(getContext())+" "+(launcher?"Changes apply when you start the game.":"Gameplay and audio pause while Options is open; closing it resumes the previous game state."));layout.addView(note);
         LinearLayout touchSection=section(layout,"Overlay options",false);
         LinearLayout layoutTools=section(touchSection,"Layout & backups",false);
         LinearLayout appearance=section(touchSection,"Colour, size & opacity",false);
@@ -351,14 +351,14 @@ final class TouchGamepadView extends View {
         Button rgb=new Button(getContext());
         Runnable refreshRgb=()->rgb.setText("RGB range: "+(MobilePresentation.rgb(getContext())==0?"Standard":"Expanded")+" · next launch");
         rgb.setOnClickListener(v->{try{MobilePresentation.choose(getContext(),"rgb",1-MobilePresentation.rgb(getContext()));refreshRgb.run();}catch(RuntimeException e){android.widget.Toast.makeText(getContext(),e.getMessage(),android.widget.Toast.LENGTH_LONG).show();}});refreshRgb.run();displaySection.addView(rgb);
-        BrandUi.help(displaySection,"RGB range","Expanded maps the game's limited colour range to full-range output. This is a colour preference, not a performance or resolution setting. Restart the app to apply.");
+        BrandUi.help(displaySection,"RGB range","Expanded uses full-range colour output. This changes colour, not resolution. Restart to apply.");
         Button surround=new Button(getContext());String[] borderNames={"Navy","Charcoal","Black"};
         Runnable refreshBorder=()->surround.setText("Viewport border: "+borderNames[DisplayAppearance.border(getContext())]);
         surround.setOnClickListener(v->{DisplayAppearance.setBorder(getContext(),(DisplayAppearance.border(getContext())+1)%3);refreshBorder.run();});refreshBorder.run();displaySection.addView(surround);
         Button aspect=new Button(getContext());Runnable refreshAspect=()->aspect.setText("Aspect ratio: "+(DisplayAppearance.locked16(getContext())?"Locked 16:9":"Adaptive"));
         aspect.setOnClickListener(v->{DisplayAppearance.setLocked16(getContext(),!DisplayAppearance.locked16(getContext()));refreshAspect.run();});refreshAspect.run();displaySection.addView(aspect);
-        BrandUi.help(displaySection,"Aspect ratio","Lock 16:9 to keep a traditional widescreen game viewport on every display, including the upper Flex pane. The image is fitted without stretching or cropping. Adaptive uses the existing screen layout. Movies retain their original proportions.");
-        BrandUi.help(displaySection,"Viewport border","Choose the colour of empty space around the game viewport, including 4:3 content. This does not change the game image or black bars contained inside a movie.");
+        BrandUi.help(displaySection,"Aspect ratio","16:9 fits a widescreen viewport without stretching or cropping, including in Flex mode. Adaptive follows your screen layout. Movies keep their original proportions.");
+        BrandUi.help(displaySection,"Viewport border","Changes the empty space around the viewport. It does not recolour the game or bars inside movies.");
         Button monochrome=new Button(getContext());Runnable refreshMono=()->monochrome.setText("Touch artwork: "+(preferences.getBoolean("monochrome",false)?"Monochrome":"Colour"));
         monochrome.setOnClickListener(v->{preferences.edit().putBoolean("monochrome",!preferences.getBoolean("monochrome",false)).apply();refreshMono.run();invalidate();});refreshMono.run();appearance.addView(monochrome);
         BrandUi.help(appearance,"Touch artwork","Monochrome removes colour from the touch controls while keeping their detail, transparency and your saved opacity.");
@@ -391,17 +391,17 @@ final class TouchGamepadView extends View {
             toggle.setOnClickListener(v->{int current=RuntimeReadinessActivity.nativeGraphicsEffect(id,-1);RuntimeReadinessActivity.nativeGraphicsEffect(id,current==1?0:1);refreshEffect.run();});
             refreshEffect.run();graphicsSection.addView(toggle);
         }
-        BrandUi.help(graphicsSection,"Motion blur","The game's blur during fast camera and character movement. Turn it off to keep moving scenes sharper. Applies immediately and is saved between launches.");
-        BrandUi.help(graphicsSection,"Dynamic shadows","Real-time shadows cast by characters and objects. Turning them off removes these shadows and may reduce graphics workload. Performance gains vary by scene and device. Applies immediately and is saved between launches.");
+        BrandUi.help(graphicsSection,"Motion blur","Blur during fast movement. Turn off for a sharper moving image. Applies immediately and is saved.");
+        BrandUi.help(graphicsSection,"Dynamic shadows","Shadows cast by characters and objects. Turning off may reduce workload. Applies immediately and is saved.");
         GraphicsChoices.presets(getContext(),graphicsSection,()->{refreshGraphics.run();refreshAa.run();refreshRgb.run();});
         Button culling=new Button(getContext());graphicsSection.addView(culling);
         Runnable refreshCulling=()->culling.setText("Edge culling: "+RuntimeReadinessActivity.nativeCulling(-1)+"%");
         culling.setOnClickListener(v->{int current=RuntimeReadinessActivity.nativeCulling(-1);RuntimeReadinessActivity.nativeCulling(current>=200?0:current+10);refreshCulling.run();});
         refreshCulling.run();
-        BrandUi.help(graphicsSection,"Edge culling","100% is original. Lower keeps edge objects visible longer; higher may cause pop-in. Applies now and is saved.");
+        BrandUi.help(graphicsSection,"Edge culling","100% keeps original visibility. Lower values keep objects visible longer at screen edges and may add workload; higher values can cause pop-in. Applies immediately and is saved.");
         BrandUi.help(graphicsSection,"Graphics guidance",GraphicsChoices.HELP);
         BrandUi.help(graphicsSection,"Anti-aliasing",GraphicsChoices.HELP);
-        BrandUi.help(graphicsSection,"Render resolution","720p at 30 FPS with anti-aliasing Off is the recommended starting point. 1080p draws more pixels and may slow down demanding scenes. Switch while playing to suit your phone. This changes the internal scene resolution immediately. Android presents it to the fitted game surface at its actual size; the desktop-style output resolution shown in the in-game menu does not describe that Android surface. 1080p still adds rendering work even when the image is scaled for display.");
+        BrandUi.help(graphicsSection,"Render resolution","720p is the conservative choice. 1080p gives sharper detail but adds workload. This changes internal render resolution immediately; your choice is saved.");
         LinearLayout importsSection=section(layout,"Files & GPU drivers",false);
         LinearLayout contentSection=section(importsSection,"Discs & DLC",false);
         LinearLayout driverSection=section(importsSection,"GPU drivers",false);
@@ -418,9 +418,9 @@ final class TouchGamepadView extends View {
         modeSpeed.setOnClickListener(v->{int[] state=RuntimeReadinessActivity.nativeFastForward(0,0);RuntimeReadinessActivity.nativeFastForward(2,state[1]==0?1:0);refreshSpeed.run();});
         rateSpeed.setOnClickListener(v->{int[] state=RuntimeReadinessActivity.nativeFastForward(0,0);int[] rates={2,3,4,6,8};int next=2;for(int i=0;i<rates.length;i++)if(rates[i]==state[2])next=rates[(i+1)%rates.length];RuntimeReadinessActivity.nativeFastForward(3,next);refreshSpeed.run();});
         speedSection.addView(enableSpeed);speedSection.addView(modeSpeed);speedSection.addView(rateSpeed);refreshSpeed.run();
-        TextView speedHelp=new TextView(getContext());speedHelp.setTag("secondary");speedHelp.setText("Uses the existing guest-clock Fast Forward. Close Options and release LT before activating. LT + RT does not boost. Audio is not time-stretched. These are the same settings used by the debug menu.");BrandUi.help(speedSection,"Fast Forward",speedHelp.getText().toString());
+        TextView speedHelp=new TextView(getContext());speedHelp.setTag("secondary");speedHelp.setText("Close Options and release LT before using Fast Forward. LT + RT does not boost. Audio is not time-stretched.");BrandUi.help(speedSection,"Fast Forward",speedHelp.getText().toString());
         LinearLayout debugSection=section(advancedSection,"Debug & cheats",false);
-        TextView warning=new TextView(getContext());warning.setText("Experimental features\n\nOptions in this section are intended for testing and have not been validated across a complete playthrough. They may cause unexpected behaviour, progression issues or other bugs. Use with caution.");debugSection.addView(warning);
+        TextView warning=new TextView(getContext());warning.setText("Experimental features may affect gameplay or saves. Keep a normal save backup.");debugSection.addView(warning);
         Button debug=new Button(getContext());debug.setText("Open debug menu (LB + RB)");
         debug.setEnabled(!launcher);debug.setOnClickListener(v->{options.dismiss();release();RuntimeReadinessActivity.nativeDebugMenu();});debugSection.addView(debug);
         TextView debugHelp=new TextView(getContext());debugHelp.setTag("secondary");debugHelp.setText("Use the D-pad or sticks to navigate, A to select and B to go back. LB/RB change tabs; LT/RT change categories. Memory-editing cheats can change your save; back up saves first.");debugSection.addView(debugHelp);
@@ -439,7 +439,7 @@ final class TouchGamepadView extends View {
         Button controllerHide=new Button(getContext());
         Runnable refreshControllerHide=()->controllerHide.setText("Hide overlay when a controller is connected: "+(hideWithController?"on":"off"));
         controllerHide.setOnClickListener(v->{release();hideWithController=!hideWithController;preferences.edit().putBoolean("hide-with-controller",hideWithController).apply();refreshControllerVisibility();cancelIdleFade();armIdle();invalidate();refreshControllerHide.run();});refreshControllerHide.run();visibility.addView(controllerHide);
-        BrandUi.help(visibility,"Controller overlay visibility","Hide gameplay touch controls while any physical gamepad is connected. Options and Hide/Show remain available. Your normal manual and auto-hide settings resume after all controllers disconnect. Layout editors always show controls. This preference also applies in Flex mode.");
+        BrandUi.help(visibility,"Controller overlay visibility","Hides touch controls when a gamepad connects, including in Flex mode. Options and Hide/Show stay available. Normal visibility resumes after disconnecting; editors always show controls.");
         Button buzz=new Button(getContext());buzz.setText("Button haptics: "+(haptics?"on":"off"));
         buzz.setOnClickListener(v->{haptics=!haptics;preferences.edit().putBoolean("haptics",haptics).apply();buzz.setText("Button haptics: "+(haptics?"on":"off"));feedback();});visibility.addView(buzz);
         Button stickBuzz=new Button(getContext());stickBuzz.setText("Joystick haptics: "+(stickHaptics?"on":"off"));
@@ -461,7 +461,7 @@ final class TouchGamepadView extends View {
             public void onProgressChanged(SeekBar b,int value,boolean user){if(user){autoHideSeconds=value;preferences.edit().putInt("auto-hide",value).apply();idle.setText("Auto-hide: "+(value==0?"off":value+" seconds"));}}
             public void onStartTrackingTouch(SeekBar b){}public void onStopTrackingTouch(SeekBar b){}
         });
-        TextView help=new TextView(getContext());help.setTag("secondary");help.setText("Floating sticks appear where you place your thumb instead of staying in a fixed position.");sticks.addView(help);BrandUi.help(sticks,"Floating sticks","Buttons take priority over the stick zones. Hold RT and drag the same finger to zoom and steer the camera. Lower stick travel needs less dragging. After Auto-Hide, your first touch both reveals and activates the controls.");
+        TextView help=new TextView(getContext());help.setTag("secondary");help.setText("Floating sticks appear where you place your thumb instead of staying in a fixed position.");sticks.addView(help);BrandUi.help(sticks,"Floating sticks","Buttons take priority over stick zones. Hold RT to zoom, then drag that same finger to steer the camera; release to unzoom. Lower stick travel needs less dragging. After auto-hide, the first touch reveals and activates controls.");
         Button saveReport=new Button(getContext());saveReport.setText("Save diagnostic report");saveReport.setOnClickListener(v->((RuntimeReadinessActivity)getContext()).saveDiagnosticReport());aboutSection.addView(saveReport);BrandUi.help(aboutSection,"Reporting a bug",RuntimeReadinessActivity.REPORT_HELP);
         Button report=new Button(getContext());report.setText("Finish test & save diagnostic report");
         report.setEnabled(!launcher);report.setOnClickListener(v->{if(RuntimeReadinessActivity.nativeFinishTest()){options.dismiss();android.widget.Toast.makeText(getContext(),"Finishing test — save the report from the results screen.",android.widget.Toast.LENGTH_LONG).show();}else android.widget.Toast.makeText(getContext(),"The game has not started yet.",android.widget.Toast.LENGTH_SHORT).show();});aboutSection.addView(report);
@@ -545,14 +545,14 @@ final class TouchGamepadView extends View {
     private void showWizard(int step){
         wizardOpen=true;release();invalidate();
         RuntimeReadinessActivity app=(RuntimeReadinessActivity)getContext();
-        String[] titles={"Welcome to LO: Saltlord Edition","Add your game & DLC","Choose a GPU driver","Restore your backups","Your controls & performance","Prepare shaders","Ready to play"};
-        String[] text={"Let’s get you ready to play.\n\n1. Add your game files and optional DLC.\n2. Choose a driver.\n3. Restore saves and controls if you have backups.\n4. Choose graphics settings, then prepare shaders.\n\nYou can return to this setup from Options at any time.",
-            "Start with Disc 1, or add all four discs now. Use matching USA/Europe discs from your own copy.\n\nDLC is optional. Add its ZIP or original Xbox packages from any folder. Tap Add more files until your list is ready, then install everything together.",
-            "The system driver works without extra setup.\n\nAlready have a compatible custom driver? Import its ZIP below. You can change drivers later in Options.",
-            "Moving from another Saltlord Edition build or upstream recomp? Restore game saves and touch layouts here before playing. You can skip this page on a fresh install. Game files, drivers and graphics preferences are kept separate.",
-            "Choose a profile below or adjust each setting. Our preferred performance balance on a Z Fold 8 Ultra is 720p, SMAA and Dynamic 60. For sharper detail on the inner screen, Quality uses 1080p, SMAA and Steady 30; our latest tested scene held approximately 30 FPS. Low-spec is the conservative initial default. Results vary by scene, device, driver and cooling. These are test-based choices, not promises of a stable entire playthrough. Your resolution, anti-aliasing, frame target and motion/shadow choices are saved between launches.\n\n"+DeviceUi.layoutNote(getContext())+" Customise controls later in Overlay options.",
+        String[] titles={"Welcome to LO: Saltlord Edition","Add your game & DLC","Choose a GPU driver","Restore your backups","Performance","Prepare shaders","Ready to play"};
+        String[] text={"Add your game files, choose a driver and graphics profile, then prepare shaders.\n\nHave backups? You can restore them during setup. Return here anytime from Options.",
+            "Add Disc 1 or all four matching USA/Europe discs from your own copy.\n\nDLC is optional. Add its ZIP or Xbox packages, then install your selected files together.",
+            "Use the system driver, or import a compatible custom driver ZIP. You can change drivers later in Options.",
+            "Restore save or touch-layout backups here, or skip this step for a fresh install.",
+            "Choose a profile or customise the settings below. Low-spec is the conservative default.\n\nDynamic 60 targets up to 60 FPS; results vary by device and scene. Your choices are saved.",
             ShaderPreparationView.WARNING,
-            "Setup is ready. Start game will finish installing any files waiting in your list and prepare shaders.\n\nLO: Saltlord Edition is an unofficial community project. You provide your own game files. Credits and full notices are available below and in About."};
+            "Start game installs any pending files and prepares shaders.\n\nThis is an unofficial community project. Supply your own game files; credits and notices are in About."};
         LinearLayout extras=new LinearLayout(getContext());extras.setOrientation(LinearLayout.VERTICAL);
         {
             Button report=new Button(getContext());report.setText("Save diagnostic report");

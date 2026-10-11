@@ -227,15 +227,6 @@ void PreviewFrameRate(uint32_t fps)
 #endif
     Current()=value;
 }
-void PreviewCulling(uint32_t percent)
-{
-    percent = std::min(percent, 200u);
-    std::lock_guard lock(mutex);
-    auto persisted = Read();
-    persisted.cullingPercent = percent;
-    if (!WriteConfig(persisted)) return;
-    Current().cullingPercent = percent;
-}
 void PreviewConfig(const Config &value)
 {
     std::lock_guard lock(mutex);
