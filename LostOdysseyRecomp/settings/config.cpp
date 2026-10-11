@@ -47,6 +47,7 @@ Config Validate(Config value)
     if (value.antialiasing > 3) value.antialiasing = 0;
     value.fxaa = value.antialiasing == 1;
     value.frameRate = gpu::frame_rate::Normalize(value.frameRate);
+    value.cullingPercent = std::min(value.cullingPercent, 200u);
     if (value.debugLanguage > 1) value.debugLanguage = 0;
     if (value.uiLanguage > 4)
         value.uiLanguage = 0;
@@ -122,6 +123,8 @@ Config Read()
             value.anisotropicFiltering = number;
         else if (key == "motion_blur" && number <= 1)
             value.motionBlur = number == 1;
+        else if (key == "culling")
+            value.cullingPercent = number;
         else if (key == "dynamic_shadows" && number <= 1)
             value.dynamicShadows = number == 1;
         else if (key == "upscaler")
@@ -224,6 +227,15 @@ void PreviewFrameRate(uint32_t fps)
 #endif
     Current()=value;
 }
+void PreviewCulling(uint32_t percent)
+{
+    percent = std::min(percent, 200u);
+    std::lock_guard lock(mutex);
+    auto persisted = Read();
+    persisted.cullingPercent = percent;
+    if (!WriteConfig(persisted)) return;
+    Current().cullingPercent = percent;
+}
 void PreviewConfig(const Config &value)
 {
     std::lock_guard lock(mutex);
@@ -254,6 +266,7 @@ static bool WriteConfig(const Config &value)
            << "\nanisotropic_filtering=" << value.anisotropicFiltering
            << "\nmotion_blur=" << (value.motionBlur ? 1 : 0)
            << "\ndynamic_shadows=" << (value.dynamicShadows ? 1 : 0)
+           << "\nculling=" << value.cullingPercent
            << "\nupscaler=" << uint32_t(value.upscaler) << "\ndlss_quality=" << uint32_t(value.dlssQuality)
            << "\nfsr_quality=" << uint32_t(value.fsrQuality)
            << "\nfsr_sharpness=" << value.fsrSharpnessPercent

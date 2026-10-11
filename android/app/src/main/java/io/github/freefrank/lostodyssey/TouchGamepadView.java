@@ -394,6 +394,11 @@ final class TouchGamepadView extends View {
         BrandUi.help(graphicsSection,"Motion blur","The game's blur during fast camera and character movement. Turn it off to keep moving scenes sharper. Applies immediately and is saved between launches.");
         BrandUi.help(graphicsSection,"Dynamic shadows","Real-time shadows cast by characters and objects. Turning them off removes these shadows and may reduce graphics workload. Performance gains vary by scene and device. Applies immediately and is saved between launches.");
         GraphicsChoices.presets(getContext(),graphicsSection,()->{refreshGraphics.run();refreshAa.run();refreshRgb.run();});
+        Button culling=new Button(getContext());graphicsSection.addView(culling);
+        Runnable refreshCulling=()->culling.setText("Edge culling: "+RuntimeReadinessActivity.nativeCulling(-1)+"%");
+        culling.setOnClickListener(v->{int current=RuntimeReadinessActivity.nativeCulling(-1);RuntimeReadinessActivity.nativeCulling(current>=200?0:current+10);refreshCulling.run();});
+        refreshCulling.run();
+        BrandUi.help(graphicsSection,"Edge culling","100% is original. Lower keeps edge objects visible longer; higher may cause pop-in. Applies now and is saved.");
         BrandUi.help(graphicsSection,"Graphics guidance",GraphicsChoices.HELP);
         BrandUi.help(graphicsSection,"Anti-aliasing",GraphicsChoices.HELP);
         BrandUi.help(graphicsSection,"Render resolution","720p at 30 FPS with anti-aliasing Off is the recommended starting point. 1080p draws more pixels and may slow down demanding scenes. Switch while playing to suit your phone. This changes the internal scene resolution immediately. Android presents it to the fitted game surface at its actual size; the desktop-style output resolution shown in the in-game menu does not describe that Android surface. 1080p still adds rendering work even when the image is scaled for display.");

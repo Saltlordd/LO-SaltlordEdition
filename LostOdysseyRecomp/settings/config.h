@@ -62,6 +62,7 @@ struct Config
     uint32_t anisotropicFiltering = 0; // 0 Off, otherwise 2/4/8/16x. Applied live by the renderer.
     bool motionBlur = true; // Original effect; live Android Graphics toggle.
     bool dynamicShadows = true; // Original shadow rendering; live Android Graphics toggle.
+    uint32_t cullingPercent = 100; // Live view-frustum control, 0..200.
     gpu::upscaling::Upscaler upscaler = gpu::upscaling::Upscaler::Off;
     gpu::upscaling::DlssQuality dlssQuality = gpu::upscaling::DlssQuality::Quality;
     gpu::upscaling::FsrQuality fsrQuality = gpu::upscaling::FsrQuality::Quality;
@@ -81,6 +82,7 @@ Config GetConfig();
 // Reload the complete persisted configuration once that path is authoritative.
 void ReloadConfig();
 void PreviewFrameRate(uint32_t fps);
+void PreviewCulling(uint32_t percent);
 void PreviewConfig(const Config &config);
 // Atomic replacement, preserving the previous file if writing fails.
 bool SaveConfig(const Config &config);

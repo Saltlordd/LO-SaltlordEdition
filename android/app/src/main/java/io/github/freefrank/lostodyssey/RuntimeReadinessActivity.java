@@ -174,6 +174,7 @@ public final class RuntimeReadinessActivity extends SDLActivity {
             .setNegativeButton("Keep playing",null).setPositiveButton("Exit",(d,w)->finishAndRemoveTask()).create();
         exitDialog.setOnDismissListener(d->exitDialog=null);exitDialog.show();BrandUi.finishDialog(exitDialog);
     }
+    static native int nativeCulling(int percent);
     static native int nativeFrameRate(int fps);
     static native long[] nativePerformanceSnapshot();
     static native int nativeRenderResolution(int height);
@@ -613,6 +614,12 @@ public final class RuntimeReadinessActivity extends SDLActivity {
         catch(IOException|RuntimeException e){MobilePresentation.prefs(this).edit().putString("pipeline-seed-status","Preparation failed: "+e.getMessage()).commit();Log.e("LO.Launch","Pipeline seed preparation failed; native preparation remains available",e);}
         String failed=GpuDriverStore.takeFailedBoot(this);
         if(failed!=null)runOnUiThread(()->Toast.makeText(this,"Previous custom-driver launch did not finish initialising. Using the system driver.",Toast.LENGTH_LONG).show());
+        nativeSetenv("LO_PIPELINE_CORPUS",new File(getFilesDir(),"data/cache/shaders/pipelines_corpus.bin").getAbsolutePath());
+        nativeSetenv("LO_PIPELINE_ASYNC","0");
+        nativeSetenv("LO_SHADER_WORKERS","2");
+        nativeSetenv("LO_PIPELINE_WORKERS","2");
+        nativeSetenv("LO_PIPELINE_MISS_WORKERS","2");
+        nativeSetenv("LO_PIPELINE_PREFETCH_WORKERS","2");
         nativeSetenv("LO_RENDER_TIMING",MobilePresentation.timings(this)?"1":"0");
         nativeSetenv("LO_TRACE_LANGUAGE","1");
         nativeSetenv("LO_NATIVE_LIB_DIR",getApplicationInfo().nativeLibraryDir+"/");

@@ -146,6 +146,11 @@ Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeFastForward(
     auto result=env->NewIntArray(5);if(result)env->SetIntArrayRegion(result,0,5,data);return result;
 }
 extern "C" JNIEXPORT jint JNICALL
+Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeCulling(JNIEnv*, jclass, jint percent) {
+    if (percent >= 0 && percent <= 200) settings::PreviewCulling(uint32_t(percent));
+    return jint(settings::GetConfig().cullingPercent);
+}
+extern "C" JNIEXPORT jint JNICALL
 Java_io_github_freefrank_lostodyssey_RuntimeReadinessActivity_nativeFrameRate(JNIEnv*, jclass, jint fps) {
     if (fps == 30 || fps == 60) {
         settings::PreviewFrameRate(uint32_t(fps));

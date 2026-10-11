@@ -8,6 +8,8 @@
 #include "scene_copy_promotion_shaders.h"
 #include "bloom_prefilter.h"
 #include <stdafx.h>
+#include <condition_variable>
+#include <deque>
 #include "renderer.h"
 #include <os/user_paths.h>
 #include "render_resolution.h"
@@ -30,6 +32,7 @@
 #include "occlusion_queries.h"
 #include "polygon_offset.h"
 #include "pipeline_cache.h"
+#include "driver_pipeline_cache.h"
 #include "texture_layout.h"
 #include "controller_atlas.h"
 #include "temporal_scene.h"
@@ -80,6 +83,8 @@
 #include <os/log_file.h>
 #include <os/startup_diagnostics.h>
 #include <os/capture_archive.h>
+#include <debug/map_info.h>
+#include <debug/battle_menu.h>
 #include <version.h>
 
 #ifdef LO_GPU_PLUME
@@ -130,6 +135,17 @@ namespace gpu::renderer
 {
     namespace binding = gpu::taa_collection::binding;
     namespace {
+        // Scene tags of maps and battles that started loading (game thread),
+        // consumed by the renderer's scene prefetch once a frame.
+        std::mutex g_scenePrefetchMutex;
+        std::vector<uint32_t> g_scenePrefetchRequests;
+        void RequestScenePrefetch(uint32_t tag)
+        {
+            std::lock_guard lock(g_scenePrefetchMutex);
+            if (g_scenePrefetchRequests.size() < 64 &&
+                std::find(g_scenePrefetchRequests.begin(), g_scenePrefetchRequests.end(), tag) == g_scenePrefetchRequests.end())
+                g_scenePrefetchRequests.push_back(tag);
+        }
         std::mutex framePlanMutex;
         frame_plan::FramePlan committedPlan{};
         std::atomic<uint64_t> framePlanGeneration{1};
@@ -635,14 +651,142 @@ namespace gpu::renderer
             uint32_t rectListSkipped = 0;
 
             std::unordered_map<uint64_t, Shader> shaders[2];
-            std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> pipelines;
+            // Keyed by the normalized pipeline key. sceneSerial: the scene in which
+            // the pipeline was last drawn was recorded in its recipe.
+            struct PipelineSlot { std::unique_ptr<RenderPipeline> pipeline; uint32_t sceneSerial = 0; };
+            std::unordered_map<PipelineKey, PipelineSlot, PipelineKeyHash> pipelines;
+            std::unordered_map<PipelineKey, std::unique_ptr<RenderPipeline>, PipelineKeyHash> hdrPipelines;
             // Full state recipes are portable; driver blobs and object pointers
             // are never persisted. Render maps stay on the command thread.
-            static constexpr uint32_t kPipelineRecipeVersion = 1;
-            std::unordered_set<PipelineKey, PipelineKeyHash> pipelineRecipes, preparedPipelineKeys, usedPreparedPipelineKeys;
+            // Version 2: keys are normalized (gpu::pipeline_cache::Normalize);
+            // version 1 files are normalized on load.
+            static constexpr uint32_t kPipelineRecipeVersion = 2, kOldestPipelineRecipeVersion = 1;
+            // Known recipes: the player's learned file plus the shipped corpus, with
+            // the scenes they were drawn in. Learned entries are saved. Written on the
+            // render thread under pipelineRecipeMutex (the exit flush reads it).
+            struct RecipeEntry { gpu::pipeline_cache::Scenes scenes; bool learned = false; };
+            std::unordered_map<PipelineKey, RecipeEntry, PipelineKeyHash> knownRecipes;
+            size_t learnedRecipes = 0, corpusRecipes = 0;
+            std::unordered_set<PipelineKey, PipelineKeyHash> preparedPipelineKeys, usedPreparedPipelineKeys;
             std::future<gpu::pipeline_cache::WriteResult> pipelineWrite;
             bool pipelineCacheEnabled = false, pipelineRecipesDirty = false;
             uint64_t preparedPipelineHits = 0, runtimePipelineCreates = 0;
+            std::mutex pipelineRecipeMutex;
+            // Scene being drawn (debug_menu::CurrentSceneTag), checked once a frame.
+            uint32_t sceneTag = gpu::pipeline_cache::kNoScene, sceneSerial = 1;
+            // The driver's own pipeline cache file; empty when disabled.
+            std::filesystem::path driverCachePath;
+            std::atomic<size_t> driverCacheBytes{0}; // largest size loaded or written
+            std::future<std::string> driverCacheWrite;
+            // Draw-time pipeline creations (misses) of the current frame. A shader is
+            // "seen" when an earlier recipe or created pipeline used it.
+            std::unordered_set<uint64_t> pipelineShadersSeen[2];
+            struct PipelineMiss { PipelineKey key{}; double ms = 0; bool recipe = false, vsSeen = false, psSeen = false; };
+            PipelineMiss firstPipelineMiss;
+            uint32_t pipelineMissCount = 0;
+            double pipelineMissMs = 0;
+            // Draw-time lookups served by a prefetch job this frame; the
+            // time spent waiting for jobs that were still compiling.
+            uint32_t prefetchServed = 0;
+            double prefetchWaitMs = 0;
+            // Pipeline workers: pipelines of a scene's recipes while it loads, the
+            // siblings of a draw-time miss (known recipes sharing its VS or PS), and
+            // with LO_PIPELINE_ASYNC=1 the pipelines of skipped draws; plus the pack
+            // shader modules they still need. Jobs are made and harvested on the
+            // render thread. A sibling whose other shader is not loaded yet makes it
+            // on the worker before building; such modules are never freed (plume's
+            // pipeline libraries key on module handles). A draw that needs a queued
+            // pipeline job takes it over, one that needs a running job waits for it.
+            // Declared before the pool so jobs outlive it.
+            struct PrefetchBatch {
+                uint32_t tag = 0;
+                size_t planned = 0;
+                std::atomic<size_t> remaining{0}, failed{0};
+                std::chrono::steady_clock::time_point started;
+            };
+            struct PrefetchJob : std::enable_shared_from_this<PrefetchJob> {
+                enum State : int { Queued, Running, Done, Taken };
+                // Priority order. Draw: a skipped draw needs it. Scene: a scene that is
+                // loading. Sibling: shares a shader with a draw-time miss.
+                enum Kind : uint8_t { Draw, Scene, Sibling };
+                std::atomic<int> state{Queued};
+                Kind kind = Scene; // changed under the pool mutex
+                PipelineKey key{};
+                RenderGraphicsPipelineDesc desc;
+                std::unique_ptr<RenderPipeline> pipeline;
+                std::shared_ptr<PrefetchBatch> batch;
+                // Shader job: the module of one pack record. raw stays valid after the
+                // module moves into the shader map.
+                bool shader = false, pixel = false;
+                uint64_t hash = 0;
+                std::shared_ptr<xenos::portable_pack::Reader> pack;
+                xenos::TranslatedShader info;
+                std::unique_ptr<RenderShader> module;
+                RenderShader* raw = nullptr;
+                // Sibling job whose shader is not loaded: the desc is made on the worker
+                // after the shader job (run there if still queued) has its module.
+                Shader* vs = nullptr;
+                Shader* ps = nullptr;
+                std::shared_ptr<PrefetchJob> needVs, needPs;
+            };
+            // Worker-made modules whose hash got another module first; a build may
+            // have used them, so they live as long as the shader map.
+            std::vector<std::unique_ptr<RenderShader>> orphanShaders;
+            std::unordered_map<PipelineKey, std::shared_ptr<PrefetchJob>, PipelineKeyHash> prefetchJobs;
+            std::unordered_map<uint64_t, std::shared_ptr<PrefetchJob>> prefetchShaderJobs[2];
+            // Recipes whose shader modules are still being made.
+            std::vector<std::pair<PipelineKey, std::shared_ptr<PrefetchBatch>>> prefetchWaiting;
+            uint64_t prefetchHarvested = 0;
+            bool scenePrefetchEnabled = false;
+            bool prefetchShadersChanged = false; // a draw took a shader job over
+            std::unordered_set<PipelineKey, PipelineKeyHash> failedPrefetch;
+            // Draw-time siblings: known recipes not built at the first miss, by shader.
+            // Recipes learned later are built ones, never siblings.
+            struct SiblingIndex {
+                bool built = false;
+                std::vector<std::pair<PipelineKey, const RecipeEntry*>> recipes;
+                std::unordered_map<uint64_t, std::vector<uint32_t>> byVs, byPs;
+            } siblingIndex;
+            // Workers for draw and sibling jobs (scene jobs may use them all);
+            // LO_PIPELINE_MISS_WORKERS=0 turns siblings and skipped draws off.
+            const size_t drawWorkerCap = [] {
+                if (const char* value = getenv("LO_PIPELINE_MISS_WORKERS")) return size_t(std::clamp(atoi(value), 0, 16));
+                return size_t(std::clamp(std::thread::hardware_concurrency() / 4, 2u, 6u));
+            }();
+            const bool pipelineSiblings = drawWorkerCap && !getenv("LO_NO_PIPELINE_SIBLINGS");
+            const bool pipelineAsync = drawWorkerCap && getenv("LO_PIPELINE_ASYNC") &&
+                std::string_view(getenv("LO_PIPELINE_ASYNC")) != "0";
+            bool pipelineDeferred = false; // GetPipeline's nullptr is a skipped draw, not a failure
+            const bool pipelineMissVerbose = getenv("LO_PIPELINE_MISS_LOG") != nullptr;
+            std::unordered_set<PipelineKey, PipelineKeyHash> unusedSiblings; // verbose: built, not drawn yet
+            struct WorkerStats { uint32_t queued = 0, built = 0, hits = 0, skipped = 0, shaders = 0; } workerStats; // this frame
+            // Vulkan graphics pipeline libraries: a draw-time miss links per-shader
+            // parts instead of compiling the whole pipeline. A background thread builds
+            // the parts for the shaders of known recipes. Declared after the shader
+            // and pipeline maps so it stops first.
+            bool fastLinkPipelines = false;
+            struct LibraryPrecompile {
+                std::atomic<bool> stop{false};
+                std::thread thread;
+                ~LibraryPrecompile() { stop = true; if (thread.joinable()) thread.join(); }
+            } libraryPrecompile;
+            struct PrefetchPool {
+                std::mutex mutex;
+                std::condition_variable wake, finished;
+                // One queue per job kind; siblings newest miss first. Entries that were
+                // taken over or dropped stay until a worker skips them.
+                std::deque<std::shared_ptr<PrefetchJob>> draw, scene, siblings;
+                size_t runningSmall = 0, smallCap = 1; // draw and sibling jobs
+                std::vector<std::thread> workers;
+                bool stop = false;
+                std::vector<std::shared_ptr<PrefetchJob>> finishedJobs;
+                ~PrefetchPool()
+                {
+                    { std::lock_guard lock(mutex); stop = true; draw.clear(); scene.clear(); siblings.clear(); }
+                    wake.notify_all();
+                    for (auto& worker : workers) worker.join();
+                }
+            } prefetchPool;
             std::unordered_map<RenderTargetKey, std::unique_ptr<HostTexture>, RenderTargetKeyHash> renderTargets;
             std::unordered_map<TextureKey, std::unique_ptr<HostTexture>, TextureKeyHash> textures;
 
@@ -2064,6 +2208,11 @@ namespace gpu::renderer
                 if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage BEGIN: PrepareKnownPipelines");
 #endif
                 PrepareKnownPipelines();
+                StartLibraryPrecompile();
+#if defined(__ANDROID__)
+                if (libraryPrecompile.thread.joinable()) libraryPrecompile.thread.join();
+                SaveDriverPipelineCache(true);
+#endif
 #if defined(__ANDROID__)
                 if(std::getenv("LO_ANDROID_SHADER_TRACE")) LOG_INFO("Android renderer stage END: PrepareKnownPipelines");
 #endif
@@ -4383,24 +4532,171 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 if (video::ShaderPreparationSkipped()) throw xenos::preparation::Cancelled{};
             }
 
+            std::filesystem::path RecipePath() const
+            {
+                return std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
+            }
+
+            // The shipped recipe corpus: LO_PIPELINE_CORPUS, else pipelines_corpus.bin
+            // beside the opened shader pack or in the pack's install locations.
+            std::filesystem::path CorpusPath()
+            {
+                if (const char* configured = getenv("LO_PIPELINE_CORPUS"); configured && *configured)
+                    return configured;
+                std::vector<std::filesystem::path> directories;
+                if (!portableShaderPackPath.empty()) directories.push_back(portableShaderPackPath.parent_path());
+                for (const auto& pack : xenos::portable_pack::CandidatePaths(PortablePackFlavor()))
+                    directories.push_back(pack.parent_path());
+                for (const auto& directory : directories) {
+                    std::error_code ec;
+                    if (auto path = directory / "pipelines_corpus.bin"; std::filesystem::is_regular_file(path, ec)) return path;
+                }
+                return {};
+            }
+
+            // Version 1 files are normalized. The corpus may come from another
+            // translator version: its keys name guest shaders, and a recipe whose
+            // shaders are not available is skipped like any other.
+            gpu::pipeline_cache::LoadResult LoadRecipes(const std::filesystem::path& path, bool corpus)
+            {
+                auto loaded = gpu::pipeline_cache::Load(path, corpus ? gpu::pipeline_cache::kAnyShaderVersion : xenos::cache::Version,
+                    kPipelineRecipeVersion, ValidPipelineRecipe, kOldestPipelineRecipeVersion);
+                if (!loaded.error.empty()) LOG_WARNING("renderer: ignoring pipeline recipes {}: {}", path.string(), loaded.error);
+                return loaded;
+            }
+
+            // Which known recipes startup builds; scene loads prefetch the others.
+            // Default: the player's learned recipes, and corpus recipes that are
+            // common (untagged, drawn outside any scene, or in at least
+            // LO_PIPELINE_PREBUILD_SCENES scenes, default 4). LO_PIPELINE_PREBUILD=all
+            // builds every recipe, =common applies the common rule to learned ones too.
+            static bool PrebuildAtStartup(const RecipeEntry& entry)
+            {
+                enum class Mode { All, Learned, Common };
+                static const Mode mode = [] {
+                    const std::string_view value = getenv("LO_PIPELINE_PREBUILD") ? getenv("LO_PIPELINE_PREBUILD") : "";
+                    return value == "all" ? Mode::All : value == "common" ? Mode::Common : Mode::Learned;
+                }();
+                static const size_t threshold = [] {
+                    const char* value = getenv("LO_PIPELINE_PREBUILD_SCENES");
+                    return value ? std::max<size_t>(1, strtoul(value, nullptr, 10)) : size_t(4);
+                }();
+                if (mode == Mode::All || (mode == Mode::Learned && entry.learned)) return true;
+                const size_t count = entry.scenes.Count();
+                return count == 0 || count >= threshold || entry.scenes.Contains(gpu::pipeline_cache::kNoScene);
+            }
+
+            // The shaders of a recipe in the shader maps. Pack shaders without a module
+            // yet are added to `load` and make the recipe Loading. Rect-list variants
+            // are built from guest microcode at the first draw.
+            enum class RecipeShaderState { Ready, Loading, Unavailable };
+            RecipeShaderState FindRecipeShaders(const PipelineKey& key, Shader*& vs, Shader*& ps,
+                std::vector<std::pair<bool, uint64_t>>* load)
+            {
+                bool loading = false, unavailable = false;
+                auto find = [&](bool pixel, uint64_t hash) -> Shader* {
+                    auto& map = shaders[pixel ? 1 : 0];
+                    if (const auto it = map.find(hash); it != map.end()) {
+                        unavailable |= !it->second.valid;
+                        return &it->second;
+                    }
+                    if (portableShaderPack && portableShaderPack->Contains(pixel, hash)) {
+                        loading = true;
+                        if (load) load->emplace_back(pixel, hash);
+                    } else {
+                        unavailable = true;
+                    }
+                    return nullptr;
+                };
+                vs = find(false, key.vs);
+                ps = key.ps ? find(true, key.ps) : nullptr;
+                if (unavailable) return RecipeShaderState::Unavailable;
+                if (loading) return RecipeShaderState::Loading;
+#if defined(__ANDROID__)
+                if (key.prim == 8 && rectListExpansion && vs && !vs->rectList) LoadRectListShader(*vs, key.vs);
+#endif
+                if (key.prim == 8 && rectListExpansion && !vs->rectList) return RecipeShaderState::Unavailable;
+                return RecipeShaderState::Ready;
+            }
+
+            // A worker thread's own reader of the open pack: Reader::Get decompresses
+            // a block under its lock, so sharing one stalls the render thread's loads.
+            // Null when it cannot be opened; the caller then uses the shared one.
+            std::unique_ptr<xenos::portable_pack::Reader> OpenPackReader() const
+            {
+                try {
+                    if (!portableShaderPackPath.empty())
+                        return std::make_unique<xenos::portable_pack::Reader>(portableShaderPackPath,
+                            portableShaderPackContract, PortablePackFormat());
+                } catch (const std::exception& e) { LOG_WARNING("renderer: worker shader pack reader: {}", e.what()); }
+                return nullptr;
+            }
+
+            // Startup: makes pack shader modules on worker threads (MSL compilation on
+            // Metal is the slow part) and publishes them in the shader maps.
+            void LoadPackShaders(std::vector<std::pair<bool, uint64_t>> wanted)
+            {
+                std::sort(wanted.begin(), wanted.end());
+                wanted.erase(std::unique(wanted.begin(), wanted.end()), wanted.end());
+                const auto pack = portableShaderPack;
+                if (wanted.empty() || !pack) return;
+                struct Load { xenos::TranslatedShader info; std::unique_ptr<RenderShader> module; };
+                std::vector<Load> loads(wanted.size());
+                std::atomic<size_t> next{0};
+                auto work = [&] {
+                    const auto own = OpenPackReader();
+                    auto& reader = own ? *own : *pack;
+                    for (size_t i; (i = next.fetch_add(1)) < wanted.size();) {
+                        try {
+                            if (auto record = reader.Get(wanted[i].first, wanted[i].second)) {
+                                loads[i].module = device->createShader(record->binary.data(), record->binary.size(), "main", renderFormat);
+                                loads[i].info = std::move(record->info);
+                            }
+                        } catch (const std::exception& e) {
+                            LOG_WARNING("renderer: portable shader {}_{:016x}: {}", wanted[i].first ? "ps" : "vs", wanted[i].second, e.what());
+                        }
+                    }
+                };
+                const unsigned logical =
+#if defined(__ANDROID__)
+                    2;
+#else
+                    std::max(1u, std::thread::hardware_concurrency());
+#endif
+                std::vector<std::thread> threads;
+                for (size_t t = 1; t < std::min<size_t>(logical, wanted.size()); ++t) threads.emplace_back(work);
+                work();
+                for (auto& thread : threads) thread.join();
+                for (size_t i = 0; i < wanted.size(); ++i) {
+                    // A failed record leaves no entry; the draw-time path handles it.
+                    auto& map = shaders[wanted[i].first ? 1 : 0];
+                    if (!loads[i].module || map.contains(wanted[i].second)) continue;
+                    auto& entry = map[wanted[i].second];
+                    entry.info = std::move(loads[i].info);
+                    entry.shader = std::move(loads[i].module);
+                    entry.valid = true;
+                }
+            }
+
             void PrepareKnownPipelines()
             {
                 pipelineCacheEnabled = !shaderCacheDir.empty() && !getenv("LO_NO_PIPELINE_CACHE");
                 if (!pipelineCacheEnabled) return;
-                const auto path = std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
-                const auto loaded = gpu::pipeline_cache::Load(path, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
-                if (!loaded.error.empty()) LOG_WARNING("renderer: ignoring pipeline recipes: {}", loaded.error);
-                for (const auto& key : loaded.keys) pipelineRecipes.insert(key);
-                // Learning remains enabled when eager creation is skipped.
-                if (getenv("LO_NO_PIPELINE_PREPARE") || getenv("LO_NO_SHADER_PREPARE") ||
-                    settings::GetConfig().skipShaderPrebuild || video::ShaderPreparationSkipped()) return;
-                struct Job { PipelineKey key; Shader* vs; Shader* ps; std::unique_ptr<RenderPipeline> pipeline; };
-                std::vector<Job> jobs;
-                size_t missingShaders = 0, failed = 0;
-                const auto started = std::chrono::steady_clock::now();
-                try {
-                    // A startup bundle is immutable. Restore shaders learned after it
-                    // was published before attempting the pipelines that reference them.
+                const std::string driverCache = LoadDriverPipelineCache();
+                const auto learned = LoadRecipes(RecipePath(), false);
+                const auto corpusPath = CorpusPath();
+                const auto corpus = corpusPath.empty() ? gpu::pipeline_cache::LoadResult{} : LoadRecipes(corpusPath, true);
+                {
+                    std::lock_guard lock(pipelineRecipeMutex);
+                    for (const auto& record : learned.records) {
+                        auto& entry = knownRecipes[record.key];
+                        entry.scenes.Merge(record.scenes);
+                        entry.learned = true;
+                    }
+                    learnedRecipes = learned.records.size();
+                    for (const auto& record : corpus.records) knownRecipes[record.key].scenes.Merge(record.scenes);
+                    corpusRecipes = corpus.records.size();
+                }
                     size_t learnedReady=0, learnedUnavailable=0;
                     std::set<std::pair<bool,uint64_t>> visited;
                     auto restoreDependency = [&](bool pixel,uint64_t hash) {
@@ -4421,24 +4717,43 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                             LOG_WARNING("renderer: learned shader restore {:016x}: {}",hash,e.what());
                         }
                     };
-                    for(const auto& key:loaded.keys){restoreDependency(false,key.vs);restoreDependency(true,key.ps);}
+                    for(const auto& [key,entry]:knownRecipes){restoreDependency(false,key.vs);restoreDependency(true,key.ps);}
                     LOG_INFO("renderer: learned pipeline dependencies: {} restored, {} unavailable",learnedReady,learnedUnavailable);
-                    for (const auto& key : loaded.keys) {
+                // An older file version is rewritten at the next save.
+                pipelineRecipesDirty = learned.migrated && !learned.records.empty();
+                for (const auto& [key, entry] : knownRecipes) {
+                    pipelineShadersSeen[0].insert(key.vs);
+                    pipelineShadersSeen[1].insert(key.ps);
+                }
+                if (!corpusPath.empty())
+                    LOG_INFO("renderer: pipeline corpus {}: {} recipes, {} known in total", corpusPath.string(),
+                        corpus.records.size(), knownRecipes.size());
+                scenePrefetchEnabled = !getenv("LO_NO_PIPELINE_PREFETCH");
+                // Learning remains enabled when eager creation is skipped.
+                if (getenv("LO_NO_PIPELINE_PREPARE") || getenv("LO_NO_SHADER_PREPARE") ||
+                    settings::GetConfig().skipShaderPrebuild || video::ShaderPreparationSkipped()) return;
+                struct Job { PipelineKey key; Shader* vs; Shader* ps; std::unique_ptr<RenderPipeline> pipeline; };
+                std::vector<Job> jobs;
+                size_t missingShaders = 0, failed = 0, deferred = 0;
+                const auto started = std::chrono::steady_clock::now();
+                try {
+                    std::vector<PipelineKey> wanted;
+                    std::vector<std::pair<bool, uint64_t>> load;
+                    for (const auto& [key, entry] : knownRecipes) {
+                        if (!PrebuildAtStartup(entry)) { ++deferred; continue; }
+                        Shader* vs = nullptr;
+                        Shader* ps = nullptr;
+                        if (FindRecipeShaders(key, vs, ps, &load) == RecipeShaderState::Unavailable) { ++missingShaders; continue; }
+                        wanted.push_back(key);
+                    }
+                    CheckPreparationCancel();
+                    LoadPackShaders(std::move(load));
+                    for (const auto& key : wanted) {
                         CheckPreparationCancel();
-                        const auto vs = shaders[0].find(key.vs), ps = shaders[1].find(key.ps);
-                        // Learned rectangle variants can be restored without guest microcode.
-#if defined(__ANDROID__)
-                        if (key.prim == 8 && rectListExpansion && vs != shaders[0].end() && vs->second.valid)
-                            LoadRectListShader(vs->second, key.vs);
-#endif
-                        if (vs == shaders[0].end() || !vs->second.valid ||
-                            (key.prim == 8 && rectListExpansion && !vs->second.rectList) ||
-                            (key.ps && (ps == shaders[1].end() || !ps->second.valid))) { ++missingShaders;
-#if defined(__ANDROID__)
-                            if(missingShaders<=12)LOG_INFO("Android pipeline preparation miss: vs={:016x} ps={:016x} prim={} vsValid={} psValid={} rectVariant={}",key.vs,key.ps,key.prim,vs!=shaders[0].end()&&vs->second.valid,!key.ps||(ps!=shaders[1].end()&&ps->second.valid),vs!=shaders[0].end()&&bool(vs->second.rectList));
-#endif
-                            continue; }
-                        jobs.push_back({key, &vs->second, key.ps ? &ps->second : nullptr, {}});
+                        Shader* vs = nullptr;
+                        Shader* ps = nullptr;
+                        if (FindRecipeShaders(key, vs, ps, nullptr) != RecipeShaderState::Ready) { ++missingShaders; continue; }
+                        jobs.push_back({key, vs, ps, {}});
                     }
                     const unsigned logical = std::thread::hardware_concurrency();
                     const size_t count = xenos::preparation::WorkerCount(logical, jobs.size(),
@@ -4454,20 +4769,242 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         }, [&](size_t i) {
                             auto& job = jobs[i];
                             if (!job.pipeline) ++failed;
-                            else { preparedPipelineKeys.insert(job.key); pipelines.emplace(job.key, std::move(job.pipeline)); }
+                            else { preparedPipelineKeys.insert(job.key); pipelines.emplace(job.key, PipelineSlot{ std::move(job.pipeline) }); }
                             video::SetShaderPreparationProgress(uint32_t(++done), uint32_t(jobs.size()),
                                 video::PreparationStage::Pipelines, video::PreparationUnit::Pipelines);
                             return !video::ShaderPreparationSkipped();
                         }, [] { video::PumpEvents(); return !video::ShaderPreparationSkipped(); });
-                    LOG_INFO("renderer: pipeline preparation: {} recipes, {} ready, {} missing shaders, {} failed, {} workers, {:.0f} ms",
-                        loaded.keys.size(), preparedPipelineKeys.size(), missingShaders, failed, stats.startedWorkers,
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count());
+                    LOG_INFO("renderer: pipeline preparation: {} recipes, {} ready, {} missing shaders, {} failed, {} left to scene prefetch, {} workers, {:.0f} ms, driver cache {}",
+                        knownRecipes.size(), preparedPipelineKeys.size(), missingShaders, failed, deferred, stats.startedWorkers,
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-started).count(), driverCache);
                 } catch (const xenos::preparation::Cancelled&) {
                     LOG_INFO("renderer: pipeline preparation skipped by user request");
                 } catch (const std::exception& e) {
                     LOG_WARNING("renderer: pipeline preparation stopped: {}", e.what());
                 }
                 video::SetShaderPreparationProgress(0, 0);
+            }
+
+            // Turns on fast-linked draw-time pipelines and builds the libraries for the
+            // shaders of the known recipes on a background thread.
+            void StartLibraryPrecompile()
+            {
+                fastLinkPipelines = device->getCapabilities().fastLinkPipelines && !getenv("LO_NO_PIPELINE_LIBRARY");
+                LOG_INFO("renderer: graphics pipeline libraries {}", fastLinkPipelines ? "on" :
+                    device->getCapabilities().fastLinkPipelines ? "off (LO_NO_PIPELINE_LIBRARY)" : "unsupported");
+                if (!fastLinkPipelines) return;
+                std::vector<RenderGraphicsPipelineDesc> descs;
+                descs.reserve(knownRecipes.size());
+                // Corpus recipes left to scene prefetch get their libraries too. Their
+                // shader modules are made here, before the library thread starts.
+                const auto started = std::chrono::steady_clock::now();
+                std::vector<std::pair<bool, uint64_t>> load;
+                for (const auto& [key, entry] : knownRecipes) {
+                    Shader* vs = nullptr;
+                    Shader* ps = nullptr;
+                    FindRecipeShaders(key, vs, ps, &load);
+                }
+                std::sort(load.begin(), load.end());
+                load.erase(std::unique(load.begin(), load.end()), load.end());
+                const size_t modules = load.size();
+                LoadPackShaders(std::move(load));
+                if (modules)
+                    LOG_INFO("renderer: pipeline libraries: {} shader modules for known recipes, {:.0f} ms", modules,
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+                for (const auto& [key, entry] : knownRecipes) {
+                    Shader* vs = nullptr;
+                    Shader* ps = nullptr;
+                    if (FindRecipeShaders(key, vs, ps, nullptr) != RecipeShaderState::Ready) continue;
+                    auto desc = DescribePipeline(key, vs, ps, false);
+                    desc.fastLink = true;
+                    descs.push_back(desc);
+                }
+                if (descs.empty()) return;
+                libraryPrecompile.thread = std::thread([this, descs = std::move(descs)] {
+                    os::SetCurrentThreadName("Pipeline Libraries");
+                    const auto started = std::chrono::steady_clock::now();
+                    size_t done = 0, failed = 0;
+                    for (const auto& desc : descs) {
+                        if (libraryPrecompile.stop) break;
+                        if (!device->prepareGraphicsPipelineLibraries(desc)) ++failed;
+                        ++done;
+                    }
+                    LOG_INFO("renderer: pipeline libraries for {} of {} recipes, {} failed, {:.0f} ms", done, descs.size(), failed,
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+                });
+            }
+
+            // Enables the backend's persistent pipeline cache, seeded from its file.
+            // Returns a short status for the preparation summary.
+            std::string LoadDriverPipelineCache()
+            {
+                namespace dpc = gpu::driver_pipeline_cache;
+                if (getenv("LO_NO_DRIVER_PIPELINE_CACHE")) return "disabled";
+                const char* name = nativeVulkan ? "pipeline_cache_vk.bin" :
+                    video::IsMetal() ? "pipeline_cache_metal.bin" : "pipeline_cache_dx12.bin";
+                auto path = std::filesystem::path(shaderCacheDir) / name;
+#if defined(__ANDROID__)
+                if (const char* selected = getenv("LO_ANDROID_VK_PIPELINE_CACHE"); nativeVulkan && selected && *selected) path = selected;
+#endif
+                const auto started = std::chrono::steady_clock::now();
+                std::vector<uint8_t> data;
+                std::string error, state = "empty";
+                const auto status = dpc::Read(path, data, error);
+                if (status == dpc::ReadStatus::IoError) LOG_WARNING("renderer: driver pipeline cache {}: {}", path.string(), error);
+                if (status == dpc::ReadStatus::TooLarge) state = "over the size cap, replaced";
+#if defined(LO_GPU_PLUME)
+                if (!data.empty() && nativeVulkan) {
+                    const auto& properties = static_cast<const VulkanDevice*>(device)->physicalDeviceProperties;
+                    dpc::VulkanIdentity identity{ properties.vendorID, properties.deviceID, {} };
+                    std::copy(std::begin(properties.pipelineCacheUUID), std::end(properties.pipelineCacheUUID), identity.uuid.begin());
+                    if (!dpc::ValidVulkanHeader(data, identity)) {
+                        state = "from another device or driver, replaced";
+                        data.clear();
+                    }
+                }
+#endif
+                bool accepted = false;
+                if (!device->loadPipelineCache(data.empty() ? nullptr : data.data(), data.size(), accepted))
+                    return "unsupported";
+                if (!data.empty()) state = accepted ? "loaded" : "rejected by the driver, replaced";
+                driverCacheBytes = accepted ? data.size() : 0;
+                driverCachePath = path;
+                return fmt::format("{} {} ({} bytes, {:.0f} ms)", name, state, data.size(),
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+            }
+
+            // Writes the driver cache when it grew. wait: block until written (shutdown).
+            void SaveDriverPipelineCache(bool wait)
+            {
+                if (driverCachePath.empty()) return;
+                if (driverCacheWrite.valid()) {
+                    if (!wait && driverCacheWrite.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+                    if (const auto error = driverCacheWrite.get(); !error.empty())
+                        LOG_WARNING("renderer: driver pipeline cache write: {}", error);
+                }
+                try {
+                    driverCacheWrite = std::async(std::launch::async, [this] { return WriteDriverPipelineCache(); });
+                    if (wait)
+                        if (const auto error = driverCacheWrite.get(); !error.empty())
+                            LOG_WARNING("renderer: driver pipeline cache write: {}", error);
+                } catch (const std::exception& e) { LOG_WARNING("renderer: driver pipeline cache writer: {}", e.what()); }
+            }
+
+            // Any thread: the backends serialize while pipelines are being created.
+            std::string WriteDriverPipelineCache()
+            {
+                namespace dpc = gpu::driver_pipeline_cache;
+                const size_t previous = driverCacheBytes;
+                if (const size_t size = device->getPipelineCacheSize(); size && size <= previous) return {};
+                std::vector<uint8_t> data;
+                if (!device->getPipelineCacheData(data) || data.size() <= previous) return {};
+                if (!dpc::ShouldWrite(data.size(), previous))
+                    return fmt::format("{} bytes exceed the {} MB cap; keeping the file", data.size(), dpc::kMaxBytes >> 20);
+                std::string error;
+                if (!dpc::Write(driverCachePath, data, error)) return error;
+                driverCacheBytes = data.size();
+                return {};
+            }
+
+            // Caller holds pipelineRecipeMutex or is the render thread.
+            std::vector<gpu::pipeline_cache::Record> LearnedRecipes() const
+            {
+                std::vector<gpu::pipeline_cache::Record> records;
+                records.reserve(learnedRecipes);
+                for (const auto& [key, entry] : knownRecipes)
+                    if (entry.learned) records.push_back({ key, entry.scenes });
+                return records;
+            }
+
+            // Recipes and driver cache before a std::_Exit that skips Shutdown. Runs on
+            // the exiting thread and never waits for GPU work.
+            void FlushCachesForExit()
+            {
+                if (!pipelineCacheEnabled) return;
+                std::vector<gpu::pipeline_cache::Record> snapshot;
+                {
+                    std::lock_guard lock(pipelineRecipeMutex);
+                    snapshot = LearnedRecipes();
+                }
+                const auto recipes = gpu::pipeline_cache::Write(RecipePath(), snapshot, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
+                if (!recipes.ok) LOG_WARNING("renderer: exit recipe write failed: {}", recipes.error);
+                std::string driverError = driverCachePath.empty() ? std::string{} : WriteDriverPipelineCache();
+                if (!driverError.empty()) LOG_WARNING("renderer: exit driver pipeline cache write: {}", driverError);
+                LOG_INFO("renderer: exit flush: {} pipeline recipes, driver cache {} bytes", recipes.written, size_t(driverCacheBytes));
+            }
+
+            // One line per frame with draw-time pipeline creations; one line per
+            // creation with LO_PIPELINE_MISS_LOG=1. tools/pipeline_misses.py sums them.
+            static std::string SceneLabel()
+            {
+                const auto map = debug_menu::GetMapInfo();
+                return fmt::format("map={} battle={}", map.available ? std::to_string(map.id) : std::string("-"),
+                    debug_menu::CurrentBattle());
+            }
+
+            // source: create (built here), claim (a queued job, built here), inline (a
+            // full compile was running; this thread fast-linked) or defer (skipped draw).
+            void NotePipelineMiss(const PipelineKey& key, double ms, bool recipe, const char* source = "create")
+            {
+                const PipelineMiss miss{ key, ms, recipe, pipelineShadersSeen[0].contains(key.vs), pipelineShadersSeen[1].contains(key.ps) };
+                pipelineShadersSeen[0].insert(key.vs);
+                pipelineShadersSeen[1].insert(key.ps);
+                if (!pipelineMissCount++) firstPipelineMiss = miss;
+                pipelineMissMs += ms;
+                if (pipelineMissVerbose)
+                    LOG_INFO("renderer: pipeline miss frame={} {} vs={:016x} ps={:016x} ms={:.2f} recipe={} vs_seen={} ps_seen={} scene={:08x} src={}",
+                        frame, SceneLabel(), key.vs, key.ps, ms, int(miss.recipe), int(miss.vsSeen), int(miss.psSeen), sceneTag, source);
+            }
+
+            void ReportPipelineMisses()
+            {
+                if (pipelineMissCount) {
+                    const auto& first = firstPipelineMiss;
+                    LOG_INFO("renderer: pipeline misses frame={} count={} ms={:.2f} {} first_vs={:016x} first_ps={:016x} first_ms={:.2f} recipe={} vs_seen={} ps_seen={} scene={:08x} prefetched={} prefetch_wait_ms={:.2f}",
+                        frame, pipelineMissCount, pipelineMissMs, SceneLabel(), first.key.vs, first.key.ps, first.ms,
+                        int(first.recipe), int(first.vsSeen), int(first.psSeen), sceneTag, prefetchServed, prefetchWaitMs);
+                } else if (prefetchWaitMs >= 1.0) {
+                    LOG_INFO("renderer: pipeline prefetch waits frame={} prefetched={} prefetch_wait_ms={:.2f} scene={:08x}",
+                        frame, prefetchServed, prefetchWaitMs, sceneTag);
+                }
+                if (const auto& w = workerStats; w.queued || w.built || w.hits || w.skipped || w.shaders)
+                    LOG_INFO("renderer: pipeline workers frame={} {} queued={} built={} hits={} skipped={} shaders={}",
+                        frame, SceneLabel(), w.queued, w.built, w.hits, w.skipped, w.shaders);
+                pipelineMissCount = 0;
+                pipelineMissMs = 0;
+                prefetchServed = 0;
+                prefetchWaitMs = 0;
+                workerStats = {};
+            }
+
+            // Records that a pipeline was drawn in the current scene: a new learned
+            // recipe, or a scene added to a known one.
+            void NoteRecipeUse(const PipelineKey& key)
+            {
+                if (!pipelineCacheEnabled) return;
+                auto it = knownRecipes.find(key);
+                if (it == knownRecipes.end()) {
+                    if (learnedRecipes >= gpu::pipeline_cache::kMaxRecords || !gpu::pipeline_cache::IsValid(key) || !ValidPipelineRecipe(key))
+                        return;
+                    std::lock_guard lock(pipelineRecipeMutex);
+                    it = knownRecipes.emplace(key, RecipeEntry{}).first;
+                }
+                auto& entry = it->second;
+                if (!entry.learned && learnedRecipes >= gpu::pipeline_cache::kMaxRecords) return;
+                if (entry.learned && (entry.scenes.Many() || entry.scenes.Contains(sceneTag))) return;
+                std::lock_guard lock(pipelineRecipeMutex);
+                if (!entry.learned) { entry.learned = true; ++learnedRecipes; pipelineRecipesDirty = true; }
+                pipelineRecipesDirty |= entry.scenes.Add(sceneTag);
+            }
+
+            // Once a frame: a new scene makes every pipeline record its next use.
+            void UpdateSceneTag()
+            {
+                const uint32_t current = debug_menu::CurrentSceneTag();
+                const uint32_t tag = current ? current : gpu::pipeline_cache::kNoScene;
+                if (tag == sceneTag) return;
+                sceneTag = tag;
+                ++sceneSerial;
             }
 
             void SavePipelineRecipes(bool force = false)
@@ -4488,13 +5025,466 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 }
                 if (!pipelineRecipesDirty) return;
                 try {
-                    std::vector<PipelineKey> snapshot(pipelineRecipes.begin(), pipelineRecipes.end());
-                    const auto path = std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin");
-                    pipelineWrite = std::async(std::launch::async, [path, snapshot = std::move(snapshot)] {
+                    pipelineWrite = std::async(std::launch::async, [path = RecipePath(), snapshot = LearnedRecipes()] {
                         return gpu::pipeline_cache::Write(path, snapshot, xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
                     });
                     pipelineRecipesDirty = false;
                 } catch (const std::exception& e) { LOG_WARNING("renderer: pipeline recipe writer: {}", e.what()); }
+                // New recipes mean new driver pipelines; the final write is in Shutdown.
+                if (!force) SaveDriverPipelineCache(false);
+            }
+
+            // ---- scene prefetch ---------------------------------------------------------
+            // A batch ends when each of its recipes was built, found built or dropped.
+            void FinishPrefetchRecipe(PrefetchBatch* batch, bool failed)
+            {
+                if (!batch) return; // a sibling or draw job
+                if (failed) ++batch->failed;
+                if (--batch->remaining == 0)
+                    LOG_INFO("renderer: scene prefetch {:08x} done: {} recipes, {} failed or dropped, {:.0f} ms",
+                        batch->tag, batch->planned, size_t(batch->failed),
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - batch->started).count());
+            }
+
+            // Scene jobs compile full pipelines; sibling and draw jobs build what a
+            // draw-time miss would (fast-linked with pipeline libraries).
+            std::shared_ptr<PrefetchJob> MakePipelineJob(const PipelineKey& key, Shader* vs, Shader* ps,
+                const std::shared_ptr<PrefetchBatch>& batch, PrefetchJob::Kind kind = PrefetchJob::Scene)
+            {
+                auto job = std::make_shared<PrefetchJob>();
+                job->key = key;
+                job->kind = kind;
+                job->desc = DescribeForCreation(key, vs, ps, false, kind != PrefetchJob::Scene && fastLinkPipelines);
+                job->batch = batch;
+                prefetchJobs.emplace(key, job);
+                return job;
+            }
+
+            // Siblings go to the front, the first one first; the oldest ones beyond
+            // kMaxSiblings are dropped.
+            void QueuePrefetchJobs(const std::vector<std::shared_ptr<PrefetchJob>>& jobs)
+            {
+                constexpr size_t kMaxSiblings = 128;
+                if (jobs.empty()) return;
+                StartPrefetchWorkers();
+                {
+                    std::lock_guard lock(prefetchPool.mutex);
+                    for (auto it = jobs.rbegin(); it != jobs.rend(); ++it) {
+                        if ((*it)->kind == PrefetchJob::Sibling) prefetchPool.siblings.push_front(*it);
+                    }
+                    for (const auto& job : jobs) {
+                        if (job->kind == PrefetchJob::Draw) prefetchPool.draw.push_back(job);
+                        else if (job->kind == PrefetchJob::Scene) prefetchPool.scene.push_back(job);
+                    }
+                    auto& siblings = prefetchPool.siblings;
+                    while (siblings.size() > kMaxSiblings) {
+                        const auto old = std::move(siblings.back());
+                        siblings.pop_back();
+                        // A shader job stays: another job may need it and runs it then.
+                        int expected = PrefetchJob::Queued;
+                        if (old->kind != PrefetchJob::Sibling || old->shader ||
+                            !old->state.compare_exchange_strong(expected, PrefetchJob::Taken)) continue;
+                        if (const auto found = prefetchJobs.find(old->key); found != prefetchJobs.end() && found->second == old)
+                            prefetchJobs.erase(found);
+                    }
+                }
+                prefetchPool.wake.notify_all();
+            }
+
+            // Render thread, once a frame: queues the recipes of each scene that
+            // started loading since the last frame. Shader modules the pack still has
+            // to provide are made by the workers first (MSL compilation on Metal).
+            void ProcessScenePrefetch()
+            {
+                std::vector<uint32_t> tags;
+                {
+                    std::lock_guard lock(g_scenePrefetchMutex);
+                    tags.swap(g_scenePrefetchRequests);
+                }
+                if (!scenePrefetchEnabled || !pipelineCacheEnabled) return;
+                for (const uint32_t tag : tags) {
+                    const auto started = std::chrono::steady_clock::now();
+                    auto batch = std::make_shared<PrefetchBatch>();
+                    batch->tag = tag;
+                    batch->started = started;
+                    std::vector<std::shared_ptr<PrefetchJob>> jobs;
+                    std::vector<std::pair<bool, uint64_t>> load;
+                    size_t tagged = 0, ready = 0, queued = 0, unavailable = 0, waiting = 0;
+                    for (const auto& [key, entry] : knownRecipes) {
+                        if (!entry.scenes.Contains(tag)) continue;
+                        ++tagged;
+                        if (pipelines.contains(key)) { ++ready; continue; }
+                        if (prefetchJobs.contains(key)) { ++queued; continue; }
+                        Shader* vs = nullptr;
+                        Shader* ps = nullptr;
+                        switch (FindRecipeShaders(key, vs, ps, &load)) {
+                        case RecipeShaderState::Unavailable: ++unavailable; break;
+                        case RecipeShaderState::Loading: prefetchWaiting.emplace_back(key, batch); ++waiting; break;
+                        case RecipeShaderState::Ready: jobs.push_back(MakePipelineJob(key, vs, ps, batch)); break;
+                        }
+                    }
+                    // Shader jobs go first: the waiting recipes need them.
+                    std::vector<std::shared_ptr<PrefetchJob>> shaderJobs;
+                    for (const auto& [pixel, hash] : load) {
+                        auto& slot = prefetchShaderJobs[pixel ? 1 : 0][hash];
+                        if (slot && slot->kind == PrefetchJob::Sibling && slot->state == PrefetchJob::Queued) {
+                            // A sibling's shader job may have been dropped from its queue.
+                            std::lock_guard lock(prefetchPool.mutex);
+                            slot->kind = PrefetchJob::Scene;
+                            shaderJobs.push_back(slot);
+                        }
+                        if (slot) continue;
+                        slot = std::make_shared<PrefetchJob>();
+                        slot->shader = true;
+                        slot->pixel = pixel;
+                        slot->hash = hash;
+                        slot->pack = portableShaderPack;
+                        shaderJobs.push_back(slot);
+                    }
+                    batch->planned = jobs.size() + waiting;
+                    batch->remaining = batch->planned;
+                    LOG_INFO("renderer: scene prefetch {:08x}: {} recipes, {} ready, {} already queued, {} unavailable shaders, {} new jobs, {} waiting for {} shaders, setup {:.1f} ms",
+                        tag, tagged, ready, queued, unavailable, jobs.size(), waiting, shaderJobs.size(),
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+                    QueuePrefetchJobs(shaderJobs);
+                    QueuePrefetchJobs(jobs);
+                }
+            }
+
+            void StartPrefetchWorkers()
+            {
+                if (!prefetchPool.workers.empty()) return;
+                // Half the threads: the game keeps loading and running beside them.
+                const unsigned logical = std::thread::hardware_concurrency();
+                size_t count = std::max<size_t>(1, std::min<size_t>(xenos::preparation::HostWorkerCap(logical), logical / 2));
+                if (const char* value = getenv("LO_PIPELINE_PREFETCH_WORKERS")) count = std::max<size_t>(1, strtoul(value, nullptr, 10));
+                prefetchPool.smallCap = std::max<size_t>(1, std::min(drawWorkerCap, count));
+                for (size_t i = 0; i < count; ++i)
+                    prefetchPool.workers.emplace_back([this] { PrefetchWorker(); });
+                LOG_INFO("renderer: pipeline workers: {}, {} for draw-time jobs; siblings {}, skipped draws {}", count,
+                    prefetchPool.smallCap, !pipelineSiblings ? "off" : video::IsMetal() && !getenv("LO_PIPELINE_SIBLINGS") ? "off on Metal" : "on",
+                    pipelineAsync ? "on (LO_PIPELINE_ASYNC)" : "off");
+            }
+
+            // Under the pool mutex: the next job by priority whose kind has a free
+            // worker, already marked running. Null when none may start.
+            std::shared_ptr<PrefetchJob> NextPrefetchJob()
+            {
+                auto& pool = prefetchPool;
+                for (auto* queue : { &pool.draw, &pool.scene, &pool.siblings }) {
+                    while (!queue->empty()) {
+                        const auto& front = queue->front();
+                        const bool drawTime = front->kind != PrefetchJob::Scene;
+                        // A job promoted for a skipped draw runs from the draw queue.
+                        if (front->state != PrefetchJob::Queued || (queue != &pool.draw && front->kind == PrefetchJob::Draw)) {
+                            queue->pop_front();
+                            continue;
+                        }
+                        if (drawTime && pool.runningSmall >= pool.smallCap) break;
+                        auto job = std::move(queue->front());
+                        queue->pop_front();
+                        int expected = PrefetchJob::Queued;
+                        if (!job->state.compare_exchange_strong(expected, PrefetchJob::Running)) continue; // taken by a draw
+                        if (drawTime) ++pool.runningSmall;
+                        return job;
+                    }
+                }
+                return nullptr;
+            }
+
+            void PrefetchWorker()
+            {
+                os::SetCurrentThreadName("Pipeline Worker");
+                std::unique_ptr<xenos::portable_pack::Reader> reader;
+                bool readerTried = false;
+                for (;;) {
+                    std::shared_ptr<PrefetchJob> job;
+                    bool drawTime = false;
+                    {
+                        std::unique_lock lock(prefetchPool.mutex);
+                        prefetchPool.wake.wait(lock, [&] { return prefetchPool.stop || (job = NextPrefetchJob()) != nullptr; });
+                        if (prefetchPool.stop) return;
+                        drawTime = job->kind != PrefetchJob::Scene;
+                    }
+                    if (job->shader || job->needVs || job->needPs)
+                        if (!std::exchange(readerTried, true)) reader = OpenPackReader();
+                    xenos::portable_pack::Reader* pack = reader ? reader.get() : nullptr;
+                    if (job->shader) {
+                        LoadShaderJob(*job, pack);
+                    } else if (!job->needVs && !job->needPs) {
+                        try { job->pipeline = device->createGraphicsPipeline(job->desc); }
+                        catch (const std::exception& e) { LOG_WARNING("renderer: scene prefetch: {}", e.what()); }
+                    } else if ((!job->needVs || NeedShaderJob(*job->needVs, pack)) && (!job->needPs || NeedShaderJob(*job->needPs, pack))) {
+                        // Rect-list siblings never reach here with an unloaded VS.
+                        static Shader unloaded;
+                        auto desc = DescribeForCreation(job->key, job->vs ? job->vs : &unloaded,
+                            job->key.ps ? (job->ps ? job->ps : &unloaded) : nullptr, false, job->desc.fastLink);
+                        if (job->needVs) desc.vertexShader = job->needVs->raw;
+                        if (job->needPs) desc.pixelShader = job->needPs->raw;
+                        try { job->pipeline = device->createGraphicsPipeline(desc); }
+                        catch (const std::exception& e) { LOG_WARNING("renderer: pipeline worker: {}", e.what()); }
+                    }
+                    FinishJob(*job, drawTime);
+                    if (drawTime) prefetchPool.wake.notify_all(); // a capped job may start now
+                    if (!job->shader) FinishPrefetchRecipe(job->batch.get(), !job->pipeline);
+                }
+            }
+
+            // Any thread: makes a shader job's module, through the given reader or the
+            // job's shared one.
+            void LoadShaderJob(PrefetchJob& job, xenos::portable_pack::Reader* reader)
+            {
+                try {
+                    if (auto record = (reader ? *reader : *job.pack).Get(job.pixel, job.hash)) {
+                        job.module = device->createShader(record->binary.data(), record->binary.size(), "main", renderFormat);
+                        job.raw = job.module.get();
+                        job.info = std::move(record->info);
+                    }
+                } catch (const std::exception& e) {
+                    LOG_WARNING("renderer: pipeline worker shader {}_{:016x}: {}", job.pixel ? "ps" : "vs", job.hash, e.what());
+                }
+            }
+
+            void FinishJob(PrefetchJob& job, bool drawTime)
+            {
+                {
+                    // Under the mutex so a waiting draw cannot miss the wakeup.
+                    std::lock_guard lock(prefetchPool.mutex);
+                    job.state = PrefetchJob::Done;
+                    prefetchPool.finishedJobs.push_back(job.shared_from_this());
+                    if (drawTime) --prefetchPool.runningSmall;
+                }
+                prefetchPool.finished.notify_all();
+            }
+
+            // Any thread: the module of a shader job another job needs, running the job
+            // here when it is still queued and waiting while another thread runs it.
+            bool NeedShaderJob(PrefetchJob& job, xenos::portable_pack::Reader* reader)
+            {
+                int expected = PrefetchJob::Queued;
+                if (job.state.compare_exchange_strong(expected, PrefetchJob::Running)) {
+                    LoadShaderJob(job, reader);
+                    FinishJob(job, false);
+                } else {
+                    std::unique_lock lock(prefetchPool.mutex);
+                    prefetchPool.finished.wait(lock, [&] { return job.state == PrefetchJob::Done; });
+                }
+                return job.raw != nullptr;
+            }
+
+            // Render thread: a finished pack shader into the shader map. A module made
+            // twice may have been used by a build, so the spare one is kept.
+            bool PublishShaderJob(PrefetchJob& job)
+            {
+                if (!job.module) return false;
+                auto& map = shaders[job.pixel ? 1 : 0];
+                if (map.contains(job.hash)) {
+                    orphanShaders.push_back(std::move(job.module));
+                    return false;
+                }
+                auto& entry = map[job.hash];
+                entry.info = std::move(job.info);
+                entry.shader = std::move(job.module);
+                entry.valid = true;
+                ++workerStats.shaders;
+                return true;
+            }
+
+            // Render thread, before loading a pack shader itself: the module of a
+            // worker's job for it (run here if still queued, waited for if running), so
+            // each shader has one module. False: load it here.
+            bool TakeShaderJob(bool pixel, uint64_t hash)
+            {
+                auto& jobs = prefetchShaderJobs[pixel ? 1 : 0];
+                const auto found = jobs.find(hash);
+                if (found == jobs.end()) return false;
+                const auto job = found->second;
+                jobs.erase(found);
+                prefetchShadersChanged = true; // recipes waiting for it may go ahead
+                NeedShaderJob(*job, nullptr);
+                return PublishShaderJob(*job);
+            }
+
+            // Render thread: publishes finished shader modules, queues the recipes
+            // that were waiting for them and moves finished pipelines into the draw cache.
+            void HarvestPrefetch()
+            {
+                std::vector<std::shared_ptr<PrefetchJob>> finished;
+                { std::lock_guard lock(prefetchPool.mutex); finished.swap(prefetchPool.finishedJobs); }
+                if (finished.empty() && !prefetchShadersChanged) return;
+                bool shadersArrived = std::exchange(prefetchShadersChanged, false);
+                for (const auto& completed : finished) {
+                    auto& job = *completed;
+                    if (job.shader) {
+                        auto& map = prefetchShaderJobs[job.pixel ? 1 : 0];
+                        const auto it = map.find(job.hash);
+                        if (it == map.end() || it->second != completed) continue;
+                        PublishShaderJob(job); shadersArrived = true; map.erase(it);
+                    } else {
+                        const auto it = prefetchJobs.find(job.key);
+                        if (it == prefetchJobs.end() || it->second != completed) continue;
+                        for (const auto* need : { &job.needVs, &job.needPs }) if (*need) PublishShaderJob(**need);
+                        if (!job.pipeline) failedPrefetch.insert(job.key);
+                        else if (pipelines.try_emplace(job.key, PipelineSlot{ std::move(job.pipeline) }).second && job.kind == PrefetchJob::Sibling) {
+                            ++workerStats.built;
+                            if (pipelineMissVerbose) unusedSiblings.insert(job.key);
+                        }
+                        prefetchJobs.erase(it);
+                    }
+                }
+                if (!shadersArrived) return;
+                std::vector<std::shared_ptr<PrefetchJob>> jobs;
+                for (auto it = prefetchWaiting.begin(); it != prefetchWaiting.end(); ) {
+                    const auto& [key, batch] = *it;
+                    Shader* vs = nullptr;
+                    Shader* ps = nullptr;
+                    const bool built = pipelines.contains(key) || prefetchJobs.contains(key);
+                    const auto state = built ? RecipeShaderState::Unavailable : FindRecipeShaders(key, vs, ps, nullptr);
+                    if (state == RecipeShaderState::Loading &&
+                        ((!vs && prefetchShaderJobs[0].contains(key.vs)) || (key.ps && !ps && prefetchShaderJobs[1].contains(key.ps)))) {
+                        ++it;
+                        continue;
+                    }
+                    if (state == RecipeShaderState::Ready) jobs.push_back(MakePipelineJob(key, vs, ps, batch));
+                    else FinishPrefetchRecipe(batch.get(), !built);
+                    it = prefetchWaiting.erase(it);
+                }
+                QueuePrefetchJobs(jobs);
+            }
+
+            // Render thread, on a draw-time miss of key. A queued job is taken over
+            // (Claimed: the caller builds it; waiting would be no faster). A running
+            // job is waited for when it builds the kind of pipeline this thread would;
+            // a full compile is not waited for when a fast link is possible (Inline).
+            // With defer the draw is skipped instead of waiting (Deferred).
+            enum class JobTake { None, Claimed, Inline, Deferred, Served };
+            RenderPipeline* TakePrefetched(const PipelineKey& key, bool defer, JobTake& take)
+            {
+                take = JobTake::None;
+                const auto found = prefetchJobs.find(key);
+                if (found == prefetchJobs.end()) return nullptr;
+                const auto job = found->second;
+                if (defer && job->state != PrefetchJob::Done) {
+                    take = JobTake::Deferred;
+                    std::lock_guard lock(prefetchPool.mutex);
+                    if (job->state == PrefetchJob::Queued && job->kind != PrefetchJob::Draw) {
+                        job->kind = PrefetchJob::Draw; // its old queue entry is skipped
+                        prefetchPool.draw.push_back(job);
+                        prefetchPool.wake.notify_all();
+                    }
+                    return nullptr;
+                }
+                int expected = PrefetchJob::Queued;
+                if (job->state.compare_exchange_strong(expected, PrefetchJob::Taken)) {
+                    prefetchJobs.erase(found);
+                    FinishPrefetchRecipe(job->batch.get(), false);
+                    take = JobTake::Claimed;
+                    return nullptr;
+                }
+                // The finished job is then dropped by HarvestPrefetch.
+                if (job->desc.fastLink != fastLinkPipelines && job->state != PrefetchJob::Done) {
+                    take = JobTake::Inline;
+                    return nullptr;
+                }
+                const auto started = std::chrono::steady_clock::now();
+                {
+                    std::unique_lock lock(prefetchPool.mutex);
+                    prefetchPool.finished.wait(lock, [&] { return job->state == PrefetchJob::Done; });
+                }
+                prefetchWaitMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                prefetchJobs.erase(key);
+                for (const auto* need : { &job->needVs, &job->needPs })
+                    if (*need) PublishShaderJob(**need);
+                if (!job->pipeline) return nullptr;
+                ++prefetchServed;
+                take = JobTake::Served;
+                auto& slot = pipelines.try_emplace(key, PipelineSlot{ std::move(job->pipeline) }).first->second;
+                return slot.pipeline.get();
+            }
+
+            // Render thread, on a draw-time miss: queues known recipes that share key's
+            // PS, then those that share its VS (same formats and primitive first);
+            // recipes drawn in the current scene go first within each.
+            void QueuePipelineSiblings(const PipelineKey& key)
+            {
+                constexpr size_t kPerMiss = 16;
+                // Not on Metal unless LO_PIPELINE_SIBLINGS=1: a pipeline is cheap there and
+                // a shader module (MSL compilation) is not, and sibling modules made on the
+                // workers held up this thread's own (M1 Max: a 0.75 s first map frame took 4.9 s).
+                static const bool metalSiblings = getenv("LO_PIPELINE_SIBLINGS") != nullptr;
+                if (!pipelineSiblings || !pipelineCacheEnabled || (video::IsMetal() && !metalSiblings)) return;
+                if (!siblingIndex.built) {
+                    siblingIndex.built = true;
+                    for (const auto& [recipe, entry] : knownRecipes) {
+                        if (pipelines.contains(recipe)) continue;
+                        const auto index = uint32_t(siblingIndex.recipes.size());
+                        siblingIndex.recipes.emplace_back(recipe, &entry);
+                        siblingIndex.byVs[recipe.vs].push_back(index);
+                        if (recipe.ps) siblingIndex.byPs[recipe.ps].push_back(index);
+                    }
+                }
+                const auto vsFamily = siblingIndex.byVs.find(key.vs);
+                const auto psFamily = key.ps ? siblingIndex.byPs.find(key.ps) : siblingIndex.byPs.end();
+                if (vsFamily == siblingIndex.byVs.end() && psFamily == siblingIndex.byPs.end()) return;
+                std::vector<std::shared_ptr<PrefetchJob>> jobs, shaderJobs;
+                size_t picked = 0;
+                // The shader job for a pack shader, queued with the siblings if new.
+                const auto shaderJob = [&](bool pixel, uint64_t hash) {
+                    auto& slot = prefetchShaderJobs[pixel ? 1 : 0][hash];
+                    if (!slot) {
+                        slot = std::make_shared<PrefetchJob>();
+                        slot->kind = PrefetchJob::Sibling;
+                        slot->shader = true;
+                        slot->pixel = pixel;
+                        slot->hash = hash;
+                        slot->pack = portableShaderPack;
+                        shaderJobs.push_back(slot);
+                    }
+                    return slot;
+                };
+                const auto consider = [&](uint32_t index) {
+                    const auto& [sibling, entry] = siblingIndex.recipes[index];
+                    if (sibling == key || pipelines.contains(sibling) || prefetchJobs.contains(sibling) ||
+                        failedPrefetch.contains(sibling)) return;
+                    Shader* vs = nullptr;
+                    Shader* ps = nullptr;
+                    switch (FindRecipeShaders(sibling, vs, ps, nullptr)) {
+                    case RecipeShaderState::Unavailable: return;
+                    case RecipeShaderState::Ready: jobs.push_back(MakePipelineJob(sibling, vs, ps, nullptr, PrefetchJob::Sibling)); break;
+                    case RecipeShaderState::Loading: {
+                        // Rect-list variants are built from guest microcode at the first draw.
+                        if (sibling.prim == 8 && rectListExpansion && !vs) return;
+                        auto job = std::make_shared<PrefetchJob>();
+                        job->key = sibling;
+                        job->kind = PrefetchJob::Sibling;
+                        job->desc.fastLink = fastLinkPipelines;
+                        job->vs = vs;
+                        job->ps = ps;
+                        if (!vs) job->needVs = shaderJob(false, sibling.vs);
+                        if (sibling.ps && !ps) job->needPs = shaderJob(true, sibling.ps);
+                        prefetchJobs.emplace(sibling, job);
+                        jobs.push_back(std::move(job));
+                        break;
+                    }
+                    }
+                    ++picked;
+                };
+                // Rank 0 first: drawn in this scene and, for the VS family, same formats and primitive.
+                const auto scan = [&](const std::vector<uint32_t>& family, bool vsFamilyRank) {
+                    for (int rank = 0; rank < 4 && picked < kPerMiss; ++rank)
+                        for (const uint32_t index : family) {
+                            if (picked >= kPerMiss) break;
+                            const auto& [sibling, entry] = siblingIndex.recipes[index];
+                            const bool similar = !vsFamilyRank || (sibling.rtFormat == key.rtFormat &&
+                                sibling.depthFormat == key.depthFormat && sibling.prim == key.prim);
+                            if ((entry->scenes.Contains(sceneTag) ? 0 : 2) + (similar ? 0 : 1) == rank) consider(index);
+                        }
+                };
+                if (psFamily != siblingIndex.byPs.end()) scan(psFamily->second, false);
+                if (vsFamily != siblingIndex.byVs.end()) scan(vsFamily->second, true);
+                workerStats.queued += uint32_t(picked);
+                jobs.insert(jobs.end(), shaderJobs.begin(), shaderJobs.end());
+                QueuePrefetchJobs(jobs);
             }
 
             #include "shader/portable_shader_pack_renderer.inl"
@@ -4558,10 +5548,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     const bool lazyModules = parallelModules && !getenv("LO_SHADER_EAGER_MODULES");
                     std::unordered_set<uint64_t> wantedModules[2];
                     if (lazyModules && !getenv("LO_NO_PIPELINE_CACHE")) {
-                        const auto recipes = gpu::pipeline_cache::Load(
-                            std::filesystem::path(shaderCacheDir) / (vulkan ? "pipelines_vk12_1.bin" : "pipelines.bin"),
-                            xenos::cache::Version, kPipelineRecipeVersion, ValidPipelineRecipe);
-                        for (const auto& key : recipes.keys) {
+                        auto recipes = LoadRecipes(RecipePath(), false).records;
+                        if (const auto corpus = CorpusPath(); !corpus.empty())
+                            for (const auto& record : LoadRecipes(corpus, true).records) recipes.push_back(record);
+                        for (const auto& [key, scenes] : recipes) {
                             wantedModules[0].insert(key.vs);
                             if (key.ps) wantedModules[1].insert(key.ps);
                         }
@@ -5006,7 +5996,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     debugShaderSources->Observe(!pixel, hash, words, count, frame);
                 auto& cache = shaders[pixel ? 1 : 0];
                 auto it = cache.find(hash);
-                if (it == cache.end() && TryLoadPortableShader(pixel, hash)) it = cache.find(hash);
+                if (it == cache.end()) {
+                    ScopedTimer loadTimer{ tShader, cpuTimingEnabled };
+                    if (TryLoadPortableShader(pixel, hash)) it = cache.find(hash);
+                }
                 if (it != cache.end() && !it->second.valid && !it->second.retry.Ready()) return nullptr;
                 if (it != cache.end() && it->second.valid) {
                     if (!debugCaptureDir.empty() && it->second.valid && it->second.info.hlsl.empty()) {
@@ -6095,44 +7088,83 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 return table[f & 7];
             }
 
-            RenderPipeline* GetPipeline(const PipelineKey& key, Shader* vs, Shader* ps, RenderFormat, RenderFormat)
+            // drawKey is the draw's raw state; pipelines and recipes use its normalized form.
+            // mayDefer: with LO_PIPELINE_ASYNC=1 the draw may be skipped (nullptr and
+            // pipelineDeferred) while a worker builds its pipeline.
+            RenderPipeline* GetPipeline(const PipelineKey& drawKey, Shader* vs, Shader* ps, RenderFormat, RenderFormat, bool mayDefer = false)
             {
+                const PipelineKey key = gpu::pipeline_cache::Normalize(drawKey);
                 auto it = pipelines.find(key);
-                if (it != pipelines.end()) {
-                    return it->second.get();
-                }
+                const auto hit = [&] {
+                    if (it->second.sceneSerial != sceneSerial) {
+                        it->second.sceneSerial = sceneSerial;
+                        NoteRecipeUse(key);
+                    }
+                    if (!unusedSiblings.empty() && unusedSiblings.erase(key)) ++workerStats.hits;
+                    return it->second.pipeline.get();
+                };
+                if (it != pipelines.end()) return hit();
                 ScopedTimer timer{ tPipeline, cpuTimingEnabled };
+                if (!prefetchPool.workers.empty()) {
+                    HarvestPrefetch();
+                    if (it = pipelines.find(key); it != pipelines.end()) return hit();
+                }
+                const bool defer = mayDefer && pipelineAsync;
+                const auto started = std::chrono::steady_clock::now();
+                // Siblings first: workers build them while this thread builds or waits.
+                // Not again for a draw skipped while its pipeline builds.
+                if (!(defer && prefetchJobs.contains(key))) QueuePipelineSiblings(key);
+                JobTake take = JobTake::None;
+                if (!prefetchJobs.empty())
+                    if (RenderPipeline* prefetched = TakePrefetched(key, defer, take)) {
+                        pipelines[key].sceneSerial = sceneSerial;
+                        NoteRecipeUse(key);
+                        return prefetched;
+                    }
+                if (take == JobTake::Deferred) {
+                    ++workerStats.skipped;
+                    pipelineDeferred = true;
+                    return nullptr;
+                }
                 nPipeline++;
                 if (gpuStatsEnabled) ++runtimePipelineCreates;
-                auto pipeline = CreatePipeline(key, vs, ps, true);
+                const auto elapsed = [&] { return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count(); };
+                if (defer && take == JobTake::None && !failedPrefetch.contains(key)) {
+                    QueuePrefetchJobs({ MakePipelineJob(key, vs, ps, nullptr, PrefetchJob::Draw) });
+                    NotePipelineMiss(key, elapsed(), knownRecipes.contains(key), "defer");
+                    ++workerStats.skipped;
+                    pipelineDeferred = true;
+                    return nullptr;
+                }
+                auto pipeline = CreatePipeline(key, vs, ps, true, fastLinkPipelines);
+                NotePipelineMiss(key, elapsed(), knownRecipes.contains(key),
+                    take == JobTake::Claimed ? "claim" : take == JobTake::Inline ? "inline" : "create");
                 RenderPipeline* result = pipeline.get();
                 // A failed speculative creation must not poison the draw cache.
                 if (result) {
-                    pipelines.emplace(key, std::move(pipeline));
-                    if (pipelineCacheEnabled && pipelineRecipes.size() < gpu::pipeline_cache::kMaxRecords &&
-                        gpu::pipeline_cache::IsValid(key) && ValidPipelineRecipe(key) && pipelineRecipes.insert(key).second)
-                        pipelineRecipesDirty = true;
+                    pipelines.emplace(key, PipelineSlot{ std::move(pipeline), sceneSerial });
+                    NoteRecipeUse(key);
                 }
                 return result;
             }
 
-            std::unique_ptr<RenderPipeline> CreatePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace)
+            // Only exact game-state pipelines get a persistent name; the variant
+            // paths edit DescribePipeline's result and stay unnamed.
+            RenderGraphicsPipelineDesc DescribeForCreation(const PipelineKey& key, Shader* vs, Shader* ps, bool trace, bool fastLink)
+            {
+                auto desc = DescribePipeline(key, vs, ps, trace);
+                desc.cacheKey = gpu::pipeline_cache::detail::Hash(gpu::pipeline_cache::detail::Encode(key)) | 1;
+                desc.fastLink = fastLink;
+                return desc;
+            }
+
+            std::unique_ptr<RenderPipeline> CreatePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace, bool fastLink = false)
             {
                 if (nativeVulkan && key.prim == 1 && vs && vs->shader && vk_object_trace::Permit())
                     std::fprintf(stderr, "VK_OBJECT_TRACE route=renderer event=point_pipeline vs_hash=0x%llx module=0x%llx uses_point_size_metadata=%u color_mask=%u depth_format=%u\n",
                         vk_object_trace::Id(key.vs), vk_object_trace::Id(static_cast<const VulkanShader*>(vs->shader.get())->vk),
                         unsigned(vs->info.usesPointSize), key.colorMask, key.depthFormat);
-                AndroidStallTimer androidTimer{"graphics pipeline creation"};
-#if defined(__ANDROID__)
-                const auto began=std::chrono::steady_clock::now();
-                auto result=device->createGraphicsPipeline(DescribePipeline(key, vs, ps, trace));
-                const auto ms=std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now()-began).count();
-                // Only draw-path stalls: preparation workers never read frame/recipe containers.
-                if(trace&&ms>=16){static uint32_t reports=0;if(reports++<32)LOG_INFO("Android runtime pipeline hitch: ms={} frame={} vs={:016x} ps={:016x} prim={} learned={} prepared={} (creation preserved)",ms,frame,key.vs,key.ps,key.prim,pipelineRecipes.contains(key),preparedPipelineKeys.contains(key));}
-                return result;
-#else
-                return device->createGraphicsPipeline(DescribePipeline(key, vs, ps, trace));
-#endif
+                return device->createGraphicsPipeline(DescribeForCreation(key, vs, ps, trace, fastLink));
             }
             RenderGraphicsPipelineDesc DescribePipeline(const PipelineKey& key, Shader* vs, Shader* ps, bool trace)
             {
@@ -6157,7 +7189,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 desc.depthTargetFormat = depthFormat;
                 desc.depthBias = key.depthBias;
                 desc.slopeScaledDepthBias = std::bit_cast<float>(key.slopeBias);
-                if (trace && getenv("LO_TRACE_POLYGON_OFFSET") && (key.modeCull & 0x3800))
+                if (trace && getenv("LO_TRACE_POLYGON_OFFSET") && (key.depthBias || key.slopeBias))
                 {
                     static uint32_t reports = 0;
                     if (reports++ < 128)
@@ -6190,7 +7222,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         LOG_WARNING("renderer: distinct front/back stencil masks {:#x}/{:#x}", key.stencilRefMask, key.stencilRefMaskBack);
                 }
 
-                uint32_t blend = key.blend;
+                // Nothing is written without a color mask; such a draw is unblended
+                // (gpu::pipeline_cache::Normalize relies on it).
+                uint32_t blend = (key.colorMask & 0xF) ? key.blend : gpu::pipeline_cache::kNoBlend;
                 RenderBlendDesc& rt = desc.renderTargetBlend[0];
                 rt.srcBlend = BlendFactor(blend & 0x1F);
                 rt.blendOp = BlendOp((blend >> 5) & 7);
@@ -6612,9 +7646,10 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 key.depthFormat = depth ? uint32_t(depth->format) : 0;
                     pipelineLookupTimer.AddTo(tPipelineLookup);
                 }
-                RenderPipeline* pipeline = GetPipeline(key, vs, ps, color->format, depth ? depth->format : RenderFormat::UNKNOWN);
+                RenderPipeline* pipeline = GetPipeline(key, vs, ps, color->format, depth ? depth->format : RenderFormat::UNKNOWN, true);
                 if (!pipeline)
                 {
+                    if (std::exchange(pipelineDeferred, false)) return; // skipped while it builds
                     drops.pipeline++;
                     drops.primMask |= 1u << (info.primitiveType & 31);
                     return;
@@ -9553,9 +10588,11 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         temporalScene.ObserveCamera(anchor);
                     }
                 }
-                if (gpuStatsEnabled && preparedPipelineKeys.contains(key)) {
-                    ++preparedPipelineHits;
-                    usedPreparedPipelineKeys.insert(key);
+                if (gpuStatsEnabled) {
+                    if (const auto normalized = gpu::pipeline_cache::Normalize(key); preparedPipelineKeys.contains(normalized)) {
+                        ++preparedPipelineHits;
+                        usedPreparedPipelineKeys.insert(normalized);
+                    }
                 }
                 if (vs->info.usesRelativeConstants)
                 {
@@ -10673,6 +11710,13 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         };
 
         Renderer* g_renderer = nullptr;
+        // Held while Shutdown deletes the renderer and while an exit flush uses it.
+        std::mutex g_exitFlushMutex;
+        void FlushCachesForExit()
+        {
+            std::lock_guard lock(g_exitFlushMutex);
+            if (g_renderer) g_renderer->FlushCachesForExit();
+        }
     }
 
 #if !defined(LO_RENDERER_P2_EMBEDDED_TEST)
@@ -10688,6 +11732,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
         auto r = std::make_unique<Renderer>();
         if (!r->Init()) return false;
         g_renderer = r.release();
+        // The std::_Exit paths close the shader log first; that runs this flush.
+        os::shaderlog::SetExitFlush(&FlushCachesForExit);
+        debug_menu::SetSceneLoadListener(&RequestScenePrefetch);
         return true;
     }
 
@@ -10714,6 +11761,8 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     g_renderer->temporalUpscaler->OnDiscarded(slot.srUseId);
 #endif
             g_renderer->SavePipelineRecipes(true);
+            g_renderer->SaveDriverPipelineCache(true);
+            std::lock_guard lock(g_exitFlushMutex);
             delete g_renderer;
             g_renderer = nullptr;
         }
@@ -11300,11 +12349,15 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                 page.closed = true;
             }
             taa_collection::EndDiagnosticsFrame(collectionRenderer.frame,collectionFrame);
+            g_renderer->ReportPipelineMisses();
+            g_renderer->UpdateSceneTag();
+            g_renderer->HarvestPrefetch();
+            g_renderer->ProcessScenePrefetch();
             g_renderer->SavePipelineRecipes();
             if (stats && g_renderer->frame % 600 == 0)
                 LOG_INFO("renderer: pipeline reuse frame {}: {} prepared hits, {}/{} prepared keys used, {} runtime creates, {} recipes",
                     g_renderer->frame, g_renderer->preparedPipelineHits, g_renderer->usedPreparedPipelineKeys.size(),
-                    g_renderer->preparedPipelineKeys.size(), g_renderer->runtimePipelineCreates, g_renderer->pipelineRecipes.size());
+                    g_renderer->preparedPipelineKeys.size(), g_renderer->runtimePipelineCreates, g_renderer->knownRecipes.size());
             g_renderer->PollPsTraceRequest();
             g_renderer->AdvanceAfterPublicFlush();
         }
