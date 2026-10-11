@@ -29,9 +29,18 @@ import java.io.IOException;
 final class BrandUi {
     static void help(LinearLayout parent,String setting,String explanation){
         LinearLayout row=new LinearLayout(parent.getContext());row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(android.view.Gravity.CENTER_VERTICAL);
-        android.widget.TextView label=new android.widget.TextView(parent.getContext());label.setText(setting);label.setTextColor(PRIMARY);label.setTextSize(16);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));
-        Button help=new Button(parent.getContext());help.setText("?");help.setContentDescription("Help with "+setting);
-        help.setOnClickListener(v->{android.app.AlertDialog d=new android.app.AlertDialog.Builder(parent.getContext()).setTitle(setting).setMessage(explanation).setPositiveButton("Got it",null).create();d.show();finishDialog(d);});row.addView(help,new LinearLayout.LayoutParams(dp(parent.getContext(),48),dp(parent.getContext(),48)));parent.addView(row);
+        View previous=parent.getChildCount()>0?parent.getChildAt(parent.getChildCount()-1):null;
+        for(int i=parent.getChildCount()-1;i>=0;i--){View child=parent.getChildAt(i);if(child instanceof Button&&((Button)child).getText().toString().toLowerCase(java.util.Locale.ROOT).startsWith(setting.toLowerCase(java.util.Locale.ROOT))){previous=child;break;}}
+        int insertAt=previous instanceof Button?parent.indexOfChild(previous):parent.getChildCount();
+        if(previous instanceof Button){parent.removeView(previous);row.addView(previous,new LinearLayout.LayoutParams(0,-2,1));}
+        else {TextView label=new TextView(parent.getContext());label.setText(setting);label.setTextColor(SECONDARY);label.setTextSize(12);row.addView(label,new LinearLayout.LayoutParams(0,-2,1));}
+        Button help=new Button(parent.getContext());help.setText("?");help.setTag("compact-help");help.setTextSize(14);help.setContentDescription("Help with "+setting);
+        help.setOnClickListener(v->{AlertDialog d=new AlertDialog.Builder(parent.getContext()).setTitle(setting).setMessage(explanation).setPositiveButton("Got it",null).create();d.show();finishDialog(d);});row.addView(help,new LinearLayout.LayoutParams(dp(parent.getContext(),48),dp(parent.getContext(),48)));parent.addView(row,insertAt);
+    }
+    static void reportShortcut(LinearLayout parent,Runnable save){
+        LinearLayout row=new LinearLayout(parent.getContext());row.setGravity(android.view.Gravity.END|android.view.Gravity.CENTER_VERTICAL);
+        TextView label=new TextView(parent.getContext());label.setText("Crashed during setup?");label.setTextSize(12);label.setTextColor(SECONDARY);row.addView(label);
+        Button report=new Button(parent.getContext());report.setText("Save log");report.setTextSize(13);report.setTag("compact-help");report.setContentDescription("Save diagnostic report");report.setOnClickListener(v->save.run());row.addView(report,new LinearLayout.LayoutParams(-2,dp(parent.getContext(),48)));parent.addView(row,new LinearLayout.LayoutParams(-1,-2));
     }
     static final int SURFACE=0xff10161d,PRIMARY=0xffe5e9ec,SECONDARY=0xffb4c4d2,ACCENT=0xffa6d7f2;
     private static Bitmap full,compact,background;
@@ -66,7 +75,7 @@ final class BrandUi {
         if(view instanceof TextView){TextView t=(TextView)view;t.setTextColor("secondary".equals(t.getTag())?SECONDARY:PRIMARY);t.setLinkTextColor(ACCENT);}
         if(view instanceof Button){Button b=(Button)view;b.setAllCaps(false);boolean danger="danger".equals(b.getTag());boolean header="section-header".equals(b.getTag());boolean nested="subsection-header".equals(b.getTag());b.setTextColor(danger?0xffffe5e5:header?ACCENT:nested?0xffd3e2eb:PRIMARY);StateListDrawable states=new StateListDrawable();
             states.addState(new int[]{android.R.attr.state_pressed},buttonSurface(c,danger?0xff9b3d45:nested?0xff303e49:0xff354e60));states.addState(new int[]{},buttonSurface(c,danger?0xff78313b:header?0xff263d4e:nested?0xff1e2a34:0xff34383f));b.setBackground(states);
-            b.setMinHeight(dp(c,48));b.setPadding(dp(c,12),dp(c,8),dp(c,12),dp(c,8));
+            b.setMinWidth(0);b.setMinimumWidth(0);b.setMinHeight(dp(c,48));b.setPadding(dp(c,12),dp(c,8),dp(c,12),dp(c,8));
             if(b.getLayoutParams() instanceof ViewGroup.MarginLayoutParams)((ViewGroup.MarginLayoutParams)b.getLayoutParams()).setMargins(0,dp(c,4),0,dp(c,4));}
         if(view instanceof SeekBar){SeekBar s=(SeekBar)view;
             GradientDrawable track=new GradientDrawable();track.setColor(0xff526577);track.setCornerRadius(dp(c,4));

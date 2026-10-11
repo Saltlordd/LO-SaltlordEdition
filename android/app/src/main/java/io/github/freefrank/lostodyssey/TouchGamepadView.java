@@ -89,6 +89,12 @@ final class TouchGamepadView extends View {
     private float idleFade=1f,drawFade=1f;
     private android.animation.ValueAnimator fadeAnimator;
     private void cancelIdleFade(){android.animation.ValueAnimator old=fadeAnimator;fadeAnimator=null;if(old!=null)old.cancel();idleFade=1f;invalidate();}
+    private void fadeInOverlay(){
+        cancelIdleFade();idleFade=0f;
+        fadeAnimator=android.animation.ValueAnimator.ofFloat(0f,1f);fadeAnimator.setDuration(150);
+        fadeAnimator.addUpdateListener(a->{idleFade=(Float)a.getAnimatedValue();invalidate();});
+        fadeAnimator.addListener(new android.animation.AnimatorListenerAdapter(){@Override public void onAnimationEnd(android.animation.Animator a){if(fadeAnimator==a){fadeAnimator=null;idleFade=1f;invalidate();}}});fadeAnimator.start();
+    }
     private final Runnable hideIdle=()->{
         if(controllerHidden()||inFlexMode()||editing||options!=null||!positions.isEmpty())return;
         cancelIdleFade();manualHidden=false;
@@ -275,7 +281,7 @@ final class TouchGamepadView extends View {
             if(selected==null&&controllerHidden())return true;
             if(selected==null&&hidden){
                 if(manualHidden)return true;
-                hidden=false;instantContext();release();invalidate();
+                hidden=false;instantContext();release();fadeInOverlay();
             }
             if(selected==null)for(Control c:controls)if(c.kind<6&&eligible(c)&&!(c.kind<=2&&c.kind>=1&&stickMode(c)>0)&&c.box.contains(x,y)){selected=c;break;}
             if(selected==null)selected=floatingStick(x);
@@ -345,7 +351,7 @@ final class TouchGamepadView extends View {
         LinearLayout layoutTools=section(touchSection,"Layout & backups",false);
         LinearLayout appearance=section(touchSection,"Colour, size & opacity",false);
         LinearLayout sticks=section(touchSection,"Sticks",false);
-        LinearLayout visibility=section(touchSection,"Feedback & visibility",false);
+        LinearLayout visibility=section(touchSection,"Feedback & auto-hide",false);
         LinearLayout graphicsSection=section(layout,"Graphics",false);
         LinearLayout displaySection=graphicsSection;
         Button rgb=new Button(getContext());
@@ -425,8 +431,6 @@ final class TouchGamepadView extends View {
         debug.setEnabled(!launcher);debug.setOnClickListener(v->{options.dismiss();release();RuntimeReadinessActivity.nativeDebugMenu();});debugSection.addView(debug);
         TextView debugHelp=new TextView(getContext());debugHelp.setTag("secondary");debugHelp.setText("Use the D-pad or sticks to navigate, A to select and B to go back. LB/RB change tabs; LT/RT change categories. Memory-editing cheats can change your save; back up saves first.");debugSection.addView(debugHelp);
         LinearLayout aboutSection=section(layout,"Setup, features & reports",false);
-        Button previousReport=new Button(getContext());previousReport.setText("Save diagnostic report (also after a failed launch)");
-        previousReport.setOnClickListener(v->((RuntimeReadinessActivity)getContext()).saveDiagnosticReport());aboutSection.addView(previousReport);
         Button wizard=new Button(getContext());wizard.setText("Preview startup wizard");
         wizard.setEnabled(!launcher);wizard.setOnClickListener(v->showWizard(0));aboutSection.addView(wizard);
         Button features=new Button(getContext());features.setText("About LO: Saltlord Edition");
@@ -554,12 +558,7 @@ final class TouchGamepadView extends View {
             ShaderPreparationView.WARNING,
             "Start game installs any pending files and prepares shaders.\n\nThis is an unofficial community project. Supply your own game files; credits and notices are in About."};
         LinearLayout extras=new LinearLayout(getContext());extras.setOrientation(LinearLayout.VERTICAL);
-        {
-            Button report=new Button(getContext());report.setText("Save diagnostic report");
-            report.setOnClickListener(v->app.saveDiagnosticReport());
-            report.setGravity(android.view.Gravity.START|android.view.Gravity.CENTER_VERTICAL);extras.addView(report);
-            BrandUi.help(extras,"Crashed during setup?","Save a report here to help us investigate. You can export before shader preparation or gameplay.");
-        }
+        BrandUi.reportShortcut(extras,()->app.saveDiagnosticReport());
         if(step==1)extras.addView(app.setupFilesPanel());
         if(step==2)extras.addView(app.setupDriverPanel());
         if(step==5)extras.addView(app.notificationSetupPanel(()->{showWizard(step+1);wizardChime.play();}));

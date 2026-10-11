@@ -16,7 +16,7 @@ final class ShaderPreparationView extends FrameLayout {
   detail=new TextView(c);detail.setTextSize(17);detail.setTextColor(BrandUi.ACCENT);detail.setGravity(Gravity.CENTER);detail.setPadding(0,pad/2,0,pad/2);content.addView(detail);
   bar=new ShaderProgressBar(c);bar.setMax(1000);bar.setProgressTintList(ColorStateList.valueOf(BrandUi.ACCENT));bar.setProgressBackgroundTintList(ColorStateList.valueOf(0xff344552));barLayout=new LinearLayout.LayoutParams(-1,BrandUi.dp(c,14));barLayout.setMargins(pad,0,pad,pad);content.addView(bar,barLayout);
   note=new TextView(c);note.setText("Keep the app running until the chime, then restart. You can minimise and check progress in notifications, if allowed. Some first-encounter hitches can remain.");title.setVisibility(GONE);detail.setVisibility(GONE);note.setVisibility(GONE);note.setTextSize(16);note.setTextColor(BrandUi.SECONDARY);note.setGravity(Gravity.CENTER);content.addView(note);
-  if(c instanceof RuntimeReadinessActivity){Button report=new Button(c);report.setText("Save diagnostic report");report.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);report.setOnClickListener(v->((RuntimeReadinessActivity)c).saveDiagnosticReport());LinearLayout.LayoutParams reportLayout=new LinearLayout.LayoutParams(-2,-2);reportLayout.gravity=Gravity.START;content.addView(report,reportLayout);}
+  if(c instanceof RuntimeReadinessActivity)BrandUi.reportShortcut(content,()->((RuntimeReadinessActivity)c).saveDiagnosticReport());
 
  }
  // Measure the visible content, not just the display height: text wrapping,
