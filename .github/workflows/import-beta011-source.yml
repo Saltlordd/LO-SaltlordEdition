@@ -1,1 +1,23 @@
+name: Import beta 0.1.1 release source
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  import-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify and import the approved source
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "810c5c0a0fcab721b775797ad368204d9b79fc68fd594a0493c3e9aedf03f823  LO-SaltlordEdition-v0.1.1-Source.bundle" | sha256sum --check
+          git bundle verify ./LO-SaltlordEdition-v0.1.1-Source.bundle
+          git fetch ./LO-SaltlordEdition-v0.1.1-Source.bundle refs/heads/reconstruct-test9-v0922:refs/remotes/recovery/release-source
+          test "$(git rev-parse refs/remotes/recovery/release-source)" = "8c140d0bf56db4c6c6ff0b147932ad6c4600c063"
+          git push origin refs/remotes/recovery/release-source:refs/heads/release-beta-v0.1.1
+          echo "Release source branch is ready: release-beta-v0.1.1"
 
