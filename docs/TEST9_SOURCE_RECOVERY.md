@@ -1,4 +1,4 @@
-# Test9 source reconstruction checkpoint — not release source
+# Test9 source reconstruction and beta 0.1.1 lineage
 
 The original Test9 commit 8843e7549ee5844e00c665df23b429077c88f8bf was not recovered. This checkpoint reconstructs documented behavior from the surviving v61 foundation d1ae779e2424ebedaa010d6a2fc68e3f270e74c3 and pinned upstream v0.9.22 d3888a0d879a23ff26197a3ad29fe64975b4b6b8. It is not proven identical to the tested APK.
 
@@ -44,3 +44,7 @@ No signing secrets, compiled recovery objects or user game files belong in the p
 Restored Android synchronous library preparation, event pumping/progress and driver-cache checkpointing based on preserved Test9 disassembly. Restored the LO_PIPELINE_WORKERS limit for pack shader module creation. Removed the scene-load polling call newly introduced during reconstruction: preserved Test9 did not invoke it from the engine hook. This keeps the recovered test close to the successful native behavior rather than enabling an additional unvalidated hook. Dormant polling implementation remains available for later investigation.
 
 Remaining machine-code differences include startup shader lookup/preparation, harmless configuration validation order, build-identification logging and Vulkan device setup. They are not proven equivalent. Recovery1 should retain the tested version63 DEX, assets and eight support libraries, change the rebuilt runtime and manifest version only, and require a phone regression check before release.
+
+## Beta 0.1.1 promotion (2026-10-11)
+
+Saltlord approved Recovery1 phone performance and then the polish candidate for release. Beta version66/0.1.1-beta promotes that approved polish APK by changing version metadata only; DEX, all native libraries, assets and resources are unchanged. The original missing Test9 commit remains missing, but this release follows the rebuilt reconstructed runtime rather than claiming exact recovery. The earlier pending checks above describe historical reconstruction stages. Device compatibility and whole-game coverage remain unverified.

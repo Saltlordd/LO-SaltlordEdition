@@ -7,7 +7,7 @@ android {
         applicationId 'io.github.freefrank.lostodyssey.probe'
         minSdk 28
         targetSdk 35
-        versionCode 61
+        versionCode 66
         versionName '0.1.1-beta'
         ndk { abiFilters 'arm64-v8a' }
         externalNativeBuild {

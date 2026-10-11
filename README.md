@@ -1,3 +1,5 @@
+> **Beta 0.1.1 release source:** see [what changed, setup expectations and reporting](docs/BETA_0.1.1.md). This branch contains the reconstructed native runtime and the phone-approved Android polish.
+
 <p align="center"><img src="docs/images/lo_saltlord_logo_full.png" alt="LO: Saltlord Edition" width="560"></p>
 
 # LO: Saltlord Edition
