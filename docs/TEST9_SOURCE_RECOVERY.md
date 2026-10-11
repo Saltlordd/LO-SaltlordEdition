@@ -25,7 +25,7 @@ Final wizard/options/report text was recovered from the preserved version63 DEX 
 
 ## Not yet complete
 
-The original commit is still missing. Native/DEX/APK equivalence and phone performance remain unverified. No new signed APK is produced by this checkpoint; the original signing key must be recovered privately before a newly packaged build can update existing installs. Never generate a replacement signing key. The build reuses compiled game code and support libraries, so it is not a reproducible end-to-end source build.
+The original commit is still missing. Native/DEX/APK equivalence and phone performance remain unverified. The original signing key was recovered privately from the Phase24 kit and its certificate matches the tested APK. Recovery1 packaging is a separate test action; never generate a replacement signing key. The build reuses compiled game code and support libraries, so it is not a reproducible end-to-end source build.
 
 Keep the excellent tested version63 APK unchanged: SHA256 ce98db7ea326fd29fce049ad5ed9bcbe2ca3c006424aa7f5204b9e305ae3a655, 145945848 bytes. Corpus SHA256 5ced4aa19e9326ba1ad9a8ab695d94d720feef173ec2d68b16700d9abccb5c18.
 
@@ -35,6 +35,12 @@ On this reconstruction branch, check out Plume d890ac899e505fb30040e037a4037cdec
 
 ## Next steps
 
-Use the private native rebuild checkpoint for compiler commands, headers, logs and comparisons. Resolve remaining native differences against preserved Test9 objects; recover the original signing key privately; package a clearly labelled recovery test and compare certificates/support libraries/corpus before a phone regression test. Secure verified source before releasing beta0.1.1. The older warmup Java test targets superseded v1 merge behavior; use pipeline_corpus_recovery_test.py for this branch.
+Use the private native rebuild checkpoint for compiler commands, headers, logs and comparisons. Resolve remaining native differences against preserved Test9 objects; use the recovered original signing key privately; package a clearly labelled recovery test and compare certificates/support libraries/corpus before a phone regression test. Secure verified source before releasing beta0.1.1. The older warmup Java test targets superseded v1 merge behavior; use pipeline_corpus_recovery_test.py for this branch.
 
 No signing secrets, compiled recovery objects or user game files belong in the public source archive. Integration by Saltlord with AI assistance; upstream freefrank and contributors retain their attribution/licences.
+
+## Recovery1 native review
+
+Restored Android synchronous library preparation, event pumping/progress and driver-cache checkpointing based on preserved Test9 disassembly. Restored the LO_PIPELINE_WORKERS limit for pack shader module creation. Removed the scene-load polling call newly introduced during reconstruction: preserved Test9 did not invoke it from the engine hook. This keeps the recovered test close to the successful native behavior rather than enabling an additional unvalidated hook. Dormant polling implementation remains available for later investigation.
+
+Remaining machine-code differences include startup shader lookup/preparation, harmless configuration validation order, build-identification logging and Vulkan device setup. They are not proven equivalent. Recovery1 should retain the tested version63 DEX, assets and eight support libraries, change the rebuilt runtime and manifest version only, and require a phone regression check before release.

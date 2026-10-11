@@ -4655,12 +4655,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                         }
                     }
                 };
-                const unsigned logical =
-#if defined(__ANDROID__)
-                    2;
-#else
-                    std::max(1u, std::thread::hardware_concurrency());
-#endif
+                unsigned logical = std::max(1u, std::thread::hardware_concurrency());
+                if (const char* limit = getenv("LO_PIPELINE_WORKERS"))
+                    logical = std::max(1u, std::min(logical, unsigned(std::max(1, atoi(limit)))));
                 std::vector<std::thread> threads;
                 for (size_t t = 1; t < std::min<size_t>(logical, wanted.size()); ++t) threads.emplace_back(work);
                 work();
@@ -4781,6 +4778,9 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     LOG_WARNING("renderer: pipeline preparation stopped: {}", e.what());
                 }
                 video::SetShaderPreparationProgress(0, 0);
+#if defined(__ANDROID__)
+                SaveDriverPipelineCache(true);
+#endif
             }
 
             // Turns on fast-linked draw-time pipelines and builds the libraries for the
@@ -4818,6 +4818,24 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     descs.push_back(desc);
                 }
                 if (descs.empty()) return;
+#if defined(__ANDROID__)
+                os::SetCurrentThreadName("Pipeline Libraries");
+                const auto librariesStarted = std::chrono::steady_clock::now();
+                size_t done = 0, failed = 0;
+                for (const auto& desc : descs) {
+                    if (libraryPrecompile.stop) break;
+                    video::PumpEvents();
+                    if (video::ShaderPreparationSkipped()) break;
+                    video::SetShaderPreparationProgress(uint32_t(done), uint32_t(descs.size()),
+                        video::PreparationStage::Pipelines, video::PreparationUnit::Pipelines);
+                    if (!device->prepareGraphicsPipelineLibraries(desc)) ++failed;
+                    ++done;
+                }
+                LOG_INFO("renderer: pipeline libraries for {} of {} recipes, {} failed, {:.0f} ms", done, descs.size(), failed,
+                    std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - librariesStarted).count());
+                video::SetShaderPreparationProgress(0, 0);
+                SaveDriverPipelineCache(true);
+#else
                 libraryPrecompile.thread = std::thread([this, descs = std::move(descs)] {
                     os::SetCurrentThreadName("Pipeline Libraries");
                     const auto started = std::chrono::steady_clock::now();
@@ -4830,6 +4848,7 @@ void main(triangle V input[3], inout TriangleStream<V> stream)
                     LOG_INFO("renderer: pipeline libraries for {} of {} recipes, {} failed, {:.0f} ms", done, descs.size(), failed,
                         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
                 });
+#endif
             }
 
             // Enables the backend's persistent pipeline cache, seeded from its file.

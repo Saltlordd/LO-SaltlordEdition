@@ -418,5 +418,5 @@ PPC_FUNC(sub_82290B60)
     const bool engine = ctx.r3.u32 == PPC_LOAD_U32(0x83315FB4);
     if (engine) { debug_menu::cheats::Tick(ctx, base); gpu::frame_plan::BeginCpuFrame(); frame_timing::EngineTick(ctx.f1.f64); }
     __imp__sub_82290B60(ctx, base);
-    if (engine) { debug_menu::UpdateMapInfo(base); debug_menu::PartySwitchTick(base); Tick(ctx, base); debug_menu::PollSceneLoads(base); }
+    if (engine) { debug_menu::UpdateMapInfo(base); debug_menu::PartySwitchTick(base); Tick(ctx, base); }
 }
